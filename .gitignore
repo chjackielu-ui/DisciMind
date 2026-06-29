@@ -52,3 +52,6 @@ Thumbs.db
 .cache/
 .temp/
 .tmp/
+
+# local AI coding rules
+CLAUDE.local.md
