@@ -1,3 +1,6 @@
+// 后端服务入口
+// 读取环境变量并启动 Express 服务
+
 require('dotenv').config();
 
 const app = require('./app');

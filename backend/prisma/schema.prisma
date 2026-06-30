@@ -1,13 +1,1497 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// DisciMind Prisma Schema v1.0
+// 项目：学研智擎 DisciMind
+// 数据库：MySQL
+// 说明：字段名尽量与 API 接口文档保持一致，数据库表名通过 @@map 映射为 snake_case。
+// 如果你使用的是较新的 Prisma 版本，并且项目要求在 prisma.config.ts 中配置 DATABASE_URL，
+// 可以根据当前 Prisma 版本调整 datasource 写法。常见项目仍可使用 url = env("DATABASE_URL")。
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
+}
+
+// ========================
+// Enums
+// ========================
+
+enum UserRole {
+  ADMIN   @map("admin")
+  TEACHER @map("teacher")
+  STUDENT @map("student")
+}
+
+enum UserStatus {
+  ACTIVE   @map("active")
+  DISABLED @map("disabled")
+}
+
+enum Gender {
+  MALE    @map("male")
+  FEMALE  @map("female")
+  UNKNOWN @map("unknown")
+}
+
+enum CourseStatus {
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+}
+
+enum TeacherRole {
+  MAIN_TEACHER @map("main_teacher")
+  ASSISTANT    @map("assistant")
+  MANAGER      @map("manager")
+}
+
+enum DifficultyLevel {
+  BASIC  @map("basic")
+  MEDIUM @map("medium")
+  HARD   @map("hard")
+}
+
+enum ScopeType {
+  PLATFORM @map("platform")
+  COURSE   @map("course")
+  CLASS    @map("class")
+  PERSONAL @map("personal")
+}
+
+enum Visibility {
+  PRIVATE @map("private")
+  CLASS   @map("class")
+  COLLEGE @map("college")
+  SCHOOL  @map("school")
+}
+
+enum StorageType {
+  LOCAL @map("local")
+  OSS   @map("oss")
+}
+
+enum ParseStatus {
+  UPLOADED  @map("uploaded")
+  PARSING   @map("parsing")
+  PARSED    @map("parsed")
+  CHUNKING  @map("chunking")
+  CHUNKED   @map("chunked")
+  EMBEDDING @map("embedding")
+  EMBEDDED  @map("embedded")
+  FAILED    @map("failed")
+}
+
+enum ReviewStatus {
+  PENDING  @map("pending")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+}
+
+enum AgentType {
+  COURSE_QA                   @map("course_qa")
+  LEARNING_ANALYSIS           @map("learning_analysis")
+  PERSONALIZED_RECOMMENDATION @map("personalized_recommendation")
+  QUESTION_GENERATION         @map("question_generation")
+  DOCUMENT_SUMMARY            @map("document_summary")
+}
+
+enum MessageRole {
+  USER      @map("user")
+  ASSISTANT @map("assistant")
+  SYSTEM    @map("system")
+}
+
+enum QuestionType {
+  SINGLE_CHOICE   @map("single_choice")
+  MULTIPLE_CHOICE @map("multiple_choice")
+  TRUE_FALSE      @map("true_false")
+  BLANK           @map("blank")
+  SHORT_ANSWER    @map("short_answer")
+  PROGRAMMING     @map("programming")
+}
+
+enum TaskType {
+  HOMEWORK    @map("homework")
+  QUIZ        @map("quiz")
+  STUDY_TASK  @map("study_task")
+  REVIEW_PLAN @map("review_plan")
+}
+
+enum TaskStatus {
+  DRAFT     @map("draft")
+  PUBLISHED @map("published")
+  CLOSED    @map("closed")
+}
+
+enum SubmissionStatus {
+  IN_PROGRESS @map("in_progress")
+  SUBMITTED   @map("submitted")
+  GRADED      @map("graded")
+}
+
+enum GradingStatus {
+  PENDING       @map("pending")
+  AUTO_GRADED   @map("auto_graded")
+  AI_GRADED     @map("ai_graded")
+  MANUAL_GRADED @map("manual_graded")
+  FAILED        @map("failed")
+}
+
+enum JudgeStatus {
+  PENDING               @map("pending")
+  JUDGING               @map("judging")
+  ACCEPTED              @map("accepted")
+  WRONG_ANSWER          @map("wrong_answer")
+  COMPILE_ERROR         @map("compile_error")
+  RUNTIME_ERROR         @map("runtime_error")
+  TIME_LIMIT_EXCEEDED   @map("time_limit_exceeded")
+  MEMORY_LIMIT_EXCEEDED @map("memory_limit_exceeded")
+  SYSTEM_ERROR          @map("system_error")
+}
+
+enum WrongQuestionStatus {
+  UNRESOLVED @map("unresolved")
+  MASTERED   @map("mastered")
+  REMOVED    @map("removed")
+}
+
+enum StudyActionType {
+  START  @map("start")
+  VIEW   @map("view")
+  PAUSE  @map("pause")
+  FINISH @map("finish")
+  REVIEW @map("review")
+}
+
+enum MasteryLevel {
+  WEAK      @map("weak")
+  GENERAL   @map("general")
+  GOOD      @map("good")
+  EXCELLENT @map("excellent")
+}
+
+enum RecommendType {
+  ALL             @map("all")
+  KNOWLEDGE_POINT @map("knowledge_point")
+  QUESTION        @map("question")
+  LEARNING_PATH   @map("learning_path")
+  VIDEO           @map("video")
+  REVIEW_PLAN     @map("review_plan")
+}
+
+enum VideoSource {
+  BILIBILI        @map("bilibili")
+  EXTERNAL_SEARCH @map("external_search")
+  SELF_GENERATED  @map("self_generated")
+  OTHER           @map("other")
+}
+
+enum VideoGenerationStatus {
+  PENDING    @map("pending")
+  GENERATING @map("generating")
+  SUCCESS    @map("success")
+  FAILED     @map("failed")
+}
+
+enum UsageType {
+  QA                  @map("qa")
+  SUMMARY             @map("summary")
+  QUESTION_GENERATION @map("question_generation")
+  GRADING             @map("grading")
+  RECOMMENDATION      @map("recommendation")
+  EMBEDDING           @map("embedding")
+  SAFETY              @map("safety")
+}
+
+enum RunStatus {
+  PENDING @map("pending")
+  RUNNING @map("running")
+  SUCCESS @map("success")
+  FAILED  @map("failed")
+  STOPPED @map("stopped")
+}
+
+enum NotificationType {
+  TASK_PUBLISHED  @map("task_published")
+  TASK_DEADLINE   @map("task_deadline")
+  DOCUMENT_REVIEW @map("document_review")
+  DOCUMENT_PARSED @map("document_parsed")
+  AI_GRADING_DONE @map("ai_grading_done")
+  SYSTEM_NOTICE   @map("system_notice")
+}
+
+enum FeedbackType {
+  INCORRECT @map("incorrect")
+  UNCLEAR   @map("unclear")
+  NO_SOURCE @map("no_source")
+  UNSAFE    @map("unsafe")
+  HELPFUL   @map("helpful")
+  OTHER     @map("other")
+}
+
+// ========================
+// User and profile
+// ========================
+
+model User {
+  user_id       Int        @id @default(autoincrement())
+  username      String     @unique @db.VarChar(50)
+  password_hash String     @db.VarChar(255)
+  role          UserRole
+  status        UserStatus @default(ACTIVE)
+  phone         String?    @unique @db.VarChar(20)
+  email         String?    @unique @db.VarChar(100)
+  last_login_at DateTime?
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+
+  profile                    UserProfile?
+  teacher_course_relations   CourseTeacherRelation[]     @relation("TeacherCourseRelations")
+  student_course_enrollments StudentCourseEnrollment[]   @relation("StudentEnrollments")
+  owned_knowledge_bases      KnowledgeBase[]             @relation("KnowledgeBaseOwner")
+  owned_documents            KnowledgeDocument[]         @relation("DocumentOwner")
+  reviewed_documents         KnowledgeDocument[]         @relation("DocumentReviewer")
+  document_reviews           KnowledgeDocumentReview[]   @relation("DocumentReviewUser")
+  chat_conversations         ChatConversation[]
+  chat_messages              ChatMessage[]
+  student_question_records   StudentQuestionRecord[]     @relation("StudentQuestions")
+  reviewed_question_analysis QuestionAnalysisRecord[]    @relation("QuestionAnalysisReviewer")
+  created_questions          Question[]                  @relation("QuestionCreator")
+  created_tasks              LearningTask[]              @relation("TaskCreator")
+  task_submissions           TaskSubmission[]            @relation("TaskSubmissionStudent")
+  answer_records             AnswerRecord[]              @relation("AnswerRecordStudent")
+  programming_submissions    ProgrammingSubmission[]     @relation("ProgrammingSubmissionStudent")
+  wrong_questions            WrongQuestion[]             @relation("WrongQuestionStudent")
+  study_records              StudyRecord[]               @relation("StudyRecordStudent")
+  mastery_records            StudentMasteryRecord[]      @relation("MasteryRecordStudent")
+  portraits                  StudentPortrait[]           @relation("StudentPortraitUser")
+  portrait_snapshots         StudentPortraitSnapshot[]   @relation("StudentPortraitSnapshotUser")
+  research_profiles          StudentResearchProfile[]    @relation("StudentResearchProfileUser")
+  competition_profiles       StudentCompetitionProfile[] @relation("StudentCompetitionProfileUser")
+  recommendation_records     RecommendationRecord[]      @relation("RecommendationStudent")
+  learning_paths             LearningPath[]              @relation("LearningPathStudent")
+  review_plans               ReviewPlan[]                @relation("ReviewPlanStudent")
+  video_resources            VideoResource[]             @relation("VideoCreator")
+  video_generation_tasks     VideoGenerationTask[]       @relation("VideoGenerationCreator")
+  ai_call_logs               AiCallLog[]
+  agent_run_records          AgentRunRecord[]
+  notifications_received     Notification[]              @relation("NotificationReceiver")
+  notifications_sent         Notification[]              @relation("NotificationSender")
+  operation_logs             OperationLog[]
+  feedback_records           FeedbackRecord[]
+  safety_check_records       SafetyCheckRecord[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model UserProfile {
+  profile_id     Int      @id @default(autoincrement())
+  user_id        Int      @unique
+  real_name      String   @db.VarChar(50)
+  gender         Gender   @default(UNKNOWN)
+  student_no     String?  @unique @db.VarChar(50)
+  teacher_no     String?  @unique @db.VarChar(50)
+  college        String?  @db.VarChar(100)
+  major          String?  @db.VarChar(100)
+  grade          String?  @db.VarChar(20)
+  admin_class_id Int?
+  avatar_url     String?  @db.VarChar(500)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  user        User        @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  admin_class AdminClass? @relation(fields: [admin_class_id], references: [admin_class_id])
+
+  @@index([admin_class_id])
+  @@map("user_profiles")
+}
+
+model AdminClass {
+  admin_class_id Int      @id @default(autoincrement())
+  class_name     String   @db.VarChar(100)
+  college        String?  @db.VarChar(100)
+  major          String?  @db.VarChar(100)
+  grade          String?  @db.VarChar(20)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  students UserProfile[]
+
+  @@unique([class_name, grade])
+  @@map("admin_classes")
+}
+
+// ========================
+// Courses and classes
+// ========================
+
+model Course {
+  course_id        Int          @id @default(autoincrement())
+  course_name      String       @db.VarChar(100)
+  course_code      String       @unique @db.VarChar(50)
+  subject_category String       @db.VarChar(100)
+  description      String?      @db.Text
+  cover_url        String?      @db.VarChar(500)
+  status           CourseStatus @default(ACTIVE)
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+
+  teacher_relations        CourseTeacherRelation[]
+  teaching_classes         TeachingClass[]
+  enrollments              StudentCourseEnrollment[]
+  chapters                 Chapter[]
+  knowledge_points         KnowledgePoint[]
+  knowledge_bases          KnowledgeBase[]
+  knowledge_documents      KnowledgeDocument[]
+  chat_conversations       ChatConversation[]
+  student_question_records StudentQuestionRecord[]
+  questions                Question[]
+  learning_tasks           LearningTask[]
+  study_records            StudyRecord[]
+  mastery_records          StudentMasteryRecord[]
+  portraits                StudentPortrait[]
+  portrait_snapshots       StudentPortraitSnapshot[]
+  research_profiles        StudentResearchProfile[]
+  competition_profiles     StudentCompetitionProfile[]
+  recommendation_records   RecommendationRecord[]
+  learning_paths           LearningPath[]
+  review_plans             ReviewPlan[]
+  video_resources          VideoResource[]
+  video_generation_tasks   VideoGenerationTask[]
+  wrong_questions          WrongQuestion[]
+
+  @@index([status])
+  @@map("courses")
+}
+
+model CourseTeacherRelation {
+  relation_id     Int         @id @default(autoincrement())
+  course_id       Int
+  teacher_user_id Int
+  teacher_role    TeacherRole @default(MAIN_TEACHER)
+  created_at      DateTime    @default(now())
+
+  course  Course @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teacher User   @relation("TeacherCourseRelations", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([course_id, teacher_user_id])
+  @@index([teacher_user_id])
+  @@map("course_teacher_relations")
+}
+
+model TeachingClass {
+  teaching_class_id   Int      @id @default(autoincrement())
+  course_id           Int
+  teaching_class_name String   @db.VarChar(100)
+  semester            String?  @db.VarChar(50)
+  description         String?  @db.Text
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  course              Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  enrollments         StudentCourseEnrollment[]
+  knowledge_bases     KnowledgeBase[]
+  knowledge_documents KnowledgeDocument[]
+  chat_conversations  ChatConversation[]
+  learning_tasks      LearningTask[]
+
+  @@unique([course_id, teaching_class_name])
+  @@map("teaching_classes")
+}
+
+model StudentCourseEnrollment {
+  enrollment_id     Int      @id @default(autoincrement())
+  student_user_id   Int
+  course_id         Int
+  teaching_class_id Int
+  enrollment_status String   @default("active") @db.VarChar(20)
+  created_at        DateTime @default(now())
+
+  student       User          @relation("StudentEnrollments", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course        Course        @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teachingClass TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+
+  @@unique([student_user_id, course_id, teaching_class_id])
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@map("student_course_enrollments")
+}
+
+model Chapter {
+  chapter_id    Int      @id @default(autoincrement())
+  course_id     Int
+  chapter_name  String   @db.VarChar(100)
+  chapter_order Int      @default(0)
+  description   String?  @db.Text
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  course           Course           @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_points KnowledgePoint[]
+
+  @@index([course_id])
+  @@map("chapters")
+}
+
+model KnowledgePoint {
+  knowledge_point_id   Int             @id @default(autoincrement())
+  course_id            Int
+  chapter_id           Int?
+  parent_id            Int?
+  knowledge_point_name String          @db.VarChar(100)
+  knowledge_point_code String          @db.VarChar(50)
+  description          String?         @db.Text
+  difficulty_level     DifficultyLevel @default(BASIC)
+  sort_order           Int             @default(0)
+  created_at           DateTime        @default(now())
+  updated_at           DateTime        @updatedAt
+
+  course                 Course                          @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  chapter                Chapter?                        @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
+  parent                 KnowledgePoint?                 @relation("KnowledgePointTree", fields: [parent_id], references: [knowledge_point_id])
+  children               KnowledgePoint[]                @relation("KnowledgePointTree")
+  aliases                KnowledgePointAlias[]
+  questions              Question[]
+  task_links             TaskKnowledgePoint[]
+  question_mappings      QuestionKnowledgePointMapping[]
+  analysis_records       QuestionAnalysisRecord[]
+  study_records          StudyRecord[]
+  mastery_records        StudentMasteryRecord[]
+  wrong_questions        WrongQuestion[]
+  video_resources        VideoResource[]
+  video_generation_tasks VideoGenerationTask[]
+  learning_path_steps    LearningPathStep[]
+
+  @@unique([course_id, knowledge_point_code])
+  @@index([chapter_id])
+  @@index([parent_id])
+  @@map("knowledge_points")
+}
+
+model KnowledgePointAlias {
+  alias_id           Int      @id @default(autoincrement())
+  knowledge_point_id Int
+  alias_text         String   @db.VarChar(100)
+  source             String?  @default("system") @db.VarChar(20)
+  created_at         DateTime @default(now())
+
+  knowledge_point KnowledgePoint @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: Cascade)
+
+  @@unique([knowledge_point_id, alias_text])
+  @@map("knowledge_point_aliases")
+}
+
+// ========================
+// Knowledge base
+// ========================
+
+model KnowledgeBase {
+  knowledge_base_id Int       @id @default(autoincrement())
+  name              String    @db.VarChar(100)
+  scope_type        ScopeType
+  course_id         Int?
+  teaching_class_id Int?
+  owner_user_id     Int?
+  description       String?   @db.Text
+  status            String    @default("active") @db.VarChar(20)
+  dify_dataset_id   String?   @db.VarChar(255)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  course         Course?             @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class TeachingClass?      @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+  owner          User?               @relation("KnowledgeBaseOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  documents      KnowledgeDocument[]
+
+  @@index([scope_type])
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@index([owner_user_id])
+  @@map("knowledge_bases")
+}
+
+model KnowledgeDocument {
+  document_id       Int          @id @default(autoincrement())
+  knowledge_base_id Int?
+  title             String       @db.VarChar(200)
+  original_filename String       @db.VarChar(255)
+  file_ext          String       @db.VarChar(20)
+  file_size_bytes   Int?
+  mime_type         String?      @db.VarChar(100)
+  storage_type      StorageType  @default(LOCAL)
+  file_url          String       @db.VarChar(500)
+  scope_type        ScopeType
+  visibility        Visibility   @default(PRIVATE)
+  course_id         Int?
+  teaching_class_id Int?
+  owner_user_id     Int
+  parse_status      ParseStatus  @default(UPLOADED)
+  review_status     ReviewStatus @default(PENDING)
+  reviewer_user_id  Int?
+  review_comment    String?      @db.Text
+  dify_dataset_id   String?      @db.VarChar(255)
+  dify_document_id  String?      @db.VarChar(255)
+  error_message     String?      @db.Text
+  created_at        DateTime     @default(now())
+  updated_at        DateTime     @updatedAt
+
+  knowledge_base  KnowledgeBase?            @relation(fields: [knowledge_base_id], references: [knowledge_base_id], onDelete: SetNull)
+  course          Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class  TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  owner           User                      @relation("DocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  reviewer        User?                     @relation("DocumentReviewer", fields: [reviewer_user_id], references: [user_id], onDelete: SetNull)
+  chunks          KnowledgeDocumentChunk[]
+  reviews         KnowledgeDocumentReview[]
+  message_sources MessageSource[]
+  summaries       DocumentSummaryRecord[]
+
+  @@index([knowledge_base_id])
+  @@index([owner_user_id])
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@index([parse_status])
+  @@index([review_status])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeDocumentChunk {
+  chunk_id          Int      @id @default(autoincrement())
+  document_id       Int
+  chunk_index       Int
+  chunk_text        String   @db.Text
+  page_number       Int?
+  token_count       Int?
+  embedding_id      String?  @db.VarChar(255)
+  vector_store_type String?  @db.VarChar(50)
+  dify_segment_id   String?  @db.VarChar(255)
+  created_at        DateTime @default(now())
+
+  document        KnowledgeDocument @relation(fields: [document_id], references: [document_id], onDelete: Cascade)
+  message_sources MessageSource[]
+
+  @@unique([document_id, chunk_index])
+  @@index([document_id])
+  @@map("knowledge_document_chunks")
+}
+
+model KnowledgeDocumentReview {
+  review_id        Int          @id @default(autoincrement())
+  document_id      Int
+  reviewer_user_id Int
+  review_status    ReviewStatus
+  review_comment   String?      @db.Text
+  created_at       DateTime     @default(now())
+
+  document KnowledgeDocument @relation(fields: [document_id], references: [document_id], onDelete: Cascade)
+  reviewer User              @relation("DocumentReviewUser", fields: [reviewer_user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([document_id])
+  @@index([reviewer_user_id])
+  @@map("knowledge_document_reviews")
+}
+
+// ========================
+// Chat and question analysis
+// ========================
+
+model ChatConversation {
+  conversation_id      Int       @id @default(autoincrement())
+  user_id              Int
+  course_id            Int?
+  teaching_class_id    Int?
+  agent_type           AgentType @default(COURSE_QA)
+  title                String?   @db.VarChar(200)
+  dify_conversation_id String?   @db.VarChar(255)
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  user              User                    @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  course            Course?                 @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class    TeachingClass?          @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  messages          ChatMessage[]
+  student_questions StudentQuestionRecord[]
+
+  @@index([user_id])
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  message_id      Int         @id @default(autoincrement())
+  conversation_id Int
+  user_id         Int?
+  role            MessageRole
+  content         String      @db.Text
+  is_ai_generated Boolean     @default(false)
+  ai_provider     String?     @db.VarChar(50)
+  model_name      String?     @db.VarChar(100)
+  agent_type      AgentType?
+  dify_message_id String?     @db.VarChar(255)
+  created_at      DateTime    @default(now())
+
+  conversation      ChatConversation        @relation(fields: [conversation_id], references: [conversation_id], onDelete: Cascade)
+  user              User?                   @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+  sources           MessageSource[]
+  student_questions StudentQuestionRecord[]
+  feedback_records  FeedbackRecord[]
+
+  @@index([conversation_id])
+  @@index([user_id])
+  @@index([role])
+  @@map("chat_messages")
+}
+
+model MessageSource {
+  source_id      Int      @id @default(autoincrement())
+  message_id     Int
+  document_id    Int?
+  chunk_id       Int?
+  document_title String?  @db.VarChar(200)
+  page_number    Int?
+  chunk_text     String?  @db.Text
+  similarity     Float?
+  created_at     DateTime @default(now())
+
+  message  ChatMessage             @relation(fields: [message_id], references: [message_id], onDelete: Cascade)
+  document KnowledgeDocument?      @relation(fields: [document_id], references: [document_id], onDelete: SetNull)
+  chunk    KnowledgeDocumentChunk? @relation(fields: [chunk_id], references: [chunk_id], onDelete: SetNull)
+
+  @@index([message_id])
+  @@index([document_id])
+  @@index([chunk_id])
+  @@map("message_sources")
+}
+
+model StudentQuestionRecord {
+  student_question_id Int      @id @default(autoincrement())
+  student_user_id     Int
+  course_id           Int?
+  conversation_id     Int?
+  message_id          Int?
+  raw_question        String   @db.Text
+  created_at          DateTime @default(now())
+
+  student          User                     @relation("StudentQuestions", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course           Course?                  @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  conversation     ChatConversation?        @relation(fields: [conversation_id], references: [conversation_id], onDelete: SetNull)
+  message          ChatMessage?             @relation(fields: [message_id], references: [message_id], onDelete: SetNull)
+  analysis_records QuestionAnalysisRecord[]
+
+  @@index([student_user_id])
+  @@index([course_id])
+  @@index([conversation_id])
+  @@index([message_id])
+  @@map("student_question_records")
+}
+
+model QuestionAnalysisRecord {
+  analysis_id              Int      @id @default(autoincrement())
+  student_question_id      Int
+  raw_question             String   @db.Text
+  question_summary         String?  @db.Text
+  knowledge_point_id       Int?
+  normalized_question_type String?  @db.VarChar(100)
+  confidence               Float?
+  need_teacher_review      Boolean  @default(false)
+  reviewed_by_user_id      Int?
+  teacher_comment          String?  @db.Text
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  student_question StudentQuestionRecord           @relation(fields: [student_question_id], references: [student_question_id], onDelete: Cascade)
+  knowledge_point  KnowledgePoint?                 @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  reviewer         User?                           @relation("QuestionAnalysisReviewer", fields: [reviewed_by_user_id], references: [user_id], onDelete: SetNull)
+  keywords         QuestionKeyword[]
+  confusion_tags   QuestionConfusionTag[]
+  mappings         QuestionKnowledgePointMapping[]
+
+  @@index([student_question_id])
+  @@index([knowledge_point_id])
+  @@index([need_teacher_review])
+  @@map("question_analysis_records")
+}
+
+model QuestionKeyword {
+  keyword_id  Int      @id @default(autoincrement())
+  analysis_id Int
+  keyword     String   @db.VarChar(100)
+  weight      Float?
+  created_at  DateTime @default(now())
+
+  analysis QuestionAnalysisRecord @relation(fields: [analysis_id], references: [analysis_id], onDelete: Cascade)
+
+  @@index([analysis_id])
+  @@index([keyword])
+  @@map("question_keywords")
+}
+
+model QuestionConfusionTag {
+  tag_id      Int      @id @default(autoincrement())
+  analysis_id Int
+  tag         String   @db.VarChar(100)
+  created_at  DateTime @default(now())
+
+  analysis QuestionAnalysisRecord @relation(fields: [analysis_id], references: [analysis_id], onDelete: Cascade)
+
+  @@index([analysis_id])
+  @@index([tag])
+  @@map("question_confusion_tags")
+}
+
+model QuestionKnowledgePointMapping {
+  mapping_id         Int      @id @default(autoincrement())
+  analysis_id        Int
+  knowledge_point_id Int
+  similarity         Float?
+  source             String?  @db.VarChar(50)
+  is_final           Boolean  @default(false)
+  created_at         DateTime @default(now())
+
+  analysis        QuestionAnalysisRecord @relation(fields: [analysis_id], references: [analysis_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint         @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: Cascade)
+
+  @@index([analysis_id])
+  @@index([knowledge_point_id])
+  @@map("question_knowledge_point_mappings")
+}
+
+// ========================
+// Questions, tasks and answers
+// ========================
+
+model Question {
+  question_id        Int             @id @default(autoincrement())
+  course_id          Int
+  knowledge_point_id Int?
+  question_type      QuestionType
+  title              String          @db.VarChar(200)
+  content            String          @db.Text
+  correct_answer     Json?
+  answer_keywords    Json?
+  analysis           String?         @db.Text
+  difficulty_level   DifficultyLevel @default(BASIC)
+  score              Float           @default(0)
+  is_ai_generated    Boolean         @default(false)
+  created_by_user_id Int?
+  status             String          @default("active") @db.VarChar(20)
+  created_at         DateTime        @default(now())
+  updated_at         DateTime        @updatedAt
+
+  course                  Course                  @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_point         KnowledgePoint?         @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  creator                 User?                   @relation("QuestionCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  options                 QuestionOption[]
+  task_links              TaskQuestion[]
+  answer_records          AnswerRecord[]
+  programming_submissions ProgrammingSubmission[]
+  wrong_questions         WrongQuestion[]
+
+  @@index([course_id])
+  @@index([knowledge_point_id])
+  @@index([question_type])
+  @@index([difficulty_level])
+  @@map("questions")
+}
+
+model QuestionOption {
+  option_id      Int    @id @default(autoincrement())
+  question_id    Int
+  option_key     String @db.VarChar(10)
+  option_content String @db.Text
+  option_order   Int    @default(0)
+
+  question Question @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+
+  @@unique([question_id, option_key])
+  @@map("question_options")
+}
+
+model LearningTask {
+  task_id            Int        @id @default(autoincrement())
+  course_id          Int
+  teaching_class_id  Int
+  created_by_user_id Int
+  task_type          TaskType
+  title              String     @db.VarChar(200)
+  description        String?    @db.Text
+  start_time         DateTime?
+  deadline           DateTime?
+  allow_late_submit  Boolean    @default(false)
+  status             TaskStatus @default(DRAFT)
+  created_at         DateTime   @default(now())
+  updated_at         DateTime   @updatedAt
+
+  course                Course               @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class        TeachingClass        @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+  creator               User                 @relation("TaskCreator", fields: [created_by_user_id], references: [user_id], onDelete: Cascade)
+  question_links        TaskQuestion[]
+  knowledge_point_links TaskKnowledgePoint[]
+  submissions           TaskSubmission[]
+  answer_records        AnswerRecord[]
+
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@index([created_by_user_id])
+  @@index([task_type])
+  @@index([status])
+  @@map("learning_tasks")
+}
+
+model TaskQuestion {
+  task_question_id Int @id @default(autoincrement())
+  task_id          Int
+  question_id      Int
+  question_order   Int @default(0)
+
+  task     LearningTask @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
+  question Question     @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+
+  @@unique([task_id, question_id])
+  @@map("task_questions")
+}
+
+model TaskKnowledgePoint {
+  task_knowledge_point_id Int @id @default(autoincrement())
+  task_id                 Int
+  knowledge_point_id      Int
+
+  task            LearningTask   @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: Cascade)
+
+  @@unique([task_id, knowledge_point_id])
+  @@map("task_knowledge_points")
+}
+
+model TaskSubmission {
+  submission_id     Int              @id @default(autoincrement())
+  task_id           Int
+  student_user_id   Int
+  started_at        DateTime?
+  submitted_at      DateTime?
+  duration_seconds  Int?
+  is_late           Boolean          @default(false)
+  total_score       Float?
+  objective_score   Float?
+  ai_score          Float?
+  submission_status SubmissionStatus @default(IN_PROGRESS)
+  grading_status    GradingStatus    @default(PENDING)
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+
+  task           LearningTask   @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
+  student        User           @relation("TaskSubmissionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  answer_records AnswerRecord[]
+
+  @@index([task_id])
+  @@index([student_user_id])
+  @@map("task_submissions")
+}
+
+model AnswerRecord {
+  answer_record_id      Int           @id @default(autoincrement())
+  student_user_id       Int
+  question_id           Int
+  task_id               Int?
+  submission_id         Int?
+  answer_content        Json
+  started_at            DateTime?
+  submitted_at          DateTime?
+  duration_seconds      Int?
+  viewed_analysis       Boolean       @default(false)
+  attempt_no            Int           @default(1)
+  is_correct            Boolean?
+  score                 Float?
+  max_score             Float?
+  grading_status        GradingStatus @default(PENDING)
+  feedback              String?       @db.Text
+  auto_added_wrong_book Boolean       @default(false)
+  created_at            DateTime      @default(now())
+
+  student            User              @relation("AnswerRecordStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  question           Question          @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+  task               LearningTask?     @relation(fields: [task_id], references: [task_id], onDelete: SetNull)
+  submission         TaskSubmission?   @relation(fields: [submission_id], references: [submission_id], onDelete: SetNull)
+  ai_grading_records AiGradingRecord[]
+
+  @@index([student_user_id])
+  @@index([question_id])
+  @@index([task_id])
+  @@index([submission_id])
+  @@map("answer_records")
+}
+
+model AiGradingRecord {
+  ai_grading_record_id Int      @id @default(autoincrement())
+  answer_record_id     Int
+  score                Float
+  total_score          Float
+  comment              String?  @db.Text
+  rubric_matched       Json?
+  rubric_missing       Json?
+  is_ai_generated      Boolean  @default(true)
+  ai_provider          String?  @db.VarChar(50)
+  model_name           String?  @db.VarChar(100)
+  created_at           DateTime @default(now())
+
+  answer_record AnswerRecord @relation(fields: [answer_record_id], references: [answer_record_id], onDelete: Cascade)
+
+  @@index([answer_record_id])
+  @@map("ai_grading_records")
+}
+
+model ProgrammingSubmission {
+  programming_submission_id Int         @id @default(autoincrement())
+  question_id               Int
+  student_user_id           Int
+  language                  String      @db.VarChar(50)
+  source_code               String      @db.Text
+  judge_status              JudgeStatus @default(PENDING)
+  score                     Float?
+  time_ms                   Int?
+  memory_kb                 Int?
+  error_message             String?     @db.Text
+  created_at                DateTime    @default(now())
+  updated_at                DateTime    @updatedAt
+
+  question Question @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+  student  User     @relation("ProgrammingSubmissionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([question_id])
+  @@index([student_user_id])
+  @@index([judge_status])
+  @@map("programming_submissions")
+}
+
+model WrongQuestion {
+  wrong_question_id  Int                 @id @default(autoincrement())
+  student_user_id    Int
+  question_id        Int
+  course_id          Int?
+  knowledge_point_id Int?
+  source_type        String              @default("auto") @db.VarChar(20)
+  status             WrongQuestionStatus @default(UNRESOLVED)
+  remove_reason      String?             @db.Text
+  mastered_at        DateTime?
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+
+  student         User            @relation("WrongQuestionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  question        Question        @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+  course          Course?         @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point KnowledgePoint? @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+
+  @@unique([student_user_id, question_id])
+  @@index([course_id])
+  @@index([knowledge_point_id])
+  @@index([status])
+  @@map("wrong_questions")
+}
+
+// ========================
+// Study records and portraits
+// ========================
+
+model StudyRecord {
+  study_record_id    Int             @id @default(autoincrement())
+  student_user_id    Int
+  course_id          Int
+  knowledge_point_id Int?
+  resource_type      String          @db.VarChar(50)
+  resource_id        Int?
+  action_type        StudyActionType
+  started_at         DateTime?
+  finished_at        DateTime?
+  duration_seconds   Int?
+  progress_percent   Float?
+  created_at         DateTime        @default(now())
+
+  student         User            @relation("StudyRecordStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course          Course          @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint? @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+
+  @@index([student_user_id])
+  @@index([course_id])
+  @@index([knowledge_point_id])
+  @@index([action_type])
+  @@map("study_records")
+}
+
+model StudentMasteryRecord {
+  mastery_record_id    Int           @id @default(autoincrement())
+  student_user_id      Int
+  course_id            Int
+  knowledge_point_id   Int
+  mastery_score        Float         @default(0)
+  mastery_level        MasteryLevel  @default(WEAK)
+  quiz_score           Float?
+  question_score       Float?
+  study_progress_score Float?
+  teacher_mark_score   Float?
+  system_score         Float?
+  teacher_mark_level   MasteryLevel?
+  teacher_comment      String?       @db.Text
+  updated_at           DateTime      @updatedAt
+
+  student         User           @relation("MasteryRecordStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course          Course         @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: Cascade)
+
+  @@unique([student_user_id, course_id, knowledge_point_id])
+  @@index([course_id])
+  @@index([knowledge_point_id])
+  @@map("student_mastery_records")
+}
+
+model StudentPortrait {
+  portrait_id             Int      @id @default(autoincrement())
+  student_user_id         Int
+  course_id               Int
+  learning_total_score    Float    @default(0)
+  progress_score          Float?
+  mastery_score           Float?
+  test_score              Float?
+  wrong_question_score    Float?
+  activity_score          Float?
+  qa_score                Float?
+  research_total_score    Float?
+  competition_total_score Float?
+  updated_at              DateTime @updatedAt
+
+  student User   @relation("StudentPortraitUser", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course  Course @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+
+  @@unique([student_user_id, course_id])
+  @@index([course_id])
+  @@map("student_portraits")
+}
+
+model StudentPortraitSnapshot {
+  snapshot_id      Int      @id @default(autoincrement())
+  student_user_id  Int
+  course_id        Int
+  snapshot_date    DateTime
+  learning_scores  Json?
+  mastery_summary  Json?
+  activity_summary Json?
+  created_at       DateTime @default(now())
+
+  student User   @relation("StudentPortraitSnapshotUser", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course  Course @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+
+  @@unique([student_user_id, course_id, snapshot_date])
+  @@index([course_id])
+  @@map("student_portrait_snapshots")
+}
+
+model StudentResearchProfile {
+  research_profile_id Int      @id @default(autoincrement())
+  student_user_id     Int
+  course_id           Int?
+  total_score         Float    @default(0)
+  tags                Json?
+  teacher_comment     String?  @db.Text
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  student User    @relation("StudentResearchProfileUser", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course  Course? @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+
+  @@unique([student_user_id, course_id])
+  @@map("student_research_profiles")
+}
+
+model StudentCompetitionProfile {
+  competition_profile_id Int      @id @default(autoincrement())
+  student_user_id        Int
+  course_id              Int?
+  total_score            Float    @default(0)
+  tags                   Json?
+  teacher_comment        String?  @db.Text
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  student User    @relation("StudentCompetitionProfileUser", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course  Course? @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+
+  @@unique([student_user_id, course_id])
+  @@map("student_competition_profiles")
+}
+
+// ========================
+// Recommendations and videos
+// ========================
+
+model RecommendationRecord {
+  recommendation_record_id  Int           @id @default(autoincrement())
+  student_user_id           Int
+  course_id                 Int
+  recommend_type            RecommendType @default(ALL)
+  generated_by_agent_run_id Int?
+  reason_summary            String?       @db.Text
+  created_at                DateTime      @default(now())
+
+  student        User                 @relation("RecommendationStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course         Course               @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  agent_run      AgentRunRecord?      @relation(fields: [generated_by_agent_run_id], references: [agent_run_id], onDelete: SetNull)
+  items          RecommendationItem[]
+  learning_paths LearningPath[]
+  review_plans   ReviewPlan[]
+
+  @@index([student_user_id])
+  @@index([course_id])
+  @@index([recommend_type])
+  @@map("recommendation_records")
+}
+
+model RecommendationItem {
+  recommendation_item_id   Int      @id @default(autoincrement())
+  recommendation_record_id Int
+  item_type                String   @db.VarChar(50)
+  target_type              String?  @db.VarChar(50)
+  target_id                Int?
+  title                    String   @db.VarChar(200)
+  content                  Json?
+  reason                   String?  @db.Text
+  rank                     Int      @default(0)
+  created_at               DateTime @default(now())
+
+  recommendation_record RecommendationRecord @relation(fields: [recommendation_record_id], references: [recommendation_record_id], onDelete: Cascade)
+
+  @@index([recommendation_record_id])
+  @@index([item_type])
+  @@map("recommendation_items")
+}
+
+model LearningPath {
+  learning_path_id         Int      @id @default(autoincrement())
+  recommendation_record_id Int?
+  student_user_id          Int
+  course_id                Int
+  title                    String   @db.VarChar(200)
+  status                   String   @default("active") @db.VarChar(20)
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  recommendation_record RecommendationRecord? @relation(fields: [recommendation_record_id], references: [recommendation_record_id], onDelete: SetNull)
+  student               User                  @relation("LearningPathStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course                Course                @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  steps                 LearningPathStep[]
+
+  @@index([student_user_id])
+  @@index([course_id])
+  @@map("learning_paths")
+}
+
+model LearningPathStep {
+  learning_path_step_id Int      @id @default(autoincrement())
+  learning_path_id      Int
+  step_order            Int
+  knowledge_point_id    Int?
+  title                 String   @db.VarChar(200)
+  description           String?  @db.Text
+  resource_type         String?  @db.VarChar(50)
+  resource_id           Int?
+  is_completed          Boolean  @default(false)
+  created_at            DateTime @default(now())
+
+  learning_path   LearningPath    @relation(fields: [learning_path_id], references: [learning_path_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint? @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+
+  @@index([learning_path_id])
+  @@index([knowledge_point_id])
+  @@map("learning_path_steps")
+}
+
+model ReviewPlan {
+  review_plan_id           Int       @id @default(autoincrement())
+  recommendation_record_id Int?
+  student_user_id          Int
+  course_id                Int
+  plan_title               String    @db.VarChar(200)
+  start_date               DateTime?
+  end_date                 DateTime?
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  recommendation_record RecommendationRecord? @relation(fields: [recommendation_record_id], references: [recommendation_record_id], onDelete: SetNull)
+  student               User                  @relation("ReviewPlanStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course                Course                @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  items                 ReviewPlanItem[]
+
+  @@index([student_user_id])
+  @@index([course_id])
+  @@map("review_plans")
+}
+
+model ReviewPlanItem {
+  review_plan_item_id Int       @id @default(autoincrement())
+  review_plan_id      Int
+  day_no              Int?
+  plan_date           DateTime?
+  content             String    @db.Text
+  is_completed        Boolean   @default(false)
+  created_at          DateTime  @default(now())
+
+  review_plan ReviewPlan @relation(fields: [review_plan_id], references: [review_plan_id], onDelete: Cascade)
+
+  @@index([review_plan_id])
+  @@map("review_plan_items")
+}
+
+model VideoResource {
+  video_id           Int         @id @default(autoincrement())
+  course_id          Int?
+  knowledge_point_id Int?
+  title              String      @db.VarChar(200)
+  source             VideoSource @default(BILIBILI)
+  bvid               String?     @db.VarChar(100)
+  cover_url          String?     @db.VarChar(500)
+  embed_url          String?     @db.VarChar(500)
+  original_url       String?     @db.VarChar(500)
+  duration_seconds   Int?
+  recommend_reason   String?     @db.Text
+  created_by_user_id Int?
+  created_at         DateTime    @default(now())
+
+  course          Course?         @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point KnowledgePoint? @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  creator         User?           @relation("VideoCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+
+  @@index([course_id])
+  @@index([knowledge_point_id])
+  @@index([source])
+  @@map("video_resources")
+}
+
+model VideoGenerationTask {
+  video_generation_task_id Int                   @id @default(autoincrement())
+  course_id                Int?
+  knowledge_point_id       Int?
+  created_by_user_id       Int
+  script_prompt            String                @db.Text
+  style                    String?               @db.VarChar(100)
+  voice_type               String?               @db.VarChar(50)
+  status                   VideoGenerationStatus @default(PENDING)
+  result_url               String?               @db.VarChar(500)
+  error_message            String?               @db.Text
+  created_at               DateTime              @default(now())
+  updated_at               DateTime              @updatedAt
+
+  course          Course?         @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point KnowledgePoint? @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  creator         User            @relation("VideoGenerationCreator", fields: [created_by_user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([course_id])
+  @@index([knowledge_point_id])
+  @@index([status])
+  @@map("video_generation_tasks")
+}
+
+// ========================
+// AI configs and runs
+// ========================
+
+model AiModelConfig {
+  ai_model_config_id      Int       @id @default(autoincrement())
+  provider                String    @db.VarChar(50)
+  model_name              String    @db.VarChar(100)
+  base_url                String?   @db.VarChar(500)
+  api_key_encrypted       String?   @db.Text
+  max_context_length      Int?
+  temperature             Float?
+  enabled                 Boolean   @default(true)
+  usage_type              UsageType
+  daily_call_limit        Int?
+  single_user_daily_limit Int?
+  token_budget            Int?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  @@index([provider])
+  @@index([usage_type])
+  @@index([enabled])
+  @@map("ai_model_configs")
+}
+
+model AiAgentConfig {
+  agent_config_id        Int       @id @default(autoincrement())
+  agent_type             AgentType
+  agent_name             String    @db.VarChar(100)
+  dify_base_url          String?   @db.VarChar(500)
+  dify_api_key_encrypted String?   @db.Text
+  dify_app_id            String?   @db.VarChar(255)
+  dify_workflow_id       String?   @db.VarChar(255)
+  dify_dataset_id        String?   @db.VarChar(255)
+  response_mode          String    @default("blocking") @db.VarChar(20)
+  enabled                Boolean   @default(true)
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+
+  agent_run_records AgentRunRecord[]
+
+  @@index([agent_type])
+  @@index([enabled])
+  @@map("ai_agent_configs")
+}
+
+model AgentRunRecord {
+  agent_run_id         Int       @id @default(autoincrement())
+  agent_config_id      Int?
+  user_id              Int?
+  agent_type           AgentType
+  course_id            Int?
+  student_user_id      Int?
+  input_json           Json?
+  output_json          Json?
+  status               RunStatus @default(PENDING)
+  error_message        String?   @db.Text
+  dify_workflow_run_id String?   @db.VarChar(255)
+  response_time_ms     Int?
+  created_at           DateTime  @default(now())
+
+  agent_config           AiAgentConfig?         @relation(fields: [agent_config_id], references: [agent_config_id], onDelete: SetNull)
+  user                   User?                  @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+  recommendation_records RecommendationRecord[]
+
+  @@index([agent_type])
+  @@index([user_id])
+  @@index([status])
+  @@map("agent_run_records")
+}
+
+model AiCallLog {
+  ai_call_log_id    Int       @id @default(autoincrement())
+  user_id           Int?
+  provider          String    @db.VarChar(50)
+  model_name        String?   @db.VarChar(100)
+  usage_type        UsageType
+  prompt_tokens     Int?
+  completion_tokens Int?
+  total_tokens      Int?
+  status            RunStatus
+  response_time_ms  Int?
+  error_message     String?   @db.Text
+  created_at        DateTime  @default(now())
+
+  user User? @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([provider])
+  @@index([usage_type])
+  @@index([status])
+  @@map("ai_call_logs")
+}
+
+model DocumentSummaryRecord {
+  summary_id      Int      @id @default(autoincrement())
+  document_id     Int
+  summary_type    String   @db.VarChar(50)
+  summary_content String   @db.Text
+  is_ai_generated Boolean  @default(true)
+  ai_provider     String?  @db.VarChar(50)
+  model_name      String?  @db.VarChar(100)
+  created_at      DateTime @default(now())
+
+  document KnowledgeDocument @relation(fields: [document_id], references: [document_id], onDelete: Cascade)
+
+  @@index([document_id])
+  @@index([summary_type])
+  @@map("document_summary_records")
+}
+
+// ========================
+// Notifications, logs, safety
+// ========================
+
+model Notification {
+  notification_id   Int              @id @default(autoincrement())
+  receiver_user_id  Int
+  sender_user_id    Int?
+  notification_type NotificationType
+  title             String           @db.VarChar(200)
+  content           String?          @db.Text
+  target_type       String?          @db.VarChar(50)
+  target_id         Int?
+  is_read           Boolean          @default(false)
+  read_at           DateTime?
+  created_at        DateTime         @default(now())
+
+  receiver User  @relation("NotificationReceiver", fields: [receiver_user_id], references: [user_id], onDelete: Cascade)
+  sender   User? @relation("NotificationSender", fields: [sender_user_id], references: [user_id], onDelete: SetNull)
+
+  @@index([receiver_user_id])
+  @@index([notification_type])
+  @@index([is_read])
+  @@map("notifications")
+}
+
+model OperationLog {
+  operation_log_id Int       @id @default(autoincrement())
+  user_id          Int?
+  role             UserRole?
+  operation_type   String    @db.VarChar(100)
+  operation_desc   String?   @db.Text
+  target_type      String?   @db.VarChar(50)
+  target_id        Int?
+  ip_address       String?   @db.VarChar(50)
+  created_at       DateTime  @default(now())
+
+  user User? @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([operation_type])
+  @@index([target_type])
+  @@map("operation_logs")
+}
+
+model FeedbackRecord {
+  feedback_record_id Int          @id @default(autoincrement())
+  user_id            Int
+  message_id         Int?
+  feedback_type      FeedbackType
+  content            String?      @db.Text
+  status             String       @default("pending") @db.VarChar(20)
+  created_at         DateTime     @default(now())
+  updated_at         DateTime     @updatedAt
+
+  user    User         @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  message ChatMessage? @relation(fields: [message_id], references: [message_id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([message_id])
+  @@index([feedback_type])
+  @@map("feedback_records")
+}
+
+model SafetyCheckRecord {
+  safety_check_id Int      @id @default(autoincrement())
+  user_id         Int?
+  content_hash    String?  @db.VarChar(255)
+  check_type      String   @db.VarChar(50)
+  safe            Boolean  @default(true)
+  risk_level      String?  @db.VarChar(20)
+  risk_tags       Json?
+  suggestion      String?  @db.VarChar(50)
+  created_at      DateTime @default(now())
+
+  user User? @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([check_type])
+  @@index([safe])
+  @@map("safety_check_records")
+}
+
+model SystemConfig {
+  config_id    Int      @id @default(autoincrement())
+  config_key   String   @unique @db.VarChar(100)
+  config_value Json?
+  description  String?  @db.Text
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@map("system_configs")
 }
