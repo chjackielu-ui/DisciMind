@@ -1,1 +1,2 @@
 this is ztc test
+这是我的第一次 Git 协作测试。
