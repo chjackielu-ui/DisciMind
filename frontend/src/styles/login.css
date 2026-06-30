@@ -1,0 +1,272 @@
+/* ============================================
+   login.css — 登录页 & 注册页样式
+   ============================================ */
+
+/* ---------- 登录页整体布局 ---------- */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 50%, #f1f5f9 100%);
+  padding: 24px;
+}
+
+.login-container {
+  display: flex;
+  width: 960px;
+  max-width: 100%;
+  min-height: 560px;
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+/* ---------- 左侧介绍区 ---------- */
+.login-intro {
+  flex: 1;
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+}
+
+.login-intro-content {
+  max-width: 360px;
+}
+
+.login-project-name {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+  letter-spacing: 2px;
+}
+
+.login-project-en {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 24px;
+  letter-spacing: 1px;
+}
+
+.login-project-desc {
+  font-size: 1rem;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 32px;
+}
+
+.login-features {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feature-item {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.85);
+  padding-left: 4px;
+}
+
+/* ---------- 右侧登录卡片 ---------- */
+.login-card-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-card-title {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-bottom: 28px;
+  text-align: center;
+  color: var(--text);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.btn-login {
+  width: 100%;
+  padding: 12px;
+  font-size: 1rem;
+  margin-top: 4px;
+}
+
+.login-extra {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.link-register {
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+/* ---------- 演示账号 ---------- */
+.demo-accounts {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.demo-title {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.demo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.demo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.demo-role {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #fff;
+  min-width: 42px;
+  text-align: center;
+}
+
+.demo-role.admin {
+  background: #ef4444;
+}
+
+.demo-role.teacher {
+  background: #f59e0b;
+}
+
+.demo-role.student {
+  background: #10b981;
+}
+
+.demo-item code {
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+/* ---------- 注册页 ---------- */
+.register-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 50%, #f1f5f9 100%);
+  padding: 32px 24px;
+}
+
+.register-container {
+  width: 720px;
+  max-width: 100%;
+  background: var(--white);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  padding: 40px;
+}
+
+.register-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.register-header h1 {
+  font-size: 1.5rem;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.register-header p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.form-actions .btn-primary {
+  min-width: 160px;
+}
+
+/* ---------- 响应式：登录页 ---------- */
+@media (max-width: 768px) {
+  .login-container {
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .login-intro {
+    padding: 32px 24px;
+    text-align: center;
+  }
+
+  .login-intro-content {
+    max-width: 100%;
+  }
+
+  .login-project-name {
+    font-size: 1.5rem;
+  }
+
+  .login-card-wrapper {
+    padding: 32px 24px;
+  }
+
+  .login-features {
+    display: none;
+  }
+
+  /* 注册页 */
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .register-container {
+    padding: 24px 20px;
+  }
+}
