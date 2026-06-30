@@ -35,6 +35,10 @@ app.get('/api/health', (req, res) => {
 const authRoutes = require('./routes/auth.routes');
 app.use('/api/auth', authRoutes);
 
+// ---------- 学生端模块 ----------
+const studentRoutes = require('./routes/student.routes');
+app.use('/api/student', studentRoutes);
+
 // ---------- 根路径 ----------
 
 app.get('/', (req, res) => {
