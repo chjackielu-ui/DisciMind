@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const errorHandler = require('./middlewares/error.middleware');
 
@@ -15,6 +16,9 @@ app.use(express.json());
 
 // 解析 URL 编码的请求体（表单提交场景）
 app.use(express.urlencoded({ extended: true }));
+
+// 对外提供本地上传文件访问能力：/uploads/avatars/xxx.png
+app.use('/uploads', express.static(path.join(__dirname, '../../storage/uploads')));
 
 // ---------- 健康检查（无需 /api 前缀）----------
 
@@ -35,9 +39,26 @@ app.get('/api/health', (req, res) => {
 const authRoutes = require('./routes/auth.routes');
 app.use('/api/auth', authRoutes);
 
-// ---------- 学生端模块 ----------
+// ---------- 学生端基础模块 ----------
 const studentRoutes = require('./routes/student.routes');
 app.use('/api/student', studentRoutes);
+
+// ---------- 学生端扩展模块 ----------
+// 在线答题模块
+const studentAnswerRoutes = require('./routes/student-answer.routes');
+app.use('/api/student', studentAnswerRoutes);
+
+// AI 问答模块
+const studentChatRoutes = require('./routes/student-chat.routes');
+app.use('/api/student', studentChatRoutes);
+
+// 知识库文档模块
+const studentDocumentRoutes = require('./routes/student-document.routes');
+app.use('/api/student', studentDocumentRoutes);
+
+// 视频推荐模块
+const studentVideoRoutes = require('./routes/student-video.routes');
+app.use('/api/student', studentVideoRoutes);
 
 // ---------- 根路径 ----------
 

@@ -7,10 +7,12 @@ const BASE_URL = 'http://localhost:3000/api'
 
 export async function request(url, options = {}) {
   const token = getToken()
+  const isFormData = options.body instanceof FormData
 
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
+  const headers = { ...(options.headers || {}) }
+
+  if (!isFormData && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json'
   }
 
   if (token) {
@@ -27,11 +29,18 @@ export async function request(url, options = {}) {
     throw new Error('网络请求失败，请检查网络连接或后端服务是否启动')
   }
 
+  const contentType = response.headers.get('content-type') || ''
   let result
-  try {
-    result = await response.json()
-  } catch {
-    throw new Error('服务器返回数据格式异常')
+  if (contentType.includes('application/json')) {
+    try {
+      result = await response.json()
+    } catch {
+      throw new Error('服务器返回数据格式异常')
+    }
+  } else {
+    const text = await response.text().catch(() => '')
+    const message = text.match(/Cannot\s+\w+\s+[^<\s]+/)?.[0]
+    throw new Error(message || `接口请求失败（HTTP ${response.status}）`)
   }
 
   // 认证错误：token 缺失 (40101) 或 token 无效/过期 (40102)
@@ -59,4 +68,32 @@ export function post(url, data, options = {}) {
     method: 'POST',
     body: JSON.stringify(data),
   })
+}
+
+export function patch(url, data, options = {}) {
+  return request(url, {
+    ...options,
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export function put(url, data, options = {}) {
+  return request(url, {
+    ...options,
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export function upload(url, formData, options = {}) {
+  return request(url, {
+    ...options,
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function del(url, options = {}) {
+  return request(url, { ...options, method: 'DELETE' })
 }

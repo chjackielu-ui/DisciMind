@@ -22,12 +22,12 @@ export async function renderTeacherDashboard(app) {
   const displayName = getUserDisplayName()
 
   const menuItems = [
-    { label: '首页', icon: '🏠' },
-    { label: '我的课程', icon: '📚' },
-    { label: '学生画像', icon: '👥' },
-    { label: '作业测试', icon: '📝' },
-    { label: '知识库管理', icon: '📖' },
-    { label: '学情分析', icon: '📈' },
+    { label: '首页', icon: 'home' },
+    { label: '我的课程', icon: 'book' },
+    { label: '学生画像', icon: 'user' },
+    { label: '作业测试', icon: 'alert' },
+    { label: '知识库管理', icon: 'book' },
+    { label: '学情分析', icon: 'star' },
   ]
 
   const contentHTML = `
