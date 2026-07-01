@@ -22,12 +22,12 @@ export async function renderAdminDashboard(app) {
   const displayName = getUserDisplayName()
 
   const menuItems = [
-    { label: '首页', icon: '🏠' },
-    { label: '用户管理', icon: '👥' },
-    { label: '课程管理', icon: '📚' },
-    { label: '知识库管理', icon: '📖' },
-    { label: 'AI模型配置', icon: '🤖' },
-    { label: '系统日志', icon: '📋' },
+    { label: '首页', icon: 'home' },
+    { label: '用户管理', icon: 'user' },
+    { label: '课程管理', icon: 'book' },
+    { label: '知识库管理', icon: 'book' },
+    { label: 'AI模型配置', icon: 'message' },
+    { label: '系统日志', icon: 'alert' },
   ]
 
   const contentHTML = `

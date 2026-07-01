@@ -83,4 +83,49 @@ async function getMe(req, res, next) {
   }
 }
 
-module.exports = { register, login, getMe };
+/**
+ * PATCH /api/auth/me — 更新当前登录用户资料
+ */
+async function updateMe(req, res, next) {
+  try {
+    const { user_id } = req.user;
+    const user = await authService.updateMe(user_id, req.body || {});
+    return success(res, { user }, '个人资料已更新');
+  } catch (err) {
+    return fail(res, err.code || 40001, err.message);
+  }
+}
+
+/**
+ * POST /api/auth/me/avatar — 上传并更新头像
+ */
+async function updateAvatar(req, res, next) {
+  try {
+    const { user_id } = req.user;
+
+    if (!req.file) {
+      return fail(res, 40001, '请选择要上传的头像图片');
+    }
+
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    const user = await authService.updateAvatar(user_id, avatarUrl);
+    return success(res, { user, avatar_url: avatarUrl }, '头像已更新');
+  } catch (err) {
+    return fail(res, err.code || 40001, err.message);
+  }
+}
+
+/**
+ * POST /api/auth/me/password — 重置当前登录用户密码
+ */
+async function changePassword(req, res, next) {
+  try {
+    const { user_id } = req.user;
+    await authService.changePassword(user_id, req.body || {});
+    return success(res, null, '密码已重置');
+  } catch (err) {
+    return fail(res, err.code || 40001, err.message);
+  }
+}
+
+module.exports = { register, login, getMe, updateMe, updateAvatar, changePassword };

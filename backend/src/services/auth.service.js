@@ -34,6 +34,36 @@ function formatUser(user) {
   };
 }
 
+function cleanOptionalString(value) {
+  if (value == null) return null;
+  const str = String(value).trim();
+  return str === '' ? null : str;
+}
+
+async function assertUniqueContact({ user_id, phone, email }) {
+  const conflicts = [];
+
+  if (phone) {
+    const phoneUser = await prisma.user.findFirst({
+      where: { phone, NOT: { user_id } },
+    });
+    if (phoneUser) conflicts.push('手机号已被注册');
+  }
+
+  if (email) {
+    const emailUser = await prisma.user.findFirst({
+      where: { email, NOT: { user_id } },
+    });
+    if (emailUser) conflicts.push('邮箱已被注册');
+  }
+
+  if (conflicts.length > 0) {
+    const err = new Error(conflicts.join('；'));
+    err.code = 40003;
+    throw err;
+  }
+}
+
 // ---------- 公开方法 ----------
 
 /**
@@ -220,7 +250,11 @@ async function getMe(user_id) {
   const user = await prisma.user.findUnique({
     where: { user_id },
     include: {
-      profile: true,
+      profile: {
+        include: {
+          admin_class: true,
+        },
+      },
     },
   });
 
@@ -233,4 +267,130 @@ async function getMe(user_id) {
   return formatUser(user);
 }
 
-module.exports = { register, login, getMe };
+async function updateMe(user_id, params) {
+  const user = await prisma.user.findUnique({
+    where: { user_id },
+    include: { profile: true },
+  });
+
+  if (!user) {
+    const err = new Error('用户不存在');
+    err.code = 40008;
+    throw err;
+  }
+
+  const userData = {};
+  if (Object.prototype.hasOwnProperty.call(params, 'phone')) {
+    userData.phone = cleanOptionalString(params.phone);
+  }
+  if (Object.prototype.hasOwnProperty.call(params, 'email')) {
+    userData.email = cleanOptionalString(params.email);
+  }
+  await assertUniqueContact({ user_id, phone: userData.phone, email: userData.email });
+
+  const realName = cleanOptionalString(params.real_name);
+  const profileData = {};
+  if (Object.prototype.hasOwnProperty.call(params, 'real_name')) {
+    profileData.real_name = realName || user.profile?.real_name || user.username;
+  }
+  if (Object.prototype.hasOwnProperty.call(params, 'gender')) {
+    profileData.gender = params.gender ? toPrismaGender(params.gender) : 'UNKNOWN';
+  }
+  for (const key of ['college', 'major', 'grade']) {
+    if (Object.prototype.hasOwnProperty.call(params, key)) {
+      profileData[key] = cleanOptionalString(params[key]);
+    }
+  }
+
+  const ops = [];
+  if (Object.keys(userData).length > 0) {
+    ops.push(prisma.user.update({
+      where: { user_id },
+      data: userData,
+    }));
+  }
+  if (Object.keys(profileData).length > 0) {
+    ops.push(prisma.userProfile.upsert({
+      where: { user_id },
+      update: profileData,
+      create: {
+        user_id,
+        real_name: profileData.real_name || user.username,
+        gender: profileData.gender || 'UNKNOWN',
+        college: profileData.college,
+        major: profileData.major,
+        grade: profileData.grade,
+      },
+    }));
+  }
+
+  if (ops.length > 0) {
+    await prisma.$transaction(ops);
+  }
+
+  return getMe(user_id);
+}
+
+async function updateAvatar(user_id, avatar_url) {
+  const user = await prisma.user.findUnique({
+    where: { user_id },
+    include: { profile: true },
+  });
+
+  if (!user) {
+    const err = new Error('用户不存在');
+    err.code = 40008;
+    throw err;
+  }
+
+  await prisma.userProfile.upsert({
+    where: { user_id },
+    update: { avatar_url },
+    create: {
+      user_id,
+      real_name: user.username,
+      gender: 'UNKNOWN',
+      avatar_url,
+    },
+  });
+
+  return getMe(user_id);
+}
+
+async function changePassword(user_id, { current_password, new_password }) {
+  if (!current_password || !new_password) {
+    const err = new Error('当前密码和新密码不能为空');
+    err.code = 40001;
+    throw err;
+  }
+
+  if (String(new_password).length < 6) {
+    const err = new Error('新密码长度不能少于 6 位');
+    err.code = 40001;
+    throw err;
+  }
+
+  const user = await prisma.user.findUnique({ where: { user_id } });
+  if (!user) {
+    const err = new Error('用户不存在');
+    err.code = 40008;
+    throw err;
+  }
+
+  const valid = await bcrypt.compare(current_password, user.password_hash);
+  if (!valid) {
+    const err = new Error('当前密码不正确');
+    err.code = 40007;
+    throw err;
+  }
+
+  const password_hash = await bcrypt.hash(new_password, 10);
+  await prisma.user.update({
+    where: { user_id },
+    data: { password_hash },
+  });
+
+  return true;
+}
+
+module.exports = { register, login, getMe, updateMe, updateAvatar, changePassword };
