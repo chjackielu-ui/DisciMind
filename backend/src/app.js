@@ -58,6 +58,14 @@ app.use('/api/student/practice', practiceRoutes);
 const teacherPracticeRoutes = require('./routes/teacher-practice.routes');
 app.use('/api/teacher/practice', teacherPracticeRoutes);
 
+// ============================================================
+// 教师端路由（教师端开发者在此区域添加新模块挂载）
+// ============================================================
+
+// ============================================================
+// 管理端路由（管理端开发者在此区域添加新模块挂载）
+// ============================================================
+
 // AI 问答模块
 const studentChatRoutes = require('./routes/student-chat.routes');
 app.use('/api/student', studentChatRoutes);

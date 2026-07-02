@@ -21,6 +21,14 @@ import { renderStudentVideos } from '../pages/student-videos.js'
 import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
 import { renderAdminDashboard } from '../pages/admin-dashboard.js'
 
+// ============================================================
+// 教师端页面导入区域（教师端开发者在此添加 import）
+// ============================================================
+
+// ============================================================
+// 管理端页面导入区域（管理端开发者在此添加 import）
+// ============================================================
+
 // ========================
 // 路由表定义
 // ========================
@@ -40,7 +48,12 @@ const staticRoutes = {
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher'] },
+
+  // ========== 教师端路由（教师端开发者在此区域添加）==========
+
   '/admin/dashboard': { render: renderAdminDashboard, auth: true, roles: ['admin'] },
+
+  // ========== 管理端路由（管理端开发者在此区域添加）==========
 }
 
 // 动态路由（正则匹配）
