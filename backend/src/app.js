@@ -48,9 +48,23 @@ app.use('/api/student', studentRoutes);
 const studentAnswerRoutes = require('./routes/student-answer.routes');
 app.use('/api/student', studentAnswerRoutes);
 
+// 自主练习模块
+const practiceRoutes = require('./routes/practice.routes');
+app.use('/api/practice', practiceRoutes);
+// 兼容学生端聚合前缀，避免旧页面或代理只允许 /api/student 下接口时无法访问。
+app.use('/api/student/practice', practiceRoutes);
+
+// 教师端练习分析模块
+const teacherPracticeRoutes = require('./routes/teacher-practice.routes');
+app.use('/api/teacher/practice', teacherPracticeRoutes);
+
 // AI 问答模块
 const studentChatRoutes = require('./routes/student-chat.routes');
 app.use('/api/student', studentChatRoutes);
+
+// 学科答疑小助手（DeepSeek 流式对话）
+const aiChatRoutes = require('./routes/ai-chat.routes');
+app.use('/api/ai-chat', aiChatRoutes);
 
 // 知识库文档模块
 const studentDocumentRoutes = require('./routes/student-document.routes');

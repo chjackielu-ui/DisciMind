@@ -23,13 +23,20 @@ function toLower(value) {
  * @param {Object} params
  * @param {number} params.studentId - 学生用户 ID
  * @param {number} params.submissionId - 提交 ID
+ * @param {string} params.sourceType - 错题来源
  * @param {Array} params.answerResults - 批改结果数组
  *   [{ question_id, is_correct, score, max_score, grading_status }]
  * @param {Object} params.questionMap - question_id → question 映射
  *   { question_id: { course_id, knowledge_point_id, question_type, content } }
  * @returns {Promise<{created: number, updated: number, resolved: number}>}
  */
-async function createOrUpdateWrongQuestions({ studentId, submissionId, answerResults, questionMap }) {
+async function createOrUpdateWrongQuestions({
+  studentId,
+  submissionId,
+  answerResults,
+  questionMap,
+  sourceType = 'task_submission',
+}) {
   let created = 0;
   let updated = 0;
   let resolved = 0;
@@ -79,7 +86,7 @@ async function createOrUpdateWrongQuestions({ studentId, submissionId, answerRes
             question_id: result.question_id,
             course_id: courseId,
             knowledge_point_id: knowledgePointId,
-            source_type: 'task_submission',
+            source_type: sourceType,
             status: 'UNRESOLVED',
           },
         });

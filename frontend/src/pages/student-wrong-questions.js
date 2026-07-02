@@ -1,134 +1,515 @@
-// 学生端 — 错题本页面 v2
-// 新增：排序、搜索、筛选、toast 提示
+// 学生端 — 智能练习错题本（重构版）
+// 紧凑卡片列表、手风琴展开详情、标签颜色系统
 
 import { getMe } from '../api/auth.js'
-import { getStudentWrongQuestions, updateWrongQuestionStatus } from '../api/student.js'
+import {
+  getPracticeWrongQuestions,
+  getStudentCourses,
+  markPracticeWrongQuestionMastered,
+  startSimilarPractice,
+} from '../api/student.js'
 import { getUser, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
-import { escapeHtml, formatDate, formatRelativeTime, wrongStatusLabel } from '../utils/format.js'
+import { escapeHtml, formatDate, formatRelativeTime } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
-import { disposeAllCharts, bindResize, renderRingChart, renderHorizontalBarChart, CHART_COLORS } from '../utils/echarts.js'
+import {
+  PRACTICE_DIFFICULTIES,
+  PRACTICE_QUESTION_TYPES,
+  formatPracticeAnswer,
+  normalizeQuestionType,
+  practiceDifficultyLabel,
+  practiceQuestionTypeLabel,
+  savePracticeSessionSnapshot,
+} from '../components/practice/practice-components.js'
+import {
+  questionTypeTagHtml,
+  difficultyTagHtml,
+  statusTagHtml,
+  knowledgePointTagHtml,
+} from '../components/practice/practice-tags.js'
 
-function sortWQs(items, sortBy) {
-  const s = [...items]
-  switch (sortBy) {
-    case 'recent': return s.sort((a, b) => new Date(b.last_wrong_at || 0) - new Date(a.last_wrong_at || 0))
-    case 'count': return s.sort((a, b) => (b.wrong_count || 0) - (a.wrong_count || 0))
-    case 'type': return s.sort((a, b) => (a.question_type || '').localeCompare(b.question_type || ''))
-    case 'kp': return s.sort((a, b) => (a.knowledge_point_name || '').localeCompare(b.knowledge_point_name || ''))
-    case 'status': return s.sort((a, b) => (a.status || '').localeCompare(b.status || ''))
-    default: return s
+// ========================
+// 工具函数
+// ========================
+
+async function getAuthedUser() {
+  let user = getUser()
+  try {
+    const result = await getMe()
+    user = result.data.user
+    setAuth(localStorage.getItem('token') || '', user)
+  } catch {
+    if (!user) {
+      clearAuth()
+      window.location.hash = '#/login'
+      return null
+    }
+  }
+  return user
+}
+
+function buildSubjectModels(courses) {
+  const map = new Map()
+  ;(courses || []).forEach(course => {
+    if (!map.has(course.course_id)) {
+      map.set(course.course_id, {
+        course_id: course.course_id,
+        course_name: course.course_name,
+        course_code: course.course_code,
+        classes: [],
+      })
+    }
+    const subject = map.get(course.course_id)
+    if (course.teaching_class_id && !subject.classes.some(item => item.class_id === course.teaching_class_id)) {
+      subject.classes.push({
+        class_id: course.teaching_class_id,
+        class_name: course.teaching_class_name || '默认班级',
+      })
+    }
+  })
+  return [...map.values()]
+}
+
+function normalizeWrongQuestion(item) {
+  const question = item.question || {}
+  return {
+    wrong_question_id: item.wrong_question_id,
+    question_id: item.question_id || question.question_id,
+    source_type: item.source_type,
+    status: String(item.status || 'unresolved').toLowerCase(),
+    course_id: item.course_id,
+    course_name: item.course_name,
+    knowledge_point_id: item.knowledge_point_id,
+    knowledge_point_name: item.knowledge_point_name,
+    question_type: normalizeQuestionType(question.question_type || item.question_type),
+    difficulty_level: String(question.difficulty_level || item.difficulty_level || 'medium').toLowerCase(),
+    question_content: question.question_content || item.question_content || question.title || '',
+    title: question.title || '',
+    options: question.options || [],
+    correct_answer: question.correct_answer,
+    answer_analysis: question.answer_analysis || question.analysis || '',
+    wrong_count: item.wrong_count || 1,
+    last_wrong_answer: item.last_wrong_answer || item.student_answer || '',
+    created_at: item.created_at,
+    updated_at: item.updated_at || item.last_wrong_at,
+    mastered_at: item.mastered_at,
   }
 }
 
-function renderWrongCharts(items) {
-  bindResize()
-  if (!items || items.length === 0) return
-  const sc = { unresolved: 0, mastered: 0, removed: 0 }
-  items.forEach(w => { const s = w.status || 'unresolved'; if (sc[s] !== undefined) sc[s]++ })
-  renderRingChart('chart-wrong-status-ring', [{ name: '未掌握', value: sc.unresolved, itemStyle: { color: CHART_COLORS.softRed } }, { name: '已掌握', value: sc.mastered, itemStyle: { color: CHART_COLORS.softGreen } }, { name: '已移除', value: sc.removed, itemStyle: { color: '#829AB1' } }].filter(d => d.value > 0), '错题状态占比')
-  const kpMap = {}; items.forEach(w => { const n = w.knowledge_point_name || '未知'; kpMap[n] = (kpMap[n] || 0) + 1 })
-  const ke = Object.entries(kpMap).sort((a, b) => b[1] - a[1])
-  if (ke.length > 0) renderHorizontalBarChart('chart-wrong-kp-bar', ke.map(e => e[0]), ke.map(e => e[1]), '错题知识点分布')
+// ========================
+// 构建函数
+// ========================
+
+function buildLoading() {
+  return `
+    <div class="complex-shell practice-shell-v2">
+      <div class="complex-loading">
+        <div class="complex-spinner"></div>
+        <p>正在加载错题本...</p>
+      </div>
+    </div>`
 }
 
-function buildWQCard(wq) {
-  const status = wq.status || 'unresolved'
-  return `<div class="wrong-question-card" data-wq-id="${wq.wrong_question_id}" data-status="${status}" data-type="${wq.question_type || ''}" data-kp="${escapeHtml(wq.knowledge_point_name || '')}"><div class="wq-header"><div class="wq-status-bar ${status}"></div><span class="wq-meta-tag type-tag">${escapeHtml(wq.question_type || '未知')}</span><span class="wq-meta-tag course-tag">${escapeHtml(wq.course_name || '')}</span><span class="wq-meta-tag kp-tag">${escapeHtml(wq.knowledge_point_name || '')}</span><span class="wq-meta-tag status-tag ${status}">${wrongStatusLabel(status)}</span><span style="margin-left:auto;font-size:0.78rem;color:var(--text-hint);">${formatRelativeTime(wq.last_wrong_at)}</span></div><div class="wq-body"><div class="wq-content">${escapeHtml(wq.question_content || '暂无题目内容')}</div><div class="wq-meta"><span style="font-size:0.8rem;color:var(--text-hint);">错误次数: ${wq.wrong_count || 1}</span><span style="font-size:0.8rem;color:var(--text-hint);">最近错误: ${formatDate(wq.last_wrong_at, 'date')}</span></div><div class="wq-actions">${status === 'unresolved' ? `<button class="btn-wq-action mastered-btn" data-action="mastered" data-wq-id="${wq.wrong_question_id}">✅ 标记已掌握</button><button class="btn-wq-action remove-btn" data-action="removed" data-wq-id="${wq.wrong_question_id}">🗑️ 移出错题本</button>` : ''}${status === 'mastered' ? `<button class="btn-wq-action" data-action="unresolved" data-wq-id="${wq.wrong_question_id}">🔄 恢复未掌握</button><button class="btn-wq-action remove-btn" data-action="removed" data-wq-id="${wq.wrong_question_id}">🗑️ 移出错题本</button>` : ''}${status === 'removed' ? `<button class="btn-wq-action" data-action="unresolved" data-wq-id="${wq.wrong_question_id}">🔄 恢复未掌握</button>` : ''}</div></div></div>`
+// 统计卡片
+function buildStats(items) {
+  const unresolved = items.filter(item => item.status === 'unresolved').length
+  const mastered = items.filter(item => item.status === 'mastered').length
+  const now = Date.now()
+  const sevenDays = 7 * 24 * 60 * 60 * 1000
+  const recent = items.filter(item => {
+    const t = item.created_at ? new Date(item.created_at).getTime() : 0
+    return now - t < sevenDays
+  }).length
+
+  return `
+    <section class="wrong-stats-v2">
+      <div class="wrong-stat-card">
+        <b>${items.length}</b>
+        <span>总错题数</span>
+      </div>
+      <div class="wrong-stat-card unresolved">
+        <b>${unresolved}</b>
+        <span>未掌握</span>
+      </div>
+      <div class="wrong-stat-card mastered">
+        <b>${mastered}</b>
+        <span>已掌握</span>
+      </div>
+      <div class="wrong-stat-card recent">
+        <b>${recent}</b>
+        <span>最近新增</span>
+      </div>
+    </section>`
+}
+
+// 筛选区
+function buildFilterPanel(subjects, state) {
+  return `
+    <section class="complex-card wrong-filter-v2">
+      <div class="filter-row">
+        <label>
+          <span>科目</span>
+          <select class="complex-select" id="wrong-subject-filter">
+            <option value="all" ${state.subjectId === 'all' ? 'selected' : ''}>全部科目</option>
+            ${subjects.map(subject => `<option value="${subject.course_id}" ${String(state.subjectId) === String(subject.course_id) ? 'selected' : ''}>${escapeHtml(subject.course_name)}</option>`).join('')}
+          </select>
+        </label>
+        <label>
+          <span>题型</span>
+          <select class="complex-select" id="wrong-type-filter">
+            <option value="all" ${state.questionType === 'all' ? 'selected' : ''}>全部题型</option>
+            ${PRACTICE_QUESTION_TYPES.map(type => `<option value="${type.value}" ${state.questionType === type.value ? 'selected' : ''}>${type.label}</option>`).join('')}
+          </select>
+        </label>
+        <label>
+          <span>难度</span>
+          <select class="complex-select" id="wrong-difficulty-filter">
+            <option value="all" ${state.difficulty === 'all' ? 'selected' : ''}>全部难度</option>
+            ${PRACTICE_DIFFICULTIES.map(d => `<option value="${d.value}" ${state.difficulty === d.value ? 'selected' : ''}>${d.label}</option>`).join('')}
+          </select>
+        </label>
+        <label>
+          <span>掌握状态</span>
+          <select class="complex-select" id="wrong-status-filter">
+            <option value="all" ${state.status === 'all' ? 'selected' : ''}>全部</option>
+            <option value="unresolved" ${state.status === 'unresolved' ? 'selected' : ''}>未掌握</option>
+            <option value="mastered" ${state.status === 'mastered' ? 'selected' : ''}>已掌握</option>
+          </select>
+        </label>
+        <label>
+          <span>关键词</span>
+          <input class="complex-input" id="wrong-search-input" type="text" placeholder="搜索题目内容..." value="${escapeHtml(state.search || '')}">
+        </label>
+      </div>
+      <div class="filter-actions">
+        <button class="complex-btn-secondary" id="btn-reset-wrong-filter" type="button">重置筛选</button>
+      </div>
+    </section>`
+}
+
+// 紧凑错题卡片
+function buildCompactWrongCard(item, expanded) {
+  const mastered = item.status === 'mastered'
+  const summary = (item.question_content || item.title || '暂无题目内容').slice(0, 120)
+
+  return `
+    <article class="wrong-compact-card ${mastered ? 'mastered' : 'unresolved'} ${expanded ? 'expanded' : ''}"
+      data-wrong-id="${item.wrong_question_id}" data-question-id="${item.question_id}">
+      <!-- 折叠头部 -->
+      <div class="wrong-compact-head" data-action="toggle">
+        <div class="wrong-compact-main">
+          <div class="wrong-compact-tags">
+            ${questionTypeTagHtml(item.question_type)}
+            ${difficultyTagHtml(item.difficulty_level)}
+            ${item.course_name ? `<span class="qtag subject-tag">${escapeHtml(item.course_name)}</span>` : ''}
+            ${item.knowledge_point_name ? knowledgePointTagHtml(item.knowledge_point_name) : ''}
+          </div>
+          <p class="wrong-compact-summary">${escapeHtml(summary)}${(item.question_content || '').length > 120 ? '...' : ''}</p>
+          <div class="wrong-compact-meta">
+            ${statusTagHtml(item.status)}
+            ${item.wrong_count > 1 ? `<span class="wrong-count-badge">错 ${item.wrong_count} 次</span>` : ''}
+            <span class="wrong-time">${formatRelativeTime(item.updated_at)}</span>
+          </div>
+        </div>
+        <span class="wrong-expand-icon">${expanded ? '▲' : '▼'}</span>
+      </div>
+
+      <!-- 展开详情 -->
+      <div class="wrong-compact-detail" style="${expanded ? '' : 'display:none'}">
+        <div class="wrong-detail-content">
+          <div class="wrong-detail-block">
+            <b>题目内容</b>
+            <p>${escapeHtml(item.question_content || item.title || '暂无题目内容')}</p>
+          </div>
+
+          ${item.options?.length ? `
+          <div class="wrong-detail-block">
+            <b>选项</b>
+            <div class="wrong-option-list-compact">
+              ${item.options.map(option => `
+                <div class="wrong-option-item">
+                  <b>${escapeHtml(option.option_label || option.option_key || '')}</b>
+                  <span>${escapeHtml(option.option_content || option.content || '')}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>` : ''}
+
+          <div class="wrong-detail-compare">
+            <div class="wrong-detail-col">
+              <b>我的最近答案</b>
+              <p class="wrong-answer-student">${escapeHtml(formatPracticeAnswer(item.last_wrong_answer) || '未记录')}</p>
+            </div>
+            <div class="wrong-detail-col">
+              <b>正确答案</b>
+              <p class="wrong-answer-correct">${escapeHtml(formatPracticeAnswer(item.correct_answer))}</p>
+            </div>
+          </div>
+
+          ${item.answer_analysis ? `
+          <div class="wrong-detail-block">
+            <b>官方解析</b>
+            <p>${escapeHtml(item.answer_analysis)}</p>
+          </div>` : ''}
+        </div>
+
+        <div class="wrong-compact-actions">
+          <button class="complex-btn-secondary btn-practice-similar" type="button" data-action="similar" data-wrong-id="${item.wrong_question_id}">再练一道类似题</button>
+          ${mastered ? '' : `<button class="complex-btn btn-mark-mastered" type="button" data-action="master" data-wrong-id="${item.wrong_question_id}">标记已掌握</button>`}
+        </div>
+      </div>
+    </article>`
+}
+
+// 页面整体
+function buildPage(subjects, items, state, loading = false, errorMessage = '') {
+  // 前端筛选
+  let filtered = [...items]
+  if (state.questionType !== 'all') {
+    filtered = filtered.filter(item => item.question_type === state.questionType)
+  }
+  if (state.difficulty !== 'all') {
+    filtered = filtered.filter(item => item.difficulty_level === state.difficulty)
+  }
+  if (state.search) {
+    const kw = state.search.toLowerCase()
+    filtered = filtered.filter(item =>
+      (item.question_content || '').toLowerCase().includes(kw) ||
+      (item.title || '').toLowerCase().includes(kw) ||
+      (item.knowledge_point_name || '').toLowerCase().includes(kw)
+    )
+  }
+
+  return `
+    <div class="complex-shell practice-shell-v2">
+      <section class="complex-hero practice-hero-v2">
+        <div>
+          <h1>我的错题本</h1>
+          <p>按科目、题型、难度和掌握状态筛选错题，可标记已掌握或继续练习类似题。</p>
+          <div class="exam-meta-row">
+            <span>智能练习</span>
+            <span>${filtered.length} 道</span>
+            <span>${state.status === 'all' ? '全部状态' : (state.status === 'unresolved' ? '未掌握' : '已掌握')}</span>
+          </div>
+        </div>
+        <div class="complex-actions">
+          <button class="complex-btn-secondary" id="btn-go-practice" type="button">智能练习中心</button>
+        </div>
+      </section>
+
+      ${buildStats(filtered)}
+      ${buildFilterPanel(subjects, state)}
+
+      ${loading ? '<div class="complex-loading"><div class="complex-spinner"></div><p>正在刷新错题...</p></div>' : ''}
+      ${errorMessage ? `<div class="complex-error"><h3>错题加载失败</h3><p>${escapeHtml(errorMessage)}</p><button class="complex-btn" id="btn-retry-wrong" type="button">重新加载</button></div>` : ''}
+      ${!loading && !errorMessage && filtered.length === 0 ? `
+        <div class="complex-empty">
+          <h3>没有符合条件的错题</h3>
+          <p>可以调整筛选条件，或前往智能练习中心开始新的练习。</p>
+        </div>
+      ` : ''}
+      ${!loading && !errorMessage && filtered.length > 0 ? `
+        <section class="wrong-compact-list">
+          ${filtered.map(item => buildCompactWrongCard(item, false)).join('')}
+        </section>
+      ` : ''}
+    </div>`
 }
 
 // ========================
-// 主渲染
+// 主渲染函数
 // ========================
 
 export async function renderStudentWrongQuestions(app) {
-  disposeAllCharts()
-  let user = getUser()
-  try { const r = await getMe(); user = r.data.user; setAuth(localStorage.getItem('token') || '', user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
+  const user = await getAuthedUser()
+  if (!user) return
 
-  const menuItems = STUDENT_MENU_ITEMS
+  renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: buildLoading(), user })
 
-  renderDashboardLayout(app, { menuItems, contentHTML: `<div class="page-header"><h1 class="page-title">我的错题本</h1><p class="page-subtitle">系统根据你的答题情况自动沉淀错题，帮助你定位薄弱知识点。</p></div><div class="loading-state"><div class="loading-spinner"></div><p class="loading-text">正在加载错题数据...</p></div>`, user })
-
-  let wqs = [], loadError = false
-  try { const r = await getStudentWrongQuestions({ page_size: 50 }); wqs = r.data?.list || [] } catch (e) { loadError = true }
-
-  let contentHTML
-  if (loadError) {
-    contentHTML = `<div class="page-header"><h1 class="page-title">我的错题本</h1></div><div class="error-state"><div class="error-icon">😞</div><p class="error-message">错题数据加载失败</p><button class="btn-retry" onclick="window.location.reload()">重新加载</button></div>`
-  } else if (wqs.length === 0) {
-    contentHTML = `<div class="page-header"><h1 class="page-title">我的错题本</h1><p class="page-subtitle">系统根据你的答题情况自动沉淀错题，帮助你定位薄弱知识点。</p></div><div class="empty-state"><div class="empty-icon">🎉</div><div class="empty-title">暂无错题</div><div class="empty-desc">太棒了！你目前没有错题记录。继续加油！</div></div>`
-  } else {
-    const unresolved = wqs.filter(w => w.status === 'unresolved').length
-    const mastered = wqs.filter(w => w.status === 'mastered').length
-    const kpSet = new Set(wqs.map(w => w.knowledge_point_id).filter(Boolean))
-    contentHTML = `
-      <div class="page-header"><div class="page-header-row"><div><h1 class="page-title">我的错题本</h1><p class="page-subtitle">系统根据你的答题情况自动沉淀错题，帮助你定位薄弱知识点。</p></div><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><div class="search-box"><span class="search-icon">🔍</span><input type="text" id="wq-search" placeholder="搜索题目..." /></div><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="wq-sort"><option value="recent">最近错误</option><option value="count">错误次数</option><option value="type">题型</option><option value="kp">知识点</option><option value="status">状态</option></select></div></div></div></div>
-      <div class="filter-bar" id="wq-filter-bar"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="unresolved">未掌握</button><button class="filter-chip" data-filter="mastered">已掌握</button><button class="filter-chip" data-filter="removed">已移除</button></div>
-      <div class="wrong-stats-row"><div class="wrong-stat-card"><div class="ws-value">${wqs.length}</div><div class="ws-label">错题总数</div></div><div class="wrong-stat-card unresolved"><div class="ws-value">${unresolved}</div><div class="ws-label">未掌握</div></div><div class="wrong-stat-card mastered"><div class="ws-value">${mastered}</div><div class="ws-label">已掌握</div></div><div class="wrong-stat-card"><div class="ws-value">${kpSet.size}</div><div class="ws-label">涉及知识点</div></div></div>
-      <div class="charts-grid"><div class="chart-card"><div class="chart-header"><span class="chart-title">📊 错题状态占比</span></div><div class="chart-container" id="chart-wrong-status-ring"></div></div><div class="chart-card" style="grid-column:1/-1;"><div class="chart-header"><span class="chart-title">📈 错题知识点分布</span></div><div class="chart-container-lg" id="chart-wrong-kp-bar"></div></div></div>
-      <div id="wq-list-container">${wqs.map(w => buildWQCard(w)).join('')}</div>
-      <div id="wq-no-results" class="no-filter-results" style="display:none;">没有符合条件的数据<span class="btn-clear-filter" id="wq-clear-filter">清除筛选</span></div>
-    `
+  let subjects = []
+  try {
+    const courseResult = await getStudentCourses()
+    subjects = buildSubjectModels(courseResult.data?.list || [])
+  } catch {
+    subjects = []
   }
 
-  app.innerHTML = ''
-  renderDashboardLayout(app, { menuItems, contentHTML, user })
-
-  if (!loadError && wqs.length > 0) {
-    setTimeout(() => { renderWrongCharts(wqs); bindWQEvents(wqs) }, 150)
-  }
-}
-
-function bindWQEvents(wqs) {
-  let currentFilter = 'all', currentSort = 'recent'
-
-  function applyAll() {
-    let filtered = wqs
-    if (currentFilter !== 'all') filtered = filtered.filter(w => w.status === currentFilter)
-    const kw = (document.getElementById('wq-search')?.value || '').toLowerCase()
-    if (kw) filtered = filtered.filter(w => (w.question_content || '').toLowerCase().includes(kw))
-    filtered = sortWQs(filtered, currentSort)
-    const container = document.getElementById('wq-list-container')
-    const noRes = document.getElementById('wq-no-results')
-    if (container) container.innerHTML = filtered.map(w => buildWQCard(w)).join('')
-    if (noRes) noRes.style.display = filtered.length === 0 ? '' : 'none'
-    bindActionButtons()
+  const state = {
+    subjectId: 'all',
+    questionType: 'all',
+    difficulty: 'all',
+    status: 'all',
+    search: '',
+    loading: false,
+    items: [],
+    expandedIds: new Set(),
   }
 
-  document.querySelectorAll('#wq-filter-bar .filter-chip').forEach(chip => {
-    chip.addEventListener('click', () => { document.querySelectorAll('#wq-filter-bar .filter-chip').forEach(c => c.classList.remove('active')); chip.classList.add('active'); currentFilter = chip.dataset.filter; applyAll() })
-  })
-  document.getElementById('wq-search')?.addEventListener('input', applyAll)
-  document.getElementById('wq-sort')?.addEventListener('change', (e) => { currentSort = e.target.value; applyAll() })
-  document.getElementById('wq-clear-filter')?.addEventListener('click', () => {
-    document.getElementById('wq-search').value = ''; currentFilter = 'all'; currentSort = 'recent'
-    document.querySelectorAll('#wq-filter-bar .filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === 'all'))
-    document.getElementById('wq-sort').value = 'recent'; applyAll()
-  })
+  async function loadItems() {
+    state.loading = true
+    rerender()
+    try {
+      const params = { page_size: 200 }
+      if (state.subjectId !== 'all') params.subjectId = state.subjectId
+      if (state.status !== 'all') params.status = state.status
+      const result = await getPracticeWrongQuestions(params)
+      state.items = (result.data?.list || []).map(normalizeWrongQuestion)
+      state.loading = false
+      rerender()
+    } catch (err) {
+      state.loading = false
+      rerender(err.message || '请稍后重试。')
+    }
+  }
 
-  bindActionButtons()
-}
+  function rerender(errorMessage = '') {
+    const main = document.getElementById('student-main')
+    if (!main) return
+    main.innerHTML = buildPage(subjects, state.items, state, state.loading, errorMessage)
+    bindEvents()
+  }
 
-function bindActionButtons() {
-  document.querySelectorAll('[data-action]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      const wqId = parseInt(btn.dataset.wqId, 10)
-      const action = btn.dataset.action
-      if (!wqId) return
-      const msgMap = { mastered: '确定标记为"已掌握"吗？', unresolved: '确定恢复为"未掌握"吗？', removed: '确定移出错题本吗？' }
-      if (!confirm(msgMap[action] || '确定吗？')) return
-      btn.disabled = true; btn.textContent = '处理中...'
-      try {
-        await updateWrongQuestionStatus(wqId, action)
-        showToast('错题状态已更新', 'success')
-        setTimeout(() => window.location.reload(), 500)
-      } catch (err) {
-        showToast('操作失败: ' + err.message, 'error')
+  async function markMastered(wrongId) {
+    const btn = document.querySelector(`[data-action="master"][data-wrong-id="${wrongId}"]`)
+    if (btn) {
+      btn.disabled = true
+      btn.textContent = '处理中...'
+    }
+    try {
+      await markPracticeWrongQuestionMastered(wrongId)
+      showToast('已标记为掌握', 'success')
+      await loadItems()
+    } catch (err) {
+      showToast(err.message || '标记失败，请稍后重试', 'error')
+      if (btn) {
         btn.disabled = false
+        btn.textContent = '标记已掌握'
       }
+    }
+  }
+
+  async function practiceSimilar(wrongId) {
+    const item = state.items.find(wq => String(wq.wrong_question_id) === String(wrongId))
+    if (!item?.course_id) {
+      showToast('缺少课程信息，无法生成类似题', 'warning')
+      return
+    }
+    const subject = subjects.find(s => String(s.course_id) === String(item.course_id)) || {
+      course_id: item.course_id,
+      course_name: item.course_name,
+      classes: [],
+    }
+    const classInfo = subject.classes?.[0] || null
+    const btn = document.querySelector(`[data-action="similar"][data-wrong-id="${wrongId}"]`)
+    if (btn) {
+      btn.disabled = true
+      btn.textContent = '生成中...'
+    }
+    try {
+      const result = await startSimilarPractice(wrongId, {
+        classId: classInfo?.class_id || undefined,
+        questionCount: 1,
+      })
+      const startData = result.data || {}
+      const sessionId = startData.session?.practice_session_id
+      if (!sessionId) throw new Error('练习会话创建失败')
+      savePracticeSessionSnapshot(sessionId, {
+        session: startData.session,
+        questions: startData.questions || [],
+        generated_count: startData.generated_count || 0,
+        warning: startData.warning || null,
+        subject,
+        config: {
+          subjectId: item.course_id,
+          questionTypes: [item.question_type],
+          difficulty: item.difficulty_level || 'medium',
+          questionCount: 1,
+          sessionMode: 'practice',
+          answerMode: 'single',
+        },
+        answers: {},
+        currentIndex: 0,
+        submitted: false,
+        result: null,
+        aiChats: {},
+        startedAtMs: Date.now(),
+        practice_session_id: sessionId,
+      })
+      showToast('类似题已生成', 'success')
+      window.location.hash = `#/student/practice/sessions/${sessionId}`
+    } catch (err) {
+      showToast(err.message || '类似题生成失败', 'error')
+      if (btn) {
+        btn.disabled = false
+        btn.textContent = '再练一道类似题'
+      }
+    }
+  }
+
+  function bindEvents() {
+    document.getElementById('btn-go-practice')?.addEventListener('click', () => { window.location.hash = '#/student/practice' })
+    document.getElementById('btn-retry-wrong')?.addEventListener('click', loadItems)
+    document.getElementById('btn-reset-wrong-filter')?.addEventListener('click', () => {
+      state.subjectId = 'all'
+      state.questionType = 'all'
+      state.difficulty = 'all'
+      state.status = 'all'
+      state.search = ''
+      loadItems()
     })
-  })
+
+    // 筛选器
+    document.getElementById('wrong-subject-filter')?.addEventListener('change', event => {
+      state.subjectId = event.target.value
+      loadItems()
+    })
+    document.getElementById('wrong-status-filter')?.addEventListener('change', event => {
+      state.status = event.target.value
+      loadItems()
+    })
+    document.getElementById('wrong-type-filter')?.addEventListener('change', event => {
+      state.questionType = event.target.value
+      rerender()
+    })
+    document.getElementById('wrong-difficulty-filter')?.addEventListener('change', event => {
+      state.difficulty = event.target.value
+      rerender()
+    })
+    document.getElementById('wrong-search-input')?.addEventListener('input', event => {
+      state.search = event.target.value
+      rerender()
+    })
+
+    // 展开/折叠
+    document.querySelectorAll('[data-action="toggle"]').forEach(head => {
+      head.addEventListener('click', () => {
+        const card = head.closest('.wrong-compact-card')
+        const detail = card?.querySelector('.wrong-compact-detail')
+        const icon = card?.querySelector('.wrong-expand-icon')
+        if (detail && icon) {
+          const isHidden = detail.style.display === 'none'
+          detail.style.display = isHidden ? 'block' : 'none'
+          icon.textContent = isHidden ? '▲' : '▼'
+          card.classList.toggle('expanded', isHidden)
+        }
+      })
+    })
+
+    // 标记掌握 / 练习类似题
+    document.querySelectorAll('[data-action="master"]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation()
+        markMastered(btn.dataset.wrongId)
+      })
+    })
+    document.querySelectorAll('[data-action="similar"]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation()
+        practiceSimilar(btn.dataset.wrongId)
+      })
+    })
+  }
+
+  await loadItems()
 }

@@ -167,7 +167,12 @@ function buildRecommendationsHTML(recommendations) {
 function buildRecentTasksHTML(tasks) {
   if (!tasks || tasks.length === 0) return '<div class="empty-hint">暂无学习任务</div>'
   return tasks.map(t => `
-    <div class="task-item"><span class="task-dot ${t.status !== 'published' ? 'pending' : ''}"></span><span>${escapeHtml(t.task_title)}</span><span class="task-deadline ${isOverdue(t.deadline) ? 'overdue' : ''}">${isOverdue(t.deadline) ? '已截止' : '截止: ' + formatDate(t.deadline, 'short')}</span></div>`).join('')
+    <div class="task-item">
+      <span class="task-dot ${t.status !== 'published' ? 'pending' : ''}"></span>
+      <span style="flex:1;min-width:0;">${escapeHtml(t.task_title)}</span>
+      <span class="task-deadline ${isOverdue(t.deadline) ? 'overdue' : ''}">${isOverdue(t.deadline) ? '已截止' : '截止: ' + formatDate(t.deadline, 'short')}</span>
+      <button class="btn-quick-action btn-task-answer" data-task-answer="${t.task_id}" type="button">开始答题</button>
+    </div>`).join('')
 }
 
 // ========================
@@ -411,6 +416,7 @@ function bindDashboardEvents(userId, courses, layoutModules) {
   const handler = (e) => {
     const coursePill = e.target.closest('.course-select-capsule')
     const courseCard = e.target.closest('.course-card-mini')
+    const taskAnswerBtn = e.target.closest('[data-task-answer]')
     const navTarget = e.target.closest('[data-nav]')
     const settingsBtn = e.target.closest('#btn-layout-settings')
 
@@ -433,6 +439,13 @@ function bindDashboardEvents(userId, courses, layoutModules) {
     if (courseCard) {
       const cid = courseCard.dataset.courseId
       if (cid) window.location.hash = `#/student/courses/${cid}`
+      return
+    }
+
+    // 最近任务答题入口
+    if (taskAnswerBtn) {
+      const tid = taskAnswerBtn.dataset.taskAnswer
+      if (tid) window.location.hash = `#/student/tasks/${tid}/answer`
       return
     }
 

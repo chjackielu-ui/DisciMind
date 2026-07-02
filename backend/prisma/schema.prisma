@@ -95,6 +95,12 @@ enum AgentType {
   DOCUMENT_SUMMARY            @map("document_summary")
 }
 
+enum AiChatMode {
+  GENERAL @map("general")
+  SUBJECT @map("subject")
+  AGENT   @map("agent")
+}
+
 enum MessageRole {
   USER      @map("user")
   ASSISTANT @map("assistant")
@@ -104,6 +110,7 @@ enum MessageRole {
 enum QuestionType {
   SINGLE_CHOICE   @map("single_choice")
   MULTIPLE_CHOICE @map("multiple_choice")
+  FILL_BLANK      @map("fill_blank")
   TRUE_FALSE      @map("true_false")
   BLANK           @map("blank")
   SHORT_ANSWER    @map("short_answer")
@@ -245,41 +252,45 @@ model User {
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
 
-  profile                    UserProfile?
-  teacher_course_relations   CourseTeacherRelation[]     @relation("TeacherCourseRelations")
-  student_course_enrollments StudentCourseEnrollment[]   @relation("StudentEnrollments")
-  owned_knowledge_bases      KnowledgeBase[]             @relation("KnowledgeBaseOwner")
-  owned_documents            KnowledgeDocument[]         @relation("DocumentOwner")
-  reviewed_documents         KnowledgeDocument[]         @relation("DocumentReviewer")
-  document_reviews           KnowledgeDocumentReview[]   @relation("DocumentReviewUser")
-  chat_conversations         ChatConversation[]
-  chat_messages              ChatMessage[]
-  student_question_records   StudentQuestionRecord[]     @relation("StudentQuestions")
-  reviewed_question_analysis QuestionAnalysisRecord[]    @relation("QuestionAnalysisReviewer")
-  created_questions          Question[]                  @relation("QuestionCreator")
-  created_tasks              LearningTask[]              @relation("TaskCreator")
-  task_submissions           TaskSubmission[]            @relation("TaskSubmissionStudent")
-  answer_records             AnswerRecord[]              @relation("AnswerRecordStudent")
-  programming_submissions    ProgrammingSubmission[]     @relation("ProgrammingSubmissionStudent")
-  wrong_questions            WrongQuestion[]             @relation("WrongQuestionStudent")
-  study_records              StudyRecord[]               @relation("StudyRecordStudent")
-  mastery_records            StudentMasteryRecord[]      @relation("MasteryRecordStudent")
-  portraits                  StudentPortrait[]           @relation("StudentPortraitUser")
-  portrait_snapshots         StudentPortraitSnapshot[]   @relation("StudentPortraitSnapshotUser")
-  research_profiles          StudentResearchProfile[]    @relation("StudentResearchProfileUser")
-  competition_profiles       StudentCompetitionProfile[] @relation("StudentCompetitionProfileUser")
-  recommendation_records     RecommendationRecord[]      @relation("RecommendationStudent")
-  learning_paths             LearningPath[]              @relation("LearningPathStudent")
-  review_plans               ReviewPlan[]                @relation("ReviewPlanStudent")
-  video_resources            VideoResource[]             @relation("VideoCreator")
-  video_generation_tasks     VideoGenerationTask[]       @relation("VideoGenerationCreator")
-  ai_call_logs               AiCallLog[]
-  agent_run_records          AgentRunRecord[]
-  notifications_received     Notification[]              @relation("NotificationReceiver")
-  notifications_sent         Notification[]              @relation("NotificationSender")
-  operation_logs             OperationLog[]
-  feedback_records           FeedbackRecord[]
-  safety_check_records       SafetyCheckRecord[]
+  profile                     UserProfile?
+  teacher_course_relations    CourseTeacherRelation[]     @relation("TeacherCourseRelations")
+  student_course_enrollments  StudentCourseEnrollment[]   @relation("StudentEnrollments")
+  owned_knowledge_bases       KnowledgeBase[]             @relation("KnowledgeBaseOwner")
+  owned_documents             KnowledgeDocument[]         @relation("DocumentOwner")
+  reviewed_documents          KnowledgeDocument[]         @relation("DocumentReviewer")
+  document_reviews            KnowledgeDocumentReview[]   @relation("DocumentReviewUser")
+  ai_conversations            AiConversation[]            @relation("AiConversationUser")
+  chat_conversations          ChatConversation[]
+  chat_messages               ChatMessage[]
+  student_question_records    StudentQuestionRecord[]     @relation("StudentQuestions")
+  reviewed_question_analysis  QuestionAnalysisRecord[]    @relation("QuestionAnalysisReviewer")
+  created_question_banks      QuestionBank[]              @relation("QuestionBankCreator")
+  created_questions           Question[]                  @relation("QuestionCreator")
+  ai_question_generation_logs AiQuestionGenerationLog[]   @relation("AiQuestionGenerationCreator")
+  created_tasks               LearningTask[]              @relation("TaskCreator")
+  task_submissions            TaskSubmission[]            @relation("TaskSubmissionStudent")
+  answer_records              AnswerRecord[]              @relation("AnswerRecordStudent")
+  practice_sessions           PracticeSession[]           @relation("PracticeSessionStudent")
+  programming_submissions     ProgrammingSubmission[]     @relation("ProgrammingSubmissionStudent")
+  wrong_questions             WrongQuestion[]             @relation("WrongQuestionStudent")
+  study_records               StudyRecord[]               @relation("StudyRecordStudent")
+  mastery_records             StudentMasteryRecord[]      @relation("MasteryRecordStudent")
+  portraits                   StudentPortrait[]           @relation("StudentPortraitUser")
+  portrait_snapshots          StudentPortraitSnapshot[]   @relation("StudentPortraitSnapshotUser")
+  research_profiles           StudentResearchProfile[]    @relation("StudentResearchProfileUser")
+  competition_profiles        StudentCompetitionProfile[] @relation("StudentCompetitionProfileUser")
+  recommendation_records      RecommendationRecord[]      @relation("RecommendationStudent")
+  learning_paths              LearningPath[]              @relation("LearningPathStudent")
+  review_plans                ReviewPlan[]                @relation("ReviewPlanStudent")
+  video_resources             VideoResource[]             @relation("VideoCreator")
+  video_generation_tasks      VideoGenerationTask[]       @relation("VideoGenerationCreator")
+  ai_call_logs                AiCallLog[]
+  agent_run_records           AgentRunRecord[]
+  notifications_received      Notification[]              @relation("NotificationReceiver")
+  notifications_sent          Notification[]              @relation("NotificationSender")
+  operation_logs              OperationLog[]
+  feedback_records            FeedbackRecord[]
+  safety_check_records        SafetyCheckRecord[]
 
   @@index([role])
   @@index([status])
@@ -338,29 +349,32 @@ model Course {
   created_at       DateTime     @default(now())
   updated_at       DateTime     @updatedAt
 
-  teacher_relations        CourseTeacherRelation[]
-  teaching_classes         TeachingClass[]
-  enrollments              StudentCourseEnrollment[]
-  chapters                 Chapter[]
-  knowledge_points         KnowledgePoint[]
-  knowledge_bases          KnowledgeBase[]
-  knowledge_documents      KnowledgeDocument[]
-  chat_conversations       ChatConversation[]
-  student_question_records StudentQuestionRecord[]
-  questions                Question[]
-  learning_tasks           LearningTask[]
-  study_records            StudyRecord[]
-  mastery_records          StudentMasteryRecord[]
-  portraits                StudentPortrait[]
-  portrait_snapshots       StudentPortraitSnapshot[]
-  research_profiles        StudentResearchProfile[]
-  competition_profiles     StudentCompetitionProfile[]
-  recommendation_records   RecommendationRecord[]
-  learning_paths           LearningPath[]
-  review_plans             ReviewPlan[]
-  video_resources          VideoResource[]
-  video_generation_tasks   VideoGenerationTask[]
-  wrong_questions          WrongQuestion[]
+  teacher_relations           CourseTeacherRelation[]
+  teaching_classes            TeachingClass[]
+  enrollments                 StudentCourseEnrollment[]
+  chapters                    Chapter[]
+  knowledge_points            KnowledgePoint[]
+  knowledge_bases             KnowledgeBase[]
+  knowledge_documents         KnowledgeDocument[]
+  chat_conversations          ChatConversation[]
+  student_question_records    StudentQuestionRecord[]
+  question_banks              QuestionBank[]
+  questions                   Question[]
+  ai_question_generation_logs AiQuestionGenerationLog[]
+  learning_tasks              LearningTask[]
+  practice_sessions           PracticeSession[]
+  study_records               StudyRecord[]
+  mastery_records             StudentMasteryRecord[]
+  portraits                   StudentPortrait[]
+  portrait_snapshots          StudentPortraitSnapshot[]
+  research_profiles           StudentResearchProfile[]
+  competition_profiles        StudentCompetitionProfile[]
+  recommendation_records      RecommendationRecord[]
+  learning_paths              LearningPath[]
+  review_plans                ReviewPlan[]
+  video_resources             VideoResource[]
+  video_generation_tasks      VideoGenerationTask[]
+  wrong_questions             WrongQuestion[]
 
   @@index([status])
   @@map("courses")
@@ -390,12 +404,15 @@ model TeachingClass {
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
-  course              Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  enrollments         StudentCourseEnrollment[]
-  knowledge_bases     KnowledgeBase[]
-  knowledge_documents KnowledgeDocument[]
-  chat_conversations  ChatConversation[]
-  learning_tasks      LearningTask[]
+  course                      Course                      @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  enrollments                 StudentCourseEnrollment[]
+  knowledge_bases             KnowledgeBase[]
+  knowledge_documents         KnowledgeDocument[]
+  chat_conversations          ChatConversation[]
+  question_bank_links         QuestionBankTeachingClass[]
+  ai_question_generation_logs AiQuestionGenerationLog[]
+  learning_tasks              LearningTask[]
+  practice_sessions           PracticeSession[]
 
   @@unique([course_id, teaching_class_name])
   @@map("teaching_classes")
@@ -453,7 +470,9 @@ model KnowledgePoint {
   parent                 KnowledgePoint?                 @relation("KnowledgePointTree", fields: [parent_id], references: [knowledge_point_id])
   children               KnowledgePoint[]                @relation("KnowledgePointTree")
   aliases                KnowledgePointAlias[]
+  question_bank_links    QuestionBankKnowledgePoint[]
   questions              Question[]
+  ai_generation_logs     AiQuestionGenerationLog[]
   task_links             TaskKnowledgePoint[]
   question_mappings      QuestionKnowledgePointMapping[]
   analysis_records       QuestionAnalysisRecord[]
@@ -595,6 +614,39 @@ model KnowledgeDocumentReview {
 // ========================
 // Chat and question analysis
 // ========================
+
+model AiConversation {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @map("user_id")
+  title     String     @default("新对话") @db.VarChar(200)
+  mode      AiChatMode @default(GENERAL)
+  subject   String?    @db.VarChar(64)
+  agentType String?    @map("agent_type") @db.VarChar(64)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  user     User        @relation("AiConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([userId])
+  @@index([mode])
+  @@index([updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             Int         @id @default(autoincrement())
+  conversationId Int         @map("conversation_id")
+  role           MessageRole
+  content        String      @db.Text
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([role])
+  @@map("ai_messages")
+}
 
 model ChatConversation {
   conversation_id      Int       @id @default(autoincrement())
@@ -759,8 +811,128 @@ model QuestionKnowledgePointMapping {
 }
 
 // ========================
-// Questions, tasks and answers
+// Question banks, questions, tasks and answers
 // ========================
+
+model QuestionBank {
+  question_bank_id   Int       @id @default(autoincrement())
+  course_id          Int
+  name               String    @db.VarChar(100)
+  description        String?   @db.Text
+  scope_type         ScopeType @default(COURSE)
+  created_by_user_id Int?
+  status             String    @default("active") @db.VarChar(20)
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  course             Course                       @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  creator            User?                        @relation("QuestionBankCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  teaching_classes   QuestionBankTeachingClass[]
+  knowledge_points   QuestionBankKnowledgePoint[]
+  question_links     QuestionBankQuestion[]
+  ai_generation_logs AiQuestionGenerationLog[]
+
+  @@unique([course_id, name])
+  @@index([course_id])
+  @@index([created_by_user_id])
+  @@index([scope_type])
+  @@index([status])
+  @@map("question_banks")
+}
+
+model QuestionBankTeachingClass {
+  question_bank_class_id Int      @id @default(autoincrement())
+  question_bank_id       Int
+  teaching_class_id      Int
+  created_at             DateTime @default(now())
+
+  question_bank  QuestionBank  @relation(fields: [question_bank_id], references: [question_bank_id], onDelete: Cascade)
+  teaching_class TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+
+  @@unique([question_bank_id, teaching_class_id])
+  @@index([teaching_class_id])
+  @@map("question_bank_teaching_classes")
+}
+
+model QuestionBankKnowledgePoint {
+  question_bank_knowledge_point_id Int      @id @default(autoincrement())
+  question_bank_id                 Int
+  knowledge_point_id               Int
+  created_at                       DateTime @default(now())
+
+  question_bank   QuestionBank   @relation(fields: [question_bank_id], references: [question_bank_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: Cascade)
+
+  @@unique([question_bank_id, knowledge_point_id])
+  @@index([knowledge_point_id])
+  @@map("question_bank_knowledge_points")
+}
+
+model QuestionBankQuestion {
+  question_bank_question_id Int      @id @default(autoincrement())
+  question_bank_id          Int
+  question_id               Int
+  question_order            Int      @default(0)
+  source_type               String   @default("manual") @db.VarChar(20)
+  created_at                DateTime @default(now())
+
+  question_bank QuestionBank @relation(fields: [question_bank_id], references: [question_bank_id], onDelete: Cascade)
+  question      Question     @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+
+  @@unique([question_bank_id, question_id])
+  @@index([question_id])
+  @@map("question_bank_questions")
+}
+
+model AiQuestionGenerationLog {
+  ai_question_generation_log_id Int       @id @default(autoincrement())
+  course_id                     Int?
+  teaching_class_id             Int?
+  question_bank_id              Int?
+  knowledge_point_id            Int?
+  created_by_user_id            Int?
+  prompt_json                   Json?
+  request_params                Json?
+  response_json                 Json?
+  status                        RunStatus @default(PENDING)
+  generated_question_count      Int       @default(0)
+  accepted_question_count       Int       @default(0)
+  ai_provider                   String?   @db.VarChar(50)
+  model_name                    String?   @db.VarChar(100)
+  error_message                 String?   @db.Text
+  created_at                    DateTime  @default(now())
+  updated_at                    DateTime  @updatedAt
+
+  course              Course?                        @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class      TeachingClass?                 @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  question_bank       QuestionBank?                  @relation(fields: [question_bank_id], references: [question_bank_id], onDelete: SetNull)
+  knowledge_point     KnowledgePoint?                @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  creator             User?                          @relation("AiQuestionGenerationCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  generated_questions AiQuestionGenerationQuestion[]
+
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@index([question_bank_id])
+  @@index([knowledge_point_id])
+  @@index([created_by_user_id])
+  @@index([status])
+  @@map("ai_question_generation_logs")
+}
+
+model AiQuestionGenerationQuestion {
+  ai_question_generation_question_id Int      @id @default(autoincrement())
+  ai_question_generation_log_id      Int
+  question_id                        Int
+  action_status                      String   @default("accepted") @db.VarChar(20)
+  created_at                         DateTime @default(now())
+
+  generation_log AiQuestionGenerationLog @relation(fields: [ai_question_generation_log_id], references: [ai_question_generation_log_id], onDelete: Cascade)
+  question       Question                @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+
+  @@unique([ai_question_generation_log_id, question_id])
+  @@index([question_id])
+  @@map("ai_question_generation_questions")
+}
 
 model Question {
   question_id        Int             @id @default(autoincrement())
@@ -769,7 +941,7 @@ model Question {
   question_type      QuestionType
   title              String          @db.VarChar(200)
   content            String          @db.Text
-  correct_answer     Json?
+  correct_answer     Json
   answer_keywords    Json?
   analysis           String?         @db.Text
   difficulty_level   DifficultyLevel @default(BASIC)
@@ -780,11 +952,14 @@ model Question {
   created_at         DateTime        @default(now())
   updated_at         DateTime        @updatedAt
 
-  course                  Course                  @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  knowledge_point         KnowledgePoint?         @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  creator                 User?                   @relation("QuestionCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  course                  Course                         @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_point         KnowledgePoint?                @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  creator                 User?                          @relation("QuestionCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
   options                 QuestionOption[]
+  bank_links              QuestionBankQuestion[]
+  generation_links        AiQuestionGenerationQuestion[]
   task_links              TaskQuestion[]
+  practice_session_links  PracticeSessionQuestion[]
   answer_records          AnswerRecord[]
   programming_submissions ProgrammingSubmission[]
   wrong_questions         WrongQuestion[]
@@ -797,15 +972,17 @@ model Question {
 }
 
 model QuestionOption {
-  option_id      Int    @id @default(autoincrement())
+  option_id      Int     @id @default(autoincrement())
   question_id    Int
-  option_key     String @db.VarChar(10)
-  option_content String @db.Text
-  option_order   Int    @default(0)
+  option_key     String  @db.VarChar(10)
+  option_content String  @db.Text
+  option_order   Int     @default(0)
+  is_correct     Boolean @default(false)
 
   question Question @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
 
   @@unique([question_id, option_key])
+  @@index([question_id, is_correct])
   @@map("question_options")
 }
 
@@ -890,12 +1067,62 @@ model TaskSubmission {
   @@map("task_submissions")
 }
 
+model PracticeSession {
+  practice_session_id Int       @id @default(autoincrement())
+  student_user_id     Int
+  course_id           Int
+  teaching_class_id   Int?
+  mode                String    @default("practice") @db.VarChar(30)
+  question_count      Int       @default(0)
+  status              String    @default("in_progress") @db.VarChar(20)
+  started_at          DateTime  @default(now())
+  submitted_at        DateTime?
+  duration_seconds    Int?
+  total_score         Float?
+  max_score           Float?
+  objective_score     Float?
+  ai_score            Float?
+  correct_count       Int       @default(0)
+  wrong_count         Int       @default(0)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  student        User                      @relation("PracticeSessionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course         Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  questions      PracticeSessionQuestion[]
+  answer_records AnswerRecord[]
+
+  @@index([student_user_id])
+  @@index([course_id])
+  @@index([teaching_class_id])
+  @@index([status])
+  @@index([submitted_at])
+  @@map("practice_sessions")
+}
+
+model PracticeSessionQuestion {
+  practice_session_question_id Int      @id @default(autoincrement())
+  practice_session_id          Int
+  question_id                  Int
+  question_order               Int      @default(0)
+  created_at                   DateTime @default(now())
+
+  practice_session PracticeSession @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: Cascade)
+  question         Question        @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
+
+  @@unique([practice_session_id, question_id])
+  @@index([question_id])
+  @@map("practice_session_questions")
+}
+
 model AnswerRecord {
   answer_record_id      Int           @id @default(autoincrement())
   student_user_id       Int
   question_id           Int
   task_id               Int?
   submission_id         Int?
+  practice_session_id   Int?
   answer_content        Json
   started_at            DateTime?
   submitted_at          DateTime?
@@ -914,12 +1141,14 @@ model AnswerRecord {
   question           Question          @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
   task               LearningTask?     @relation(fields: [task_id], references: [task_id], onDelete: SetNull)
   submission         TaskSubmission?   @relation(fields: [submission_id], references: [submission_id], onDelete: SetNull)
+  practice_session   PracticeSession?  @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: SetNull)
   ai_grading_records AiGradingRecord[]
 
   @@index([student_user_id])
   @@index([question_id])
   @@index([task_id])
   @@index([submission_id])
+  @@index([practice_session_id])
   @@map("answer_records")
 }
 

@@ -1,6 +1,6 @@
 // 自动批改服务
 // 负责对不同题型的答案进行自动批改
-// 支持: single_choice / multiple_choice / true_false / blank / short_answer / programming
+// 支持: single_choice / multiple_choice / true_false / fill_blank / blank / short_answer / programming
 
 const prisma = require('../config/prisma');
 const aiService = require('./ai.service');
@@ -11,7 +11,8 @@ const aiService = require('./ai.service');
 
 function toLower(value) {
   if (value == null) return null;
-  return String(value).toLowerCase();
+  const lower = String(value).toLowerCase();
+  return lower === 'fill_blank' ? 'blank' : lower;
 }
 
 /**
@@ -126,52 +127,16 @@ function gradeTrueFalse(question, answerContent) {
  * 支持多个标准答案，匹配任一答案
  */
 function gradeBlank(question, answerContent) {
-  // 获取标准答案关键词
-  const answerKeywords = question.answer_keywords
-    ? (typeof question.answer_keywords === 'string'
-        ? JSON.parse(question.answer_keywords)
-        : question.answer_keywords)
-    : JSON.parse(question.correct_answer || '{}');
+  const keywordSource = question.answer_keywords || parseAnswer(question.correct_answer);
+  const allKeywords = flattenAnswerValues(keywordSource);
+  const studentValues = flattenAnswerValues(parseAnswer(answerContent));
+  const studentTexts = studentValues.map((v) => normalizeText(String(v))).filter(Boolean);
+  const normalizedKeywords = allKeywords.map((k) => normalizeText(String(k))).filter(Boolean);
 
-  // 解析学生答案
-  let studentAnswer = answerContent;
-  if (typeof studentAnswer === 'string') {
-    try {
-      studentAnswer = JSON.parse(studentAnswer);
-    } catch (e) {
-      studentAnswer = { answer: studentAnswer };
-    }
-  }
-
-  const studentText = normalizeText(
-    studentAnswer.answer || studentAnswer.content || studentAnswer.text || studentAnswer.blank_1 || studentAnswer[Object.keys(studentAnswer)[0]] || '',
-  );
-
-  // 从 answer_keywords 提取所有可能的正确答案
-  let allKeywords = [];
-  if (Array.isArray(answerKeywords)) {
-    allKeywords = answerKeywords;
-  } else if (typeof answerKeywords === 'object') {
-    // 格式: { "blank_1": ["答案1", "答案2"] }
-    for (const key of Object.keys(answerKeywords)) {
-      if (Array.isArray(answerKeywords[key])) {
-        allKeywords = allKeywords.concat(answerKeywords[key]);
-      } else if (typeof answerKeywords[key] === 'string') {
-        allKeywords.push(answerKeywords[key]);
-      }
-    }
-  } else if (typeof answerKeywords === 'string') {
-    allKeywords = [answerKeywords];
-  }
-
-  if (allKeywords.length === 0) {
-    allKeywords = [JSON.parse(question.correct_answer || '""')].flat();
-  }
-
-  // 检查是否匹配任一关键词
-  const normalizedKeywords = allKeywords.map((k) => normalizeText(String(k)));
-  const isCorrect = normalizedKeywords.length > 0 && normalizedKeywords.some(
-    (keyword) => studentText.includes(keyword) || keyword.includes(studentText) || studentText === keyword,
+  const isCorrect = normalizedKeywords.length > 0 && studentTexts.length > 0 && studentTexts.some(
+    (studentText) => normalizedKeywords.some((keyword) =>
+      studentText === keyword || studentText.includes(keyword) || keyword.includes(studentText),
+    ),
   );
 
   const score = isCorrect ? (question.score || 0) : 0;
@@ -368,11 +333,16 @@ function parseAnswer(value) {
   if (value == null) return '';
   if (typeof value === 'string') {
     try {
-      const parsed = JSON.parse(value);
-      return parsed;
+      return parseAnswer(JSON.parse(value));
     } catch (e) {
       return value;
     }
+  }
+  if (typeof value === 'object') {
+    if (value.answer !== undefined) return value.answer;
+    if (value.answers !== undefined) return value.answers;
+    if (value.value !== undefined) return value.value;
+    if (value.correct !== undefined) return value.correct;
   }
   return value;
 }
@@ -396,6 +366,32 @@ function ensureArray(value) {
     return Object.values(value).filter((v) => v != null);
   }
   return [String(value)];
+}
+
+/**
+ * 将答案对象、数组或字符串展平为可匹配的值数组
+ */
+function flattenAnswerValues(value) {
+  if (value == null) return [];
+  if (typeof value === 'string') {
+    try {
+      return flattenAnswerValues(JSON.parse(value));
+    } catch (e) {
+      if (value.includes(',')) return value.split(',').map((s) => s.trim());
+      return [value];
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenAnswerValues(item));
+  }
+  if (typeof value === 'object') {
+    if (value.answer !== undefined) return flattenAnswerValues(value.answer);
+    if (value.answers !== undefined) return flattenAnswerValues(value.answers);
+    if (value.value !== undefined) return flattenAnswerValues(value.value);
+    if (value.correct !== undefined) return flattenAnswerValues(value.correct);
+    return Object.values(value).flatMap((item) => flattenAnswerValues(item));
+  }
+  return [value];
 }
 
 /**
@@ -494,6 +490,7 @@ module.exports = {
   gradeMultipleChoice,
   gradeTrueFalse,
   gradeBlank,
+  gradeFillBlank: gradeBlank,
   gradeShortAnswer,
   gradeProgramming,
 };

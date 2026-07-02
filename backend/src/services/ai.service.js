@@ -3,9 +3,13 @@
 // 从 ai_model_configs 表读取配置，记录 ai_call_logs
 //
 // 支持的 usageType: qa / grading / question_generation / recommendation / summary
+//
+// question_generation 已重写为直接使用 DeepSeek OpenAI SDK，
+// 不再依赖 ai_model_configs 表配置。
 
 const prisma = require('../config/prisma');
 const axios = require('axios');
+const OpenAI = require('openai');
 
 // ========================
 // 工具函数
@@ -406,93 +410,170 @@ ${correctAnswer ? `参考评分标准：${correctAnswer}` : ''}
   }
 }
 
+// ========================
+// 题目生成（DeepSeek 直连，不依赖 ai_model_configs）
+// ========================
+
 /**
- * 批量调用 AI 生成题目
+ * 获取 DeepSeek 客户端（与 practice.service.js / ai-chat.service.js 一致）
+ */
+function getDeepSeekClient() {
+  const apiKey = process.env.DEEPSEEK_API_KEY || '';
+  if (!apiKey || apiKey.includes('请在这里')) {
+    return null;
+  }
+  return {
+    client: new OpenAI({
+      apiKey,
+      baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+    }),
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
+  };
+}
+
+/**
+ * 清理 AI 返回内容中的 Markdown 代码块包装
+ */
+function stripMarkdownCodeBlock(text) {
+  let content = String(text || '').trim();
+  const fencedMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch) content = fencedMatch[1].trim();
+  content = content.replace(/^`{1,3}\s*/, '').replace(/\s*`{1,3}$/, '');
+  return content;
+}
+
+/**
+ * 从 AI 返回内容中提取 JSON 题目数组
+ */
+function extractJsonFromContent(content) {
+  const cleaned = stripMarkdownCodeBlock(content);
+  // 尝试 {"questions": [...]}
+  const objMatch = cleaned.match(/\{\s*"questions"\s*:\s*\[[\s\S]*\]\s*\}/);
+  if (objMatch) {
+    try { const p = JSON.parse(objMatch[0]); if (p.questions && Array.isArray(p.questions)) return p.questions; } catch {}
+  }
+  // 尝试直接 JSON 数组
+  const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (arrMatch) {
+    try { const p = JSON.parse(arrMatch[0]); if (Array.isArray(p)) return p; } catch {}
+  }
+  // 尝试整体解析
+  try { const p = JSON.parse(cleaned); if (p.questions && Array.isArray(p.questions)) return p.questions; if (Array.isArray(p)) return p; } catch {}
+  return null;
+}
+
+const QUESTION_TYPE_ALIASES = {
+  '单选题': 'single_choice', '多选题': 'multiple_choice',
+  '判断题': 'true_false', '填空题': 'fill_blank', '简答题': 'short_answer',
+  'single_choice': 'single_choice', 'multiple_choice': 'multiple_choice',
+  'true_false': 'true_false', 'fill_blank': 'fill_blank', 'blank': 'fill_blank', 'short_answer': 'short_answer',
+  'SINGLE_CHOICE': 'single_choice', 'MULTIPLE_CHOICE': 'multiple_choice',
+  'TRUE_FALSE': 'true_false', 'FILL_BLANK': 'fill_blank', 'BLANK': 'fill_blank', 'SHORT_ANSWER': 'short_answer',
+};
+
+function normalizeGenType(type) {
+  const key = String(type || '').trim();
+  return QUESTION_TYPE_ALIASES[key] || null;
+}
+
+const DIFFICULTY_ALIASES = {
+  '基础': 'basic', '容易': 'basic', '简单': 'basic', 'easy': 'basic', 'basic': 'basic', 'EASY': 'basic', 'BASIC': 'basic',
+  '普通': 'medium', '中等': 'medium', '一般': 'medium', 'normal': 'medium', 'medium': 'medium', 'NORMAL': 'medium', 'MEDIUM': 'medium',
+  '提高': 'hard', '困难': 'hard', '较难': 'hard', 'hard': 'hard', 'HARD': 'hard',
+  '综合': 'comprehensive', 'comprehensive': 'comprehensive', 'COMPREHENSIVE': 'comprehensive',
+};
+
+function normalizeGenDifficulty(diff) {
+  const key = String(diff || '').trim();
+  return DIFFICULTY_ALIASES[key] || 'medium';
+}
+
+function validateAndCleanQuestion(raw, index) {
+  const type = normalizeGenType(raw.type || raw.question_type);
+  if (!type) return null;
+  const content = String(raw.title || raw.question_content || raw.content || '').trim();
+  if (!content || content.length < 4) return null;
+  const difficulty = normalizeGenDifficulty(raw.difficulty || raw.difficulty_level);
+  const analysis = String(raw.analysis || raw.answer_analysis || '').trim();
+  const kps = Array.isArray(raw.knowledgePoints || raw.knowledge_points)
+    ? (raw.knowledgePoints || raw.knowledge_points).map(String).filter(Boolean) : [];
+  const rawAnswer = raw.answer || raw.correct_answer || {};
+  let correctAnswer;
+  if (type === 'single_choice') {
+    const labels = rawAnswer.correctOptionLabels || rawAnswer.correct_option_labels || (Array.isArray(rawAnswer) ? rawAnswer : [rawAnswer]);
+    const answerLabels = Array.isArray(labels) ? labels.map(String).filter(Boolean) : [String(labels || '')];
+    correctAnswer = { type: 'single_choice', answer: answerLabels.slice(0, 1) };
+  } else if (type === 'multiple_choice') {
+    const labels = rawAnswer.correctOptionLabels || rawAnswer.correct_option_labels || (Array.isArray(rawAnswer) ? rawAnswer : [rawAnswer]);
+    const answerLabels = Array.isArray(labels) ? labels.map(String).filter(Boolean) : [String(labels || '')];
+    correctAnswer = { type: 'multiple_choice', answer: answerLabels };
+  } else if (type === 'true_false') {
+    correctAnswer = { type: 'true_false', answer: rawAnswer.correct !== undefined ? Boolean(rawAnswer.correct) : (String(rawAnswer) === 'true') };
+  } else if (type === 'fill_blank') {
+    const blanks = rawAnswer.blanks || [];
+    if (blanks.length > 0) {
+      correctAnswer = { type: 'fill_blank', answer: blanks.map((b, i) => ({ index: b.index || i + 1, answers: Array.isArray(b.answers) ? b.answers.map(String) : [String(b.answer || b || '')], caseSensitive: Boolean(b.caseSensitive || b.case_sensitive) })) };
+    } else {
+      const answers = Array.isArray(rawAnswer) ? rawAnswer : [String(rawAnswer || '')];
+      correctAnswer = { type: 'fill_blank', answer: answers.map((a, i) => ({ index: i + 1, answers: [String(a)], caseSensitive: false })) };
+    }
+  } else {
+    correctAnswer = { type: 'short_answer', answer: { referenceAnswer: rawAnswer.referenceAnswer || rawAnswer.reference_answer || rawAnswer.answer || '', keywords: rawAnswer.keywords || [], rubric: rawAnswer.rubric || [] } };
+  }
+  let options = [];
+  if (['single_choice', 'multiple_choice'].includes(type)) {
+    const rawOptions = raw.options || [];
+    options = rawOptions.map((opt, oi) => ({ option_label: String(opt.label || opt.option_label || opt.option_key || opt.key || String.fromCharCode(65 + oi)).trim(), option_content: String(opt.content || opt.option_content || opt.text || '').trim(), is_correct: Boolean(opt.isCorrect || opt.is_correct) })).filter(o => o.option_label && o.option_content);
+    if (options.length < 2) { console.warn('[ai.service] choice question #' + index + ' has too few options: ' + options.length); return null; }
+  }
+  return { question_type: type, question_content: content, options, correct_answer: correctAnswer, answer_analysis: analysis, difficulty_level: difficulty, score: Number(raw.score) > 0 ? Number(raw.score) : 10, knowledge_points: kps };
+}
+
+/**
+ * 使用 DeepSeekV4Pro 生成题目（直连，不依赖 ai_model_configs）
  */
 async function generateQuestions({ courseName, knowledgePoints, count, questionTypes, difficultyLevel, userId }) {
-  const systemPrompt = `你是一位经验丰富的学科教师，需要根据指定知识点生成高质量的测验题目。
+  const ds = getDeepSeekClient();
+  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
 
-要求：
-1. 题目要覆盖指定的知识点
-2. 题目类型包括：single_choice（单选题）、multiple_choice（多选题）、true_false（判断题）、blank（填空题）、short_answer（简答题）
-3. 每道题必须包含正确答案和解析
-4. 难度分为 basic（基础）、medium（中等）、hard（困难）
-5. 返回严格的 JSON 数组格式
+  const qCount = Math.max(1, Math.min(Number(count) || 5, 20));
+  const types = (questionTypes || ['single_choice']).map(t => normalizeGenType(t) || 'single_choice');
+  const diff = normalizeGenDifficulty(difficultyLevel);
+  const kpNames = (knowledgePoints || []).map(kp => typeof kp === 'string' ? kp : (kp.knowledge_point_name || kp.name || '')).filter(Boolean);
 
-JSON 格式示例：
-[
-  {
-    "question_type": "single_choice",
-    "question_content": "题目内容",
-    "options": [
-      { "option_label": "A", "option_content": "选项A内容" }
-    ],
-    "correct_answer": "A",
-    "answer_analysis": "解析内容",
-    "difficulty_level": "medium",
-    "score": 10
-  }
-]`;
+  const systemPrompt = '你是学研智擎平台的题库生成助手。根据指定科目、题型、难度和数量生成结构化练习题。只返回 JSON，不要 Markdown，不要代码块，不要解释。\n\n格式：\n{"questions":[{"type":"SINGLE_CHOICE","title":"题干","difficulty":"MEDIUM","knowledgePoints":["知识点"],"options":[{"label":"A","content":"内容","isCorrect":false},{"label":"B","content":"内容","isCorrect":true},{"label":"C","content":"内容","isCorrect":false},{"label":"D","content":"内容","isCorrect":false}],"answer":{"type":"SINGLE_CHOICE","correctOptionLabels":["B"]},"analysis":"详细解析"}]}\n\n规则：SINGLE_CHOICE 4选项1正确；MULTIPLE_CHOICE 4选项2-3正确；TRUE_FALSE 无options，answer为{"type":"TRUE_FALSE","correct":true/false}；FILL_BLANK 题干用___标记空，answer为{"type":"FILL_BLANK","blanks":[{"index":1,"answers":["答案"],"caseSensitive":false}]}；SHORT_ANSWER 无options，answer为{"type":"SHORT_ANSWER","referenceAnswer":"参考","keywords":["词"],"rubric":[{"point":"点","score":5}]}。题目必须与科目相关，解析不能为空，knowledgePoints不能空。';
 
-  const userPrompt = `课程：${courseName || '未知课程'}
-知识点：${(knowledgePoints || []).map(kp => kp.knowledge_point_name || kp).join('、')}
-需要题目数量：${count || 5}
-题型要求：${(questionTypes || ['single_choice', 'multiple_choice']).join('、')}
-难度：${difficultyLevel || 'medium'}
+  const userPrompt = '请生成 ' + qCount + ' 道练习题。科目：' + (courseName || '通用') + '。题型：' + types.join('、') + '。难度：' + diff + (kpNames.length > 0 ? '。参考知识点：' + kpNames.join('、') : '') + '。必须返回恰好 ' + qCount + ' 道题。';
 
-请生成题目并返回 JSON 数组。`;
+  console.log('[ai.service] generateQuestions: count=' + qCount + ', types=' + types.join(',') + ', diff=' + diff);
 
+  let responseContent = '';
   try {
-    const result = await callAI({
-      usageType: 'question_generation',
-      userId,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      options: { temperature: 0.8 },
-      fallbackMock: true,
+    const completion = await ds.client.chat.completions.create({
+      model: ds.model,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      temperature: 0.7, max_tokens: 4096,
     });
-
-    if (result.provider === 'mock') {
-      return [];
-    }
-
-    // 尝试解析 JSON
-    let parsed;
-    try {
-      const jsonMatch = result.content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('无法从 AI 返回中提取 JSON 数组');
-      }
-    } catch (parseErr) {
-      console.error('[ai.service] AI 生成题目 JSON 解析失败:', parseErr.message);
-      return [];
-    }
-
-    // 验证和清理
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter((q) => q.question_type && q.question_content).map((q, idx) => ({
-      question_type: toLower(q.question_type),
-      question_content: q.question_content || '',
-      options: (q.options || []).map((opt) => ({
-        option_label: opt.option_label || opt.label || String.fromCharCode(65 + (opt.option_order || 0)),
-        option_content: opt.option_content || opt.content || '',
-      })),
-      correct_answer: q.correct_answer || '',
-      answer_analysis: q.answer_analysis || q.analysis || '',
-      difficulty_level: toLower(q.difficulty_level) || 'medium',
-      score: q.score || 10,
-    }));
+    responseContent = completion.choices?.[0]?.message?.content || '';
   } catch (err) {
-    console.error('[ai.service] generateQuestions 异常:', err.message);
-    return [];
+    console.error('[ai.service] DeepSeek API failed:', err.message);
+    if (err.status === 401 || err.status === 403) throw Object.assign(new Error('AI 服务认证失败，请检查 DEEPSEEK_API_KEY'), { code: 50002 });
+    if (err.status === 429) throw Object.assign(new Error('AI 服务请求过于频繁，请稍后重试'), { code: 50002 });
+    throw Object.assign(new Error('AI 题目生成失败: ' + (err.message || '未知错误')), { code: 50002 });
   }
+
+  if (!responseContent || responseContent.trim().length < 20) throw Object.assign(new Error('AI 未返回有效题目数据'), { code: 50002 });
+
+  const questions = extractJsonFromContent(responseContent);
+  if (!questions || !Array.isArray(questions)) {
+    console.error('[ai.service] JSON parse failed, first 300 chars:', responseContent.slice(0, 300));
+    throw Object.assign(new Error('AI 返回的题目格式无法解析，请稍后重试'), { code: 50002 });
+  }
+
+  const cleaned = questions.map((q, i) => validateAndCleanQuestion(q, i)).filter(Boolean);
+  console.log('[ai.service] parsed ' + questions.length + ' questions, ' + cleaned.length + ' valid');
+  if (cleaned.length === 0) throw Object.assign(new Error('AI 生成的题目均未通过校验，请稍后重试'), { code: 50002 });
+  return cleaned;
 }
 
 module.exports = {

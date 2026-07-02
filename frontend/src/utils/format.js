@@ -51,6 +51,52 @@ export const SUBMISSION_STATUS_MAP = {
   graded: '已批改',
 }
 
+export const QUESTION_TYPE_MAP = {
+  single_choice: '单选题',
+  multiple_choice: '多选题',
+  true_false: '判断题',
+  fill_blank: '填空题',
+  blank: '填空题',
+  short_answer: '简答题',
+  programming: '编程题',
+}
+
+export const GRADING_STATUS_MAP = {
+  pending: '待批改',
+  auto_graded: '自动批改',
+  ai_graded: 'AI 批改',
+  manual_graded: '人工批改',
+}
+
+export const DOCUMENT_PARSE_STATUS_MAP = {
+  uploaded: '待解析',
+  parsing: '解析中',
+  parsed: '已解析',
+  chunking: '分块中',
+  chunked: '已解析',
+  failed: '失败',
+}
+
+export const REVIEW_STATUS_MAP = {
+  pending: '审核中',
+  approved: '已通过',
+  rejected: '已拒绝',
+}
+
+export const VISIBILITY_MAP = {
+  private: '仅自己',
+  class: '班级可见',
+  college: '学院可见',
+  school: '学校可见',
+}
+
+export const VIDEO_SOURCE_MAP = {
+  bilibili: 'B 站',
+  external: '外部资源',
+  self_generated: '自建资源',
+  pending_search: '待检索',
+}
+
 // ========================
 // 枚举转换函数
 // ========================
@@ -88,6 +134,34 @@ export function difficultyLabel(level) {
 
 export function roleLabel(role) {
   return ROLE_MAP[toLower(role)] || role || '未知'
+}
+
+export function questionTypeLabel(type) {
+  return QUESTION_TYPE_MAP[toLower(type)] || type || '未知题型'
+}
+
+export function submissionStatusLabel(status) {
+  return SUBMISSION_STATUS_MAP[toLower(status)] || status || '未知'
+}
+
+export function gradingStatusLabel(status) {
+  return GRADING_STATUS_MAP[toLower(status)] || status || '未知'
+}
+
+export function documentParseStatusLabel(status) {
+  return DOCUMENT_PARSE_STATUS_MAP[toLower(status)] || status || '未知'
+}
+
+export function reviewStatusLabel(status) {
+  return REVIEW_STATUS_MAP[toLower(status)] || status || '未知'
+}
+
+export function visibilityLabel(status) {
+  return VISIBILITY_MAP[toLower(status)] || status || '未知'
+}
+
+export function videoSourceLabel(source) {
+  return VIDEO_SOURCE_MAP[toLower(source)] || source || '未知来源'
 }
 
 // ========================
@@ -184,6 +258,47 @@ export function formatScore(score) {
   if (score == null || score === '') return '暂未评估'
   if (typeof score === 'number') return Math.round(score * 10) / 10
   return score
+}
+
+export function formatFileSize(bytes) {
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n <= 0) return '-'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+export function parseAnswerContent(value) {
+  if (value == null) return ''
+  if (Array.isArray(value)) return value
+  if (typeof value === 'object') return value
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+    try { return JSON.parse(trimmed) } catch { return value }
+  }
+  return value
+}
+
+export function formatAnswerContent(value) {
+  const parsed = parseAnswerContent(value)
+  if (Array.isArray(parsed)) return parsed.length ? parsed.join('、') : '未作答'
+  if (parsed && typeof parsed === 'object') return Object.values(parsed).filter(Boolean).join('、') || JSON.stringify(parsed)
+  if (parsed == null || parsed === '') return '未作答'
+  return String(parsed)
+}
+
+export function answerToPayload(value) {
+  if (Array.isArray(value)) return value
+  if (value == null) return ''
+  return String(value)
+}
+
+export function isAnsweredValue(value) {
+  if (Array.isArray(value)) return value.length > 0
+  if (value == null) return false
+  return String(value).trim() !== ''
 }
 
 // ========================

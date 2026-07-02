@@ -161,7 +161,7 @@ async function updateMasteryAfterSubmission({ studentId, courseId, answerResults
         : 0;
 
       await prisma.studentPortrait.update({
-        where: { student_portrait_id: portrait.student_portrait_id },
+        where: { portrait_id: portrait.portrait_id },
         data: {
           mastery_score: avgMastery,
           updated_at: new Date(),

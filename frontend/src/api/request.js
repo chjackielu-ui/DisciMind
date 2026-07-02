@@ -3,7 +3,7 @@
 
 import { getToken, clearAuth } from '../utils/auth.js'
 
-const BASE_URL = 'http://localhost:3000/api'
+export const BASE_URL = 'http://localhost:3000/api'
 
 export async function request(url, options = {}) {
   const token = getToken()
@@ -50,9 +50,18 @@ export async function request(url, options = {}) {
     throw new Error(result.message || '登录已过期，请重新登录')
   }
 
+  // 权限错误：保留在当前页，由页面层展示友好提示
+  if (result.code === 40301) {
+    const err = new Error(result.message || '无权限访问该资源')
+    err.code = result.code
+    throw err
+  }
+
   // 业务错误
   if (result.code !== 0) {
-    throw new Error(result.message || '请求失败')
+    const err = new Error(result.message || '请求失败')
+    err.code = result.code
+    throw err
   }
 
   return result

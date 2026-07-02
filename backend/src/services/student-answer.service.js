@@ -13,7 +13,8 @@ const aiService = require('./ai.service');
 
 function toLower(value) {
   if (value == null) return null;
-  return String(value).toLowerCase();
+  const lower = String(value).toLowerCase();
+  return lower === 'fill_blank' ? 'blank' : lower;
 }
 
 /**
