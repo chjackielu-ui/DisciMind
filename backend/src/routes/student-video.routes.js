@@ -32,4 +32,12 @@ router.post(
   controller.recordWatch,
 );
 
+// 搜索视频（按关键词检索，返回带 embed_url 的结果）
+router.post(
+  '/videos/search',
+  authMiddleware,
+  roleMiddleware(['student']),
+  controller.searchVideos,
+);
+
 module.exports = router;

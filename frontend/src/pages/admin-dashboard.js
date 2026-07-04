@@ -1,6 +1,7 @@
-// 管理员端首页
+// 管理员端首页 — 系统总览仪表盘
 
 import { getMe } from '../api/auth.js'
+import { getAdminDashboard } from '../api/admin.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
@@ -10,7 +11,7 @@ export async function renderAdminDashboard(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(localStorage.getItem('token') || '', user)
   } catch {
     if (!user) {
       clearAuth()
@@ -21,13 +22,35 @@ export async function renderAdminDashboard(app) {
 
   const displayName = getUserDisplayName()
 
+  // 获取真实统计数据
+  let stats = {
+    user_count: '-',
+    student_count: '-',
+    teacher_count: '-',
+    course_count: '-',
+    knowledge_document_count: '-',
+    ai_call_count_today: '-',
+    pending_review_document_count: '-',
+  }
+
+  try {
+    const result = await getAdminDashboard()
+    if (result.data) {
+      stats = { ...stats, ...result.data }
+    }
+  } catch (err) {
+    console.warn('[admin] 获取仪表盘数据失败:', err.message)
+  }
+
   const menuItems = [
-    { label: '首页', icon: 'home' },
-    { label: '用户管理', icon: 'user' },
-    { label: '课程管理', icon: 'book' },
-    { label: '知识库管理', icon: 'book' },
-    { label: 'AI模型配置', icon: 'message' },
-    { label: '系统日志', icon: 'alert' },
+    { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
+    { label: '用户管理', icon: 'user', hash: '#/admin/users' },
+    { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
+    { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
+    { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
+    { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
+    { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
+    { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
   ]
 
   const contentHTML = `
@@ -44,74 +67,92 @@ export async function renderAdminDashboard(app) {
       <!-- 数据卡片 -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-value">120</div>
+          <div class="stat-value">${stats.user_count}</div>
           <div class="stat-label">用户总数</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">100</div>
+          <div class="stat-value">${stats.student_count}</div>
           <div class="stat-label">学生数量</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">15</div>
+          <div class="stat-value">${stats.teacher_count}</div>
           <div class="stat-label">教师数量</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">6</div>
+          <div class="stat-value">${stats.course_count}</div>
           <div class="stat-label">课程数量</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">80</div>
+          <div class="stat-value">${stats.knowledge_document_count}</div>
           <div class="stat-label">知识库文档</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value">500</div>
+          <div class="stat-value">${stats.ai_call_count_today}</div>
           <div class="stat-label">今日 AI 调用</div>
         </div>
       </div>
+
+      <!-- 待审核文档提示 -->
+      ${stats.pending_review_document_count > 0 ? `
+      <div class="card" style="border-left: 4px solid #7C3AED;">
+        <h3 class="card-title">📋 待处理事项</h3>
+        <p style="color: var(--stu-text-secondary); font-size: 0.92rem;">
+          共有 <strong style="color: #7C3AED;">${stats.pending_review_document_count}</strong> 份知识库文档等待审核，
+          <a href="#/admin/knowledge" style="color: #7C3AED; font-weight: 600;">点击前往处理</a>
+        </p>
+      </div>
+      ` : ''}
 
       <!-- 系统管理入口 -->
       <div class="card">
         <h3 class="card-title">⚙️ 系统管理入口</h3>
         <div class="admin-links">
-          <div class="admin-link-item">
+          <div class="admin-link-item" data-hash="#/admin/users">
             <span class="admin-link-icon">👥</span>
             <div class="admin-link-info">
               <span class="admin-link-title">用户管理</span>
               <span class="admin-link-desc">管理学生、教师、管理员账号</span>
             </div>
           </div>
-          <div class="admin-link-item">
+          <div class="admin-link-item" data-hash="#/admin/courses">
             <span class="admin-link-icon">📚</span>
             <div class="admin-link-info">
               <span class="admin-link-title">课程管理</span>
               <span class="admin-link-desc">创建和维护课程信息</span>
             </div>
           </div>
-          <div class="admin-link-item">
+          <div class="admin-link-item" data-hash="#/admin/classes">
+            <span class="admin-link-icon">🏫</span>
+            <div class="admin-link-info">
+              <span class="admin-link-title">班级管理</span>
+              <span class="admin-link-desc">管理行政班级与教学班级</span>
+            </div>
+          </div>
+          <div class="admin-link-item" data-hash="#/admin/knowledge">
             <span class="admin-link-icon">📖</span>
             <div class="admin-link-info">
               <span class="admin-link-title">知识库管理</span>
               <span class="admin-link-desc">管理知识库文档与分类</span>
             </div>
           </div>
-          <div class="admin-link-item">
-            <span class="admin-link-icon">🤖</span>
-            <div class="admin-link-info">
-              <span class="admin-link-title">AI模型配置</span>
-              <span class="admin-link-desc">配置大模型 API 与参数</span>
-            </div>
-          </div>
-          <div class="admin-link-item">
+          <div class="admin-link-item" data-hash="#/admin/logs">
             <span class="admin-link-icon">📋</span>
             <div class="admin-link-info">
               <span class="admin-link-title">操作日志</span>
               <span class="admin-link-desc">查看系统操作与运行日志</span>
             </div>
           </div>
+          <div class="admin-link-item" data-hash="#/admin/notifications">
+            <span class="admin-link-icon">🔔</span>
+            <div class="admin-link-info">
+              <span class="admin-link-title">通知管理</span>
+              <span class="admin-link-desc">管理系统通知消息</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 用户信息卡片 -->
+      <!-- 账户信息 -->
       <div class="card user-info-card">
         <h3 class="card-title">📋 账户信息</h3>
         <div class="user-info-grid">
@@ -149,5 +190,12 @@ export async function renderAdminDashboard(app) {
     menuItems,
     contentHTML,
     user,
+  })
+
+  // 快捷入口点击
+  document.querySelectorAll('.admin-link-item[data-hash]').forEach((item) => {
+    item.addEventListener('click', () => {
+      window.location.hash = item.dataset.hash
+    })
   })
 }

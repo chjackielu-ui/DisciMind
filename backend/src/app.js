@@ -58,6 +58,39 @@ app.use('/api/student/practice', practiceRoutes);
 const teacherPracticeRoutes = require('./routes/teacher-practice.routes');
 app.use('/api/teacher/practice', teacherPracticeRoutes);
 
+// ---------- 教师端扩展模块 ----------
+// 教师端看板与学情分析
+const teacherDashboardRoutes = require('./routes/teacher-dashboard.routes');
+app.use('/api/teacher', teacherDashboardRoutes);
+
+// 教师端课程管理
+const teacherCourseRoutes = require('./routes/teacher-course.routes');
+app.use('/api/teacher', teacherCourseRoutes);
+
+// 教师端学生管理
+const teacherStudentRoutes = require('./routes/teacher-student.routes');
+app.use('/api/teacher', teacherStudentRoutes);
+
+// 教师端任务管理
+const teacherTaskRoutes = require('./routes/teacher-task.routes');
+app.use('/api/teacher', teacherTaskRoutes);
+
+// 教师端题库管理
+const teacherQuestionRoutes = require('./routes/teacher-question.routes');
+app.use('/api/teacher', teacherQuestionRoutes);
+
+// 教师端知识库管理
+const teacherKnowledgeRoutes = require('./routes/teacher-knowledge.routes');
+app.use('/api/teacher', teacherKnowledgeRoutes);
+
+// 教师端消息通知
+const teacherNotificationRoutes = require('./routes/teacher-notification.routes');
+app.use('/api/teacher', teacherNotificationRoutes);
+
+// 教师端 AI 功能（占位）
+const teacherAiRoutes = require('./routes/teacher-ai.routes');
+app.use('/api/teacher', teacherAiRoutes);
+
 // ============================================================
 // 教师端路由（教师端开发者在此区域添加新模块挂载）
 // ============================================================
@@ -65,6 +98,8 @@ app.use('/api/teacher/practice', teacherPracticeRoutes);
 // ============================================================
 // 管理端路由（管理端开发者在此区域添加新模块挂载）
 // ============================================================
+const adminRoutes = require('./routes/admin.routes');
+app.use('/api/admin', adminRoutes);
 
 // AI 问答模块
 const studentChatRoutes = require('./routes/student-chat.routes');
