@@ -2,6 +2,7 @@
 
 const { success, fail } = require('../utils/response');
 const studentVideoService = require('../services/student-video.service');
+const videoSearchService = require('../services/video-search.service');
 
 function getUserId(req) {
   return req.user?.user_id;
@@ -71,8 +72,33 @@ async function recordWatch(req, res) {
   }
 }
 
+// ========================
+// 4. 搜索视频（按关键词检索，生成 embed_url）
+// ========================
+
+async function searchVideos(req, res) {
+  try {
+    const userId = req.user?.user_id;
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+
+    const keyword = (req.body?.keyword || '').trim();
+    const limit = req.body?.limit;
+    if (!keyword) {
+      return fail(res, 40001, '请提供搜索关键词 keyword');
+    }
+
+    const data = await videoSearchService.searchVideos({ keyword, limit });
+    return success(res, data, '视频搜索成功');
+  } catch (err) {
+    console.error('[student-video.controller] searchVideos 异常:', err.message);
+    if (err.code) return fail(res, err.code, err.message);
+    return fail(res, 50001, '服务器错误');
+  }
+}
+
 module.exports = {
   getVideoRecommendations,
   getKnowledgePointVideos,
   recordWatch,
+  searchVideos,
 };

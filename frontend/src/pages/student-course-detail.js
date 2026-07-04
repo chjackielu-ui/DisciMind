@@ -2,13 +2,15 @@
 // 新增：知识点排序、搜索、筛选
 
 import { getMe } from '../api/auth.js'
-import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints } from '../api/student.js'
+import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints, searchVideos } from '../api/student.js'
 import { getUser, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, masteryLabel, difficultyLabel } from '../utils/format.js'
 import { disposeAllCharts, bindResize, initChart, renderRingChart, renderHorizontalBarChart, CHART_COLORS } from '../utils/echarts.js'
 import * as echarts from 'echarts'
+import { buildMindData, createMindMap } from '../components/kgraph/KgMindMap.js'
+import { buildVideoPanelHTML, loadKpVideosToPanel } from '../components/kgraph/KgVideoPanel.js'
 
 function getCourseIdFromHash() {
   const m = window.location.hash.slice(1).match(/^\/student\/courses\/(\d+)/)
@@ -84,7 +86,7 @@ export async function renderStudentCourseDetail(app) {
 
     contentHTML = `
       <div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/student/courses'">← 返回我的课程</button></div>
-      <div class="course-hero-card"><div class="hero-inner"><div class="hero-info"><div class="hero-course-name">${escapeHtml(course.course_name)}</div><div class="hero-course-code">${escapeHtml(course.course_code)} · ${escapeHtml(course.subject_category || '')}</div><div class="hero-desc">${escapeHtml(course.description || '')}</div><div class="hero-meta-tags"><span class="hero-tag">🏫 ${escapeHtml(className)}</span>${teachers ? `<span class="hero-tag">👨‍🏫 ${escapeHtml(teachers)}</span>` : ''}<span class="hero-tag">📖 ${course.chapter_count || 0} 个章节</span><span class="hero-tag">🎯 ${course.knowledge_point_count || 0} 个知识点</span></div></div><div class="hero-chart-area" id="chart-hero-progress"></div></div></div>
+      <div class="course-hero-card"><div class="hero-inner"><div class="hero-info"><div class="hero-course-name" style="display:flex;align-items:center;gap:10px;"><span>${escapeHtml(course.course_name)}</span><button id="btn-knowledge-graph" title="知识图谱" style="width:30px;height:30px;border:none;border-radius:8px;background:rgba(255,255,255,0.15);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:1.1rem;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">🕸️</button></div><div class="hero-course-code">${escapeHtml(course.course_code)} · ${escapeHtml(course.subject_category || '')}</div><div class="hero-desc">${escapeHtml(course.description || '')}</div><div class="hero-meta-tags"><span class="hero-tag">🏫 ${escapeHtml(className)}</span>${teachers ? `<span class="hero-tag">👨‍🏫 ${escapeHtml(teachers)}</span>` : ''}<span class="hero-tag">📖 ${course.chapter_count || 0} 个章节</span><span class="hero-tag">🎯 ${course.knowledge_point_count || 0} 个知识点</span></div></div><div class="hero-chart-area" id="chart-hero-progress"></div></div></div>
       <div class="course-metrics-row"><div class="course-metric-card"><div class="metric-value">${course.chapter_count || 0}</div><div class="metric-label">章节数</div></div><div class="course-metric-card"><div class="metric-value">${course.knowledge_point_count || 0}</div><div class="metric-label">知识点数</div></div><div class="course-metric-card"><div class="metric-value" style="color:#4CAF84;">${mastered}</div><div class="metric-label">已掌握</div></div><div class="course-metric-card"><div class="metric-value" style="color:#E0576E;">${weak}</div><div class="metric-label">薄弱</div></div><div class="course-metric-card"><div class="metric-value">${(course.recent_tasks || []).length}</div><div class="metric-label">最近任务</div></div></div>
       <div class="charts-grid"><div class="chart-card"><div class="chart-header"><span class="chart-title">🎯 掌握等级分布</span></div><div class="chart-container" id="chart-detail-mastery-ring"></div></div><div class="chart-card" style="grid-column:1/-1;"><div class="chart-header"><span class="chart-title">📊 知识点掌握度详情</span></div><div class="chart-container-lg" id="chart-detail-kp-bar"></div></div></div>
       <div class="card" style="margin-bottom:24px;"><h3 class="card-title">🗺️ 章节学习地图</h3><div class="chapter-timeline">${chapters.map((ch, idx) => { const chKps = kps.filter(k => k.chapter_id === ch.chapter_id); return `<div class="chapter-node"><div class="chapter-dot">${idx + 1}</div><div class="chapter-content"><div class="chapter-name">${escapeHtml(ch.chapter_name)}</div><div class="chapter-desc">${escapeHtml(ch.description || '')} · ${ch.knowledge_point_count || 0} 个知识点</div><div class="kp-pills">${chKps.map(k => `<span class="kp-pill mastery-${k.mastery_level || 'unknown'}" title="${masteryLabel(k.mastery_level)} · ${k.mastery_score || 0}分">${escapeHtml(k.knowledge_point_name)}</span>`).join('')}${chKps.length === 0 ? '<span class="kp-pill mastery-unknown">暂无知识点</span>' : ''}</div></div></div>` }).join('')}</div></div>
@@ -97,6 +99,72 @@ export async function renderStudentCourseDetail(app) {
 
   if (!loadError && course) {
     setTimeout(() => { renderHeroProgress(course); renderDetailCharts(kps); bindDetailEvents(kps) }, 150)
+    // 知识图谱按钮绑定
+    setTimeout(() => {
+      document.getElementById('btn-knowledge-graph')?.addEventListener('click', () => showKnowledgeGraph(course, chapters, kps))
+    }, 200)
+  }
+}
+
+// ========================
+// 知识图谱弹窗 — mind-elixir 思维导图 + 视频讲解面板
+// ========================
+async function showKnowledgeGraph(course, chapters, kps) {
+  const scrollY = window.scrollY;
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${scrollY}px`;
+  document.body.style.width = '100%';
+
+  const videoCache = {};
+  const chapterMap = {};
+  for (const ch of chapters) chapterMap[ch.chapter_id] = { ...ch, kps: [] };
+  for (const kp of kps) { if (chapterMap[kp.chapter_id]) chapterMap[kp.chapter_id].kps.push(kp); }
+  const chaptersWithKps = chapters.map(ch => chapterMap[ch.chapter_id]).filter(Boolean);
+
+  const mindData = buildMindData(course.course_name, chaptersWithKps);
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:22px;box-shadow:0 24px 64px rgba(0,0,0,0.15);padding:24px;width:94%;max-width:1100px;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:1.2rem;">🕸️</span>
+          <h3 style="font-size:1.1rem;font-weight:700;color:var(--text);margin:0;">知识图谱 — ${escapeHtml(course.course_name)}</h3>
+        </div>
+        <button id="kg-close-x" style="width:28px;height:28px;border:none;background:rgba(0,0,0,0.05);border-radius:50%;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-muted);">✕</button>
+      </div>
+      <div style="display:flex;gap:18px;flex:1;min-height:480px;overflow:hidden;">
+        <div id="kg-left-panel" style="flex:0 0 380px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;position:relative;min-height:460px;">
+          <div id="kg-mind-container" style="width:800px;min-height:460px;"></div>
+        </div>
+        <div style="flex:1;min-width:280px;display:flex;flex-direction:column;">${buildVideoPanelHTML()}</div>
+      </div>
+    </div>`;
+
+  const container = document.querySelector('.student-dashboard-wrapper') || document.getElementById('app');
+  container.appendChild(overlay);
+
+  let mindInstance = null;
+  function closeModal() {
+    if (mindInstance?.destroy) try { mindInstance.destroy(); } catch {}
+    overlay.remove();
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.width = '';
+    window.scrollTo(0, scrollY);
+  }
+  overlay.querySelector('#kg-close-x').addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+
+  try {
+    const mc = overlay.querySelector('#kg-mind-container');
+    mindInstance = createMindMap(mc, mindData, kps, (kpId) => {
+      const kp = kps.find(k => k.knowledge_point_id === kpId);
+      loadKpVideosToPanel(kpId, kp ? kp.knowledge_point_name : '视频讲解', overlay, videoCache);
+    });
+  } catch (err) {
+    const mc = overlay.querySelector('#kg-mind-container');
+    if (mc) mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">⚠️ 思维导图加载失败<br><span style="font-size:0.78rem;">' + escapeHtml(err.message || String(err)) + '</span></div>';
   }
 }
 

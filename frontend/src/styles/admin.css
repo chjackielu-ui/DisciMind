@@ -1,0 +1,721 @@
+/* ============================================
+   admin.css — 管理员端紫色主题
+   色卡：#7C3AED #8B5CF6 #A78BFA #C4B5FD #EDE9FE
+   所有选择器以 .role-admin 为父级作用域，
+   仅影响管理员端页面，不影响学生端和教师端
+   ============================================ */
+
+/* ============================================
+   一、CSS 变量覆盖（仅管理员端）
+   ============================================ */
+.role-admin {
+  --primary: #7C3AED;
+  --primary-hover: #6D28D9;
+  --primary-light: #F5F3FF;
+  --primary-border: #C4B5FD;
+  --bg: #FAFAFF;
+  --text: #1E1B2E;
+  --text-secondary: #6D5E8A;
+  --text-muted: #9B8DB5;
+  --border: #E8E0F0;
+  --shadow: 0 1px 3px rgba(124, 58, 237, 0.08), 0 1px 2px rgba(124, 58, 237, 0.05);
+  --shadow-md: 0 4px 6px rgba(124, 58, 237, 0.07), 0 2px 4px rgba(124, 58, 237, 0.05);
+
+  --stu-primary: #7C3AED;
+  --stu-secondary: #8B5CF6;
+  --stu-bg-soft: #F5F3FF;
+  --stu-dark: #5B21B6;
+  --stu-accent: #A78BFA;
+  --stu-text: #1E1B2E;
+  --stu-text-secondary: rgba(30, 27, 46, 0.68);
+  --stu-text-muted: rgba(30, 27, 46, 0.45);
+  --stu-border: rgba(124, 58, 237, 0.12);
+  --stu-border-light: rgba(167, 139, 250, 0.22);
+  --stu-shadow: 0 4px 16px rgba(91, 33, 182, 0.06);
+  --stu-shadow-md: 0 8px 32px rgba(91, 33, 182, 0.08);
+  --stu-shadow-lg: 0 16px 48px rgba(91, 33, 182, 0.10);
+}
+
+/* ============================================
+   二、页面主背景
+   ============================================ */
+.role-admin .student-dashboard-wrapper {
+  background:
+    linear-gradient(135deg, rgba(196, 181, 253, 0.22) 0%, rgba(196, 181, 253, 0) 34%),
+    linear-gradient(225deg, rgba(167, 139, 250, 0.10) 0%, rgba(167, 139, 250, 0) 30%),
+    linear-gradient(315deg, rgba(139, 92, 246, 0.08) 0%, rgba(139, 92, 246, 0) 26%),
+    linear-gradient(180deg, #FAFAFF 0%, #F5F3FF 100%);
+}
+
+/* ============================================
+   三、侧边栏
+   ============================================ */
+.role-admin .student-sidebar {
+  background: linear-gradient(
+    180deg,
+    rgba(91, 33, 182, 0.46),
+    rgba(124, 58, 237, 0.30)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 22px 56px rgba(91, 33, 182, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 36px rgba(167, 139, 250, 0.10);
+}
+
+.role-admin .student-sidebar::after {
+  background:
+    linear-gradient(180deg, rgba(167, 139, 250, 0.18), rgba(124, 58, 237, 0.08)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 0 42px rgba(167, 139, 250, 0.12),
+    0 0 28px rgba(124, 58, 237, 0.10);
+}
+
+.role-admin .sidebar-brand {
+  border-bottom: 1px solid rgba(167, 139, 250, 0.12);
+}
+.role-admin .sidebar-brand-en {
+  color: rgba(167, 139, 250, 0.85);
+}
+.role-admin .sidebar-menu-wrap::-webkit-scrollbar-thumb {
+  background: rgba(167, 139, 250, 0.3);
+}
+.role-admin .sidebar-menu-item:hover {
+  background: rgba(167, 139, 250, 0.14);
+}
+.role-admin .sidebar-menu-item.active {
+  background: rgba(167, 139, 250, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.26);
+}
+.role-admin .sidebar-menu-item.active::before {
+  background: rgba(167, 139, 250, 0.8);
+}
+.role-admin .sidebar-menu-item.active .sidebar-menu-icon {
+  background: rgba(167, 139, 250, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.32);
+}
+.role-admin .sidebar-menu-item.active .sidebar-menu-icon svg {
+  color: #ffffff;
+}
+.role-admin .sidebar-menu-item.active .sidebar-menu-text {
+  color: #ffffff;
+}
+.role-admin .sidebar-menu-icon svg {
+  color: rgba(255, 255, 255, 0.85);
+}
+.role-admin .sidebar-menu-item:hover .sidebar-menu-icon {
+  background: rgba(255, 255, 255, 0.1);
+}
+.role-admin .sidebar-menu-item .menu-tooltip {
+  background: rgba(91, 33, 182, 0.94);
+  box-shadow: 0 6px 20px rgba(91, 33, 182, 0.25);
+}
+.role-admin .sidebar-menu-item .menu-tooltip::before {
+  border-right-color: rgba(91, 33, 182, 0.94);
+}
+
+/* 侧边栏图钉 */
+.role-admin .sidebar-pin-btn {
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(167, 139, 250, 0.12);
+  color: rgba(255, 255, 255, 0.7);
+}
+.role-admin .sidebar-pin-btn:hover {
+  background: rgba(167, 139, 250, 0.22);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.role-admin .sidebar-pin-btn.pinned {
+  background: rgba(167, 139, 250, 0.25);
+  color: #ffffff;
+  border-color: rgba(167, 139, 250, 0.45);
+  box-shadow:
+    0 0 18px rgba(167, 139, 250, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* 侧边栏用户信息 */
+.role-admin .sidebar-user-info:hover {
+  background: rgba(167, 139, 250, 0.12);
+}
+.role-admin .sidebar-user-role {
+  color: rgba(167, 139, 250, 0.75);
+}
+.role-admin .sidebar-logout-btn {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(167, 139, 250, 0.08);
+}
+
+/* ============================================
+   四、欢迎横幅（管理员端紫色渐变）
+   ============================================ */
+.role-admin .welcome-banner {
+  background: linear-gradient(135deg, #5B21B6 0%, #7C3AED 50%, #A78BFA 100%) !important;
+  box-shadow: 0 8px 28px rgba(91, 33, 182, 0.15);
+}
+.role-admin .welcome-banner.admin-banner {
+  background: linear-gradient(135deg, #5B21B6 0%, #7C3AED 50%, #8B5CF6 100%) !important;
+}
+
+/* ============================================
+   五、数据卡片与通用卡片
+   ============================================ */
+.role-admin .stat-card {
+  border: 1px solid var(--stu-border, rgba(124, 58, 237, 0.12));
+  box-shadow: 0 12px 32px rgba(91, 33, 182, 0.06);
+}
+.role-admin .stat-card:hover {
+  box-shadow: 0 18px 42px rgba(91, 33, 182, 0.10);
+  border-color: rgba(167, 139, 250, 0.5);
+}
+.role-admin .stat-value {
+  color: var(--stu-primary, #7C3AED);
+}
+.role-admin .card {
+  border: 1px solid var(--stu-border, rgba(124, 58, 237, 0.12));
+  box-shadow: 0 12px 32px rgba(91, 33, 182, 0.06);
+}
+.role-admin .card:hover {
+  box-shadow: 0 16px 40px rgba(91, 33, 182, 0.09);
+  border-color: rgba(167, 139, 250, 0.3);
+}
+.role-admin .card-title {
+  color: var(--stu-dark, #5B21B6);
+}
+
+/* ============================================
+   六、按钮
+   ============================================ */
+.role-admin .btn-primary {
+  background: #7C3AED;
+  color: #fff;
+  border-color: #7C3AED;
+}
+.role-admin .btn-primary:hover:not(:disabled) {
+  background: #6D28D9;
+  border-color: #6D28D9;
+}
+.role-admin .btn-link {
+  color: #7C3AED;
+}
+.role-admin .btn-link:hover {
+  background: #F5F3FF;
+}
+
+/* ============================================
+   七、表单聚焦
+   ============================================ */
+.role-admin input:focus,
+.role-admin select:focus,
+.role-admin textarea:focus {
+  border-color: #7C3AED !important;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1) !important;
+}
+
+/* ============================================
+   八、重试按钮
+   ============================================ */
+.role-admin .btn-retry {
+  background: linear-gradient(135deg, #7C3AED, #8B5CF6) !important;
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.25);
+}
+.role-admin .btn-retry:hover {
+  box-shadow: 0 10px 28px rgba(124, 58, 237, 0.35);
+}
+
+/* ============================================
+   九、标签页选中态
+   ============================================ */
+.role-admin .tab-btn.active {
+  color: #5B21B6 !important;
+  border-bottom-color: #7C3AED !important;
+}
+
+/* ============================================
+   十、表格相关
+   ============================================ */
+.role-admin .table-container {
+  overflow-x: auto;
+}
+.role-admin table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.role-admin table th {
+  text-align: left;
+  padding: 12px 14px;
+  font-weight: 600;
+  color: var(--stu-text-muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 2px solid var(--stu-border);
+  background: rgba(255, 255, 255, 0.5);
+}
+.role-admin table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--stu-border);
+  color: var(--stu-text);
+}
+.role-admin table tr:hover td {
+  background: rgba(167, 139, 250, 0.04);
+}
+
+/* ============================================
+   十一、搜索栏和筛选栏
+   ============================================ */
+.role-admin .search-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  align-items: center;
+}
+.role-admin .search-bar input,
+.role-admin .search-bar select {
+  padding: 9px 14px;
+  border: 1px solid var(--stu-border);
+  border-radius: var(--stu-radius-sm);
+  font-size: 0.88rem;
+  font-family: var(--font);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--stu-text);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.role-admin .search-bar input {
+  min-width: 200px;
+  flex: 1;
+}
+
+/* ============================================
+   十二、分页
+   ============================================ */
+.role-admin .pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 12px 0;
+}
+.role-admin .pagination button {
+  padding: 6px 14px;
+  border: 1px solid var(--stu-border);
+  border-radius: var(--stu-radius-sm);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--stu-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: var(--font);
+  transition: all 0.2s;
+}
+.role-admin .pagination button:hover:not(:disabled) {
+  border-color: var(--stu-primary);
+  color: var(--stu-primary);
+}
+.role-admin .pagination button.active {
+  background: var(--stu-primary);
+  color: #fff;
+  border-color: var(--stu-primary);
+}
+.role-admin .pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.role-admin .pagination .page-info {
+  font-size: 0.85rem;
+  color: var(--stu-text-muted);
+}
+
+/* ============================================
+   十三、标签/徽章
+   ============================================ */
+.role-admin .tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.role-admin .tag-active {
+  background: #D1FAE5;
+  color: #065F46;
+}
+.role-admin .tag-disabled {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+.role-admin .tag-pending {
+  background: #FEF3C7;
+  color: #92400E;
+}
+.role-admin .tag-approved {
+  background: #D1FAE5;
+  color: #065F46;
+}
+.role-admin .tag-rejected {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+.role-admin .tag-admin {
+  background: #EDE9FE;
+  color: #5B21B6;
+}
+.role-admin .tag-teacher {
+  background: #FFF3E0;
+  color: #C2410C;
+}
+.role-admin .tag-student {
+  background: #DBEAFE;
+  color: #1E40AF;
+}
+
+/* ============================================
+   十四、操作按钮组
+   ============================================ */
+.role-admin .action-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.role-admin .action-btns button {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  border: 1px solid var(--stu-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  color: var(--stu-text);
+  font-family: var(--font);
+  transition: all 0.2s;
+}
+.role-admin .action-btns button:hover {
+  border-color: var(--stu-primary);
+  background: var(--primary-light, #F5F3FF);
+  color: var(--stu-primary);
+}
+.role-admin .action-btns .btn-danger {
+  color: #DC2626;
+  border-color: #FCA5A5;
+}
+.role-admin .action-btns .btn-danger:hover {
+  background: #FEF2F2;
+  border-color: #DC2626;
+}
+
+/* ============================================
+   十五、模态框
+   ============================================ */
+.role-admin .modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.role-admin .modal-box {
+  background: #fff;
+  border-radius: var(--stu-radius);
+  box-shadow: 0 24px 64px rgba(91, 33, 182, 0.15);
+  padding: 28px;
+  width: 90%;
+  max-width: 540px;
+  max-height: 85vh;
+  overflow-y: auto;
+  border: 1px solid var(--stu-border);
+}
+.role-admin .modal-box h3 {
+  font-size: 1.1rem;
+  margin-bottom: 18px;
+  color: var(--stu-dark);
+}
+.role-admin .modal-box .form-group {
+  margin-bottom: 14px;
+}
+.role-admin .modal-box .form-group label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--stu-text-secondary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.role-admin .modal-box .form-group input,
+.role-admin .modal-box .form-group select,
+.role-admin .modal-box .form-group textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--stu-border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: var(--font);
+  color: var(--stu-text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.role-admin .modal-box .form-group textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+.role-admin .modal-box .modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+.role-admin .modal-box .modal-actions button {
+  padding: 8px 22px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.role-admin .modal-box .modal-actions .btn-cancel {
+  background: transparent;
+  border: 1px solid var(--stu-border);
+  color: var(--stu-text-secondary);
+}
+.role-admin .modal-box .modal-actions .btn-cancel:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.role-admin .modal-box .modal-actions .btn-confirm {
+  background: var(--stu-primary);
+  color: #fff;
+  border: none;
+}
+.role-admin .modal-box .modal-actions .btn-confirm:hover {
+  background: var(--primary-hover, #6D28D9);
+}
+
+/* ============================================
+   十六、详情面板
+   ============================================ */
+.role-admin .detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.role-admin .detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: rgba(167, 139, 250, 0.06);
+  border-radius: var(--stu-radius-sm);
+}
+.role-admin .detail-item .detail-label {
+  font-size: 0.78rem;
+  color: var(--stu-text-muted);
+}
+.role-admin .detail-item .detail-value {
+  font-size: 0.92rem;
+  color: var(--stu-text);
+  font-weight: 500;
+}
+
+/* ============================================
+   十七、空状态
+   ============================================ */
+.role-admin .empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--stu-text-muted);
+}
+.role-admin .empty-state .empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+}
+.role-admin .empty-state p {
+  font-size: 0.92rem;
+}
+
+/* ============================================
+   十八、加载状态
+   ============================================ */
+.role-admin .loading-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--stu-text-muted);
+}
+.role-admin .loading-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--stu-border);
+  border-top-color: var(--stu-primary);
+  border-radius: 50%;
+  animation: admin-spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes admin-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   十九、Toast 消息
+   ============================================ */
+.role-admin .toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.role-admin .toast-item {
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(91, 33, 182, 0.12);
+  animation: admin-toast-in 0.3s ease;
+  max-width: 360px;
+}
+.role-admin .toast-item.toast-success {
+  background: #D1FAE5;
+  color: #065F46;
+  border: 1px solid #A7F3D0;
+}
+.role-admin .toast-item.toast-error {
+  background: #FEE2E2;
+  color: #991B1B;
+  border: 1px solid #FCA5A5;
+}
+@keyframes admin-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ============================================
+   二十、版块标题
+   ============================================ */
+.role-admin .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.role-admin .section-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--stu-dark);
+}
+
+/* ============================================
+   二十一、小按钮（通用）
+   ============================================ */
+.role-admin .btn-sm {
+  padding: 7px 18px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.role-admin .btn-sm.btn-primary {
+  background: var(--stu-primary);
+  color: #fff;
+}
+.role-admin .btn-sm.btn-primary:hover {
+  background: var(--primary-hover, #6D28D9);
+}
+.role-admin .btn-sm.btn-secondary {
+  background: rgba(167, 139, 250, 0.1);
+  color: var(--stu-primary);
+  border: 1px solid var(--stu-border);
+}
+.role-admin .btn-sm.btn-secondary:hover {
+  background: rgba(167, 139, 250, 0.18);
+}
+.role-admin .btn-sm.btn-danger {
+  background: #FEE2E2;
+  color: #991B1B;
+}
+.role-admin .btn-sm.btn-danger:hover {
+  background: #FECACA;
+}
+
+/* ============================================
+   二十二、课程卡片
+   ============================================ */
+.role-admin .course-card-item {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--stu-border);
+  border-radius: var(--stu-radius);
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  border-left: 4px solid var(--stu-primary);
+}
+.role-admin .course-card-item:hover {
+  box-shadow: 0 12px 32px rgba(91, 33, 182, 0.08);
+  border-color: rgba(167, 139, 250, 0.4);
+  transform: translateY(-2px);
+}
+.role-admin .course-card-item h4 {
+  font-size: 1rem;
+  margin-bottom: 6px;
+  color: var(--stu-text);
+}
+.role-admin .course-card-item .course-meta {
+  font-size: 0.82rem;
+  color: var(--stu-text-muted);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ============================================
+   二十三、页面级变量
+   ============================================ */
+.role-admin {
+  --page-bg: #FAFAFF;
+  --text-main: #1E1B2E;
+  --text-sub: #6D5E8A;
+  --text-hint: #9B8DB5;
+  --border-soft: rgba(124, 58, 237, 0.10);
+  --border-medium: rgba(124, 58, 237, 0.15);
+  --shadow-card: 0 4px 20px rgba(91, 33, 182, 0.06);
+  --shadow-card-hover: 0 12px 32px rgba(91, 33, 182, 0.10);
+  --shadow-elevated: 0 16px 48px rgba(91, 33, 182, 0.12);
+}
+
+/* ============================================
+   二十四、管理员详细信息
+   ============================================ */
+.role-admin .admin-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.role-admin .admin-link-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--stu-border);
+  border-radius: var(--stu-radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.7);
+}
+.role-admin .admin-link-item:hover {
+  border-color: rgba(167, 139, 250, 0.5);
+  background: rgba(167, 139, 250, 0.08);
+}

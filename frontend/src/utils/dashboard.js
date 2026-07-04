@@ -49,8 +49,10 @@ export function renderDashboardLayout(app, config) {
       </div>`
   }).join('')
 
+  const roleClass = user?.role === 'teacher' ? ' role-teacher' : user?.role === 'admin' ? ' role-admin' : ''
+
   app.innerHTML = `
-    <div class="student-dashboard-wrapper">
+    <div class="student-dashboard-wrapper${roleClass}">
       <nav class="student-sidebar expanded" id="student-sidebar">
         <div class="sidebar-brand">
           <div class="sidebar-brand-mark">

@@ -1,0 +1,253 @@
+/* ============================================
+   theme.css — 教师端暖色调主题
+   色卡：#FFC971 #FFB627 #FF9505 #E2711D #CC5803
+   所有选择器以 .role-teacher 为父级作用域，
+   仅影响教师端页面，不影响学生端和管理端
+   ============================================ */
+
+/* ============================================
+   一、CSS 变量覆盖（仅教师端）
+   ============================================ */
+.role-teacher {
+  --primary: #FF9505;
+  --primary-hover: #E2711D;
+  --primary-light: #FFF3E0;
+  --primary-border: #FFC971;
+  --bg: #FFFBF5;
+  --text: #2D2A24;
+  --text-secondary: #6B5E4E;
+  --text-muted: #A0927E;
+  --border: #EDE4D8;
+  --shadow: 0 1px 3px rgba(204, 88, 3, 0.08), 0 1px 2px rgba(204, 88, 3, 0.05);
+  --shadow-md: 0 4px 6px rgba(204, 88, 3, 0.07), 0 2px 4px rgba(204, 88, 3, 0.05);
+
+  --stu-primary: #FF9505;
+  --stu-secondary: #E2711D;
+  --stu-bg-soft: #FFFAF0;
+  --stu-dark: #CC5803;
+  --stu-accent: #FFB627;
+  --stu-text: #3D3228;
+  --stu-text-secondary: rgba(62, 50, 40, 0.68);
+  --stu-text-muted: rgba(62, 50, 40, 0.45);
+  --stu-border: rgba(255, 149, 5, 0.12);
+  --stu-border-light: rgba(255, 182, 39, 0.22);
+  --stu-shadow: 0 4px 16px rgba(204, 88, 3, 0.06);
+  --stu-shadow-md: 0 8px 32px rgba(204, 88, 3, 0.08);
+  --stu-shadow-lg: 0 16px 48px rgba(204, 88, 3, 0.10);
+}
+
+/* ============================================
+   二、页面主背景
+   ============================================ */
+.role-teacher .student-dashboard-wrapper {
+  background:
+    linear-gradient(135deg, rgba(255, 201, 113, 0.22) 0%, rgba(255, 201, 113, 0) 34%),
+    linear-gradient(225deg, rgba(255, 182, 39, 0.10) 0%, rgba(255, 182, 39, 0) 30%),
+    linear-gradient(315deg, rgba(226, 113, 29, 0.08) 0%, rgba(226, 113, 29, 0) 26%),
+    linear-gradient(180deg, #FFFAF0 0%, #FFF5E6 100%);
+}
+
+/* ============================================
+   三、侧边栏
+   ============================================ */
+.role-teacher .student-sidebar {
+  background: linear-gradient(
+    180deg,
+    rgba(204, 88, 3, 0.46),
+    rgba(255, 149, 5, 0.30)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 22px 56px rgba(204, 88, 3, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 36px rgba(255, 182, 39, 0.10);
+}
+
+.role-teacher .student-sidebar::after {
+  background:
+    linear-gradient(180deg, rgba(255, 182, 39, 0.18), rgba(255, 149, 5, 0.08)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 0 42px rgba(255, 182, 39, 0.12),
+    0 0 28px rgba(255, 149, 5, 0.10);
+}
+
+.role-teacher .sidebar-brand {
+  border-bottom: 1px solid rgba(255, 182, 39, 0.12);
+}
+.role-teacher .sidebar-brand-en {
+  color: rgba(255, 182, 39, 0.85);
+}
+.role-teacher .sidebar-menu-wrap::-webkit-scrollbar-thumb {
+  background: rgba(255, 182, 39, 0.3);
+}
+.role-teacher .sidebar-menu-item:hover {
+  background: rgba(255, 182, 39, 0.14);
+}
+.role-teacher .sidebar-menu-item.active {
+  background: rgba(255, 182, 39, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 182, 39, 0.26);
+}
+.role-teacher .sidebar-menu-item.active::before {
+  background: rgba(255, 182, 39, 0.8);
+}
+.role-teacher .sidebar-menu-item.active .sidebar-menu-icon {
+  background: rgba(255, 182, 39, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 182, 39, 0.32);
+}
+.role-teacher .sidebar-menu-item.active .sidebar-menu-icon svg {
+  color: #ffffff;
+}
+.role-teacher .sidebar-menu-item.active .sidebar-menu-text {
+  color: #ffffff;
+}
+.role-teacher .sidebar-menu-item:hover .sidebar-menu-icon {
+  background: rgba(255, 255, 255, 0.1);
+}
+.role-teacher .sidebar-menu-item .menu-tooltip {
+  background: rgba(204, 88, 3, 0.94);
+  box-shadow: 0 6px 20px rgba(204, 88, 3, 0.25);
+}
+.role-teacher .sidebar-menu-item .menu-tooltip::before {
+  border-right-color: rgba(204, 88, 3, 0.94);
+}
+
+/* 侧边栏图钉 */
+.role-teacher .sidebar-pin-btn {
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(255, 182, 39, 0.12);
+  color: rgba(255, 255, 255, 0.7);
+}
+.role-teacher .sidebar-pin-btn:hover {
+  background: rgba(255, 182, 39, 0.22);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.role-teacher .sidebar-pin-btn.pinned {
+  background: rgba(255, 182, 39, 0.25);
+  color: #ffffff;
+  border-color: rgba(255, 182, 39, 0.45);
+  box-shadow:
+    0 0 18px rgba(255, 182, 39, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* 侧边栏用户信息 */
+.role-teacher .sidebar-user-info:hover {
+  background: rgba(255, 182, 39, 0.12);
+}
+.role-teacher .sidebar-user-role {
+  color: rgba(255, 182, 39, 0.75);
+}
+.role-teacher .sidebar-logout-btn {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 182, 39, 0.08);
+}
+
+/* ============================================
+   四、欢迎横幅（教师端暖橙渐变）
+   ============================================ */
+.role-teacher .welcome-banner {
+  background: linear-gradient(135deg, #CC5803 0%, #FF9505 50%, #FFB627 100%) !important;
+  box-shadow: 0 8px 28px rgba(204, 88, 3, 0.15);
+}
+.role-teacher .welcome-banner.teacher-banner {
+  background: linear-gradient(135deg, #CC5803 0%, #E2711D 50%, #FF9505 100%) !important;
+}
+
+/* ============================================
+   五、数据卡片与通用卡片
+   ============================================ */
+.role-teacher .stat-card {
+  border: 1px solid var(--stu-border, rgba(255, 149, 5, 0.12));
+  box-shadow: 0 12px 32px rgba(204, 88, 3, 0.06);
+}
+.role-teacher .stat-card:hover {
+  box-shadow: 0 18px 42px rgba(204, 88, 3, 0.10);
+  border-color: rgba(255, 182, 39, 0.5);
+}
+.role-teacher .stat-value {
+  color: var(--stu-primary, #FF9505);
+}
+.role-teacher .card {
+  border: 1px solid var(--stu-border, rgba(255, 149, 5, 0.12));
+  box-shadow: 0 12px 32px rgba(204, 88, 3, 0.06);
+}
+.role-teacher .card:hover {
+  box-shadow: 0 16px 40px rgba(204, 88, 3, 0.09);
+  border-color: rgba(255, 182, 39, 0.3);
+}
+.role-teacher .card-title {
+  color: var(--stu-dark, #CC5803);
+}
+
+/* ============================================
+   六、主按钮
+   ============================================ */
+.role-teacher .btn-primary {
+  background: #FF9505;
+  color: #fff;
+  border-color: #FF9505;
+}
+.role-teacher .btn-primary:hover:not(:disabled) {
+  background: #E2711D;
+  border-color: #E2711D;
+}
+.role-teacher .btn-link {
+  color: #FF9505;
+}
+.role-teacher .btn-link:hover {
+  background: #FFF3E0;
+}
+
+/* ============================================
+   七、表单聚焦
+   ============================================ */
+.role-teacher input:focus,
+.role-teacher select:focus,
+.role-teacher textarea:focus {
+  border-color: #FF9505 !important;
+  box-shadow: 0 0 0 3px rgba(255, 149, 5, 0.1) !important;
+}
+
+/* ============================================
+   八、重试按钮
+   ============================================ */
+.role-teacher .btn-retry {
+  background: linear-gradient(135deg, #FF9505, #E2711D) !important;
+  box-shadow: 0 6px 20px rgba(255, 149, 5, 0.25);
+}
+.role-teacher .btn-retry:hover {
+  box-shadow: 0 10px 28px rgba(255, 149, 5, 0.35);
+}
+
+/* ============================================
+   九、标签页选中态
+   ============================================ */
+.role-teacher .tab-btn.active {
+  color: #CC5803 !important;
+  border-bottom-color: #FF9505 !important;
+}
+
+/* ============================================
+   十、课程卡片
+   ============================================ */
+.role-teacher .course-card {
+  border-left-color: #FF9505 !important;
+}
+
+/* ============================================
+   十一、页面级变量覆盖（student.css 中的变量）
+   ============================================ */
+.role-teacher {
+  --page-bg: #FFFBF5;
+  --text-main: #2D2A24;
+  --text-sub: #6B5E4E;
+  --text-hint: #A0927E;
+  --border-soft: rgba(255, 149, 5, 0.10);
+  --border-medium: rgba(255, 149, 5, 0.15);
+  --shadow-card: 0 4px 20px rgba(204, 88, 3, 0.06);
+  --shadow-card-hover: 0 12px 32px rgba(204, 88, 3, 0.10);
+  --shadow-elevated: 0 16px 48px rgba(204, 88, 3, 0.12);
+}

@@ -7,6 +7,7 @@ import {
   getStudentCourses,
   markPracticeWrongQuestionMastered,
   startSimilarPractice,
+  searchVideos,
 } from '../api/student.js'
 import { getUser, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
@@ -256,6 +257,7 @@ function buildCompactWrongCard(item, expanded) {
 
         <div class="wrong-compact-actions">
           <button class="complex-btn-secondary btn-practice-similar" type="button" data-action="similar" data-wrong-id="${item.wrong_question_id}">再练一道类似题</button>
+          <button class="complex-btn-secondary btn-video-explain" type="button" data-action="video" data-wrong-id="${item.wrong_question_id}" style="color:#2563eb;border-color:#93c5fd;">▶ 视频讲解</button>
           ${mastered ? '' : `<button class="complex-btn btn-mark-mastered" type="button" data-action="master" data-wrong-id="${item.wrong_question_id}">标记已掌握</button>`}
         </div>
       </div>
@@ -509,6 +511,175 @@ export async function renderStudentWrongQuestions(app) {
         practiceSimilar(btn.dataset.wrongId)
       })
     })
+
+    // 视频讲解
+    document.querySelectorAll('[data-action="video"]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation()
+        const wrongId = btn.dataset.wrongId
+        const item = state.items.find(wq => String(wq.wrong_question_id) === String(wrongId))
+        if (item) showVideoModal(item)
+      })
+    })
+  }
+
+  // ========================
+  // 视频讲解弹窗（iframe 播放）
+  // ========================
+  async function showVideoModal(item) {
+    // 从错题字段提取关键词
+    const keywordParts = [
+      item.knowledge_point_name,
+      item.course_name,
+      item.title || (item.question_content || '').replace(/<[^>]*>/g, '').slice(0, 40),
+    ].filter(Boolean).slice(0, 3)
+    const searchKeyword = keywordParts.join(' ') || '视频讲解'
+    const bilibiliSearchUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(searchKeyword)}`
+
+    // 锁定页面滚动
+    const scrollY = window.scrollY
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${scrollY}px`
+    document.body.style.width = '100%'
+
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);'
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:22px;box-shadow:0 24px 64px rgba(0,0,0,0.15);padding:24px;width:92%;max-width:820px;max-height:90vh;display:flex;flex-direction:column;">
+        <!-- 弹头 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0;">
+          <div>
+            <h3 style="font-size:1.1rem;font-weight:700;color:var(--text);margin:0;">▶ 视频讲解</h3>
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-top:2px;">关键词：${escapeHtml(searchKeyword)}</div>
+          </div>
+          <button id="vm-close" style="width:28px;height:28px;border:none;background:rgba(0,0,0,0.05);border-radius:50%;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-muted);">✕</button>
+        </div>
+
+        <!-- 主体：左侧列表 + 右侧播放器 -->
+        <div style="display:flex;gap:16px;flex:1;min-height:0;overflow:hidden;flex-wrap:wrap;">
+          <!-- 左侧视频列表 -->
+          <div style="flex:0 0 240px;overflow-y:auto;border:1px solid var(--border);border-radius:14px;padding:8px;background:#fafafa;">
+            <div id="video-list" style="display:flex;flex-direction:column;gap:6px;">
+              <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">
+                <div style="display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:6px;"></div>
+                <p>搜索中...</p>
+              </div>
+            </div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+              <a href="${escapeHtml(bilibiliSearchUrl)}" target="_blank" rel="noopener noreferrer" id="bili-search-link" style="display:block;text-align:center;padding:8px;border-radius:10px;font-size:0.82rem;background:#fb7299;color:#fff;text-decoration:none;">去 B 站搜索更多 ›</a>
+            </div>
+          </div>
+
+          <!-- 右侧播放器 -->
+          <div style="flex:1;min-width:280px;display:flex;flex-direction:column;">
+            <div id="video-player" style="flex:1;background:#000;border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:280px;position:relative;">
+              <div style="text-align:center;color:rgba(255,255,255,0.6);font-size:0.9rem;padding:20px;">
+                <div style="font-size:2.5rem;margin-bottom:8px;">🎬</div>
+                <p>请从左侧选择一个视频</p>
+              </div>
+            </div>
+            <div id="video-title" style="font-size:0.85rem;color:var(--text-muted);margin-top:6px;text-align:center;flex-shrink:0;">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+    `
+
+    const container = document.querySelector('.student-dashboard-wrapper') || document.getElementById('app')
+    container.appendChild(overlay)
+
+    function closeModal() {
+      overlay.remove()
+      document.body.style.position = ''
+      document.body.style.top = ''
+      document.body.style.width = ''
+      window.scrollTo(0, scrollY)
+    }
+
+    overlay.querySelector('#vm-close').addEventListener('click', closeModal)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal() })
+
+    // 切换播放
+    function playVideo(embedUrl, title) {
+      const player = overlay.querySelector('#video-player')
+      const titleEl = overlay.querySelector('#video-title')
+      if (embedUrl) {
+        player.innerHTML = `<iframe src="${escapeHtml(embedUrl)}" style="width:100%;height:100%;border:none;" allowfullscreen allow="autoplay;fullscreen"></iframe>`
+        titleEl.textContent = title || '视频讲解'
+      } else {
+        player.innerHTML = `<div style="text-align:center;color:rgba(255,255,255,0.6);font-size:0.85rem;padding:20px;">
+          <div style="font-size:2rem;margin-bottom:8px;">⚠️</div>
+          <p>该视频暂无可用播放地址</p>
+        </div>`
+        titleEl.textContent = title || ''
+      }
+    }
+
+    // 调用后端搜索接口（通过 B 站 API 实时检索）
+    try {
+      const listEl = overlay.querySelector('#video-list')
+      const res = await searchVideos({ keyword: searchKeyword, limit: 10 })
+      const videos = res.data?.list || []
+      const suggestion = res.data?.suggestion || null
+
+      if (videos.length > 0) {
+        // 构建列表
+        listEl.innerHTML = videos.map((v, idx) => {
+          const isBili = (v.source || '').toLowerCase() === 'bilibili'
+          const iconHtml = isBili
+            ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.77 1.56-3.774C2.564 4.21 3.823 3.69 5.333 3.653h.534l-1.066-1.12a1.2 1.2 0 0 1-.347-.853c0-.338.116-.622.347-.853.23-.231.515-.347.853-.347.339 0 .623.116.854.347L7.947 3.64h8.106l1.44-1.813c.231-.231.515-.347.854-.347.338 0 .622.116.853.347.231.23.347.515.347.853a1.2 1.2 0 0 1-.347.854l-1.387 1.12zM5.333 6.4c-.8 0-1.48.283-2.04.853-.56.57-.84 1.25-.84 2.04v7.68c0 .789.28 1.469.84 2.04.56.57 1.24.853 2.04.853h13.334c.8 0 1.48-.283 2.04-.853.56-.571.84-1.251.84-2.04v-7.68c0-.79-.28-1.47-.84-2.04-.56-.57-1.24-.853-2.04-.853H5.333zm5.334 2.773v3.094h-2.56V9.173h2.56zm5.333 0v3.094h-2.56V9.173h2.56z"/></svg>'
+            : '<span style="font-size:0.75rem;">▶</span>'
+          const bg = isBili ? '#fb7299' : 'var(--primary)'
+          return `<div class="vi-item" data-embed="${escapeHtml(v.embed_url || '')}" data-title="${escapeHtml(v.title)}" data-url="${escapeHtml(v.video_url || '')}" style="cursor:pointer;padding:8px 10px;border-radius:10px;border:1px solid ${idx === 0 ? '#2563eb' : 'var(--border)'};background:${idx === 0 ? '#eff6ff' : '#fff'};transition:all 0.15s;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="flex-shrink:0;width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;background:${bg};color:#fff;">${iconHtml}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:0.82rem;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(v.title)}</div>
+                ${v.recommend_reason ? `<div style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;">${escapeHtml(v.recommend_reason)}</div>` : ''}
+              </div>
+            </div>
+          </div>`
+        }).join('')
+
+        // 绑定列表点击
+        const items = listEl.querySelectorAll('.vi-item')
+        items.forEach((el, idx) => {
+          el.addEventListener('click', () => {
+            items.forEach(i => { i.style.borderColor = 'var(--border)'; i.style.background = '#fff' })
+            el.style.borderColor = '#2563eb'; el.style.background = '#eff6ff'
+            const embed = el.dataset.embed
+            const title = el.dataset.title
+            playVideo(embed || '', title)
+          })
+        })
+
+        // 自动播第一个
+        if (videos[0]) {
+          setTimeout(() => playVideo(videos[0].embed_url || '', videos[0].title || ''), 100)
+        }
+      } else if (suggestion) {
+        listEl.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:0.85rem;">
+          <div style="font-size:2rem;margin-bottom:6px;">📺</div>
+          <p>暂无已收录的视频</p>
+          <p style="font-size:0.78rem;margin-top:4px;">${escapeHtml(suggestion.note || '')}</p>
+        </div>`
+        // 更新B站搜索链接
+        const link = overlay.querySelector('#bili-search-link')
+        if (link && suggestion.search_url) link.href = suggestion.search_url
+      } else {
+        listEl.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:0.85rem;">
+          <div style="font-size:2rem;margin-bottom:6px;">📺</div>
+          <p>暂无相关视频</p>
+        </div>`
+      }
+    } catch (err) {
+      const listEl = overlay.querySelector('#video-list')
+      if (listEl) {
+        listEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">
+          <p>⚠️ 视频搜索服务异常</p>
+          <p style="font-size:0.78rem;margin-top:4px;">可尝试通过下方链接前往 B 站搜索</p>
+        </div>`
+      }
+    }
   }
 
   await loadItems()

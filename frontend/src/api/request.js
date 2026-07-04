@@ -3,7 +3,19 @@
 
 import { getToken, clearAuth } from '../utils/auth.js'
 
-export const BASE_URL = 'http://localhost:3000/api'
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+
+function buildUrl(url, params) {
+  if (!params) return `${BASE_URL}${url}`
+  const searchParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.append(key, value)
+    }
+  }
+  const qs = searchParams.toString()
+  return qs ? `${BASE_URL}${url}?${qs}` : `${BASE_URL}${url}`
+}
 
 export async function request(url, options = {}) {
   const token = getToken()
@@ -19,10 +31,13 @@ export async function request(url, options = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
+  const { params, ...fetchOptions } = options
+  const fullUrl = buildUrl(url, params)
+
   let response
   try {
-    response = await fetch(`${BASE_URL}${url}`, {
-      ...options,
+    response = await fetch(fullUrl, {
+      ...fetchOptions,
       headers,
     })
   } catch (err) {

@@ -646,3 +646,11 @@ export function recordWatch(videoId, data) {
 export function createVideoWatchRecord(videoId, data) {
   return post(`/student/videos/${videoId}/watch-record`, data)
 }
+
+/**
+ * 搜索视频（按关键词检索，返回带 embed_url 的结果）
+ * @param {object} data - { keyword, course_id, knowledge_point_id, limit }
+ */
+export function searchVideos(data = {}) {
+  return post('/student/videos/search', data)
+}

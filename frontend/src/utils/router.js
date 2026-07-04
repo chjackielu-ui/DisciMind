@@ -19,7 +19,28 @@ import { renderStudentSubmissionResult } from '../pages/student-submission-resul
 import { renderStudentDocuments } from '../pages/student-documents.js'
 import { renderStudentVideos } from '../pages/student-videos.js'
 import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
+import { renderTeacherCourses } from '../pages/teacher-courses.js'
+import { renderTeacherCourseDetail } from '../pages/teacher-course-detail.js'
+import { renderTeacherStudents } from '../pages/teacher-students.js'
+import { renderTeacherStudentDetail } from '../pages/teacher-student-detail.js'
+import { renderTeacherTasks } from '../pages/teacher-tasks.js'
+import { renderTeacherTaskCreate } from '../pages/teacher-task-create.js'
+import { renderTeacherTaskDetail } from '../pages/teacher-task-detail.js'
+import { renderTeacherQuestions } from '../pages/teacher-questions.js'
+import { renderTeacherQuestionCreate } from '../pages/teacher-question-create.js'
+import { renderTeacherKnowledge } from '../pages/teacher-knowledge.js'
+import { renderTeacherAnalytics } from '../pages/teacher-analytics.js'
+import { renderTeacherProfile } from '../pages/teacher-profile.js'
 import { renderAdminDashboard } from '../pages/admin-dashboard.js'
+import { renderAdminUsers } from '../pages/admin-users.js'
+import { renderAdminCourses } from '../pages/admin-courses.js'
+import { renderAdminCourseDetail } from '../pages/admin-course-detail.js'
+import { renderAdminClasses } from '../pages/admin-classes.js'
+import { renderAdminKnowledge } from '../pages/admin-knowledge.js'
+import { renderAdminLogs } from '../pages/admin-logs.js'
+import { renderAdminNotifications } from '../pages/admin-notifications.js'
+import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
+import { renderAdminProfile } from '../pages/admin-profile.js'
 
 // ============================================================
 // 教师端页面导入区域（教师端开发者在此添加 import）
@@ -47,11 +68,28 @@ const staticRoutes = {
   '/student/ai-chat': { render: renderStudentAiChat, auth: true, roles: ['student'] },
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
-  '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher'] },
+  '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/courses': { render: renderTeacherCourses, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/students': { render: renderTeacherStudents, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/tasks': { render: renderTeacherTasks, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/tasks/create': { render: renderTeacherTaskCreate, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/questions': { render: renderTeacherQuestions, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/questions/create': { render: renderTeacherQuestionCreate, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/knowledge': { render: renderTeacherKnowledge, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/analytics': { render: renderTeacherAnalytics, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/profile': { render: renderTeacherProfile, auth: true, roles: ['teacher', 'admin'] },
 
   // ========== 教师端路由（教师端开发者在此区域添加）==========
 
   '/admin/dashboard': { render: renderAdminDashboard, auth: true, roles: ['admin'] },
+  '/admin/users': { render: renderAdminUsers, auth: true, roles: ['admin'] },
+  '/admin/courses': { render: renderAdminCourses, auth: true, roles: ['admin'] },
+  '/admin/classes': { render: renderAdminClasses, auth: true, roles: ['admin'] },
+  '/admin/knowledge': { render: renderAdminKnowledge, auth: true, roles: ['admin'] },
+  '/admin/logs': { render: renderAdminLogs, auth: true, roles: ['admin'] },
+  '/admin/notifications': { render: renderAdminNotifications, auth: true, roles: ['admin'] },
+  '/admin/ai-config': { render: renderAdminAiConfig, auth: true, roles: ['admin'] },
+  '/admin/profile': { render: renderAdminProfile, auth: true, roles: ['admin'] },
 
   // ========== 管理端路由（管理端开发者在此区域添加）==========
 }
@@ -100,6 +138,56 @@ const dynamicRoutes = [
     auth: true,
     roles: ['student'],
     paramNames: ['kp_id'],
+  },
+  // ========== 教师端动态路由 ==========
+  {
+    // #/teacher/courses/:course_id
+    pattern: /^\/teacher\/courses\/(\d+)$/,
+    render: renderTeacherCourseDetail,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['course_id'],
+  },
+  {
+    // #/teacher/students/:student_user_id
+    pattern: /^\/teacher\/students\/(\d+)$/,
+    render: renderTeacherStudentDetail,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['student_user_id'],
+  },
+  {
+    // #/teacher/tasks/:task_id
+    pattern: /^\/teacher\/tasks\/(\d+)$/,
+    render: renderTeacherTaskDetail,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['task_id'],
+  },
+  {
+    // #/teacher/tasks/:task_id/edit
+    pattern: /^\/teacher\/tasks\/(\d+)\/edit$/,
+    render: renderTeacherTaskCreate,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['task_id'],
+  },
+  {
+    // #/teacher/questions/:question_id
+    pattern: /^\/teacher\/questions\/(\d+)$/,
+    render: renderTeacherQuestionCreate,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['question_id'],
+  },
+  // ========== 管理端动态路由 ==========
+  {
+    // #/admin/courses/:course_id
+    pattern: /^\/admin\/courses\/(\d+)$/,
+    render: renderAdminCourseDetail,
+    auth: true,
+    roles: ['admin'],
+    paramNames: ['course_id'],
   },
 ]
 
