@@ -1,7 +1,7 @@
 // 教师端 - 知识库管理页
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getKnowledgeDocuments, reviewKnowledgeDocument, uploadKnowledgeDocument } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
@@ -13,7 +13,7 @@ export async function renderTeacherKnowledge(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

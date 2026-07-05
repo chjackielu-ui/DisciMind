@@ -6,6 +6,14 @@ export function login(data) {
   return post('/auth/login', data)
 }
 
+export function refresh() {
+  return post('/auth/refresh', {}, { _skipAuthRefresh: true })
+}
+
+export function logout() {
+  return post('/auth/logout', {}, { _skipAuthRefresh: true })
+}
+
 export function register(data) {
   return post('/auth/register', data)
 }

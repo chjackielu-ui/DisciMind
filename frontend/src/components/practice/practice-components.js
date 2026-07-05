@@ -322,13 +322,13 @@ export function practiceSessionStorageKey(sessionId) {
 
 export function savePracticeSessionSnapshot(sessionId, payload) {
   if (!sessionId) return
-  sessionStorage.setItem(practiceSessionStorageKey(sessionId), JSON.stringify(payload))
+  localStorage.setItem(practiceSessionStorageKey(sessionId), JSON.stringify(payload))
 }
 
 export function loadPracticeSessionSnapshot(sessionId) {
   if (!sessionId) return null
   try {
-    const raw = sessionStorage.getItem(practiceSessionStorageKey(sessionId))
+    const raw = localStorage.getItem(practiceSessionStorageKey(sessionId)) || sessionStorage.getItem(practiceSessionStorageKey(sessionId))
     return raw ? JSON.parse(raw) : null
   } catch {
     return null

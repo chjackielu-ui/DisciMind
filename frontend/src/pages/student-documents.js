@@ -1,6 +1,6 @@
 import { getMe } from '../api/auth.js'
 import { getStudentCourses, uploadStudentDocument, parseStudentDocument, getStudentDocuments, getStudentDocumentDetail, deleteStudentDocument } from '../api/student.js'
-import { getUser, setAuth, clearAuth } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, formatFileSize, documentParseStatusLabel, reviewStatusLabel, visibilityLabel, toLower } from '../utils/format.js'
@@ -15,7 +15,7 @@ async function getAuthedUser() {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()

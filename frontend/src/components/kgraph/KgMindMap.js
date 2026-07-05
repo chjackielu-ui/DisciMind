@@ -1,194 +1,447 @@
-// KgMindMap.js — mind-elixir 思维导图封装 v4
-// 5.13.0  ✅ import from 'mind-elixir'
-// style    ✅ import 'mind-elixir/style'
-// draggable ✅ 可拖拽平移
-// 视频下拉  ✅ 每个知识点后 B站图标点击展开视频列表下拉
+// KgMindMap.js - mind-elixir course learning tree wrapper
 
 import MindElixir from 'mind-elixir'
 import 'mind-elixir/style'
-import { searchVideos } from '../../api/student.js'
-import { escapeHtml } from '../../utils/format.js'
+import { escapeHtml, masteryLabel } from '../../utils/format.js'
 
-export function buildMindData(courseName, chapters) {
+const STATUS_META = {
+  mastered: { label: '已掌握', className: 'status-mastered' },
+  learning: { label: '学习中', className: 'status-learning' },
+  unstarted: { label: '未学习', className: 'status-unstarted' },
+  weak: { label: '薄弱', className: 'status-weak' },
+}
+
+function safeId(prefix, id) {
+  const value = id == null ? 'unknown' : String(id).replace(/[^\w-]/g, '-')
+  return `${prefix}-${value}`
+}
+
+function normalizeText(value, fallback = '') {
+  return String(value || fallback).replace(/\s+/g, ' ').trim()
+}
+
+function clampPercent(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  return Math.max(0, Math.min(100, Math.round(number)))
+}
+
+function learningStatus(kp) {
+  const level = String(kp?.mastery_level || '').toLowerCase()
+  const score = Number(kp?.mastery_score || 0)
+  if (!kp?.last_study_at && score <= 0 && (!level || level === 'weak')) return 'unstarted'
+  if (level === 'excellent' || level === 'good') return 'mastered'
+  if (level === 'general') return 'learning'
+  if (level === 'weak') return 'weak'
+  return 'unstarted'
+}
+
+function countMastered(kps = []) {
+  return kps.filter((kp) => learningStatus(kp) === 'mastered').length
+}
+
+function renderCourseNode(courseName, progress) {
+  const title = escapeHtml(courseName || '课程知识图谱')
+  return `
+    <div class="kg-node-card kg-node-course-card" title="${title}">
+      <span class="kg-node-mark kg-node-mark-course" aria-hidden="true"></span>
+      <span class="kg-node-main">${title}</span>
+      <span class="kg-node-sub">完成度 ${clampPercent(progress)}%</span>
+    </div>`
+}
+
+function renderChapterNode(chapter) {
+  const title = escapeHtml(chapter.chapter_name || `章节 ${chapter.chapter_id || ''}`)
+  const done = countMastered(chapter.kps || [])
+  const total = (chapter.kps || []).length
+  return `
+    <div class="kg-node-card kg-node-chapter-card" title="${title}">
+      <span class="kg-node-main">${title}</span>
+      <span class="kg-node-sub">${done}/${total} 个知识点</span>
+    </div>`
+}
+
+function renderKnowledgeNode(kp) {
+  const title = escapeHtml(kp.knowledge_point_name || '知识点')
+  const status = learningStatus(kp)
+  const meta = STATUS_META[status] || STATUS_META.unstarted
+  const score = Number(kp.mastery_score || 0)
+  const scoreText = score > 0 ? `${score}分` : meta.label
+  return `
+    <div class="kg-node-card kg-node-kp-card ${meta.className}" title="${title}">
+      <span class="kg-status-dot" aria-hidden="true"></span>
+      <span class="kg-node-main">${title}</span>
+      <span class="kg-node-sub">${escapeHtml(scoreText)}</span>
+    </div>`
+}
+
+function sortByCourseOrder(list = []) {
+  return [...list].sort((a, b) => {
+    const orderA = Number(a?.sort_order ?? a?.chapter_order ?? 0)
+    const orderB = Number(b?.sort_order ?? b?.chapter_order ?? 0)
+    if (orderA !== orderB) return orderA - orderB
+    return Number(a?.chapter_id ?? a?.knowledge_point_id ?? 0) - Number(b?.chapter_id ?? b?.knowledge_point_id ?? 0)
+  })
+}
+
+export function getKnowledgeStatus(kp) {
+  return learningStatus(kp)
+}
+
+export function buildMindData(courseArg, chapters = []) {
+  const course = typeof courseArg === 'object' && courseArg ? courseArg : { course_name: courseArg }
+  const courseName = normalizeText(course.course_name || course.name, '课程知识图谱')
+  const progress = clampPercent(course.learning_progress ?? course.progress)
+  const chapterNodes = sortByCourseOrder(chapters).map((chapter) => {
+    const chapterName = normalizeText(chapter.chapter_name || chapter.title, `章节 ${chapter.chapter_id || ''}`)
+    const chapterId = safeId('chapter', chapter.chapter_id)
+    const kps = sortByCourseOrder(chapter.kps || chapter.knowledgePoints || [])
+
+    return {
+      id: chapterId,
+      topic: chapterName,
+      dangerouslySetInnerHTML: renderChapterNode({ ...chapter, chapter_name: chapterName, kps }),
+      expanded: true,
+      metadata: {
+        type: 'chapter',
+        chapterId: chapter.chapter_id,
+        chapterName,
+        keyword: [courseName, chapterName].filter(Boolean).join(' '),
+        total: kps.length,
+        mastered: countMastered(kps),
+      },
+      children: kps.map((kp) => {
+        const kpName = normalizeText(kp.knowledge_point_name || kp.name, '知识点')
+        return {
+          id: safeId('kp', kp.knowledge_point_id),
+          topic: kpName,
+          dangerouslySetInnerHTML: renderKnowledgeNode({ ...kp, knowledge_point_name: kpName }),
+          expanded: true,
+          metadata: {
+            type: 'knowledgePoint',
+            kpId: kp.knowledge_point_id,
+            knowledgePointId: kp.knowledge_point_id,
+            knowledgePointName: kpName,
+            chapterId: chapter.chapter_id,
+            chapterName,
+            keyword: [courseName, chapterName, kpName].filter(Boolean).join(' '),
+            shortKeyword: [courseName, kpName].filter(Boolean).join(' '),
+            masteryLevel: kp.mastery_level || null,
+            masteryScore: kp.mastery_score ?? 0,
+            status: learningStatus(kp),
+          },
+        }
+      }),
+    }
+  })
+
   return {
     nodeData: {
-      topic: courseName || '课程知识图谱',
-      children: (chapters || []).map((ch) => ({
-        topic: ch.chapter_name || `章节 ${ch.chapter_id}`,
-        children: (ch.kps || []).map((kp) => ({
-          topic: kp.knowledge_point_name || '知识点',
-          _data: { kpId: kp.knowledge_point_id },
-        })),
-      })),
+      id: safeId('course', course.course_id || course.id || 'root'),
+      topic: courseName,
+      dangerouslySetInnerHTML: renderCourseNode(courseName, progress),
+      expanded: true,
+      metadata: {
+        type: 'course',
+        courseId: course.course_id || course.id || null,
+        courseName,
+        progress,
+        keyword: courseName,
+      },
+      children: chapterNodes,
     },
   }
 }
 
-export function createMindMap(containerEl, mindData, kpList, onVideoClick) {
+function getNodeElement(mind, nodeId) {
+  if (!nodeId) return null
+  try {
+    return MindElixir.E(nodeId)
+  } catch {
+    const escaped = typeof CSS !== 'undefined' && CSS.escape
+      ? CSS.escape(nodeId)
+      : String(nodeId).replace(/"/g, '\\"')
+    return mind?.el?.querySelector(`[data-nodeid="${escaped}"]`)
+  }
+}
+
+function collectNodeIds(node, ids = []) {
+  if (!node) return ids
+  ids.push(node.id)
+  ;(node.children || []).forEach((child) => collectNodeIds(child, ids))
+  return ids
+}
+
+function getAncestors(nodeObj) {
+  const ids = []
+  let cursor = nodeObj?.parent
+  while (cursor) {
+    ids.push(cursor.id)
+    cursor = cursor.parent
+  }
+  return ids
+}
+
+function nodeFocusScale(metadata = {}, currentScale = 1) {
+  const type = metadata.type || ''
+  const target = type === 'knowledgePoint' ? 1.18 : type === 'chapter' ? 1.08 : 1
+  return Math.max(Number(currentScale) || 1, target)
+}
+
+export function createMindMap(containerEl, mindData, _kpList = [], onSelect = () => {}) {
+  if (!containerEl) throw new Error('知识图谱容器不存在')
+
+  const nodeIds = collectNodeIds(mindData?.nodeData)
+  const rootId = mindData?.nodeData?.id
+  const kpIdToNodeId = new Map()
+  const chapterIdToNodeId = new Map()
+  let activeNodeId = null
+  let resizeTimer = null
+
+  function indexNodes(node) {
+    if (!node) return
+    if (node.metadata?.type === 'knowledgePoint') kpIdToNodeId.set(String(node.metadata.kpId), node.id)
+    if (node.metadata?.type === 'chapter') chapterIdToNodeId.set(String(node.metadata.chapterId), node.id)
+    ;(node.children || []).forEach(indexNodes)
+  }
+  indexNodes(mindData?.nodeData)
+
   const mind = new MindElixir({
     el: containerEl,
-    direction: MindElixir.SIDE,
+    direction: MindElixir.RIGHT,
     draggable: true,
+    editable: false,
     contextMenu: false,
     toolBar: false,
     nodeMenu: false,
     keypress: false,
+    allowUndo: false,
+    overflowHidden: false,
+    alignment: 'nodes',
+    compact: false,
+    scaleMin: 0.35,
+    scaleMax: 1.6,
+    handleWheel: () => {},
+    theme: {
+      name: 'DisciMindLight',
+      type: 'light',
+      palette: ['#2F6690', '#3A7CA5', '#58A4B0', '#4CAF84', '#F0B85E'],
+      cssVar: {
+        '--node-gap-x': '74px',
+        '--node-gap-y': '30px',
+        '--main-gap-x': '92px',
+        '--main-gap-y': '42px',
+        '--main-color': '#2F6690',
+        '--main-bgcolor': '#ffffff',
+        '--main-bgcolor-transparent': 'rgba(255,255,255,0.82)',
+        '--color': '#243447',
+        '--bgcolor': '#ffffff',
+        '--selected': '#2F6690',
+        '--accent-color': '#2F6690',
+        '--root-color': '#ffffff',
+        '--root-bgcolor': '#2F6690',
+        '--root-border-color': '#2F6690',
+        '--root-radius': '18px',
+        '--main-radius': '14px',
+        '--topic-padding': '0',
+        '--panel-color': '36, 52, 71',
+        '--panel-bgcolor': '255, 255, 255',
+        '--panel-border-color': '#dbe8ef',
+        '--map-padding': '56px',
+      },
+    },
   })
+
   const err = mind.init(mindData)
   if (err) throw err
 
-  // 展开所有节点
-  try {
-    const root = MindElixir.E.bind(mind)('root')
-    if (root) mind.expandNodeAll(root, true)
-  } catch {}
-
-  // 建立 kpName → kpId 映射
-  const nameMap = {}
-  for (const kp of kpList) {
-    if (kp.knowledge_point_name) nameMap[kp.knowledge_point_name] = kp.knowledge_point_id
+  function decorateNodes() {
+    nodeIds.forEach((nodeId) => {
+      const el = getNodeElement(mind, nodeId)
+      if (!el?.nodeObj) return
+      const metadata = el.nodeObj.metadata || {}
+      el.dataset.kgType = metadata.type || ''
+      if (metadata.kpId) el.dataset.kpId = metadata.kpId
+      if (metadata.chapterId) el.dataset.chapterId = metadata.chapterId
+      if (metadata.status) el.dataset.status = metadata.status
+      el.title = metadata.knowledgePointName || metadata.chapterName || metadata.courseName || el.nodeObj.topic || ''
+      const card = el.querySelector?.('.kg-node-card')
+      if (card) {
+        card.dataset.nodeId = nodeId
+        card.dataset.kgType = metadata.type || ''
+        if (metadata.kpId) card.dataset.kpId = metadata.kpId
+        if (metadata.chapterId) card.dataset.chapterId = metadata.chapterId
+      }
+    })
+    applySelection(activeNodeId)
   }
 
-  // 全局只允许一个下拉展开
-  let activeDropdown = null
+  function fit() {
+    requestAnimationFrame(() => {
+      try {
+        mind.scaleFit()
+        mind.toCenter()
+      } catch {
+        try { mind.toCenter() } catch {}
+      }
+      decorateNodes()
+    })
+  }
 
-  // 为每个叶子节点追加 B站视频按钮 + 下拉
-  function addBtns() {
-    const c = mind.el || mind.container
-    if (!c) return
-    const nodes = c.querySelectorAll('[data-nodeid]')
-    for (const el of nodes) {
-      if (el.getAttribute('data-nodeid') === 'meroot') continue
-      if (el.querySelector('.children')) continue
-      if (el.querySelector('.kg-video-btn')) continue
+  function applySelection(nodeId) {
+    const selected = nodeId ? getNodeElement(mind, nodeId) : null
+    const selectedObj = selected?.nodeObj || null
+    const related = new Set([nodeId, ...getAncestors(selectedObj)])
+    ;(selectedObj?.children || []).forEach((child) => related.add(child.id))
 
-      const text = (el.textContent || '').trim()
-      const kpId = nameMap[text]
-      if (!kpId) continue
+    nodeIds.forEach((id) => {
+      const el = getNodeElement(mind, id)
+      if (!el) return
+      const isActive = id === nodeId
+      el.classList.toggle('kg-node-selected', isActive)
+      el.classList.toggle('kg-node-dimmed', Boolean(nodeId) && !related.has(id))
+    })
+  }
 
-      el.dataset.kpId = kpId
+  function centerNodeInViewport(el) {
+    if (!el || !mind?.container) return
+    try {
+      const containerRect = mind.container.getBoundingClientRect()
+      const nodeRect = el.getBoundingClientRect()
+      const dx = (containerRect.left + containerRect.width / 2) - (nodeRect.left + nodeRect.width / 2)
+      const dy = (containerRect.top + containerRect.height / 2) - (nodeRect.top + nodeRect.height / 2)
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) mind.move(dx, dy, true)
+    } catch {}
+  }
 
-      // B站图标按钮
-      const btn = document.createElement('span')
-      btn.className = 'kg-video-btn'
-      btn.title = '查看视频讲解'
-      btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:#fb7299;color:#fff;cursor:pointer;font-size:11px;margin-left:6px;vertical-align:middle;flex-shrink:0;transition:transform .15s;position:relative;'
-      btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.77 1.56-3.774C2.564 4.21 3.823 3.69 5.333 3.653h.534l-1.066-1.12a1.2 1.2 0 0 1-.347-.853c0-.338.116-.622.347-.853.23-.231.515-.347.853-.347.339 0 .623.116.854.347L7.947 3.64h8.106l1.44-1.813c.231-.231.515-.347.854-.347.338 0 .622.116.853.347.231.23.347.515.347.853a1.2 1.2 0 0 1-.347.854l-1.387 1.12zM5.333 6.4c-.8 0-1.48.283-2.04.853-.56.57-.84 1.25-.84 2.04v7.68c0 .789.28 1.469.84 2.04.56.57 1.24.853 2.04.853h13.334c.8 0 1.48-.283 2.04-.853.56-.571.84-1.251.84-2.04v-7.68c0-.79-.28-1.47-.84-2.04-.56-.57-1.24-.853-2.04-.853H5.333zm5.334 2.773v3.094h-2.56V9.173h2.56zm5.333 0v3.094h-2.56V9.173h2.56z"/></svg>'
-
-      // 创建下拉容器
-      const dropdown = document.createElement('div')
-      dropdown.className = 'kg-video-dropdown'
-      dropdown.style.cssText = 'display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;z-index:999;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.12);min-width:260px;max-width:320px;max-height:240px;overflow-y:auto;padding:6px;'
-      btn.appendChild(dropdown)
-
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        // 点击缩放动画
-        btn.style.transform = 'scale(1.15)'
-        setTimeout(() => { btn.style.transform = '' }, 200)
-
-        // 如果当前下拉已展开且是同一个，则收起
-        if (activeDropdown === dropdown && dropdown.style.display === 'block') {
-          dropdown.style.display = 'none'
-          activeDropdown = null
-          return
-        }
-
-        // 收起其他
-        if (activeDropdown && activeDropdown !== dropdown) {
-          activeDropdown.style.display = 'none'
-        }
-
-        // 如果还没加载过视频，则加载
-        if (!dropdown.hasChildNodes() || dropdown.children.length === 0 || !dropdown.dataset.loaded) {
-          dropdown.style.display = 'block'
-          dropdown.innerHTML = '<div style="text-align:center;padding:12px;"><div style="display:inline-block;width:16px;height:16px;border:2px solid #e2e8f0;border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite;"></div><p style="font-size:0.78rem;color:#94a3b8;margin-top:6px;">加载中...</p></div>'
-          activeDropdown = dropdown
-
-          try {
-            const res = await searchVideos({ keyword: text, limit: 8 })
-            const data = res.data || { list: [], suggestion: null }
-            dropdown.dataset.loaded = '1'
-            renderDropdown(dropdown, data, kpId, onVideoClick)
-          } catch (err) {
-            dropdown.innerHTML = '<div style="text-align:center;padding:12px;font-size:0.78rem;color:#94a3b8;"><p>加载失败</p></div>'
-          }
-        } else {
-          dropdown.style.display = 'block'
-          activeDropdown = dropdown
-        }
+  function focusNodeElement(el, { zoom = true } = {}) {
+    if (!el) return
+    try {
+      if (zoom) {
+        const rect = mind.container?.getBoundingClientRect?.()
+        const nextScale = Math.min(mind.scaleMax || 1.6, nodeFocusScale(el.nodeObj?.metadata || {}, mind.scaleVal))
+        mind.scale(nextScale, rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : undefined)
+      }
+      requestAnimationFrame(() => {
+        try { mind.scrollIntoView(el, true) } catch {}
+        requestAnimationFrame(() => centerNodeInViewport(el))
       })
-
-      // 插入按钮
-      const topicText = el.querySelector('.topic-text') || el.querySelector('.topic')
-      if (topicText) topicText.after(btn)
-      else el.appendChild(btn)
+    } catch {
+      try { mind.scrollIntoView(el, true) } catch {}
     }
   }
 
-  // 渲染下拉视频列表（参考错题本视频讲解格式）
-  function renderDropdown(dropdownEl, data, kpId, callback) {
-    const list = data.list || []
-    const suggestion = data.suggestion || null
-
-    if (list.length > 0) {
-      dropdownEl.innerHTML = list.map((v) => {
-        const isBili = (v.source || '').toLowerCase() === 'bilibili'
-        const iconSvg = isBili
-          ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.77 1.56-3.774C2.564 4.21 3.823 3.69 5.333 3.653h.534l-1.066-1.12a1.2 1.2 0 0 1-.347-.853c0-.338.116-.622.347-.853.23-.231.515-.347.853-.347.339 0 .623.116.854.347L7.947 3.64h8.106l1.44-1.813c.231-.231.515-.347.854-.347.338 0 .622.116.853.347.231.23.347.515.347.853a1.2 1.2 0 0 1-.347.854l-1.387 1.12zM5.333 6.4c-.8 0-1.48.283-2.04.853-.56.57-.84 1.25-.84 2.04v7.68c0 .789.28 1.469.84 2.04.56.57 1.24.853 2.04.853h13.334c.8 0 1.48-.283 2.04-.853.56-.571.84-1.251.84-2.04v-7.68c0-.79-.28-1.47-.84-2.04-.56-.57-1.24-.853-2.04-.853H5.333zm5.334 2.773v3.094h-2.56V9.173h2.56zm5.333 0v3.094h-2.56V9.173h2.56z"/></svg>'
-          : '<span style="font-size:0.65rem;">▶</span>'
-        const title = escapeHtml(v.title || '视频')
-        const embed = escapeHtml(v.embed_url || '')
-        const vidUrl = escapeHtml(v.video_url || '')
-        return `<div class="kg-vid-item" data-embed="${embed}" data-title="${title}" data-url="${vidUrl}" data-kp-id="${kpId}" style="cursor:pointer;padding:6px 8px;border-radius:8px;display:flex;align-items:center;gap:8px;transition:background 0.15s;font-size:0.78rem;">
-          <span style="flex-shrink:0;width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;background:${isBili ? '#fb7299' : 'var(--primary)'};color:#fff;font-size:0.55rem;">${iconSvg}</span>
-          <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);">${title}</span>
-          <span style="flex-shrink:0;font-size:0.65rem;color:${v.embed_url ? '#2563eb' : '#94a3b8'};">${v.embed_url ? '播放' : '链接'}</span>
-        </div>`
-      }).join('')
-
-      // 视频项点击 → 右侧播放 + 高亮
-      dropdownEl.querySelectorAll('.kg-vid-item').forEach((item) => {
-        item.addEventListener('click', (e) => {
-          e.stopPropagation()
-          dropdownEl.querySelectorAll('.kg-vid-item').forEach(el => el.style.background = 'transparent')
-          item.style.background = '#eff6ff'
-          callback(kpId)
-        })
-      })
-    } else if (suggestion) {
-      dropdownEl.innerHTML = `<div style="padding:8px;font-size:0.75rem;color:#94a3b8;text-align:center;">
-        <p style="margin-bottom:4px;">暂无相关视频</p>
-        <a href="${(suggestion.search_url || '#')}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:3px 10px;border-radius:5px;background:#fb7299;color:#fff;text-decoration:none;font-size:0.72rem;">去B站搜索</a>
-      </div>`
-    } else {
-      dropdownEl.innerHTML = '<div style="padding:8px;font-size:0.75rem;color:#94a3b8;text-align:center;">暂无视频</div>'
-    }
+  function emitSelection(nodeObj) {
+    const metadata = nodeObj?.metadata || {}
+    activeNodeId = nodeObj?.id || null
+    decorateNodes()
+    applySelection(activeNodeId)
+    onSelect({
+      ...metadata,
+      id: nodeObj?.id || null,
+      name: metadata.knowledgePointName || metadata.chapterName || metadata.courseName || nodeObj?.topic || '',
+      nodeId: nodeObj?.id || null,
+    })
   }
 
-  requestAnimationFrame(() => { addBtns() })
+  function selectNodeById(nodeId, shouldCenter = true) {
+    const el = getNodeElement(mind, nodeId)
+    if (!el) return false
+    activeNodeId = nodeId
+    try { mind.selectNode(el, false) } catch {}
+    if (shouldCenter) focusNodeElement(el)
+    emitSelection(el.nodeObj)
+    return true
+  }
 
-  // 节点选中 → 从 nodeObj._data 读取 kpId → 右侧更新
   mind.bus.addListener('selectNewNode', (nodeObj) => {
-    // mind-elixir 的 selectNewNode 直接将 nodeObj 作为参数
-    const kpId = nodeObj?._data?.kpId
-    if (!kpId) {
-      // 如果 _data 不存在，尝试通过 DOM 回退
-      const topicEl = nodeObj?.parentElement || nodeObj
-      if (topicEl?.dataset?.kpId) return callback(parseInt(topicEl.dataset.kpId, 10))
-      return
+    if (nodeObj?.metadata?.type === 'chapter') {
+      const el = getNodeElement(mind, nodeObj.id)
+      if (el) {
+        try { mind.expandNode(el) } catch {}
+      }
     }
-    callback(parseInt(kpId, 10))
+    focusNodeElement(getNodeElement(mind, nodeObj?.id))
+    emitSelection(nodeObj)
   })
 
-  function callback(kpId) {
-    // 收起所有下拉
-    if (activeDropdown) {
-      activeDropdown.style.display = 'none'
-      activeDropdown = null
-    }
-    onVideoClick(kpId)
+  function handleNodeCardClick(event) {
+    const card = event.target?.closest?.('.kg-node-card')
+    if (!card || !containerEl.contains(card)) return
+    const nodeId = card.dataset.nodeId || card.closest?.('[data-nodeid]')?.dataset.nodeid
+    if (nodeId && nodeId !== activeNodeId) selectNodeById(nodeId)
   }
 
-  return mind
+  containerEl.addEventListener('click', handleNodeCardClick)
+
+  requestAnimationFrame(() => {
+    try {
+      const root = getNodeElement(mind, rootId)
+      if (root) mind.expandNodeAll(root, true)
+    } catch {}
+    decorateNodes()
+    fit()
+  })
+
+  const resizeObserver = typeof ResizeObserver !== 'undefined'
+    ? new ResizeObserver(() => {
+      clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(fit, 120)
+    })
+    : null
+  resizeObserver?.observe(containerEl)
+
+  return {
+    mind,
+    fit,
+    zoomIn() {
+      const next = Math.min(1.6, Number((mind.scaleVal + 0.12).toFixed(2)))
+      mind.scale(next)
+    },
+    zoomOut() {
+      const next = Math.max(0.35, Number((mind.scaleVal - 0.12).toFixed(2)))
+      mind.scale(next)
+    },
+    centerRoot() {
+      selectNodeById(rootId, false)
+      try { mind.toCenter() } catch {}
+    },
+    expandAll() {
+      const root = getNodeElement(mind, rootId)
+      if (root) mind.expandNodeAll(root, true)
+      requestAnimationFrame(() => { decorateNodes(); fit() })
+    },
+    collapseAll() {
+      const root = getNodeElement(mind, rootId)
+      if (root) mind.expandNodeAll(root, false)
+      requestAnimationFrame(() => { decorateNodes(); fit() })
+    },
+    selectKnowledgePoint(kpId) {
+      return selectNodeById(kpIdToNodeId.get(String(kpId)))
+    },
+    selectChapter(chapterId) {
+      return selectNodeById(chapterIdToNodeId.get(String(chapterId)))
+    },
+    selectRoot() {
+      return selectNodeById(rootId)
+    },
+    dispose() {
+      containerEl.removeEventListener('click', handleNodeCardClick)
+      resizeObserver?.disconnect()
+      clearTimeout(resizeTimer)
+      try { mind.destroy?.() } catch {}
+    },
+    getNodeIdByKpId(kpId) {
+      return kpIdToNodeId.get(String(kpId)) || null
+    },
+    getNodeIdByChapterId(chapterId) {
+      return chapterIdToNodeId.get(String(chapterId)) || null
+    },
+    getStatus(kp) {
+      return learningStatus(kp)
+    },
+    getStatusLabel(kp) {
+      return STATUS_META[learningStatus(kp)]?.label || masteryLabel(kp?.mastery_level)
+    },
+  }
 }

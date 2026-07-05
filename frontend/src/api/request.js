@@ -1,9 +1,12 @@
 // HTTP 请求封装 — 基于原生 fetch
 // 自动附加 Authorization 头，统一处理响应格式和认证错误
+// 401 时先尝试通过 sessionStorage 刷新，失败后使用 Cookie 刷新
 
-import { getToken, clearAuth } from '../utils/auth.js'
+import { getToken, clearAuth, refreshSessionViaStorage, refreshAuthSession, canRefreshCurrentSession } from '../utils/auth.js'
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+
+let refreshLock = null // 防止并发刷新
 
 function buildUrl(url, params) {
   if (!params) return `${BASE_URL}${url}`
@@ -15,6 +18,41 @@ function buildUrl(url, params) {
   }
   const qs = searchParams.toString()
   return qs ? `${BASE_URL}${url}?${qs}` : `${BASE_URL}${url}`
+}
+
+function shouldTryRefresh(url, options) {
+  if (options._retry || options._skipAuthRefresh) return false
+  if (url.startsWith('/auth/login') || url.startsWith('/auth/refresh') || url.startsWith('/auth/logout') || url.startsWith('/auth/session/refresh')) return false
+  return true
+}
+
+/**
+ * 执行会话刷新：先检查当前会话是否可刷新，再尝试
+ */
+async function doRefresh() {
+  // 如果当前标签页没有有效会话标记，拒绝刷新
+  if (!canRefreshCurrentSession()) {
+    throw new Error('会话已过期')
+  }
+  if (refreshLock) return refreshLock
+  refreshLock = (async () => {
+    // 先尝试 sessionStorage 刷新
+    try {
+      return await refreshSessionViaStorage()
+    } catch {
+      // sessionStorage 刷新失败，尝试 Cookie 刷新
+      try {
+        return await refreshAuthSession()
+      } catch {
+        throw new Error('会话已过期')
+      }
+    }
+  })()
+  try {
+    return await refreshLock
+  } finally {
+    refreshLock = null
+  }
 }
 
 export async function request(url, options = {}) {
@@ -31,7 +69,7 @@ export async function request(url, options = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const { params, ...fetchOptions } = options
+  const { params, _retry, _skipAuthRefresh, ...fetchOptions } = options
   const fullUrl = buildUrl(url, params)
 
   let response
@@ -39,6 +77,7 @@ export async function request(url, options = {}) {
     response = await fetch(fullUrl, {
       ...fetchOptions,
       headers,
+      credentials: 'include',
     })
   } catch (err) {
     throw new Error('网络请求失败，请检查网络连接或后端服务是否启动')
@@ -55,13 +94,38 @@ export async function request(url, options = {}) {
   } else {
     const text = await response.text().catch(() => '')
     const message = text.match(/Cannot\s+\w+\s+[^<\s]+/)?.[0]
+    // 开发诊断日志：打印实际请求信息
+    console.error('[request] 非 JSON 错误响应', {
+      method: (options.method || 'GET').toUpperCase(),
+      url: fullUrl,
+      status: response.status,
+      contentType,
+      excerpt: text.slice(0, 200),
+    })
     throw new Error(message || `接口请求失败（HTTP ${response.status}）`)
   }
 
   // 认证错误：token 缺失 (40101) 或 token 无效/过期 (40102)
   if (result.code === 40101 || result.code === 40102) {
+    if (shouldTryRefresh(url, options)) {
+      try {
+        await doRefresh()
+        // 刷新成功，用新 token 重试
+        const newToken = getToken()
+        if (newToken) {
+          headers['Authorization'] = `Bearer ${newToken}`
+        }
+        return request(url, { ...options, _retry: true })
+      } catch {
+        clearAuth()
+        window.location.hash = '#/login'
+        throw new Error(result.message || '登录已过期，请重新登录')
+      }
+    }
     clearAuth()
-    window.location.hash = '#/login'
+    if (!url.startsWith('/auth/refresh') && !url.startsWith('/auth/session/refresh')) {
+      window.location.hash = '#/login'
+    }
     throw new Error(result.message || '登录已过期，请重新登录')
   }
 

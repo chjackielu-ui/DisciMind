@@ -2,10 +2,13 @@
 // 统一管理 Token 的签发和验证，确保所有模块使用相同的 secret 和过期策略
 
 const jwt = require('jsonwebtoken');
+const { loadEnv } = require('../config/env');
+
+loadEnv();
 
 // 从环境变量读取 secret，开发环境使用默认值（仅用于本地调试）
 const JWT_SECRET = process.env.JWT_SECRET || 'discimind-dev-secret';
-const JWT_EXPIRES_IN = '7d';
+const ACCESS_TOKEN_EXPIRES_IN = process.env.ACCESS_TOKEN_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '20m';
 
 /**
  * 签发 JWT
@@ -13,7 +16,7 @@ const JWT_EXPIRES_IN = '7d';
  * @returns {string} JWT 字符串
  */
 function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign({ ...payload, token_type: 'access' }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
 }
 
 /**

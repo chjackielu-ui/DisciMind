@@ -3,7 +3,7 @@
 
 import { getMe } from '../api/auth.js'
 import { getAdminCourses, createAdminCourse, deleteAdminCourse } from '../api/admin.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
 function escapeHtml(str) {
@@ -42,7 +42,7 @@ export async function renderAdminCourses(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()

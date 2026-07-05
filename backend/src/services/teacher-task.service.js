@@ -297,18 +297,28 @@ async function listSubmissions(user, taskId, query) {
   if (!task) throw Object.assign(new Error('任务不存在'), { code: 40002 });
   await ensureCourseAccess(user, task.course_id);
 
-  const where = { task_id: taskId };
-  if (query.submission_status) {
-    where.submission_status = query.submission_status.toUpperCase();
-  }
-
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, Number.parseInt(query.page_size || query.pageSize, 10) || 20));
   const skip = (page - 1) * pageSize;
 
-  const [submissions, total] = await Promise.all([
-    prisma.taskSubmission.findMany({
-      where,
+  // 1. 查询新的 attempt 数据（PracticeSession source_type=TEACHER_TASK）
+  const attemptWhere = {
+    source_type: 'TEACHER_TASK',
+    source_id: taskId,
+    status: { not: 'CREATED' },
+  };
+  if (query.submission_status) {
+    const s = query.submission_status.toUpperCase();
+    if (s === 'IN_PROGRESS') {
+      attemptWhere.status = { in: ['IN_PROGRESS', 'CREATED'] };
+    } else {
+      attemptWhere.status = s;
+    }
+  }
+
+  const [attempts, attemptTotal] = await Promise.all([
+    prisma.practiceSession.findMany({
+      where: attemptWhere,
       orderBy: { submitted_at: 'desc' },
       skip,
       take: pageSize,
@@ -317,30 +327,95 @@ async function listSubmissions(user, taskId, query) {
         _count: { select: { answer_records: true } },
       },
     }),
-    prisma.taskSubmission.count({ where }),
+    prisma.practiceSession.count({ where: attemptWhere }),
   ]);
 
+  // 2. 查询旧 TaskSubmission（迁移前历史数据）
+  const subWhere = { task_id: taskId };
+  if (query.submission_status) {
+    subWhere.submission_status = query.submission_status.toUpperCase();
+  }
+  const [legacySubs, legacyTotal] = await Promise.all([
+    prisma.taskSubmission.findMany({
+      where: subWhere,
+      orderBy: { submitted_at: 'desc' },
+      skip,
+      take: pageSize,
+      include: {
+        student: { include: { profile: true } },
+        _count: { select: { answer_records: true } },
+      },
+    }),
+    prisma.taskSubmission.count({ where: subWhere }),
+  ]);
+
+  // 3. 合并结果（attempt 优先，旧数据为辅，按 student_user_id 去重）
+  const seenStudentIds = new Set();
+  const list = [];
+
+  // 先添加 attempt 数据
+  for (const a of attempts) {
+    seenStudentIds.add(a.student_user_id);
+    list.push(formatAttemptAsSubmission(a));
+  }
+
+  // 再添加旧 TaskSubmission（与 attempt 不重复的学生）
+  for (const s of legacySubs) {
+    if (!seenStudentIds.has(s.student_user_id)) {
+      list.push(formatLegacySubmission(s));
+    }
+  }
+
   return {
-    list: submissions.map((s) => ({
-      submission_id: s.submission_id,
-      task_id: s.task_id,
-      student_user_id: s.student_user_id,
-      student_name: s.student?.profile?.real_name || s.student?.username || null,
-      student_no: s.student?.profile?.student_no || null,
-      submission_status: toLower(s.submission_status),
-      grading_status: toLower(s.grading_status),
-      total_score: s.total_score,
-      objective_score: s.objective_score,
-      ai_score: s.ai_score,
-      started_at: s.started_at?.toISOString() || null,
-      submitted_at: s.submitted_at?.toISOString() || null,
-      duration_seconds: s.duration_seconds,
-      is_late: s.is_late,
-      answer_count: s._count.answer_records,
-    })),
-    total,
+    list,
+    total: attemptTotal + legacyTotal,
     page,
     page_size: pageSize,
+    engines: { attempt: attemptTotal, legacy: legacyTotal },
+  };
+}
+
+function formatAttemptAsSubmission(s) {
+  return {
+    submission_id: s.practice_session_id,
+    engine: 'ATTEMPT',
+    task_id: s.source_id,
+    student_user_id: s.student_user_id,
+    student_name: s.student?.profile?.real_name || s.student?.username || null,
+    student_no: s.student?.profile?.student_no || null,
+    submission_status: toLower(s.status === 'SUBMITTED' ? 'submitted' : s.status),
+    grading_status: 'auto_graded',
+    total_score: s.total_score,
+    objective_score: s.objective_score,
+    ai_score: s.ai_score,
+    started_at: s.started_at?.toISOString() || null,
+    submitted_at: s.submitted_at?.toISOString() || null,
+    duration_seconds: s.duration_seconds,
+    is_late: false,
+    answer_count: s._count.answer_records,
+    submit_reason: s.submit_reason || null,
+  };
+}
+
+function formatLegacySubmission(s) {
+  return {
+    submission_id: s.submission_id,
+    engine: 'LEGACY_TASK_SUBMISSION',
+    task_id: s.task_id,
+    student_user_id: s.student_user_id,
+    student_name: s.student?.profile?.real_name || s.student?.username || null,
+    student_no: s.student?.profile?.student_no || null,
+    submission_status: toLower(s.submission_status),
+    grading_status: toLower(s.grading_status),
+    total_score: s.total_score,
+    objective_score: s.objective_score,
+    ai_score: s.ai_score,
+    started_at: s.started_at?.toISOString() || null,
+    submitted_at: s.submitted_at?.toISOString() || null,
+    duration_seconds: s.duration_seconds,
+    is_late: s.is_late,
+    answer_count: s._count.answer_records,
+    submit_reason: null,
   };
 }
 
@@ -351,6 +426,26 @@ async function getSubmission(user, taskId, submissionId) {
   if (!task) throw Object.assign(new Error('任务不存在'), { code: 40002 });
   await ensureCourseAccess(user, task.course_id);
 
+  // 1. 先尝试查询 attempt (PracticeSession)
+  const attempt = await prisma.practiceSession.findUnique({
+    where: { practice_session_id: submissionId },
+    include: {
+      student: { include: { profile: true } },
+      answer_records: {
+        include: {
+          question: {
+            include: { knowledge_point: true, options: { orderBy: { option_order: 'asc' } } },
+          },
+        },
+      },
+    },
+  });
+
+  if (attempt && attempt.source_type === 'TEACHER_TASK' && attempt.source_id === taskId) {
+    return formatAttemptDetail(attempt);
+  }
+
+  // 2. 降级查询旧 TaskSubmission
   const submission = await prisma.taskSubmission.findUnique({
     where: { submission_id: submissionId },
     include: {
@@ -365,10 +460,57 @@ async function getSubmission(user, taskId, submissionId) {
     },
   });
 
-  if (!submission) throw Object.assign(new Error('提交记录不存在'), { code: 40002 });
+  if (submission) {
+    return formatLegacyDetail(submission);
+  }
 
+  throw Object.assign(new Error('提交记录不存在'), { code: 40002 });
+}
+
+function formatAttemptDetail(s) {
+  return {
+    submission_id: s.practice_session_id,
+    engine: 'ATTEMPT',
+    task_id: s.source_id,
+    student_user_id: s.student_user_id,
+    student_name: s.student?.profile?.real_name || s.student?.username || null,
+    submission_status: toLower(s.status === 'SUBMITTED' ? 'submitted' : s.status),
+    grading_status: 'auto_graded',
+    total_score: s.total_score,
+    objective_score: s.objective_score,
+    ai_score: s.ai_score,
+    started_at: s.started_at?.toISOString() || null,
+    submitted_at: s.submitted_at?.toISOString() || null,
+    duration_seconds: s.duration_seconds,
+    is_late: false,
+    submit_reason: s.submit_reason || null,
+    answers: (s.answer_records || []).map((ar) => ({
+      answer_record_id: ar.answer_record_id,
+      question_id: ar.question_id,
+      question_title: ar.question?.title || null,
+      question_type: ar.question ? toLower(ar.question.question_type) : null,
+      difficulty_level: ar.question ? toLower(ar.question.difficulty_level) : null,
+      score: ar.question?.score || 0,
+      knowledge_point: ar.question?.knowledge_point ? {
+        knowledge_point_id: ar.question.knowledge_point.knowledge_point_id,
+        knowledge_point_name: ar.question.knowledge_point.knowledge_point_name,
+      } : null,
+      options: (ar.question?.options || []).map((opt) => ({
+        option_key: opt.option_key,
+        option_content: opt.option_content,
+      })),
+      answer_content: ar.answer_content,
+      is_correct: ar.is_correct,
+      obtained_score: ar.score,
+      feedback: ar.feedback,
+    })),
+  };
+}
+
+function formatLegacyDetail(submission) {
   return {
     submission_id: submission.submission_id,
+    engine: 'LEGACY_TASK_SUBMISSION',
     task_id: submission.task_id,
     student_user_id: submission.student_user_id,
     student_name: submission.student?.profile?.real_name || submission.student?.username || null,
@@ -381,6 +523,7 @@ async function getSubmission(user, taskId, submissionId) {
     submitted_at: submission.submitted_at?.toISOString() || null,
     duration_seconds: submission.duration_seconds,
     is_late: submission.is_late,
+    submit_reason: null,
     answers: submission.answer_records.map((ar) => ({
       answer_record_id: ar.answer_record_id,
       question_id: ar.question_id,

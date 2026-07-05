@@ -3,7 +3,7 @@
 
 import { getMe } from '../api/auth.js'
 import { getAdminUsers, updateUserStatus, resetUserPassword, deleteUser } from '../api/admin.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
 const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
@@ -60,7 +60,7 @@ export async function renderAdminUsers(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()

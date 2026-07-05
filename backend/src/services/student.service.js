@@ -96,6 +96,195 @@ function calcMasteryLevel(score) {
   return 'weak';
 }
 
+function clampPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+function uniqueIds(ids) {
+  return [...new Set((ids || []).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+function setSize(map, key) {
+  return map[key] ? map[key].size : 0;
+}
+
+async function getActiveCourseEnrollments(userId, include = {}) {
+  const enrollments = await prisma.studentCourseEnrollment.findMany({
+    where: { student_user_id: userId, enrollment_status: 'active' },
+    include,
+    orderBy: [
+      { course_id: 'asc' },
+      { created_at: 'desc' },
+      { enrollment_id: 'desc' },
+    ],
+  });
+
+  const seenCourseIds = new Set();
+  return enrollments.filter((enrollment) => {
+    if (seenCourseIds.has(enrollment.course_id)) return false;
+    seenCourseIds.add(enrollment.course_id);
+    return true;
+  });
+}
+
+async function buildCourseLearningStats(userId, courseIdsInput) {
+  const courseIds = uniqueIds(courseIdsInput);
+  if (courseIds.length === 0) return {};
+
+  const [
+    chapterCounts,
+    knowledgePoints,
+    masteryRecords,
+    studyRecords,
+    portraits,
+    videoCounts,
+    questionCounts,
+  ] = await Promise.all([
+    prisma.chapter.groupBy({
+      by: ['course_id'],
+      where: { course_id: { in: courseIds } },
+      _count: { _all: true },
+    }),
+    prisma.knowledgePoint.findMany({
+      where: { course_id: { in: courseIds } },
+      select: {
+        knowledge_point_id: true,
+        course_id: true,
+        chapter_id: true,
+        knowledge_point_name: true,
+      },
+    }),
+    prisma.studentMasteryRecord.findMany({
+      where: { student_user_id: userId, course_id: { in: courseIds } },
+    }),
+    prisma.studyRecord.findMany({
+      where: { student_user_id: userId, course_id: { in: courseIds } },
+      include: {
+        knowledge_point: {
+          select: {
+            knowledge_point_id: true,
+            knowledge_point_name: true,
+            chapter_id: true,
+          },
+        },
+      },
+      orderBy: [{ created_at: 'desc' }, { study_record_id: 'desc' }],
+    }),
+    prisma.studentPortrait.findMany({
+      where: { student_user_id: userId, course_id: { in: courseIds } },
+    }),
+    prisma.videoResource.groupBy({
+      by: ['course_id'],
+      where: { course_id: { in: courseIds } },
+      _count: { _all: true },
+    }),
+    prisma.question.groupBy({
+      by: ['course_id'],
+      where: { course_id: { in: courseIds }, status: 'active' },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const chapterCountMap = {};
+  chapterCounts.forEach((item) => { chapterCountMap[item.course_id] = item._count._all; });
+
+  const kpCountMap = {};
+  const kpById = {};
+  knowledgePoints.forEach((kp) => {
+    kpById[kp.knowledge_point_id] = kp;
+    kpCountMap[kp.course_id] = (kpCountMap[kp.course_id] || 0) + 1;
+  });
+
+  const masteryMap = {};
+  masteryRecords.forEach((record) => {
+    if (!masteryMap[record.course_id]) {
+      masteryMap[record.course_id] = { mastered: 0, weak: 0, totalScore: 0, count: 0 };
+    }
+    const stats = masteryMap[record.course_id];
+    stats.count += 1;
+    stats.totalScore += record.mastery_score || 0;
+    if (record.mastery_level === 'GOOD' || record.mastery_level === 'EXCELLENT') stats.mastered += 1;
+    if (record.mastery_level === 'WEAK') stats.weak += 1;
+  });
+
+  const completedKps = {};
+  const completedChapters = {};
+  const latestStudyMap = {};
+  studyRecords.forEach((record) => {
+    if (!latestStudyMap[record.course_id]) latestStudyMap[record.course_id] = record;
+
+    const progress = Number(record.progress_percent || 0);
+    const completed = record.action_type === 'FINISH' || record.action_type === 'REVIEW' || progress >= 100;
+    if (!completed || !record.knowledge_point_id) return;
+
+    if (!completedKps[record.course_id]) completedKps[record.course_id] = new Set();
+    completedKps[record.course_id].add(record.knowledge_point_id);
+
+    const kp = record.knowledge_point || kpById[record.knowledge_point_id];
+    if (kp?.chapter_id) {
+      if (!completedChapters[record.course_id]) completedChapters[record.course_id] = new Set();
+      completedChapters[record.course_id].add(kp.chapter_id);
+    }
+  });
+
+  const portraitMap = {};
+  portraits.forEach((portrait) => { portraitMap[portrait.course_id] = portrait; });
+
+  const videoCountMap = {};
+  videoCounts.forEach((item) => { videoCountMap[item.course_id] = item._count._all; });
+
+  const questionCountMap = {};
+  questionCounts.forEach((item) => { questionCountMap[item.course_id] = item._count._all; });
+
+  const result = {};
+  courseIds.forEach((courseId) => {
+    const knowledgePointCount = kpCountMap[courseId] || 0;
+    const mastery = masteryMap[courseId] || { mastered: 0, weak: 0, totalScore: 0, count: 0 };
+    const completedKnowledgeCount = setSize(completedKps, courseId);
+    const studyProgress = knowledgePointCount > 0
+      ? (completedKnowledgeCount / knowledgePointCount) * 100
+      : 0;
+    const fallbackMasteryProgress = knowledgePointCount > 0
+      ? (mastery.mastered / knowledgePointCount) * 100
+      : 0;
+    const portraitProgress = portraitMap[courseId]?.progress_score;
+    const percentage = clampPercent(
+      studyProgress > 0
+        ? studyProgress
+        : (portraitProgress != null ? portraitProgress : fallbackMasteryProgress),
+    );
+    const latestStudy = latestStudyMap[courseId] || null;
+    const lastStudyAt = latestStudy
+      ? (latestStudy.finished_at || latestStudy.started_at || latestStudy.created_at)
+      : null;
+    const lastPosition = latestStudy?.knowledge_point?.knowledge_point_name
+      || (latestStudy?.resource_type ? `${latestStudy.resource_type}${latestStudy.resource_id ? ` #${latestStudy.resource_id}` : ''}` : null);
+
+    result[courseId] = {
+      course_id: courseId,
+      completed: completedKnowledgeCount,
+      total: knowledgePointCount,
+      percentage,
+      progress: percentage,
+      last_study_at: lastStudyAt ? lastStudyAt.toISOString() : null,
+      last_position: lastPosition,
+      chapter_count: chapterCountMap[courseId] || 0,
+      completed_chapter_count: setSize(completedChapters, courseId),
+      knowledge_point_count: knowledgePointCount,
+      completed_knowledge_count: completedKnowledgeCount,
+      mastered_knowledge_count: mastery.mastered,
+      weak_knowledge_count: mastery.weak,
+      video_count: videoCountMap[courseId] || 0,
+      question_count: questionCountMap[courseId] || 0,
+      average_mastery_score: mastery.count > 0 ? Math.round(mastery.totalScore / mastery.count) : 0,
+    };
+  });
+
+  return result;
+}
+
 // ========================
 // 1. Dashboard（已有）
 // ========================
@@ -106,18 +295,15 @@ async function getDashboard(userId) {
       where: { user_id: userId },
       include: { profile: true },
     }),
-    prisma.studentCourseEnrollment.findMany({
-      where: { student_user_id: userId, enrollment_status: 'active' },
-      include: { course: true, teachingClass: true },
-    }),
+    getActiveCourseEnrollments(userId, { course: true, teachingClass: true }),
   ]);
 
   if (!user) {
     throw Object.assign(new Error('用户不存在'), { code: 40401 });
   }
 
-  const courseIds = enrollments.map((e) => e.course_id);
-  const teachingClassIds = enrollments.map((e) => e.teaching_class_id);
+  const courseIds = uniqueIds(enrollments.map((e) => e.course_id));
+  const teachingClassIds = uniqueIds(enrollments.map((e) => e.teaching_class_id));
 
   if (courseIds.length === 0) {
     return {
@@ -148,6 +334,7 @@ async function getDashboard(userId) {
     latestRecRecord,
     recentTasks,
     allStudyRecords,
+    courseProgressMap,
   ] = await Promise.all([
     prisma.studentMasteryRecord.findMany({
       where: { student_user_id: userId, course_id: { in: courseIds } },
@@ -182,6 +369,7 @@ async function getDashboard(userId) {
     prisma.studyRecord.findMany({
       where: { student_user_id: userId },
     }),
+    buildCourseLearningStats(userId, courseIds),
   ]);
 
   const masteredCount = masteryRecords.filter(
@@ -190,10 +378,11 @@ async function getDashboard(userId) {
   const weakCount = masteryRecords.filter((r) => r.mastery_level === 'WEAK').length;
 
   let learningProgress = 0;
-  if (portraits.length > 0) {
-    const avgProgress =
-      portraits.reduce((sum, p) => sum + (p.progress_score || 0), 0) / portraits.length;
-    learningProgress = Math.round(avgProgress * 10) / 10;
+  const progressValues = Object.values(courseProgressMap).map((item) => item.percentage || 0);
+  if (progressValues.length > 0) {
+    learningProgress = Math.round(
+      progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length,
+    );
   }
 
   let weeklyStudyHours = 0;
@@ -206,7 +395,7 @@ async function getDashboard(userId) {
   }
 
   const overview = {
-    course_count: enrollments.length,
+    course_count: courseIds.length,
     learning_progress: learningProgress,
     mastered_knowledge_count: masteredCount,
     weak_knowledge_count: weakCount,
@@ -233,6 +422,10 @@ async function getDashboard(userId) {
     course_name: e.course.course_name,
     course_code: e.course.course_code,
     description: e.course.description || null,
+    progress: courseProgressMap[e.course_id]?.percentage || 0,
+    learning_progress: courseProgressMap[e.course_id]?.percentage || 0,
+    last_study_at: courseProgressMap[e.course_id]?.last_study_at || null,
+    last_position: courseProgressMap[e.course_id]?.last_position || null,
   }));
 
   const weakKnowledgePoints = masteryRecords
@@ -284,40 +477,26 @@ async function getDashboard(userId) {
  * 获取当前学生已加入的课程列表
  */
 async function getStudentCourses(userId) {
-  const enrollments = await prisma.studentCourseEnrollment.findMany({
-    where: { student_user_id: userId, enrollment_status: 'active' },
-    include: {
-      course: true,
-      teachingClass: true,
-    },
+  const enrollments = await getActiveCourseEnrollments(userId, {
+    course: true,
+    teachingClass: true,
   });
 
   if (enrollments.length === 0) {
     return { list: [] };
   }
 
-  const courseIds = enrollments.map((e) => e.course_id);
+  const courseIds = uniqueIds(enrollments.map((e) => e.course_id));
 
-  // 并行查询：教师关系、知识点掌握度、知识点总数
-  const [teacherRelations, masteryRecords, knowledgePointCounts] = await Promise.all([
+  // 并行查询：教师关系、课程学习统计
+  const [teacherRelations, courseProgressMap] = await Promise.all([
     prisma.courseTeacherRelation.findMany({
       where: { course_id: { in: courseIds } },
       include: {
         teacher: { include: { profile: true } },
       },
     }),
-    prisma.studentMasteryRecord.findMany({
-      where: { student_user_id: userId, course_id: { in: courseIds } },
-    }),
-    // 每个课程的知识点总数
-    Promise.all(
-      courseIds.map((cid) =>
-        prisma.knowledgePoint.count({ where: { course_id: cid } }).then((count) => ({
-          course_id: cid,
-          count,
-        })),
-      ),
-    ),
+    buildCourseLearningStats(userId, courseIds),
   ]);
 
   // 构建教师映射：course_id -> teacher_list
@@ -331,29 +510,8 @@ async function getStudentCourses(userId) {
     });
   }
 
-  // 构建知识点统计映射：course_id -> { mastered, weak, total }
-  const kpCountMap = {};
-  for (const kc of knowledgePointCounts) {
-    kpCountMap[kc.course_id] = { total: kc.count, mastered: 0, weak: 0 };
-  }
-  for (const mr of masteryRecords) {
-    if (!kpCountMap[mr.course_id]) {
-      kpCountMap[mr.course_id] = { total: 0, mastered: 0, weak: 0 };
-    }
-    if (mr.mastery_level === 'GOOD' || mr.mastery_level === 'EXCELLENT') {
-      kpCountMap[mr.course_id].mastered++;
-    }
-    if (mr.mastery_level === 'WEAK') {
-      kpCountMap[mr.course_id].weak++;
-    }
-  }
-
   const list = enrollments.map((e) => {
-    const kpStats = kpCountMap[e.course_id] || { total: 0, mastered: 0, weak: 0 };
-    const progress =
-      kpStats.total > 0
-        ? Math.round((kpStats.mastered / kpStats.total) * 100)
-        : 0;
+    const progressStats = courseProgressMap[e.course_id] || {};
 
     return {
       course_id: e.course.course_id,
@@ -364,10 +522,26 @@ async function getStudentCourses(userId) {
       teaching_class_id: e.teaching_class_id,
       teaching_class_name: e.teachingClass.teaching_class_name,
       teacher_list: teacherMap[e.course_id] || [],
-      progress,
-      knowledge_point_count: kpStats.total,
-      mastered_knowledge_count: kpStats.mastered,
-      weak_knowledge_count: kpStats.weak,
+      progress: progressStats.percentage || 0,
+      learning_progress: progressStats.percentage || 0,
+      progress_detail: {
+        courseId: e.course_id,
+        completed: progressStats.completed || 0,
+        total: progressStats.total || 0,
+        percentage: progressStats.percentage || 0,
+        lastStudyAt: progressStats.last_study_at || null,
+        lastPosition: progressStats.last_position || null,
+      },
+      chapter_count: progressStats.chapter_count || 0,
+      completed_chapter_count: progressStats.completed_chapter_count || 0,
+      knowledge_point_count: progressStats.knowledge_point_count || 0,
+      completed_knowledge_count: progressStats.completed_knowledge_count || 0,
+      mastered_knowledge_count: progressStats.mastered_knowledge_count || 0,
+      weak_knowledge_count: progressStats.weak_knowledge_count || 0,
+      video_count: progressStats.video_count || 0,
+      question_count: progressStats.question_count || 0,
+      last_study_at: progressStats.last_study_at || null,
+      last_position: progressStats.last_position || null,
     };
   });
 
@@ -378,27 +552,17 @@ async function getStudentCourses(userId) {
  * 获取学生某一门课程详情
  */
 async function getStudentCourseDetail(userId, courseId) {
-  await ensureStudentInCourse(userId, courseId);
+  const enrollment = await ensureStudentInCourse(userId, courseId);
 
-  const [course, teachingClass, teacherRelations, chapters, knowledgePoints, masteryRecords, recentTasks] =
+  const [course, teachingClass, teacherRelations, recentTasks, courseProgressMap] =
     await Promise.all([
       prisma.course.findUnique({ where: { course_id: courseId } }),
-      prisma.teachingClass.findMany({
-        where: { course_id: courseId },
-        include: {
-          enrollments: {
-            where: { student_user_id: userId },
-          },
-        },
+      prisma.teachingClass.findUnique({
+        where: { teaching_class_id: enrollment.teaching_class_id },
       }),
       prisma.courseTeacherRelation.findMany({
         where: { course_id: courseId },
         include: { teacher: { include: { profile: true } } },
-      }),
-      prisma.chapter.count({ where: { course_id: courseId } }),
-      prisma.knowledgePoint.count({ where: { course_id: courseId } }),
-      prisma.studentMasteryRecord.findMany({
-        where: { student_user_id: userId, course_id: courseId },
       }),
       prisma.learningTask.findMany({
         where: { course_id: courseId, status: 'PUBLISHED' },
@@ -408,16 +572,12 @@ async function getStudentCourseDetail(userId, courseId) {
           teaching_class: true,
         },
       }),
+      buildCourseLearningStats(userId, [courseId]),
     ]);
 
   if (!course) {
     throw Object.assign(new Error('课程不存在'), { code: 40002 });
   }
-
-  // 找到学生所在的教学班
-  const enrolledClass = teachingClass.find((tc) =>
-    tc.enrollments.some((en) => en.student_user_id === userId),
-  );
 
   // 教师列表
   const teacherList = teacherRelations.map((rel) => ({
@@ -426,12 +586,7 @@ async function getStudentCourseDetail(userId, courseId) {
     role: toLower(rel.teacher_role),
   }));
 
-  // 学习进度
-  const masteredCount = masteryRecords.filter(
-    (r) => r.mastery_level === 'GOOD' || r.mastery_level === 'EXCELLENT',
-  ).length;
-  const learningProgress =
-    knowledgePoints > 0 ? Math.round((masteredCount / knowledgePoints) * 100) : 0;
+  const progressStats = courseProgressMap[courseId] || {};
 
   return {
     course_id: course.course_id,
@@ -441,17 +596,34 @@ async function getStudentCourseDetail(userId, courseId) {
     cover_url: course.cover_url || null,
     subject_category: course.subject_category || null,
     status: toLower(course.status),
-    teaching_class: enrolledClass
+    teaching_class: teachingClass
       ? {
-          teaching_class_id: enrolledClass.teaching_class_id,
-          teaching_class_name: enrolledClass.teaching_class_name,
-          semester: enrolledClass.semester || null,
+          teaching_class_id: teachingClass.teaching_class_id,
+          teaching_class_name: teachingClass.teaching_class_name,
+          semester: teachingClass.semester || null,
         }
       : null,
     teacher_list: teacherList,
-    chapter_count: chapters,
-    knowledge_point_count: knowledgePoints,
-    learning_progress: learningProgress,
+    chapter_count: progressStats.chapter_count || 0,
+    completed_chapter_count: progressStats.completed_chapter_count || 0,
+    knowledge_point_count: progressStats.knowledge_point_count || 0,
+    completed_knowledge_count: progressStats.completed_knowledge_count || 0,
+    mastered_knowledge_count: progressStats.mastered_knowledge_count || 0,
+    weak_knowledge_count: progressStats.weak_knowledge_count || 0,
+    video_count: progressStats.video_count || 0,
+    question_count: progressStats.question_count || 0,
+    learning_progress: progressStats.percentage || 0,
+    progress: progressStats.percentage || 0,
+    progress_detail: {
+      courseId,
+      completed: progressStats.completed || 0,
+      total: progressStats.total || 0,
+      percentage: progressStats.percentage || 0,
+      lastStudyAt: progressStats.last_study_at || null,
+      lastPosition: progressStats.last_position || null,
+    },
+    last_study_at: progressStats.last_study_at || null,
+    last_position: progressStats.last_position || null,
     recent_tasks: recentTasks.map((t) => ({
       task_id: t.task_id,
       task_title: t.title,
@@ -495,7 +667,7 @@ async function getStudentCourseChapters(userId, courseId) {
 async function getStudentCourseKnowledgePoints(userId, courseId) {
   await ensureStudentInCourse(userId, courseId);
 
-  const [knowledgePoints, masteryRecords] = await Promise.all([
+  const [knowledgePoints, masteryRecords, studyRecords] = await Promise.all([
     prisma.knowledgePoint.findMany({
       where: { course_id: courseId },
       orderBy: [{ chapter_id: 'asc' }, { sort_order: 'asc' }],
@@ -504,6 +676,14 @@ async function getStudentCourseKnowledgePoints(userId, courseId) {
     prisma.studentMasteryRecord.findMany({
       where: { student_user_id: userId, course_id: courseId },
     }),
+    prisma.studyRecord.findMany({
+      where: {
+        student_user_id: userId,
+        course_id: courseId,
+        knowledge_point_id: { not: null },
+      },
+      orderBy: [{ created_at: 'desc' }, { study_record_id: 'desc' }],
+    }),
   ]);
 
   const masteryMap = {};
@@ -511,8 +691,17 @@ async function getStudentCourseKnowledgePoints(userId, courseId) {
     masteryMap[mr.knowledge_point_id] = mr;
   }
 
+  const latestStudyMap = {};
+  for (const record of studyRecords) {
+    if (!latestStudyMap[record.knowledge_point_id]) latestStudyMap[record.knowledge_point_id] = record;
+  }
+
   const list = knowledgePoints.map((kp) => {
     const mastery = masteryMap[kp.knowledge_point_id];
+    const latestStudy = latestStudyMap[kp.knowledge_point_id];
+    const lastStudyAt = latestStudy
+      ? (latestStudy.finished_at || latestStudy.started_at || latestStudy.created_at)
+      : mastery?.updated_at;
     return {
       knowledge_point_id: kp.knowledge_point_id,
       knowledge_point_name: kp.knowledge_point_name,
@@ -524,7 +713,7 @@ async function getStudentCourseKnowledgePoints(userId, courseId) {
       sort_order: kp.sort_order,
       mastery_score: mastery?.mastery_score ?? 0,
       mastery_level: mastery ? toLower(mastery.mastery_level) : 'weak',
-      last_study_at: mastery?.updated_at ? mastery.updated_at.toISOString() : null,
+      last_study_at: lastStudyAt ? lastStudyAt.toISOString() : null,
     };
   });
 
@@ -618,10 +807,8 @@ async function getStudentTasks(userId, query) {
   const { task_type, status, course_id } = query;
 
   // 获取学生已加入的课程 ID
-  const enrollments = await prisma.studentCourseEnrollment.findMany({
-    where: { student_user_id: userId, enrollment_status: 'active' },
-  });
-  const enrolledCourseIds = enrollments.map((e) => e.course_id);
+  const enrollments = await getActiveCourseEnrollments(userId);
+  const enrolledCourseIds = uniqueIds(enrollments.map((e) => e.course_id));
 
   if (enrolledCourseIds.length === 0) {
     return { list: [], total: 0, page, page_size: pageSize };
@@ -638,7 +825,7 @@ async function getStudentTasks(userId, query) {
   // 构建查询条件
   const where = {
     course_id: course_id ? parseInt(course_id, 10) : { in: enrolledCourseIds },
-    teaching_class_id: { in: enrollments.map((e) => e.teaching_class_id) },
+    teaching_class_id: { in: uniqueIds(enrollments.map((e) => e.teaching_class_id)) },
   };
   if (task_type) {
     const prismaTaskType = task_type.toUpperCase();
@@ -1087,10 +1274,8 @@ async function createStudyRecord(userId, body) {
  */
 async function getStudentPortrait(userId) {
   // 获取学生已加入的课程 ID
-  const enrollments = await prisma.studentCourseEnrollment.findMany({
-    where: { student_user_id: userId, enrollment_status: 'active' },
-  });
-  const courseIds = enrollments.map((e) => e.course_id);
+  const enrollments = await getActiveCourseEnrollments(userId);
+  const courseIds = uniqueIds(enrollments.map((e) => e.course_id));
 
   const [
     portraits,

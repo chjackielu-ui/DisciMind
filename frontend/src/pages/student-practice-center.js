@@ -8,7 +8,7 @@ import {
   getStudentCourses,
   startPractice,
 } from '../api/student.js'
-import { getUser, setAuth, clearAuth } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml } from '../utils/format.js'
@@ -38,7 +38,7 @@ async function getAuthedUser() {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()
@@ -628,6 +628,7 @@ export async function renderStudentPracticeCenter(app) {
         course_id: state.subjectId,
         course_name: '自主练习',
       }
+      const serverSession = startData.session || {}
       const snapshot = {
         session: startData.session,
         questions,
@@ -639,15 +640,15 @@ export async function renderStudentPracticeCenter(app) {
           questionTypes: [...state.questionTypes],
           difficulty: state.difficulty,
           questionCount,
-          sessionMode,
-          answerMode,
+          sessionMode: String(serverSession.mode || '').toUpperCase() === 'EXAM' ? 'exam' : sessionMode,
+          answerMode: String(serverSession.answer_mode || '').toUpperCase() === 'PAPER' ? 'paper' : answerMode,
         },
         answers: {},
         currentIndex: 0,
         submitted: false,
         result: null,
         aiChats: {},
-        startedAtMs: Date.now(),
+        startedAtMs: Date.parse(serverSession.started_at || '') || Date.now(),
         practice_session_id: sessionId,
       }
       savePracticeSessionSnapshot(sessionId, snapshot)

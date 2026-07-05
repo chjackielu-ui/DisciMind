@@ -2,7 +2,7 @@
 
 import { getMe } from '../api/auth.js'
 import { getAdminNotifications, createAdminNotification, markNotificationRead, markAllNotificationsRead } from '../api/admin.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
 const menuItems = [
@@ -30,7 +30,7 @@ export async function renderAdminNotifications(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) { clearAuth(); window.location.hash = '#/login'; return }
   }

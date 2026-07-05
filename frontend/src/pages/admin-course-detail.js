@@ -9,7 +9,7 @@ import {
   getTeachingClasses, createTeachingClass, updateTeachingClass, deleteTeachingClass,
   getAdminUsers,
 } from '../api/admin.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
@@ -57,7 +57,7 @@ export async function renderAdminCourseDetail(app, params) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()

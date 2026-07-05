@@ -37,6 +37,15 @@ router.post('/register', authController.register);
 // POST /api/auth/login — 用户登录
 router.post('/login', authController.login);
 
+// POST /api/auth/refresh — 使用 Refresh Token 续期
+router.post('/refresh', authController.refresh);
+
+// POST /api/auth/logout — 退出登录并撤销当前 Refresh Token
+router.post('/logout', authController.logout);
+
+// POST /api/auth/session/refresh — 前端 sessionStorage 会话刷新（无需 HttpOnly Cookie）
+router.post('/session/refresh', authController.sessionRefresh);
+
 // GET /api/auth/me — 获取当前登录用户（需要登录）
 router.get('/me', authMiddleware, authController.getMe);
 

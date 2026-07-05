@@ -1,7 +1,7 @@
 // 教师端 - 题目创建/编辑页
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { createTeacherQuestion, getTeacherQuestion, updateTeacherQuestion, getTeacherCourses } from '../api/teacher.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
@@ -14,7 +14,7 @@ export async function renderTeacherQuestionCreate(app, params) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

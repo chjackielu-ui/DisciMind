@@ -2,6 +2,7 @@
 // 所有数据库操作使用统一的 prisma 实例（从 ../config/prisma 导入）
 
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { signToken } = require('../utils/jwt');
 const {
@@ -11,6 +12,15 @@ const {
   fromPrismaGender,
   fromPrismaStatus,
 } = require('../utils/enum');
+
+const REFRESH_TOKEN_DAYS = Number(process.env.REFRESH_TOKEN_DAYS || 14);
+const REFRESH_TOKEN_TTL_MS = Math.max(1, REFRESH_TOKEN_DAYS) * 24 * 60 * 60 * 1000;
+const REFRESH_TOKEN_COOKIE_NAME = process.env.REFRESH_TOKEN_COOKIE_NAME || 'discimind_refresh_token';
+
+// 会话空闲超时：30分钟无操作自动退出
+const SESSION_IDLE_MS = Number(process.env.SESSION_IDLE_MINUTES || 30) * 60 * 1000;
+// 会话活动更新节流：至少间隔1分钟才更新数据库
+const SESSION_TOUCH_THROTTLE_MS = 60 * 1000;
 
 // ---------- 内部工具函数 ----------
 
@@ -38,6 +48,146 @@ function cleanOptionalString(value) {
   if (value == null) return null;
   const str = String(value).trim();
   return str === '' ? null : str;
+}
+
+function hashRefreshToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function createRawRefreshToken() {
+  return crypto.randomBytes(48).toString('base64url');
+}
+
+function getRefreshTokenExpiresAt() {
+  return new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+}
+
+function buildAccessToken(user, sessionId) {
+  const payload = {
+    user_id: user.user_id,
+    role: fromPrismaRole(user.role),
+  };
+  if (sessionId) payload.session_id = sessionId;
+  return signToken(payload);
+}
+
+function getClientMeta(meta = {}) {
+  return {
+    device_info: meta.deviceInfo ? String(meta.deviceInfo).slice(0, 255) : null,
+    ip_address: meta.ipAddress ? String(meta.ipAddress).slice(0, 64) : null,
+  };
+}
+
+async function createRefreshToken(userId, meta = {}) {
+  const refreshToken = createRawRefreshToken();
+  const expiresAt = getRefreshTokenExpiresAt();
+  await prisma.refreshToken.create({
+    data: {
+      user_id: userId,
+      token_hash: hashRefreshToken(refreshToken),
+      expires_at: expiresAt,
+      ...getClientMeta(meta),
+    },
+  });
+  return { refreshToken, expiresAt };
+}
+
+async function revokeRefreshToken(rawToken) {
+  if (!rawToken) return false;
+  await prisma.refreshToken.updateMany({
+    where: {
+      token_hash: hashRefreshToken(rawToken),
+      revoked_at: null,
+    },
+    data: { revoked_at: new Date() },
+  });
+  return true;
+}
+
+async function revokeAllRefreshTokensForUser(userId) {
+  await prisma.refreshToken.updateMany({
+    where: { user_id: userId, revoked_at: null },
+    data: { revoked_at: new Date() },
+  });
+}
+
+// ---------- 会话管理 ----------
+
+function getSessionExpiresAt() {
+  return new Date(Date.now() + SESSION_IDLE_MS);
+}
+
+async function createSession(userId, refreshTokenId, meta = {}) {
+  const expiresAt = getSessionExpiresAt();
+  const session = await prisma.authSession.create({
+    data: {
+      user_id: userId,
+      refresh_token_id: refreshTokenId || null,
+      expires_at: expiresAt,
+      last_activity_at: new Date(),
+      ...getClientMeta(meta),
+    },
+  });
+  return session;
+}
+
+async function validateSession(sessionId) {
+  if (!sessionId) return null;
+  const session = await prisma.authSession.findUnique({
+    where: { session_id: sessionId },
+    include: { user: { include: { profile: true } } },
+  });
+  if (!session || session.revoked_at) return null;
+  if (new Date(session.expires_at) <= new Date()) return null;
+  if (!session.user || session.user.status !== 'ACTIVE') return null;
+  return session;
+}
+
+async function touchSession(sessionId) {
+  if (!sessionId) return;
+  const session = await prisma.authSession.findUnique({
+    where: { session_id: sessionId },
+  });
+  if (!session || session.revoked_at) return;
+  // 节流：距离上次更新不超过1分钟则跳过数据库写入
+  const now = new Date();
+  const lastTouch = new Date(session.last_activity_at);
+  if (now - lastTouch < SESSION_TOUCH_THROTTLE_MS) return;
+  const newExpiresAt = new Date(now.getTime() + SESSION_IDLE_MS);
+  await prisma.authSession.update({
+    where: { session_id: sessionId },
+    data: { last_activity_at: now, expires_at: newExpiresAt },
+  });
+}
+
+async function revokeSession(sessionId) {
+  if (!sessionId) return false;
+  await prisma.authSession.updateMany({
+    where: { session_id: sessionId, revoked_at: null },
+    data: { revoked_at: new Date() },
+  });
+  return true;
+}
+
+async function revokeAllSessionsForUser(userId) {
+  await prisma.authSession.updateMany({
+    where: { user_id: userId, revoked_at: null },
+    data: { revoked_at: new Date() },
+  });
+}
+
+async function checkSessionIdle(sessionId) {
+  if (!sessionId) return { valid: false, reason: 'no_session' };
+  const session = await prisma.authSession.findUnique({
+    where: { session_id: sessionId },
+  });
+  if (!session || session.revoked_at) {
+    return { valid: false, reason: 'revoked' };
+  }
+  if (new Date(session.expires_at) <= new Date()) {
+    return { valid: false, reason: 'expired' };
+  }
+  return { valid: true, session };
 }
 
 async function assertUniqueContact({ user_id, phone, email }) {
@@ -180,7 +330,7 @@ async function register(params) {
  * 登录
  * account 支持 username / phone / email
  */
-async function login({ account, password }) {
+async function login({ account, password, deviceInfo, ipAddress }) {
   // 1. 参数校验
   if (!account || !password) {
     const err = new Error('账号和密码不能为空');
@@ -229,17 +379,98 @@ async function login({ account, password }) {
     data: { last_login_at: new Date() },
   });
 
-  // 6. 生成 JWT
-  const token = signToken({
-    user_id: user.user_id,
-    role: fromPrismaRole(user.role),
+  // 6. 创建 AuthSession
+  const session = await createSession(user.user_id, null, { deviceInfo, ipAddress });
+
+  // 7. 生成短期 Access Token（含 sessionId）+ 长期 Refresh Token
+  const token = buildAccessToken(user, session.session_id);
+  const refresh = await createRefreshToken(user.user_id, { deviceInfo, ipAddress });
+
+  // 关联 refresh token 到 session
+  await prisma.refreshToken.update({
+    where: { token_hash: hashRefreshToken(refresh.refreshToken) },
+    data: { session_id: session.session_id },
   });
 
-  // 7. 返回 token 和用户信息
+  // 8. 返回 token 和用户信息
   return {
     token,
+    accessToken: token,
+    expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '20m',
+    refreshToken: refresh.refreshToken,
+    refreshTokenExpiresAt: refresh.expiresAt,
+    sessionId: session.session_id,
     user: formatUser(user),
   };
+}
+
+async function refreshSession(rawRefreshToken, meta = {}) {
+  if (!rawRefreshToken) {
+    const err = new Error('Refresh Token 缺失');
+    err.code = 40101;
+    throw err;
+  }
+
+  const tokenRecord = await prisma.refreshToken.findUnique({
+    where: { token_hash: hashRefreshToken(rawRefreshToken) },
+    include: { user: { include: { profile: true } } },
+  });
+
+  if (!tokenRecord || tokenRecord.revoked_at || new Date(tokenRecord.expires_at) <= new Date()) {
+    const err = new Error('登录状态已过期，请重新登录');
+    err.code = 40102;
+    throw err;
+  }
+
+  if (!tokenRecord.user || tokenRecord.user.status !== 'ACTIVE') {
+    await revokeRefreshToken(rawRefreshToken);
+    const err = new Error('账号不存在或已被禁用，请重新登录');
+    err.code = 40102;
+    throw err;
+  }
+
+  await prisma.refreshToken.update({
+    where: { refresh_token_id: tokenRecord.refresh_token_id },
+    data: {
+      last_used_at: new Date(),
+      ...getClientMeta(meta),
+    },
+  });
+
+  // 如果 refresh token 有关联 session，验证并续期
+  let sessionId = null;
+  if (tokenRecord.session_id) {
+    const sessionCheck = await checkSessionIdle(tokenRecord.session_id);
+    if (sessionCheck.valid) {
+      await touchSession(tokenRecord.session_id);
+      sessionId = tokenRecord.session_id;
+    }
+  }
+
+  const token = buildAccessToken(tokenRecord.user, sessionId);
+
+  return {
+    token,
+    accessToken: token,
+    expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '20m',
+    sessionId,
+    user: formatUser(tokenRecord.user),
+  };
+}
+
+async function logout(rawRefreshToken) {
+  // 撤销 refresh token
+  await revokeRefreshToken(rawRefreshToken);
+  // 如果 refresh token 关联了 session，也撤销 session
+  if (rawRefreshToken) {
+    const tokenRecord = await prisma.refreshToken.findUnique({
+      where: { token_hash: hashRefreshToken(rawRefreshToken) },
+    });
+    if (tokenRecord?.session_id) {
+      await revokeSession(tokenRecord.session_id);
+    }
+  }
+  return true;
 }
 
 /**
@@ -261,6 +492,11 @@ async function getMe(user_id) {
   if (!user) {
     const err = new Error('用户不存在');
     err.code = 40008;
+    throw err;
+  }
+  if (user.status !== 'ACTIVE') {
+    const err = new Error('账号已被禁用');
+    err.code = 40102;
     throw err;
   }
 
@@ -385,12 +621,42 @@ async function changePassword(user_id, { current_password, new_password }) {
   }
 
   const password_hash = await bcrypt.hash(new_password, 10);
-  await prisma.user.update({
-    where: { user_id },
-    data: { password_hash },
-  });
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { user_id },
+      data: { password_hash },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { user_id, revoked_at: null },
+      data: { revoked_at: new Date() },
+    }),
+  ]);
 
   return true;
 }
 
-module.exports = { register, login, getMe, updateMe, updateAvatar, changePassword };
+async function revokeUserSessions(userId) {
+  await revokeAllRefreshTokensForUser(userId);
+  await revokeAllSessionsForUser(userId);
+  return true;
+}
+
+module.exports = {
+  REFRESH_TOKEN_COOKIE_NAME,
+  REFRESH_TOKEN_TTL_MS,
+  SESSION_IDLE_MS,
+  register,
+  login,
+  refreshSession,
+  logout,
+  getMe,
+  updateMe,
+  updateAvatar,
+  changePassword,
+  revokeUserSessions,
+  createSession,
+  validateSession,
+  touchSession,
+  revokeSession,
+  checkSessionIdle,
+};

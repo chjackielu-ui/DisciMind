@@ -1,7 +1,7 @@
 // 教师端 - 学生详情页
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getTeacherStudent, getStudentMastery, getStudentPortrait, refreshStudentPortrait } from '../api/teacher.js'
 
@@ -16,7 +16,7 @@ export async function renderTeacherStudentDetail(app, params) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

@@ -1,7 +1,7 @@
 // 教师端 - 课程列表页
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getTeacherCourses, createTeacherCourse, updateTeacherCourse, deleteTeacherCourse } from '../api/teacher.js'
 import { iconBook, iconSearch, iconRefresh } from '../utils/icons.js'
@@ -13,7 +13,7 @@ export async function renderTeacherCourses(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()
