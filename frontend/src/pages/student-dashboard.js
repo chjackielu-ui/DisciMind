@@ -3,7 +3,7 @@
 
 import { getMe } from '../api/auth.js'
 import { getStudentDashboard, getStudentCourses, getStudentCourseDetail, getStudentCourseKnowledgePoints } from '../api/student.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatPercent, formatDate, masteryLabel, recommendTypeLabel, isOverdue } from '../utils/format.js'
@@ -273,7 +273,7 @@ export async function renderStudentDashboard(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) { clearAuth(); window.location.hash = '#/login'; return }
   }

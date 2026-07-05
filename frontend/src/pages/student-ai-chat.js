@@ -8,7 +8,7 @@ import {
   clearAiChatMessages,
   deleteAiChatConversation,
 } from '../api/student.js'
-import { getUser, setAuth, clearAuth } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatRelativeTime, truncate } from '../utils/format.js'
@@ -17,6 +17,7 @@ import { showToast } from '../utils/toast.js'
 import { disposeAllCharts } from '../utils/echarts.js'
 
 const MAX_INPUT_LENGTH = 2000
+const AI_GENERAL_OPEN_FLAG = 'discimind.openGeneralAiChat'
 
 const MODES = [
   { value: 'general', label: '通用学习助手', desc: '课程概念、复习、代码学习、论文入门' },
@@ -132,7 +133,7 @@ async function getAuthedUser() {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()
@@ -189,6 +190,16 @@ function normalizeStarterQuestions(questions, context) {
       return true
     })
     .slice(0, 4)
+}
+
+function consumeGeneralAiOpenFlag() {
+  try {
+    if (sessionStorage.getItem(AI_GENERAL_OPEN_FLAG) !== '1') return false
+    sessionStorage.removeItem(AI_GENERAL_OPEN_FLAG)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function conversationModeLabel(conversation) {
@@ -369,6 +380,7 @@ export async function renderStudentAiChat(app) {
   disposeAllCharts()
   const user = await getAuthedUser()
   if (!user) return
+  const openGeneralDraftOnLoad = consumeGeneralAiOpenFlag()
 
   const state = {
     conversations: [],
@@ -650,6 +662,17 @@ export async function renderStudentAiChat(app) {
     showToast('已准备新对话，发送后会保存', 'success')
   }
 
+  function openGeneralDraft({ focus = true } = {}) {
+    if (state.generating) return
+    state.mode = 'general'
+    state.subject = 'machine_learning'
+    state.agentType = 'knowledge_explain'
+    resetForModeChange({ clearInput: true })
+    if (focus) {
+      window.setTimeout(() => document.getElementById('chat-input')?.focus(), 80)
+    }
+  }
+
   function changeMode(nextMode) {
     if (state.generating || state.mode === nextMode) return
     state.mode = nextMode
@@ -879,6 +902,11 @@ export async function renderStudentAiChat(app) {
   }
 
   bindEvents()
+  if (window.__discimindOpenGeneralAiChatHandler) {
+    window.removeEventListener('discimind:open-general-ai-chat', window.__discimindOpenGeneralAiChatHandler)
+  }
+  window.__discimindOpenGeneralAiChatHandler = () => openGeneralDraft({ focus: true })
+  window.addEventListener('discimind:open-general-ai-chat', window.__discimindOpenGeneralAiChatHandler)
   void loadStarterQuestions()
-  await loadConversations(true)
+  await loadConversations(!openGeneralDraftOnLoad)
 }

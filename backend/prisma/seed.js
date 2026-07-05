@@ -1,19 +1,15 @@
 // DisciMind seed data
 // 可重复运行：通过 upsert/findFirst + update/create 避免重复插入。
 
-require('dotenv/config')
 const { PrismaClient } = require('@prisma/client')
 const { PrismaMariaDb } = require('@prisma/adapter-mariadb')
 const bcrypt = require('bcryptjs')
+const { loadEnv } = require('../src/config/env')
+const { getDatabaseConfig } = require('../src/config/database')
 
-const adapter = new PrismaMariaDb({
-  host: process.env.DATABASE_HOST || 'localhost',
-  port: Number(process.env.DATABASE_PORT) || 3306,
-  user: process.env.DATABASE_USER || 'root',
-  password: process.env.DATABASE_PASSWORD || '',
-  database: process.env.DATABASE_NAME || 'discimind',
-  connectionLimit: 5,
-})
+loadEnv()
+
+const adapter = new PrismaMariaDb(getDatabaseConfig())
 
 const prisma = new PrismaClient({ adapter })
 const PASSWORD_HASH = bcrypt.hashSync('123456', 10)
@@ -250,13 +246,15 @@ async function main() {
 
   await prisma.studentCourseEnrollment.upsert({
     where: {
-      student_user_id_course_id_teaching_class_id: {
+      student_user_id_course_id: {
         student_user_id: studentUser.user_id,
         course_id: mlCourse.course_id,
-        teaching_class_id: mlClass2403.teaching_class_id,
       },
     },
-    update: { enrollment_status: 'active' },
+    update: {
+      teaching_class_id: mlClass2403.teaching_class_id,
+      enrollment_status: 'active',
+    },
     create: {
       student_user_id: studentUser.user_id,
       course_id: mlCourse.course_id,

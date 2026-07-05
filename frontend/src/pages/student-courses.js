@@ -3,10 +3,10 @@
 
 import { getMe } from '../api/auth.js'
 import { getStudentCourses } from '../api/student.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
-import { escapeHtml, formatPercent } from '../utils/format.js'
+import { escapeHtml, formatPercent, formatDate } from '../utils/format.js'
 import { disposeAllCharts, bindResize, initChart } from '../utils/echarts.js'
 import * as echarts from 'echarts'
 
@@ -55,8 +55,9 @@ function renderCoursesChart(courses) {
 function buildOverviewBar(courses) {
   const totalKp = courses.reduce((s, c) => s + (c.knowledge_point_count || 0), 0)
   const totalWeak = courses.reduce((s, c) => s + (c.weak_knowledge_count || 0), 0)
+  const totalVideos = courses.reduce((s, c) => s + (c.video_count || 0), 0)
   const avgProgress = courses.length > 0 ? Math.round(courses.reduce((s, c) => s + (c.progress || 0), 0) / courses.length) : 0
-  return `<div class="courses-overview-bar"><div class="courses-overview-item"><div class="overview-icon blue">📚</div><div><div class="overview-value">${courses.length}</div><div class="overview-label">已加入课程</div></div></div><div class="courses-overview-item"><div class="overview-icon green">📈</div><div><div class="overview-value">${avgProgress}%</div><div class="overview-label">平均学习进度</div></div></div><div class="courses-overview-item"><div class="overview-icon purple">🎯</div><div><div class="overview-value">${totalKp}</div><div class="overview-label">总知识点数</div></div></div><div class="courses-overview-item"><div class="overview-icon amber">⚠️</div><div><div class="overview-value">${totalWeak}</div><div class="overview-label">薄弱知识点</div></div></div></div>`
+  return `<div class="courses-overview-bar"><div class="courses-overview-item"><div class="overview-icon blue">📚</div><div><div class="overview-value">${courses.length}</div><div class="overview-label">已加入课程</div></div></div><div class="courses-overview-item"><div class="overview-icon green">📈</div><div><div class="overview-value">${avgProgress}%</div><div class="overview-label">平均学习进度</div></div></div><div class="courses-overview-item"><div class="overview-icon purple">🎯</div><div><div class="overview-value">${totalKp}</div><div class="overview-label">总知识点数</div></div></div><div class="courses-overview-item"><div class="overview-icon amber">📺</div><div><div class="overview-value">${totalVideos}</div><div class="overview-label">课程视频</div></div></div><div class="courses-overview-item"><div class="overview-icon amber">⚠️</div><div><div class="overview-value">${totalWeak}</div><div class="overview-label">薄弱知识点</div></div></div></div>`
 }
 
 function buildCourseCard(course) {
@@ -65,7 +66,11 @@ function buildCourseCard(course) {
   const total = course.knowledge_point_count || 0
   const general = Math.max(0, total - mastered - weak)
   const teachers = (course.teacher_list || []).map(t => t.real_name).join('、')
-  return `<div class="course-card" data-course-id="${course.course_id}"><div class="card-top-bar"></div><div class="card-body"><div class="card-title-row"><div class="card-course-name">${escapeHtml(course.course_name)}</div><div class="card-course-code">${escapeHtml(course.course_code)}</div></div><div class="card-desc">${escapeHtml(course.description || '暂无课程描述')}</div><div class="card-meta"><span class="meta-item">🏫 ${escapeHtml(course.teaching_class_name || '-')}</span>${teachers ? `<span class="meta-item">👨‍🏫 ${escapeHtml(teachers)}</span>` : ''}</div><div class="course-progress-bar-wrap"><div class="progress-header"><span class="progress-label">学习进度</span><span class="progress-value">${formatPercent(course.progress)}</span></div><div class="course-progress-bar"><div class="progress-fill" style="width:${course.progress || 0}%"></div></div></div><div class="kp-stats-row"><div class="kp-stat-item"><div class="kp-stat-value">${total}</div><div class="kp-stat-label">总知识点</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#4CAF84;">${mastered}</div><div class="kp-stat-label">已掌握</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#F0B85E;">${general}</div><div class="kp-stat-label">一般</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#E0576E;">${weak}</div><div class="kp-stat-label">薄弱</div></div></div><button class="btn-enter-course">进入课程 →</button></div></div>`
+  const progress = Math.max(0, Math.min(100, Number(course.progress || 0)))
+  const lastText = course.last_position
+    ? `${escapeHtml(course.last_position)}${course.last_study_at ? ' · ' + formatDate(course.last_study_at, 'short') : ''}`
+    : '尚未开始'
+  return `<div class="course-card" data-course-id="${course.course_id}"><div class="card-top-bar"></div><div class="card-body"><div class="card-title-row"><div class="card-course-name">${escapeHtml(course.course_name)}</div><div class="card-course-code">${escapeHtml(course.course_code)}</div></div><div class="card-desc">${escapeHtml(course.description || '暂无课程描述')}</div><div class="card-meta"><span class="meta-item">🏫 ${escapeHtml(course.teaching_class_name || '-')}</span>${teachers ? `<span class="meta-item">👨‍🏫 ${escapeHtml(teachers)}</span>` : ''}<span class="meta-item">📖 ${course.chapter_count || 0} 章</span><span class="meta-item">📺 ${course.video_count || 0} 视频</span><span class="meta-item">📝 ${course.question_count || 0} 题</span></div><div class="course-progress-bar-wrap"><div class="progress-header"><span class="progress-label">学习进度</span><span class="progress-value">${formatPercent(progress)}</span></div><div class="course-progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div><div class="course-last-position">${lastText}</div></div><div class="kp-stats-row"><div class="kp-stat-item"><div class="kp-stat-value">${total}</div><div class="kp-stat-label">总知识点</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#4CAF84;">${mastered}</div><div class="kp-stat-label">已掌握</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#F0B85E;">${general}</div><div class="kp-stat-label">一般</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#E0576E;">${weak}</div><div class="kp-stat-label">薄弱</div></div></div><div class="course-card-actions"><button class="btn-enter-course">${progress > 0 ? '继续学习' : '开始学习'} →</button><button class="btn-course-wrong-book" type="button">错题本</button></div></div></div>`
 }
 
 // ========================
@@ -75,7 +80,7 @@ function buildCourseCard(course) {
 export async function renderStudentCourses(app) {
   disposeAllCharts()
   let user = getUser()
-  try { const r = await getMe(); user = r.data.user; setAuth(localStorage.getItem('token') || '', user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
+  try { const r = await getMe(); user = r.data.user; setAuth(getToken(), user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
 
   const menuItems = STUDENT_MENU_ITEMS
 
@@ -146,6 +151,14 @@ function bindEvents(courses) {
     document.querySelectorAll('.btn-enter-course').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation(); const card = btn.closest('.course-card'); const cid = card?.dataset.courseId; if (cid) window.location.hash = `#/student/courses/${cid}`
+      })
+    })
+    document.querySelectorAll('.btn-course-wrong-book').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const card = btn.closest('.course-card')
+        const cid = card?.dataset.courseId
+        if (cid) window.location.hash = `#/student/wrong-questions?subjectId=${encodeURIComponent(cid)}`
       })
     })
   }

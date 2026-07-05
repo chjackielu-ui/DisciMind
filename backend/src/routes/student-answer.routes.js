@@ -5,10 +5,22 @@ const { Router } = require('express');
 const authMiddleware = require('../middlewares/auth.middleware');
 const roleMiddleware = require('../middlewares/role.middleware');
 const controller = require('../controllers/student-answer.controller');
+const practiceController = require('../controllers/practice.controller');
 
 const router = Router();
 
-// 开始答题
+// 教师任务统一 attempt 入口（复用 PracticeSession 体系）
+router.post(
+  '/tasks/:task_id/attempt',
+  authMiddleware,
+  roleMiddleware(['student']),
+  (req, res) => {
+    req.body.taskId = Number(req.params.task_id);
+    return practiceController.startTaskAttempt(req, res);
+  },
+);
+
+// 开始答题（旧 TaskSubmission 流程，保留兼容）
 router.post(
   '/tasks/:task_id/start',
   authMiddleware,

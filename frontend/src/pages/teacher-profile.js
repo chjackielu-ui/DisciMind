@@ -1,7 +1,7 @@
 // 教师端 - 个人中心
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/teacher.js'
 
@@ -11,7 +11,7 @@ export async function renderTeacherProfile(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

@@ -1,7 +1,7 @@
 // 前端 Hash 路由 — 支持动态路由匹配
 // 包含路由守卫：未登录跳转登录页，已登录访问登录页自动跳转对应首页
 
-import { isLoggedIn, getUser } from './auth.js'
+import { isLoggedIn, getUser, initializeAuth, getAuthStatus, AUTH_STATUS } from './auth.js'
 import { renderLoginPage } from '../pages/login.js'
 import { renderRegisterPage } from '../pages/register.js'
 import { renderStudentDashboard } from '../pages/student-dashboard.js'
@@ -18,6 +18,7 @@ import { renderStudentTaskAnswer } from '../pages/student-task-answer.js'
 import { renderStudentSubmissionResult } from '../pages/student-submission-result.js'
 import { renderStudentDocuments } from '../pages/student-documents.js'
 import { renderStudentVideos } from '../pages/student-videos.js'
+import { getActivePracticeAttempt } from '../api/student.js'
 import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
 import { renderTeacherCourses } from '../pages/teacher-courses.js'
 import { renderTeacherCourseDetail } from '../pages/teacher-course-detail.js'
@@ -199,7 +200,43 @@ const ROLE_HOME = {
 }
 
 function getCurrentPath() {
-  return window.location.hash.slice(1) || '/login'
+  const raw = window.location.hash.slice(1) || '/login'
+  return raw.split('?')[0] || '/login'
+}
+
+function isPracticeSessionPath(path, attemptId) {
+  const expected = `/student/practice/sessions/${attemptId}`
+  return path === expected
+}
+
+async function guardActiveExam(path, user) {
+  if (user?.role !== 'student') return false
+  if (!path.startsWith('/student/')) return false
+  try {
+    const result = await getActivePracticeAttempt()
+    const data = result.data || {}
+    if (!data.hasActiveAttempt) return false
+
+    // 只有 forceResume 为 true 时才强制重定向
+    // 普通练习不强制恢复
+    if (data.forceResume !== true) return false
+
+    const attemptId = data.attemptId || data.attempt?.practice_session_id || data.session?.practice_session_id
+    if (!attemptId) return false
+    if (isPracticeSessionPath(path, attemptId)) return false
+
+    // 同时匹配任务答题路由
+    if (isTaskAnswerPath(path)) return false
+
+    window.location.hash = `#/student/practice/sessions/${attemptId}`
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isTaskAnswerPath(path) {
+  return /^\/student\/tasks\/\d+\/answer$/.test(path)
 }
 
 function matchRoute(path) {
@@ -222,9 +259,28 @@ function matchRoute(path) {
   return null
 }
 
-function render() {
+let renderSeq = 0
+
+function buildAuthCheckingHTML() {
+  return `
+    <div class="complex-shell">
+      <div class="complex-loading">
+        <div class="complex-spinner"></div>
+        <p>正在检查登录状态...</p>
+      </div>
+    </div>`
+}
+
+async function render() {
+  const seq = ++renderSeq
   const app = document.getElementById('app')
   if (!app) return
+
+  if (getAuthStatus() === AUTH_STATUS.INITIALIZING) {
+    app.innerHTML = buildAuthCheckingHTML()
+    await initializeAuth()
+    if (seq !== renderSeq) return
+  }
 
   const path = getCurrentPath()
   const matched = matchRoute(path)
@@ -267,6 +323,11 @@ function render() {
       window.location.hash = `#${home}`
       return
     }
+  }
+
+  if (route.auth && isLoggedIn()) {
+    const redirected = await guardActiveExam(path, getUser())
+    if (redirected) return
   }
 
   // 渲染页面

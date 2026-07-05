@@ -576,9 +576,249 @@ async function generateQuestions({ courseName, knowledgePoints, count, questionT
   return cleaned;
 }
 
+// ========================
+// 错题变式题生成
+// ========================
+
+/**
+ * 根据错题源题生成变式题
+ * 变式题：核心知识点一致、题型一致、修改场景/条件/参数/选项
+ */
+async function generateWrongQuestionVariants({ sourceQuestions, difficulty, count, userId }) {
+  const ds = getDeepSeekClient();
+  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+
+  const qCount = Math.max(1, Math.min(Number(count) || sourceQuestions.length, 10));
+  const diff = normalizeGenDifficulty(difficulty);
+
+  // 构建源题描述
+  const sourceDescriptions = sourceQuestions.map((sq, i) => {
+    const q = sq.question || sq;
+    const typeName = normalizeGenType(q.question_type || q.type) || 'single_choice';
+    const options = (q.options || []).map((o) =>
+      `${o.option_key || o.option_label || o.key}: ${o.option_content || o.content || o.text}`
+    ).join(', ');
+    return `源题${i + 1}:
+题型: ${typeName}
+题干: ${q.content || q.question_content || q.title || ''}
+${options ? '选项: ' + options : ''}
+答案: ${JSON.stringify(q.correct_answer)}
+知识点: ${(q.knowledge_point_name || q.knowledgePoints || []).flat().join(', ')}
+难度: ${q.difficulty_level || q.difficulty || 'medium'}`;
+  }).join('\n---\n');
+
+  const systemPrompt = `你是学研智擎平台的题库生成助手。请根据提供的源题生成变式练习题。
+
+变式要求：
+1. 核心知识点保持一致，不要改变考查的知识点范围
+2. 题型与源题一致（单选题→单选题，多选题→多选题，等）
+3. 修改题目的场景、条件、参数或选项，而非仅机械替换数字
+4. 难度级别：${diff}
+5. 每道题必须包含完整解析
+6. 必须包含标准答案
+7. 选择题必须有4个选项，其中正确答案明确标注
+
+只返回 JSON，不要 Markdown，不要代码块，不要解释。
+
+格式：
+{"questions":[{"type":"SINGLE_CHOICE","title":"题干","difficulty":"MEDIUM","knowledgePoints":["知识点"],"options":[{"label":"A","content":"内容","isCorrect":false},{"label":"B","content":"内容","isCorrect":true},{"label":"C","content":"内容","isCorrect":false},{"label":"D","content":"内容","isCorrect":false}],"answer":{"type":"SINGLE_CHOICE","correctOptionLabels":["B"]},"analysis":"详细解析","sourceQuestionIndex":0}]}`;
+
+  const userPrompt = `请为以下 ${sourceQuestions.length} 道源题各生成 1 道变式题，共 ${qCount} 道。
+难度要求：${diff}。
+
+${sourceDescriptions}`;
+
+  console.log('[ai.service] generateWrongQuestionVariants: sources=' + sourceQuestions.length + ', count=' + qCount + ', diff=' + diff);
+
+  let responseContent = '';
+  try {
+    const completion = await ds.client.chat.completions.create({
+      model: ds.model,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      temperature: 0.8, max_tokens: 4096,
+    });
+    responseContent = completion.choices?.[0]?.message?.content || '';
+  } catch (err) {
+    console.error('[ai.service] DeepSeek variant generation failed:', err.message);
+    throw Object.assign(new Error('AI 变式题生成失败: ' + (err.message || '未知错误')), { code: 50002 });
+  }
+
+  if (!responseContent || responseContent.trim().length < 20) {
+    throw Object.assign(new Error('AI 未返回有效变式题数据'), { code: 50002 });
+  }
+
+  const questions = extractJsonFromContent(responseContent);
+  if (!questions || !Array.isArray(questions)) {
+    console.error('[ai.service] variant JSON parse failed, first 300 chars:', responseContent.slice(0, 300));
+    throw Object.assign(new Error('AI 返回的变式题格式无法解析'), { code: 50002 });
+  }
+
+  const cleaned = questions.map((q, i) => validateAndCleanQuestion(q, i)).filter(Boolean);
+  console.log('[ai.service] variant parsed ' + questions.length + ', ' + cleaned.length + ' valid');
+  if (cleaned.length === 0) {
+    throw Object.assign(new Error('AI 生成的变式题均未通过校验'), { code: 50002 });
+  }
+
+  return cleaned;
+}
+
+// ========================
+// 错题相似题生成
+// ========================
+
+/**
+ * 根据单道错题源题生成相似题
+ * 相似题：全新同类题目，每次调用AI生成新内容
+ */
+async function generateWrongQuestionSimilar({ sourceQuestion, count, userId }) {
+  const ds = getDeepSeekClient();
+  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+
+  const qCount = Math.max(1, Math.min(Number(count) || 1, 20));
+  const sq = sourceQuestion.question || sourceQuestion;
+  const typeName = normalizeGenType(sq.question_type || sq.type) || 'single_choice';
+  const diff = normalizeGenDifficulty(sq.difficulty_level || sq.difficulty || 'medium');
+
+  const options = (sq.options || []).map((o) =>
+    `${o.option_key || o.option_label || o.key}: ${o.option_content || o.content || o.text}`
+  ).join(', ');
+
+  const systemPrompt = `你是学研智擎平台的题库生成助手。请根据源题生成全新的同类练习题。
+
+要求：
+1. 题型与源题一致：${typeName}
+2. 难度与源题一致：${diff}
+3. 考查相同知识点但使用全新的场景、数据、条件和问题
+4. 不能只机械替换数字，要有实质性的题目变化
+5. 每道题必须包含完整解析（解题思路、关键步骤）
+6. 必须包含标准答案
+7. 选择题必须有4个选项，其中正确答案明确标注
+
+只返回 JSON，不要 Markdown，不要代码块，不要解释。
+
+返回恰好 ${qCount} 道题。`;
+
+  const userPrompt = `源题信息：
+题型: ${typeName}
+题干: ${sq.content || sq.question_content || sq.title || ''}
+${options ? '选项: ' + options : ''}
+答案: ${JSON.stringify(sq.correct_answer)}
+知识点: ${sq.knowledge_point_name || ''}
+难度: ${diff}
+
+请生成 ${qCount} 道全新的同类题。每道题必须是全新的场景和数据，不能与原题重复。`;
+
+  console.log('[ai.service] generateWrongQuestionSimilar: count=' + qCount + ', type=' + typeName);
+
+  let responseContent = '';
+  try {
+    const completion = await ds.client.chat.completions.create({
+      model: ds.model,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      temperature: 0.85, max_tokens: 4096,
+    });
+    responseContent = completion.choices?.[0]?.message?.content || '';
+  } catch (err) {
+    console.error('[ai.service] DeepSeek similar generation failed:', err.message);
+    throw Object.assign(new Error('AI 相似题生成失败: ' + (err.message || '未知错误')), { code: 50002 });
+  }
+
+  if (!responseContent || responseContent.trim().length < 20) {
+    throw Object.assign(new Error('AI 未返回有效相似题数据'), { code: 50002 });
+  }
+
+  const questions = extractJsonFromContent(responseContent);
+  if (!questions || !Array.isArray(questions)) {
+    console.error('[ai.service] similar JSON parse failed, first 300 chars:', responseContent.slice(0, 300));
+    throw Object.assign(new Error('AI 返回的相似题格式无法解析'), { code: 50002 });
+  }
+
+  const cleaned = questions.map((q, i) => validateAndCleanQuestion(q, i)).filter(Boolean);
+  console.log('[ai.service] similar parsed ' + questions.length + ', ' + cleaned.length + ' valid');
+  if (cleaned.length === 0) {
+    throw Object.assign(new Error('AI 生成的相似题均未通过校验'), { code: 50002 });
+  }
+
+  return cleaned.slice(0, qCount);
+}
+
+// ========================
+// 错题错误原因 AI 分析
+// ========================
+
+/**
+ * AI 分析错题的错误原因
+ */
+async function analyzeWrongReason({ question, studentAnswer, correctAnswer, userId }) {
+  const ds = getDeepSeekClient();
+  if (!ds) return null; // 无AI时不分析，返回null
+
+  const q = question || {};
+  const questionContent = q.content || q.question_content || q.title || '';
+  const options = (q.options || []).map((o) =>
+    `${o.option_key || o.option_label}: ${o.option_content || o.content}`
+  ).join('\n');
+
+  const systemPrompt = `你是学研智擎平台的学习分析助手。请分析学生答错题目的原因。
+
+错误原因分类：
+- CONCEPT_MISUNDERSTANDING: 概念理解错误
+- MEMORY_WEAK: 知识点记忆不牢
+- FORMULA_ERROR: 公式使用错误
+- CALCULATION_ERROR: 计算错误
+- QUESTION_READING_ERROR: 审题错误
+- METHOD_SELECTION_ERROR: 方法选择错误
+- CARELESS: 粗心失误
+- TIME_INSUFFICIENT: 时间不足
+- UNKNOWN: 完全不会
+- OTHER: 其他
+
+请返回 JSON：
+{"reason": "CONCEPT_MISUNDERSTANDING", "confidence": 0.85, "explanation": "简短解释"}`;
+
+  const userPrompt = `题目：${questionContent}
+${options ? '选项：\n' + options + '\n' : ''}
+学生答案：${JSON.stringify(studentAnswer)}
+正确答案：${JSON.stringify(correctAnswer)}
+
+请分析学生答错的原因，返回 JSON。`;
+
+  try {
+    const completion = await ds.client.chat.completions.create({
+      model: ds.model,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+      temperature: 0.3, max_tokens: 512,
+    });
+    const content = completion.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const VALID_REASONS = [
+        'CONCEPT_MISUNDERSTANDING', 'MEMORY_WEAK', 'FORMULA_ERROR',
+        'CALCULATION_ERROR', 'QUESTION_READING_ERROR', 'METHOD_SELECTION_ERROR',
+        'CARELESS', 'TIME_INSUFFICIENT', 'UNKNOWN', 'OTHER',
+      ];
+      if (VALID_REASONS.includes(parsed.reason)) {
+        return {
+          reason: parsed.reason,
+          confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
+          explanation: String(parsed.explanation || '').slice(0, 200),
+        };
+      }
+    }
+  } catch (err) {
+    console.error('[ai.service] analyzeWrongReason failed:', err.message);
+  }
+
+  return null;
+}
+
 module.exports = {
   callAI,
   gradeShortAnswer,
   generateQuestions,
   generateMockResponse,
+  generateWrongQuestionVariants,
+  generateWrongQuestionSimilar,
+  analyzeWrongReason,
 };

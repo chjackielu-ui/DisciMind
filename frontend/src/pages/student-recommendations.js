@@ -3,7 +3,7 @@
 
 import { getMe } from '../api/auth.js'
 import { getStudentRecommendations } from '../api/student.js'
-import { getUser, setAuth, clearAuth } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, recommendTypeLabel } from '../utils/format.js'
@@ -46,7 +46,7 @@ function buildRecCard(item) {
 export async function renderStudentRecommendations(app) {
   disposeAllCharts()
   let user = getUser()
-  try { const r = await getMe(); user = r.data.user; setAuth(localStorage.getItem('token') || '', user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
+  try { const r = await getMe(); user = r.data.user; setAuth(getToken(), user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
 
   const menuItems = STUDENT_MENU_ITEMS
 

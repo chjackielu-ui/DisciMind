@@ -3,7 +3,7 @@
 
 import { getMe } from '../api/auth.js'
 import { getAdminClasses, createAdminClass, updateAdminClass, deleteAdminClass } from '../api/admin.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
 export async function renderAdminClasses(app) {
@@ -12,7 +12,7 @@ export async function renderAdminClasses(app) {
   try {
     const meResult = await getMe()
     user = meResult.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()

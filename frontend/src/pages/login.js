@@ -866,9 +866,9 @@ export function renderLoginPage(app) {
 
     try {
       const result = await login({ account, password })
-      const { token, user } = result.data
+      const { accessToken, token, user, sessionId } = result.data
 
-      setAuth(token, user)
+      setAuth(accessToken || token, user, sessionId)
 
       const home = ROLE_HOME[user.role] || '/student/dashboard'
       navigateTo(`#${home}`)

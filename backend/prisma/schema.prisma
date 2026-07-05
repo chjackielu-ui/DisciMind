@@ -162,6 +162,51 @@ enum WrongQuestionStatus {
   REMOVED    @map("removed")
 }
 
+enum WrongReason {
+  CONCEPT_MISUNDERSTANDING @map("concept_misunderstanding")
+  MEMORY_WEAK              @map("memory_weak")
+  FORMULA_ERROR            @map("formula_error")
+  CALCULATION_ERROR        @map("calculation_error")
+  QUESTION_READING_ERROR   @map("question_reading_error")
+  METHOD_SELECTION_ERROR   @map("method_selection_error")
+  CARELESS                 @map("careless")
+  TIME_INSUFFICIENT        @map("time_insufficient")
+  UNKNOWN                  @map("unknown")
+  OTHER                    @map("other")
+}
+
+enum WrongReasonSource {
+  USER         @map("user")
+  AI_SUGGESTED @map("ai_suggested")
+  SYSTEM       @map("system")
+}
+
+enum WrongReviewStatus {
+  PENDING_REVIEW @map("pending_review")
+  REINFORCING    @map("reinforcing")
+  WRONG_AGAIN    @map("wrong_again")
+  MASTERED       @map("mastered")
+  IGNORED        @map("ignored")
+}
+
+enum GenerationMode {
+  ORIGINAL @map("original")
+  VARIANT  @map("variant")
+  SIMILAR  @map("similar")
+}
+
+enum AiGenerationJobStatus {
+  PENDING          @map("pending")
+  GENERATING       @map("generating")
+  PARSING          @map("parsing")
+  VALIDATING       @map("validating")
+  SAVING           @map("saving")
+  PARTIAL_SUCCESS  @map("partial_success")
+  COMPLETED        @map("completed")
+  FAILED           @map("failed")
+  CANCELLED        @map("cancelled")
+}
+
 enum StudyActionType {
   START  @map("start")
   VIEW   @map("view")
@@ -266,6 +311,7 @@ model User {
   reviewed_question_analysis  QuestionAnalysisRecord[]    @relation("QuestionAnalysisReviewer")
   created_question_banks      QuestionBank[]              @relation("QuestionBankCreator")
   created_questions           Question[]                  @relation("QuestionCreator")
+  generated_questions         Question[]                  @relation("QuestionGenerator")
   ai_question_generation_logs AiQuestionGenerationLog[]   @relation("AiQuestionGenerationCreator")
   created_tasks               LearningTask[]              @relation("TaskCreator")
   task_submissions            TaskSubmission[]            @relation("TaskSubmissionStudent")
@@ -273,6 +319,9 @@ model User {
   practice_sessions           PracticeSession[]           @relation("PracticeSessionStudent")
   programming_submissions     ProgrammingSubmission[]     @relation("ProgrammingSubmissionStudent")
   wrong_questions             WrongQuestion[]             @relation("WrongQuestionStudent")
+  wrong_question_tags         WrongQuestionTag[]
+  wrong_question_collections  WrongQuestionCollection[]
+  ai_generation_jobs          AiGenerationJob[]
   study_records               StudyRecord[]               @relation("StudyRecordStudent")
   mastery_records             StudentMasteryRecord[]      @relation("MasteryRecordStudent")
   portraits                   StudentPortrait[]           @relation("StudentPortraitUser")
@@ -291,10 +340,54 @@ model User {
   operation_logs              OperationLog[]
   feedback_records            FeedbackRecord[]
   safety_check_records        SafetyCheckRecord[]
+  refresh_tokens              RefreshToken[]
+  auth_sessions               AuthSession[]
 
   @@index([role])
   @@index([status])
   @@map("users")
+}
+
+model RefreshToken {
+  refresh_token_id Int       @id @default(autoincrement())
+  user_id          Int
+  token_hash       String    @unique @db.VarChar(128)
+  expires_at       DateTime
+  revoked_at       DateTime?
+  created_at       DateTime  @default(now())
+  last_used_at     DateTime?
+  device_info      String?   @db.VarChar(255)
+  ip_address       String?   @db.VarChar(64)
+  session_id       Int?
+
+  user User @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  auth_sessions AuthSession[]
+
+  @@index([user_id])
+  @@index([expires_at])
+  @@index([revoked_at])
+  @@map("refresh_tokens")
+}
+
+model AuthSession {
+  session_id       Int      @id @default(autoincrement())
+  user_id          Int
+  refresh_token_id Int?
+  created_at       DateTime @default(now())
+  last_activity_at DateTime @default(now())
+  expires_at       DateTime
+  revoked_at       DateTime?
+  device_info      String?  @db.VarChar(255)
+  ip_address       String?  @db.VarChar(64)
+
+  user          User         @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  refresh_token RefreshToken? @relation(fields: [refresh_token_id], references: [refresh_token_id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([last_activity_at])
+  @@index([revoked_at])
+  @@index([expires_at])
+  @@map("auth_sessions")
 }
 
 model UserProfile {
@@ -430,6 +523,7 @@ model StudentCourseEnrollment {
   course        Course        @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
   teachingClass TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
 
+  @@unique([student_user_id, course_id])
   @@unique([student_user_id, course_id, teaching_class_id])
   @@index([course_id])
   @@index([teaching_class_id])
@@ -447,6 +541,7 @@ model Chapter {
 
   course           Course           @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
   knowledge_points KnowledgePoint[]
+  wrong_questions  WrongQuestion[]
 
   @@index([course_id])
   @@map("chapters")
@@ -935,26 +1030,36 @@ model AiQuestionGenerationQuestion {
 }
 
 model Question {
-  question_id        Int             @id @default(autoincrement())
-  course_id          Int
-  knowledge_point_id Int?
-  question_type      QuestionType
-  title              String          @db.VarChar(200)
-  content            String          @db.Text
-  correct_answer     Json
-  answer_keywords    Json?
-  analysis           String?         @db.Text
-  difficulty_level   DifficultyLevel @default(BASIC)
-  score              Float           @default(0)
-  is_ai_generated    Boolean         @default(false)
-  created_by_user_id Int?
-  status             String          @default("active") @db.VarChar(20)
-  created_at         DateTime        @default(now())
-  updated_at         DateTime        @updatedAt
+  question_id            Int             @id @default(autoincrement())
+  course_id              Int
+  knowledge_point_id     Int?
+  question_type          QuestionType
+  title                  String          @db.VarChar(200)
+  content                String          @db.Text
+  correct_answer         Json
+  answer_keywords        Json?
+  analysis               String?         @db.Text
+  difficulty_level       DifficultyLevel @default(BASIC)
+  score                  Float           @default(0)
+  is_ai_generated        Boolean         @default(false)
+  source_type            GenerationMode?
+  source_question_id     Int?
+  source_wrong_question_id Int?
+  generation_mode        GenerationMode?
+  generated_by_user_id   Int?
+  model_name             String?         @db.VarChar(100)
+  prompt_version         String?         @db.VarChar(50)
+  content_hash           String?         @db.VarChar(128)
+  is_reusable            Boolean         @default(true)
+  created_by_user_id     Int?
+  status                 String          @default("active") @db.VarChar(20)
+  created_at             DateTime        @default(now())
+  updated_at             DateTime        @updatedAt
 
   course                  Course                         @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
   knowledge_point         KnowledgePoint?                @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
   creator                 User?                          @relation("QuestionCreator", fields: [created_by_user_id], references: [user_id], onDelete: SetNull)
+  generated_by            User?                          @relation("QuestionGenerator", fields: [generated_by_user_id], references: [user_id], onDelete: SetNull)
   options                 QuestionOption[]
   bank_links              QuestionBankQuestion[]
   generation_links        AiQuestionGenerationQuestion[]
@@ -968,6 +1073,10 @@ model Question {
   @@index([knowledge_point_id])
   @@index([question_type])
   @@index([difficulty_level])
+  @@index([source_type])
+  @@index([source_question_id])
+  @@index([generation_mode])
+  @@index([content_hash])
   @@map("questions")
 }
 
@@ -1072,11 +1181,18 @@ model PracticeSession {
   student_user_id     Int
   course_id           Int
   teaching_class_id   Int?
-  mode                String    @default("practice") @db.VarChar(30)
+  mode                String    @default("SINGLE_PRACTICE") @db.VarChar(30)
+  answer_mode         String    @default("SINGLE") @db.VarChar(30)
   question_count      Int       @default(0)
-  status              String    @default("in_progress") @db.VarChar(20)
+  status              String    @default("IN_PROGRESS") @db.VarChar(20)
   started_at          DateTime  @default(now())
   submitted_at        DateTime?
+  expires_at          DateTime?
+  current_item_id     Int?
+  current_item_index  Int       @default(0)
+  last_active_at      DateTime?
+  submit_request_id   String?   @db.VarChar(100)
+  navigation_config   Json?
   duration_seconds    Int?
   total_score         Float?
   max_score           Float?
@@ -1084,6 +1200,10 @@ model PracticeSession {
   ai_score            Float?
   correct_count       Int       @default(0)
   wrong_count         Int       @default(0)
+  source_type         String?   @db.VarChar(30)
+  source_id           Int?
+  task_id             Int?
+  submit_reason       String?   @db.VarChar(30)
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
 
@@ -1097,7 +1217,11 @@ model PracticeSession {
   @@index([course_id])
   @@index([teaching_class_id])
   @@index([status])
+  @@index([mode])
+  @@index([expires_at])
   @@index([submitted_at])
+  @@index([source_type])
+  @@index([source_id])
   @@map("practice_sessions")
 }
 
@@ -1129,12 +1253,17 @@ model AnswerRecord {
   duration_seconds      Int?
   viewed_analysis       Boolean       @default(false)
   attempt_no            Int           @default(1)
+  item_status           String        @default("UNANSWERED") @db.VarChar(20)
   is_correct            Boolean?
   score                 Float?
   max_score             Float?
   grading_status        GradingStatus @default(PENDING)
   feedback              String?       @db.Text
   auto_added_wrong_book Boolean       @default(false)
+  saved_at              DateTime?
+  confirmed_at          DateTime?
+  graded_at             DateTime?
+  client_updated_at     DateTime?
   created_at            DateTime      @default(now())
 
   student            User              @relation("AnswerRecordStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
@@ -1149,6 +1278,9 @@ model AnswerRecord {
   @@index([task_id])
   @@index([submission_id])
   @@index([practice_session_id])
+  @@index([practice_session_id, question_id])
+  @@index([submission_id, question_id])
+  @@index([item_status])
   @@map("answer_records")
 }
 
@@ -1195,28 +1327,131 @@ model ProgrammingSubmission {
 }
 
 model WrongQuestion {
-  wrong_question_id  Int                 @id @default(autoincrement())
-  student_user_id    Int
-  question_id        Int
-  course_id          Int?
-  knowledge_point_id Int?
-  source_type        String              @default("auto") @db.VarChar(20)
-  status             WrongQuestionStatus @default(UNRESOLVED)
-  remove_reason      String?             @db.Text
-  mastered_at        DateTime?
-  created_at         DateTime            @default(now())
-  updated_at         DateTime            @updatedAt
+  wrong_question_id       Int                 @id @default(autoincrement())
+  student_user_id         Int
+  question_id             Int
+  course_id               Int?
+  chapter_id              Int?
+  knowledge_point_id      Int?
+  source_type             String              @default("auto") @db.VarChar(20)
+  status                  WrongQuestionStatus @default(UNRESOLVED)
+  wrong_reason            WrongReason?
+  wrong_reason_source     WrongReasonSource   @default(USER)
+  review_status           WrongReviewStatus   @default(PENDING_REVIEW)
+  review_count            Int                 @default(0)
+  consecutive_correct_count Int               @default(0)
+  last_reviewed_at        DateTime?
+  last_wrong_at           DateTime?
+  mastered_at             DateTime?
+  ignored_at              DateTime?
+  remove_reason           String?             @db.Text
+  created_at              DateTime            @default(now())
+  updated_at              DateTime            @updatedAt
 
   student         User            @relation("WrongQuestionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
   question        Question        @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
   course          Course?         @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  chapter         Chapter?        @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
   knowledge_point KnowledgePoint? @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  tag_relations   WrongQuestionTagRelation[]
+  collection_items WrongQuestionCollectionItem[]
 
   @@unique([student_user_id, question_id])
   @@index([course_id])
+  @@index([chapter_id])
   @@index([knowledge_point_id])
   @@index([status])
+  @@index([review_status])
+  @@index([wrong_reason])
+  @@index([last_wrong_at])
   @@map("wrong_questions")
+}
+
+// ========================
+// Wrong question tags, collections, AI generation
+// ========================
+
+model WrongQuestionTag {
+  tag_id     Int      @id @default(autoincrement())
+  user_id    Int
+  name       String   @db.VarChar(50)
+  color      String?  @db.VarChar(20)
+  created_at DateTime @default(now())
+
+  user      User                       @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  relations WrongQuestionTagRelation[]
+
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@map("wrong_question_tags")
+}
+
+model WrongQuestionTagRelation {
+  relation_id       Int      @id @default(autoincrement())
+  wrong_question_id Int
+  tag_id            Int
+  created_at        DateTime @default(now())
+
+  wrong_question WrongQuestion    @relation(fields: [wrong_question_id], references: [wrong_question_id], onDelete: Cascade)
+  tag            WrongQuestionTag @relation(fields: [tag_id], references: [tag_id], onDelete: Cascade)
+
+  @@unique([wrong_question_id, tag_id])
+  @@index([tag_id])
+  @@map("wrong_question_tag_relations")
+}
+
+model WrongQuestionCollection {
+  collection_id Int      @id @default(autoincrement())
+  user_id       Int
+  name          String   @db.VarChar(100)
+  description   String?  @db.Text
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  user  User                           @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  items WrongQuestionCollectionItem[]
+
+  @@index([user_id])
+  @@map("wrong_question_collections")
+}
+
+model WrongQuestionCollectionItem {
+  item_id           Int      @id @default(autoincrement())
+  collection_id     Int
+  wrong_question_id Int
+  sort_order        Int      @default(0)
+
+  collection     WrongQuestionCollection @relation(fields: [collection_id], references: [collection_id], onDelete: Cascade)
+  wrong_question WrongQuestion          @relation(fields: [wrong_question_id], references: [wrong_question_id], onDelete: Cascade)
+
+  @@unique([collection_id, wrong_question_id])
+  @@index([wrong_question_id])
+  @@map("wrong_question_collection_items")
+}
+
+model AiGenerationJob {
+  job_id          Int                      @id @default(autoincrement())
+  user_id         Int
+  mode            GenerationMode
+  status          AiGenerationJobStatus    @default(PENDING)
+  source_type     String?                  @db.VarChar(20)
+  total_batches   Int                      @default(0)
+  current_batch   Int                      @default(0)
+  success_count   Int                      @default(0)
+  fail_count      Int                      @default(0)
+  target_count    Int                      @default(0)
+  difficulty      String?                  @db.VarChar(20)
+  progress_data   Json?
+  result_data     Json?
+  error_message   String?                  @db.Text
+  created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @updatedAt
+
+  user User @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
+  @@map("ai_generation_jobs")
 }
 
 // ========================

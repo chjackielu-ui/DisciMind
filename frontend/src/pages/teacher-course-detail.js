@@ -2,7 +2,7 @@
 // 支持三个标签页：教学班级 | 章节与知识点 | 课程信息
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import {
   getTeacherCourse, updateTeacherCourse,
@@ -31,7 +31,7 @@ export async function renderTeacherCourseDetail(app, params) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

@@ -1,13 +1,15 @@
 // 学生端个人主页 — 资料维护、头像上传、密码重置
 
 import { getMe, updateMe, uploadAvatar, changePassword } from '../api/auth.js'
-import { getUser, setAuth, clearAuth } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, roleLabel } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 
 const API_ORIGIN = 'http://localhost:3000'
+const AVATAR_SOURCE_MAX_SIZE = 8 * 1024 * 1024
+const AVATAR_OUTPUT_SIZE = 512
 
 function avatarSrc(user) {
   const url = user?.profile?.avatar_url || user?.avatar_url
@@ -164,12 +166,176 @@ function buildContent(user) {
     </div>`
 }
 
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('图片读取失败，请重新选择'))
+    img.src = src
+  })
+}
+
+function openAvatarCropper(file) {
+  return new Promise(async (resolve) => {
+    const objectUrl = URL.createObjectURL(file)
+    let img
+    try {
+      img = await loadImage(objectUrl)
+    } catch (err) {
+      URL.revokeObjectURL(objectUrl)
+      showToast(err.message || '图片读取失败', 'error')
+      resolve(null)
+      return
+    }
+
+    const overlay = document.createElement('div')
+    overlay.className = 'avatar-crop-overlay'
+    overlay.innerHTML = `
+      <div class="avatar-crop-dialog" role="dialog" aria-modal="true" aria-label="裁剪头像">
+        <div class="avatar-crop-head">
+          <div>
+            <b>裁剪头像</b>
+            <span>拖动图片并调整缩放，保留裁剪框内区域</span>
+          </div>
+          <button class="avatar-crop-icon-btn" id="avatar-crop-close" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="avatar-crop-stage" id="avatar-crop-stage">
+          <canvas id="avatar-crop-canvas" width="320" height="320"></canvas>
+          <div class="avatar-crop-frame" aria-hidden="true"></div>
+        </div>
+        <label class="avatar-crop-zoom">
+          <span>缩放</span>
+          <input id="avatar-crop-zoom" type="range" min="1" max="3" step="0.01" value="1">
+        </label>
+        <div class="avatar-crop-actions">
+          <button class="btn-profile-secondary" id="avatar-crop-cancel" type="button">取消</button>
+          <button class="btn-profile-primary" id="avatar-crop-confirm" type="button">确认上传</button>
+        </div>
+      </div>`
+    document.body.appendChild(overlay)
+
+    const stage = overlay.querySelector('#avatar-crop-stage')
+    const canvas = overlay.querySelector('#avatar-crop-canvas')
+    const zoomInput = overlay.querySelector('#avatar-crop-zoom')
+    const ctx = canvas.getContext('2d')
+    const stageSize = 320
+    const frameSize = 220
+    const frameLeft = (stageSize - frameSize) / 2
+    const frameTop = frameLeft
+    const baseScale = Math.max(frameSize / img.naturalWidth, frameSize / img.naturalHeight)
+    const transform = {
+      zoom: 1,
+      scale: baseScale,
+      x: (stageSize - img.naturalWidth * baseScale) / 2,
+      y: (stageSize - img.naturalHeight * baseScale) / 2,
+    }
+    let drag = null
+    let settled = false
+
+    function clampTransform() {
+      transform.scale = baseScale * transform.zoom
+      const drawW = img.naturalWidth * transform.scale
+      const drawH = img.naturalHeight * transform.scale
+      const minX = frameLeft + frameSize - drawW
+      const maxX = frameLeft
+      const minY = frameTop + frameSize - drawH
+      const maxY = frameTop
+      transform.x = Math.min(Math.max(transform.x, minX), maxX)
+      transform.y = Math.min(Math.max(transform.y, minY), maxY)
+    }
+
+    function renderCrop() {
+      clampTransform()
+      ctx.clearRect(0, 0, stageSize, stageSize)
+      ctx.fillStyle = '#f7fafb'
+      ctx.fillRect(0, 0, stageSize, stageSize)
+      ctx.drawImage(
+        img,
+        transform.x,
+        transform.y,
+        img.naturalWidth * transform.scale,
+        img.naturalHeight * transform.scale,
+      )
+    }
+
+    function cleanup(value) {
+      if (settled) return
+      settled = true
+      URL.revokeObjectURL(objectUrl)
+      overlay.remove()
+      resolve(value)
+    }
+
+    stage.addEventListener('pointerdown', (event) => {
+      drag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: transform.x,
+        originY: transform.y,
+      }
+      stage.setPointerCapture?.(event.pointerId)
+    })
+    stage.addEventListener('pointermove', (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return
+      transform.x = drag.originX + event.clientX - drag.startX
+      transform.y = drag.originY + event.clientY - drag.startY
+      renderCrop()
+    })
+    function endDrag(event) {
+      if (!drag || drag.pointerId !== event.pointerId) return
+      stage.releasePointerCapture?.(event.pointerId)
+      drag = null
+    }
+    stage.addEventListener('pointerup', endDrag)
+    stage.addEventListener('pointercancel', endDrag)
+    zoomInput.addEventListener('input', () => {
+      const prevScale = transform.scale
+      const centerX = frameLeft + frameSize / 2
+      const centerY = frameTop + frameSize / 2
+      transform.zoom = Number(zoomInput.value) || 1
+      transform.scale = baseScale * transform.zoom
+      const ratio = transform.scale / prevScale
+      transform.x = centerX - (centerX - transform.x) * ratio
+      transform.y = centerY - (centerY - transform.y) * ratio
+      renderCrop()
+    })
+
+    overlay.querySelector('#avatar-crop-close')?.addEventListener('click', () => cleanup(null))
+    overlay.querySelector('#avatar-crop-cancel')?.addEventListener('click', () => cleanup(null))
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) cleanup(null)
+    })
+    overlay.querySelector('#avatar-crop-confirm')?.addEventListener('click', () => {
+      const output = document.createElement('canvas')
+      output.width = AVATAR_OUTPUT_SIZE
+      output.height = AVATAR_OUTPUT_SIZE
+      const outputCtx = output.getContext('2d')
+      const sx = (frameLeft - transform.x) / transform.scale
+      const sy = (frameTop - transform.y) / transform.scale
+      const sSize = frameSize / transform.scale
+      outputCtx.drawImage(img, sx, sy, sSize, sSize, 0, 0, AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE)
+      output.toBlob((blob) => {
+        if (!blob) {
+          showToast('头像裁剪失败，请重新选择', 'error')
+          cleanup(null)
+          return
+        }
+        const cropped = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
+        cleanup(cropped)
+      }, 'image/jpeg', 0.9)
+    })
+
+    renderCrop()
+  })
+}
+
 export async function renderStudentProfile(app) {
   let user = getUser()
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) { clearAuth(); window.location.hash = '#/login'; return }
   }
@@ -192,21 +358,35 @@ function bindProfileEvents() {
       showToast('请选择图片文件', 'error')
       return
     }
-    if (file.size > 2 * 1024 * 1024) {
-      showToast('头像图片不能超过 2MB', 'error')
+    if (file.size > AVATAR_SOURCE_MAX_SIZE) {
+      showToast('原始图片不能超过 8MB', 'error')
       return
     }
 
+    const croppedFile = await openAvatarCropper(file)
+    avatarInput.value = ''
+    if (!croppedFile) return
+
     const preview = document.getElementById('profile-avatar-preview')
-    const nextSrc = URL.createObjectURL(file)
-    if (preview?.tagName === 'IMG') preview.src = nextSrc
+    const nextSrc = URL.createObjectURL(croppedFile)
+    if (preview?.tagName === 'IMG') {
+      preview.src = nextSrc
+    } else if (preview) {
+      const img = document.createElement('img')
+      img.id = 'profile-avatar-preview'
+      img.alt = '头像预览'
+      img.src = nextSrc
+      preview.replaceWith(img)
+    }
 
     try {
-      const result = await uploadAvatar(file)
-      setAuth(localStorage.getItem('token') || '', result.data.user)
+      const result = await uploadAvatar(croppedFile)
+      setAuth(getToken(), result.data.user)
       showToast('头像已更新', 'success')
+      URL.revokeObjectURL(nextSrc)
       setTimeout(() => window.location.reload(), 500)
     } catch (err) {
+      URL.revokeObjectURL(nextSrc)
       showToast(err.message || '头像上传失败', 'error')
     }
   })
@@ -218,7 +398,7 @@ function bindProfileEvents() {
 
     try {
       const result = await updateMe(payload)
-      setAuth(localStorage.getItem('token') || '', result.data.user)
+      setAuth(getToken(), result.data.user)
       showToast('个人信息已保存', 'success')
       setTimeout(() => window.location.reload(), 500)
     } catch (err) {

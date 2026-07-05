@@ -292,8 +292,18 @@ async function addClassStudents(classId, studentUserIds) {
   const results = [];
   for (const userId of studentUserIds) {
     try {
-      await prisma.studentCourseEnrollment.create({
-        data: {
+      await prisma.studentCourseEnrollment.upsert({
+        where: {
+          student_user_id_course_id: {
+            student_user_id: userId,
+            course_id: tc.course_id,
+          },
+        },
+        update: {
+          teaching_class_id: classId,
+          enrollment_status: 'active',
+        },
+        create: {
           student_user_id: userId,
           course_id: tc.course_id,
           teaching_class_id: classId,

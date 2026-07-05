@@ -2,7 +2,7 @@
 // 接入真实 API 数据
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getTeacherDashboard } from '../api/teacher.js'
 import { getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadNotificationCount } from '../api/teacher.js'
@@ -13,7 +13,7 @@ export async function renderTeacherDashboard(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

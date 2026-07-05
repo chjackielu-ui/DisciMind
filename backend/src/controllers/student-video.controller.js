@@ -96,9 +96,34 @@ async function searchVideos(req, res) {
   }
 }
 
+// ========================
+// 5. B 站封面代理（图片标签无法携带 Authorization，故在路由层只做域名白名单校验）
+// ========================
+
+async function proxyVideoCover(req, res) {
+  try {
+    const url = req.query?.url;
+    if (!url) return fail(res, 40001, '请提供封面地址 url');
+
+    const { buffer, contentType } = await videoSearchService.fetchCoverImage(url);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return res.send(buffer);
+  } catch (err) {
+    console.error('[student-video.controller] proxyVideoCover 异常:', err.message);
+    return res.status(err.code ? 400 : 502).json({
+      code: err.code || 50001,
+      message: err.message || '封面代理失败',
+      data: null,
+    });
+  }
+}
+
 module.exports = {
   getVideoRecommendations,
   getKnowledgePointVideos,
   recordWatch,
   searchVideos,
+  proxyVideoCover,
 };

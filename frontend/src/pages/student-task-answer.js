@@ -1,11 +1,12 @@
 import { getMe } from '../api/auth.js'
-import { startStudentTask, saveStudentAnswers, submitStudentTask } from '../api/student.js'
-import { getUser, setAuth, clearAuth } from '../utils/auth.js'
+import { startTaskAttempt, savePracticeItemAnswer, submitPracticeSession } from '../api/student.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, taskTypeLabel, submissionStatusLabel, questionTypeLabel, parseAnswerContent, answerToPayload, isAnsweredValue } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 import { disposeAllCharts, bindResize, renderRingChart, CHART_COLORS } from '../utils/echarts.js'
+import { showExamLeaveModal } from '../components/common/exam-leave-modal.js'
 
 let autosaveTimer = null
 
@@ -20,7 +21,7 @@ async function getAuthedUser() {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()
@@ -80,6 +81,7 @@ function isSelected(value, optionValue, type) {
   return String(value || '') === String(optionValue)
 }
 
+// --- 复用统一题目渲染逻辑 ---
 function buildQuestionHTML(q, idx, value, marked) {
   const type = String(q.question_type || '').toLowerCase()
   const options = q.options || []
@@ -137,7 +139,7 @@ function buildQuestionHTML(q, idx, value, marked) {
 }
 
 function buildPage(data, state) {
-  const { task, submission, questions } = data
+  const { task, session, questions } = data
   const answered = getAnsweredCount(questions, state.answers)
   const total = questions.length
   const current = questions[state.currentIndex]
@@ -152,19 +154,20 @@ function buildPage(data, state) {
       </div>`
   }
 
+  const totalScore = session?.total_score || questions.reduce((s, q) => s + (q.score || 0), 0)
+
   return `
     <div class="complex-shell exam-shell">
       <div class="exam-topbar">
         <div>
-          <button class="complex-btn-secondary" id="btn-back-courses" style="margin-bottom:10px;">返回</button>
+          <button class="complex-btn-ghost" id="btn-back-courses" style="margin-bottom:10px;">返回</button>
           <h1 class="exam-title">${escapeHtml(task?.task_title || '在线答题')}</h1>
           <p class="exam-subtitle">请按题目要求作答，切换题目不会丢失当前答案。</p>
           <div class="exam-meta-row">
             <span>${taskTypeLabel(task?.task_type)}</span>
             <span>截止：${formatDate(task?.deadline)}</span>
-            <span>状态：${submissionStatusLabel(submission?.status)}</span>
             <span>${total} 题</span>
-            <span>总分 ${submission?.total_score || questions.reduce((s, q) => s + (q.score || 0), 0)} 分</span>
+            <span>总分 ${totalScore} 分</span>
             <span>已答 ${answered}/${total}</span>
             <span id="save-status">保存状态：${escapeHtml(state.saveStatus || '未保存')}</span>
           </div>
@@ -243,7 +246,8 @@ export async function renderStudentTaskAnswer(app, params = {}) {
 
   let data
   try {
-    const result = await startStudentTask(taskId, { mode: 'normal' })
+    // 统一使用 attempt API（不再降级到旧 TaskSubmission）
+    const result = await startTaskAttempt(taskId)
     data = result.data || {}
   } catch (err) {
     renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: buildError(err.message), user })
@@ -252,11 +256,9 @@ export async function renderStudentTaskAnswer(app, params = {}) {
     return
   }
 
-  const submission = data.submission || {}
-  const status = String(submission.status || '').toLowerCase()
-  if (status && status !== 'in_progress') {
-    showToast(data.message || '该任务已提交，正在进入结果页', 'info')
-    window.location.hash = `#/student/submissions/${submission.submission_id}/result`
+  const sessionId = data.session?.practice_session_id
+  if (!sessionId) {
+    showToast('答题会话无效', 'error')
     return
   }
 
@@ -269,16 +271,24 @@ export async function renderStudentTaskAnswer(app, params = {}) {
     saving: false,
     submitting: false,
   }
+
   data.questions = questions
 
   async function saveDraft(silent = false) {
-    if (!submission.submission_id || state.saving) return
+    if (!sessionId || state.saving) return
+    const q = questions[state.currentIndex]
+    if (!q) return
+
     state.saving = true
     updateButtons(true)
     try {
-      await saveStudentAnswers(submission.submission_id, { answers: buildPayload(questions, state.answers) })
+      // 统一 attempt API：逐题保存
+      await savePracticeItemAnswer(sessionId, q.question_id, {
+        answer: state.answers[q.question_id],
+      })
       state.saveStatus = `已保存 ${formatDate(new Date().toISOString(), 'time')}`
-      document.getElementById('save-status').textContent = `保存状态：${state.saveStatus}`
+      const el = document.getElementById('save-status')
+      if (el) el.textContent = `保存状态：${state.saveStatus}`
       if (!silent) showToast('答案草稿已保存', 'success')
     } catch (err) {
       if (!silent) showToast(err.message || '保存失败，请稍后重试', 'error')
@@ -290,28 +300,40 @@ export async function renderStudentTaskAnswer(app, params = {}) {
 
   async function submitNow() {
     if (state.submitting) return
-    const ok = window.confirm('你确定要提交吗？提交后将进入自动批改流程。')
-    if (!ok) return
-    state.submitting = true
-    updateButtons(true, true)
-    try {
-      const result = await submitStudentTask(taskId, {
-        submission_id: submission.submission_id,
-        answers: buildPayload(questions, state.answers),
-      })
-      const subId = result.data?.submission?.submission_id || submission.submission_id
-      showToast('提交成功，正在进入结果页', 'success')
-      window.location.hash = `#/student/submissions/${subId}/result`
-    } catch (err) {
-      if (/已提交|重复提交/.test(err.message || '')) {
-        showToast('该任务已提交，正在进入结果页', 'info')
-        window.location.hash = `#/student/submissions/${submission.submission_id}/result`
-        return
-      }
-      showToast(err.message || '提交失败，请稍后重试', 'error')
-      state.submitting = false
-      updateButtons(false, false)
-    }
+
+    const answeredCount = getAnsweredCount(questions, state.answers)
+
+    // 使用统一模态框
+    showExamLeaveModal({
+      mode: 'task',
+      title: data.task?.task_title || '教师任务',
+      answeredCount,
+      totalCount: questions.length,
+      hasUnsavedChanges: state.saveStatus === '有未保存修改',
+      onContinue: () => {},
+      onSubmitAndLeave: async () => {
+        state.submitting = true
+        updateButtons(true, true)
+        try {
+          // 统一 attempt API：整卷提交
+          await submitPracticeSession(sessionId, {
+            answers: buildPayload(questions, state.answers),
+          })
+          showToast('提交成功，正在进入结果页', 'success')
+          window.location.hash = `#/student/practice/sessions/${sessionId}`
+        } catch (err) {
+          if (/已提交|重复提交|已截止/.test(err.message || '')) {
+            showToast(err.message || '该任务已提交', 'info')
+            window.location.hash = `#/student/practice/sessions/${sessionId}`
+            return
+          }
+          showToast(err.message || '提交失败，请稍后重试', 'error')
+          state.submitting = false
+          updateButtons(false, false)
+          throw err // re-throw to keep modal open
+        }
+      },
+    })
   }
 
   function updateButtons(disabled, submitting = false) {
@@ -340,7 +362,23 @@ export async function renderStudentTaskAnswer(app, params = {}) {
   }
 
   function bindEvents() {
-    document.getElementById('btn-back-courses')?.addEventListener('click', () => { window.location.hash = '#/student/courses' })
+    document.getElementById('btn-back-courses')?.addEventListener('click', () => {
+      const answeredCount = getAnsweredCount(questions, state.answers)
+      showExamLeaveModal({
+        mode: 'task',
+        title: data.task?.task_title || '教师任务',
+        answeredCount,
+        totalCount: questions.length,
+        onContinue: () => {},
+        onSaveAndLeave: async () => {
+          await saveDraft(true)
+          window.location.hash = '#/student/courses'
+        },
+        onSubmitAndLeave: async () => {
+          await submitNow()
+        },
+      })
+    })
     document.getElementById('btn-save-draft')?.addEventListener('click', () => saveDraft(false))
     document.getElementById('btn-save-draft-bottom')?.addEventListener('click', () => saveDraft(false))
     document.getElementById('btn-submit-task')?.addEventListener('click', submitNow)
@@ -380,7 +418,8 @@ export async function renderStudentTaskAnswer(app, params = {}) {
       state.saveStatus = '有未保存修改'
       const count = document.querySelector('.short-count')
       if (count) count.textContent = `${e.target.value.length} 字`
-      document.getElementById('save-status').textContent = `保存状态：${state.saveStatus}`
+      const el = document.getElementById('save-status')
+      if (el) el.textContent = `保存状态：${state.saveStatus}`
       renderProgressChart(questions, state.answers)
     })
   }

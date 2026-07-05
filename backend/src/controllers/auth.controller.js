@@ -3,6 +3,64 @@
 
 const authService = require('../services/auth.service');
 const { success, fail } = require('../utils/response');
+const { signToken } = require('../utils/jwt');
+const { fromPrismaRole } = require('../utils/enum');
+
+function getRequestIp(req) {
+  return (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '')
+    .toString()
+    .split(',')[0]
+    .trim();
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  return header.split(';').reduce((cookies, part) => {
+    const idx = part.indexOf('=');
+    if (idx < 0) return cookies;
+    const key = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+    return cookies;
+  }, {});
+}
+
+function getRefreshToken(req) {
+  return parseCookies(req)[authService.REFRESH_TOKEN_COOKIE_NAME] || '';
+}
+
+function getRefreshCookieOptions(maxAge = authService.REFRESH_TOKEN_TTL_MS) {
+  const isProd = process.env.NODE_ENV === 'production';
+  const sameSite = (process.env.REFRESH_TOKEN_SAME_SITE || 'lax').toLowerCase();
+  const secure = process.env.REFRESH_TOKEN_COOKIE_SECURE
+    ? process.env.REFRESH_TOKEN_COOKIE_SECURE === 'true'
+    : (isProd || sameSite === 'none');
+  return {
+    httpOnly: true,
+    secure,
+    sameSite,
+    path: '/api/auth',
+    maxAge,
+  };
+}
+
+function setRefreshCookie(res, token, expiresAt) {
+  res.cookie(authService.REFRESH_TOKEN_COOKIE_NAME, token, {
+    ...getRefreshCookieOptions(),
+    expires: expiresAt,
+  });
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(authService.REFRESH_TOKEN_COOKIE_NAME, getRefreshCookieOptions(0));
+}
+
+function authMeta(req) {
+  return {
+    deviceInfo: req.headers['user-agent'] || '',
+    ipAddress: getRequestIp(req),
+  };
+}
 
 /**
  * POST /api/auth/register — 用户注册
@@ -59,10 +117,42 @@ async function login(req, res, next) {
   try {
     const { account, password } = req.body;
 
-    const result = await authService.login({ account, password });
+    const result = await authService.login({ account, password, ...authMeta(req) });
+    if (result.refreshToken) {
+      setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);
+      delete result.refreshToken;
+      delete result.refreshTokenExpiresAt;
+    }
 
     return success(res, result, '登录成功');
   } catch (err) {
+    return fail(res, err.code || 40001, err.message);
+  }
+}
+
+/**
+ * POST /api/auth/refresh — 使用 HttpOnly Cookie 中的 Refresh Token 续期
+ */
+async function refresh(req, res, next) {
+  try {
+    const result = await authService.refreshSession(getRefreshToken(req), authMeta(req));
+    return success(res, result, '登录状态已恢复');
+  } catch (err) {
+    clearRefreshCookie(res);
+    return fail(res, err.code || 40102, err.message);
+  }
+}
+
+/**
+ * POST /api/auth/logout — 主动退出并撤销当前 Refresh Token
+ */
+async function logout(req, res, next) {
+  try {
+    await authService.logout(getRefreshToken(req));
+    clearRefreshCookie(res);
+    return success(res, null, '已退出登录');
+  } catch (err) {
+    clearRefreshCookie(res);
     return fail(res, err.code || 40001, err.message);
   }
 }
@@ -128,4 +218,35 @@ async function changePassword(req, res, next) {
   }
 }
 
-module.exports = { register, login, getMe, updateMe, updateAvatar, changePassword };
+/**
+ * POST /api/auth/session/refresh — 前端 sessionStorage token 刷新
+ * 前端传 sessionId，后端校验会话活性，返回新 access token
+ */
+async function sessionRefresh(req, res, next) {
+  try {
+    const { sessionId } = req.body || {};
+    if (!sessionId) {
+      return fail(res, 40101, '会话ID缺失');
+    }
+    const check = await authService.checkSessionIdle(Number(sessionId));
+    if (!check.valid) {
+      return fail(res, 40102, check.reason === 'expired' ? '会话已过期，请重新登录' : '会话无效，请重新登录');
+    }
+    // 更新活动时间
+    await authService.touchSession(Number(sessionId));
+    // 生成新 token
+    const user = check.session.user;
+    const accessToken = signToken({
+      user_id: user.user_id,
+      role: fromPrismaRole(user.role),
+    });
+    return success(res, {
+      accessToken,
+      sessionId: Number(sessionId),
+    }, '会话已恢复');
+  } catch (err) {
+    return fail(res, err.code || 40102, err.message);
+  }
+}
+
+module.exports = { register, login, refresh, logout, getMe, updateMe, updateAvatar, changePassword, sessionRefresh };

@@ -1,7 +1,7 @@
 // 教师端 - 任务列表页
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getTeacherTasks, getTeacherCourses, deleteTeacherTask } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
@@ -12,7 +12,7 @@ export async function renderTeacherTasks(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()

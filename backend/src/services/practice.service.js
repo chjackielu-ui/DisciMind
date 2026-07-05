@@ -7,6 +7,7 @@ const wrongQuestionService = require('./wrong-question.service');
 const masteryService = require('./mastery.service');
 const aiService = require('./ai.service');
 const OpenAI = require('openai');
+const { checkAndExpireIfNeeded } = require('./attempt-expiration.service');
 
 const QUESTION_TYPE_TO_PRISMA = {
   single_choice: 'SINGLE_CHOICE',
@@ -25,6 +26,46 @@ const DIFFICULTY_TO_PRISMA = {
 };
 
 const VALID_WRONG_STATUSES = new Set(['unresolved', 'mastered', 'removed']);
+const SESSION_STATUS = {
+  CREATED: 'CREATED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  SUBMITTING: 'SUBMITTING',
+  SUBMITTED: 'SUBMITTED',
+  EXPIRED: 'EXPIRED',
+  ABANDONED: 'ABANDONED',
+};
+const ITEM_STATUS = {
+  UNANSWERED: 'UNANSWERED',
+  SAVED: 'SAVED',
+  CONFIRMED: 'CONFIRMED',
+  GRADED: 'GRADED',
+};
+const ATTEMPT_MODE = {
+  SINGLE_PRACTICE: 'SINGLE_PRACTICE',
+  PAPER_PRACTICE: 'PAPER_PRACTICE',
+  EXAM: 'EXAM',
+};
+const SOURCE_TYPE = {
+  SELF_PRACTICE: 'SELF_PRACTICE',
+  MOCK_EXAM: 'MOCK_EXAM',
+  TEACHER_TASK: 'TEACHER_TASK',
+  WRONG_QUESTION_PRACTICE: 'WRONG_QUESTION_PRACTICE',
+};
+const ACTIVE_SESSION_STATUSES = new Set([
+  SESSION_STATUS.CREATED,
+  SESSION_STATUS.IN_PROGRESS,
+  SESSION_STATUS.SUBMITTING,
+  'created',
+  'in_progress',
+  'submitting',
+]);
+const FINAL_SESSION_STATUSES = new Set([
+  SESSION_STATUS.SUBMITTED,
+  SESSION_STATUS.ABANDONED,
+  'submitted',
+  'graded',
+  'abandoned',
+]);
 
 function toLower(value) {
   if (value == null) return null;
@@ -100,6 +141,93 @@ function normalizeMode(mode) {
   return normalized;
 }
 
+function normalizeAttemptConfig(params = {}) {
+  const rawPracticeMode = String(
+    params.practiceMode ?? params.practice_mode ?? params.sessionMode ?? params.session_mode ?? params.mode ?? '',
+  ).trim().toUpperCase();
+  const rawAnswerMode = String(params.answerMode ?? params.answer_mode ?? '').trim().toUpperCase();
+
+  if (rawPracticeMode === 'EXAM') {
+    return {
+      mode: ATTEMPT_MODE.EXAM,
+      answerMode: 'PAPER',
+      navigationConfig: {
+        navigationMode: 'FREE',
+        allowModifyConfirmedAnswer: true,
+        showResultAfterItemSubmit: false,
+        lockNavigationUntilCurrentConfirmed: false,
+      },
+    };
+  }
+
+  if (rawAnswerMode === 'PAPER' || rawPracticeMode === 'PAPER_PRACTICE') {
+    return {
+      mode: ATTEMPT_MODE.PAPER_PRACTICE,
+      answerMode: 'PAPER',
+      navigationConfig: {
+        navigationMode: 'FREE',
+        allowModifyConfirmedAnswer: false,
+        showResultAfterItemSubmit: true,
+        lockNavigationUntilCurrentConfirmed: false,
+      },
+    };
+  }
+
+  return {
+    mode: ATTEMPT_MODE.SINGLE_PRACTICE,
+    answerMode: 'SINGLE',
+    navigationConfig: {
+      navigationMode: 'SEQUENTIAL',
+      allowModifyConfirmedAnswer: false,
+      showResultAfterItemSubmit: true,
+      lockNavigationUntilCurrentConfirmed: true,
+    },
+  };
+}
+
+function normalizeStoredSessionStatus(status) {
+  const raw = String(status || '').trim();
+  const upper = raw.toUpperCase();
+  if (upper === 'GRADED') return SESSION_STATUS.SUBMITTED;
+  if (upper === 'SUBMITTED') return SESSION_STATUS.SUBMITTED;
+  if (upper === 'IN_PROGRESS') return SESSION_STATUS.IN_PROGRESS;
+  if (upper === 'SUBMITTING') return SESSION_STATUS.SUBMITTING;
+  if (upper === 'CREATED') return SESSION_STATUS.CREATED;
+  if (upper === 'EXPIRED') return SESSION_STATUS.EXPIRED;
+  if (upper === 'ABANDONED') return SESSION_STATUS.ABANDONED;
+  return raw || SESSION_STATUS.IN_PROGRESS;
+}
+
+function normalizeStoredAttemptMode(mode, answerMode) {
+  const rawMode = String(mode || '').trim().toUpperCase();
+  const rawAnswerMode = String(answerMode || '').trim().toUpperCase();
+  if (rawMode === ATTEMPT_MODE.EXAM || rawMode === 'EXAM') return ATTEMPT_MODE.EXAM;
+  if (rawMode === ATTEMPT_MODE.PAPER_PRACTICE || rawAnswerMode === 'PAPER') return ATTEMPT_MODE.PAPER_PRACTICE;
+  if (rawMode === ATTEMPT_MODE.SINGLE_PRACTICE || rawAnswerMode === 'SINGLE') return ATTEMPT_MODE.SINGLE_PRACTICE;
+  if (rawMode === 'PRACTICE' || rawMode === 'RANDOM' || rawMode === 'SIMILAR' || rawMode === '') {
+    return rawAnswerMode === 'PAPER' ? ATTEMPT_MODE.PAPER_PRACTICE : ATTEMPT_MODE.SINGLE_PRACTICE;
+  }
+  return rawMode;
+}
+
+function isSessionActive(session) {
+  return ACTIVE_SESSION_STATUSES.has(session?.status) ||
+    ACTIVE_SESSION_STATUSES.has(String(session?.status || '').toLowerCase()) ||
+    normalizeStoredSessionStatus(session?.status) === SESSION_STATUS.IN_PROGRESS;
+}
+
+function isSessionFinal(session) {
+  return FINAL_SESSION_STATUSES.has(session?.status) ||
+    FINAL_SESSION_STATUSES.has(String(session?.status || '').toLowerCase()) ||
+    normalizeStoredSessionStatus(session?.status) === SESSION_STATUS.SUBMITTED;
+}
+
+function parseClientDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function shuffle(items) {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -128,6 +256,10 @@ function flattenAnswerValues(value) {
     return Object.values(value).flatMap((item) => flattenAnswerValues(item));
   }
   return [value];
+}
+
+function isPracticeAnswered(value) {
+  return flattenAnswerValues(value).some((item) => String(item ?? '').trim() !== '');
 }
 
 function toJsonAnswer(value) {
@@ -564,6 +696,9 @@ async function createPracticeSessionFromQuestions({
   courseId,
   classId,
   mode,
+  answerMode = 'SINGLE',
+  navigationConfig = null,
+  expiresAt = null,
   selectedQuestions,
 }) {
   const maxScore = selectedQuestions.reduce((sum, question) => sum + (question.score || 0), 0);
@@ -573,9 +708,15 @@ async function createPracticeSessionFromQuestions({
       course_id: courseId,
       teaching_class_id: classId || null,
       mode,
+      answer_mode: answerMode,
       question_count: selectedQuestions.length,
-      status: 'in_progress',
+      status: SESSION_STATUS.IN_PROGRESS,
       max_score: maxScore,
+      current_item_id: selectedQuestions[0]?.question_id || null,
+      current_item_index: 0,
+      last_active_at: new Date(),
+      expires_at: expiresAt || null,
+      navigation_config: navigationConfig,
       questions: {
         create: selectedQuestions.map((question, index) => ({
           question_id: question.question_id,
@@ -591,11 +732,17 @@ async function createPracticeSessionFromQuestions({
       subject_id: session.course_id,
       class_id: session.teaching_class_id,
       mode: session.mode,
+      answer_mode: session.answer_mode,
       status: session.status,
       question_count: session.question_count,
       total_score: null,
       max_score: session.max_score,
+      current_item_id: session.current_item_id,
+      current_item_index: session.current_item_index,
       started_at: session.started_at.toISOString(),
+      expires_at: session.expires_at ? session.expires_at.toISOString() : null,
+      server_time: new Date().toISOString(),
+      navigation_config: session.navigation_config,
     },
     questions: selectedQuestions.map(toPublicQuestion),
   };
@@ -611,7 +758,9 @@ async function startPractice(userId, params) {
 
   const { publicTypes, prismaTypes } = normalizeQuestionTypes(params.questionTypes ?? params.question_types);
   const difficulty = normalizeDifficulty(params.difficulty);
-  const mode = normalizeMode(params.mode);
+  const attemptConfig = normalizeAttemptConfig(params);
+  const durationSeconds = toPositiveInt(params.durationSeconds ?? params.duration_seconds, 'durationSeconds', false);
+  const expiresAt = durationSeconds ? new Date(Date.now() + durationSeconds * 1000) : null;
   const { course, classId: resolvedClassId } = await ensureStudentCanPractice(userId, courseId, classId);
 
   const existingQuestions = await fetchQuestionLinks({
@@ -651,7 +800,10 @@ async function startPractice(userId, params) {
     userId,
     courseId,
     classId: resolvedClassId,
-    mode,
+    mode: attemptConfig.mode,
+    answerMode: attemptConfig.answerMode,
+    navigationConfig: attemptConfig.navigationConfig,
+    expiresAt,
     selectedQuestions,
   });
 
@@ -664,6 +816,22 @@ async function startPractice(userId, params) {
 }
 
 async function submitPractice(userId, params) {
+  const requestedMode = String(params.mode || params.submitMode || params.submit_mode || '').toLowerCase();
+  if (requestedMode === 'single' || requestedMode === 'item') {
+    const firstAnswer = Array.isArray(params.answers) ? params.answers[0] : null;
+    const questionId = toPositiveInt(firstAnswer?.questionId ?? firstAnswer?.question_id, 'questionId');
+    return submitPracticeItem(
+      userId,
+      toPositiveInt(params.sessionId ?? params.session_id ?? params.practiceSessionId ?? params.practice_session_id, 'sessionId'),
+      questionId,
+      { answer: getAnswerFromPayload(firstAnswer || {}) },
+    );
+  }
+  return submitPracticeSession(userId, toPositiveInt(params.sessionId ?? params.session_id ?? params.practiceSessionId ?? params.practice_session_id, 'sessionId'), {
+    answers: params.answers,
+    submitRequestId: params.submitRequestId ?? params.submit_request_id,
+  });
+
   const sessionId = toPositiveInt(params.sessionId ?? params.session_id ?? params.practiceSessionId ?? params.practice_session_id, 'sessionId');
   const answerMap = normalizeSubmittedAnswers(params.answers);
 
@@ -896,6 +1064,902 @@ async function submitPractice(userId, params) {
       mastery_level: item.mastery_level,
       score_change: item.adjustment,
     })),
+  };
+}
+
+function isExamSession(session) {
+  return normalizeStoredAttemptMode(session?.mode, session?.answer_mode) === ATTEMPT_MODE.EXAM;
+}
+
+function getNavigationConfig(session) {
+  return session?.navigation_config || {
+    navigationMode: isExamSession(session) ? 'FREE' : 'SEQUENTIAL',
+    allowModifyConfirmedAnswer: isExamSession(session),
+    showResultAfterItemSubmit: !isExamSession(session),
+    lockNavigationUntilCurrentConfirmed: !isExamSession(session),
+  };
+}
+
+function publicItemStatus(record) {
+  return record?.item_status || (record?.is_correct != null ? ITEM_STATUS.GRADED : (record ? ITEM_STATUS.SAVED : ITEM_STATUS.UNANSWERED));
+}
+
+function answerResultPayload({ result, question, storedAnswer }) {
+  const gradingStatus = toGradingStatusEnum(result.grading_status);
+  const score = result.score ?? 0;
+  const maxScore = result.max_score ?? question?.score ?? 0;
+  return {
+    question_id: result.question_id,
+    question_type: toLower(question?.question_type),
+    title: question?.title || null,
+    question_content: question?.content || null,
+    student_answer: storedAnswer,
+    correct_answer: question?.correct_answer || null,
+    answer_analysis: question?.analysis || null,
+    is_correct: result.is_correct,
+    score,
+    max_score: maxScore,
+    total_score: maxScore,
+    grading_status: toLower(gradingStatus),
+    feedback: result.feedback || null,
+    item_status: ITEM_STATUS.GRADED,
+  };
+}
+
+function serializeSession(session) {
+  const status = normalizeStoredSessionStatus(session.status);
+  return {
+    practice_session_id: session.practice_session_id,
+    subject_id: session.course_id,
+    course_id: session.course_id,
+    class_id: session.teaching_class_id,
+    mode: normalizeStoredAttemptMode(session.mode, session.answer_mode),
+    answer_mode: String(session.answer_mode || '').toUpperCase() || null,
+    status,
+    question_count: session.question_count,
+    score: session.total_score,
+    total_score: session.max_score,
+    max_score: session.max_score,
+    current_item_id: session.current_item_id,
+    current_item_index: session.current_item_index || 0,
+    started_at: session.started_at ? session.started_at.toISOString() : null,
+    submitted_at: session.submitted_at ? session.submitted_at.toISOString() : null,
+    expires_at: session.expires_at ? session.expires_at.toISOString() : null,
+    duration_seconds: session.duration_seconds,
+    server_time: new Date().toISOString(),
+    navigation_config: getNavigationConfig(session),
+  };
+}
+
+function serializeQuestionWithAnswer(link, answerRecord, session) {
+  const question = link.question;
+  const itemStatus = publicItemStatus(answerRecord);
+  const canReveal = normalizeStoredSessionStatus(session.status) === SESSION_STATUS.SUBMITTED ||
+    (itemStatus === ITEM_STATUS.GRADED && !isExamSession(session));
+  return {
+    ...toPublicQuestion(question),
+    question_order: link.question_order,
+    draft_answer: answerRecord?.answer_content ?? null,
+    item_status: itemStatus,
+    saved_at: answerRecord?.saved_at ? answerRecord.saved_at.toISOString() : null,
+    confirmed_at: answerRecord?.confirmed_at ? answerRecord.confirmed_at.toISOString() : null,
+    graded_at: answerRecord?.graded_at ? answerRecord.graded_at.toISOString() : null,
+    result: canReveal && answerRecord
+      ? {
+          question_id: question.question_id,
+          student_answer: answerRecord.answer_content,
+          correct_answer: question.correct_answer,
+          answer_analysis: question.analysis || answerRecord.feedback || null,
+          is_correct: answerRecord.is_correct,
+          score: answerRecord.score,
+          max_score: answerRecord.max_score || question.score || 0,
+          total_score: answerRecord.max_score || question.score || 0,
+          grading_status: toLower(answerRecord.grading_status),
+          feedback: answerRecord.feedback,
+          item_status: itemStatus,
+        }
+      : null,
+  };
+}
+
+async function loadPracticeSessionForUser(userId, sessionId) {
+  const session = await prisma.practiceSession.findUnique({
+    where: { practice_session_id: sessionId },
+    include: {
+      course: true,
+      questions: {
+        orderBy: { question_order: 'asc' },
+        include: {
+          question: {
+            include: {
+              options: { orderBy: { option_order: 'asc' } },
+              knowledge_point: true,
+              course: true,
+            },
+          },
+        },
+      },
+      answer_records: true,
+    },
+  });
+
+  if (!session) {
+    throw Object.assign(new Error('练习会话不存在'), { code: 40002 });
+  }
+  if (session.student_user_id !== userId) {
+    throw Object.assign(new Error('无权访问该练习会话'), { code: 40301 });
+  }
+  return session;
+}
+
+function assertSessionMutable(session) {
+  if (!isSessionActive(session)) {
+    throw Object.assign(new Error('该答题会话已结束，不能继续修改'), { code: 40001 });
+  }
+  if (session.expires_at && new Date(session.expires_at) <= new Date()) {
+    throw Object.assign(new Error('考试已超时，不能继续修改答案'), { code: 40001 });
+  }
+}
+
+function findSessionQuestion(session, questionId) {
+  const link = (session.questions || []).find((item) => item.question_id === questionId);
+  if (!link) {
+    throw Object.assign(new Error('题目不属于该答题会话'), { code: 40002 });
+  }
+  return link;
+}
+
+async function getPracticeSessionDetail(userId, sessionId) {
+  // 静默检查超时（不抛异常，让学生看到已提交的结果）
+  await checkAndExpireIfNeeded(sessionId).catch(() => {});
+
+  const session = await loadPracticeSessionForUser(userId, sessionId);
+  const answerMap = new Map((session.answer_records || []).map((record) => [record.question_id, record]));
+  const questions = session.questions.map((link) => serializeQuestionWithAnswer(link, answerMap.get(link.question_id), session));
+  const results = questions.map((q) => q.result).filter(Boolean);
+  return {
+    session: serializeSession(session),
+    subject: session.course
+      ? { course_id: session.course.course_id, course_name: session.course.course_name }
+      : null,
+    questions,
+    answers: Object.fromEntries(questions.map((q) => [q.question_id, q.draft_answer])),
+    results,
+    submitted: normalizeStoredSessionStatus(session.status) === SESSION_STATUS.SUBMITTED,
+  };
+}
+
+async function savePracticeAnswer(userId, sessionId, questionId, params = {}) {
+  // 请求时兜底：检查是否超时
+  const expired = await checkAndExpireIfNeeded(sessionId);
+  if (expired) {
+    throw Object.assign(new Error('答题时间已截止，系统已自动交卷'), { code: 40001 });
+  }
+
+  const session = await loadPracticeSessionForUser(userId, sessionId);
+  assertSessionMutable(session);
+  const link = findSessionQuestion(session, questionId);
+  const now = new Date();
+  const currentIndex = Math.max(0, session.questions.findIndex((item) => item.question_id === questionId));
+  const answerContent = toJsonAnswer(params.answer ?? params.answer_content ?? params.value);
+  const existing = (session.answer_records || []).find((record) => record.question_id === questionId);
+  const navConfig = getNavigationConfig(session);
+
+  if (existing?.item_status === ITEM_STATUS.GRADED) {
+    throw Object.assign(new Error('本题已判分，不能直接修改答案'), { code: 40001 });
+  }
+  if (existing?.item_status === ITEM_STATUS.CONFIRMED && !navConfig.allowModifyConfirmedAnswer) {
+    throw Object.assign(new Error('本题已确认，不能直接修改答案'), { code: 40001 });
+  }
+
+  const itemStatus = isPracticeAnswered(answerContent) ? ITEM_STATUS.SAVED : ITEM_STATUS.UNANSWERED;
+  let answerRecord;
+  if (existing) {
+    answerRecord = await prisma.answerRecord.update({
+      where: { answer_record_id: existing.answer_record_id },
+      data: {
+        answer_content: answerContent,
+        item_status: itemStatus,
+        saved_at: now,
+        client_updated_at: parseClientDate(params.clientUpdatedAt ?? params.client_updated_at),
+      },
+    });
+  } else {
+    answerRecord = await prisma.answerRecord.create({
+      data: {
+        student_user_id: userId,
+        question_id: questionId,
+        practice_session_id: sessionId,
+        answer_content: answerContent,
+        started_at: session.started_at || now,
+        attempt_no: 1,
+        item_status: itemStatus,
+        saved_at: now,
+        client_updated_at: parseClientDate(params.clientUpdatedAt ?? params.client_updated_at),
+      },
+    });
+  }
+
+  await prisma.practiceSession.update({
+    where: { practice_session_id: sessionId },
+    data: {
+      current_item_id: questionId,
+      current_item_index: currentIndex,
+      last_active_at: now,
+    },
+  });
+
+  return {
+    practice_session_id: sessionId,
+    question_id: questionId,
+    item_id: questionId,
+    item_status: answerRecord.item_status,
+    saved_at: answerRecord.saved_at ? answerRecord.saved_at.toISOString() : now.toISOString(),
+    current_item_index: currentIndex,
+    question: toPublicQuestion(link.question),
+  };
+}
+
+async function submitPracticeItem(userId, sessionId, questionId, params = {}) {
+  // 请求时兜底：检查是否超时
+  const expired = await checkAndExpireIfNeeded(sessionId);
+  if (expired) {
+    throw Object.assign(new Error('答题时间已截止，系统已自动交卷'), { code: 40001 });
+  }
+
+  let saved = null;
+  if (Object.prototype.hasOwnProperty.call(params, 'answer') || Object.prototype.hasOwnProperty.call(params, 'answer_content')) {
+    saved = await savePracticeAnswer(userId, sessionId, questionId, params);
+  }
+
+  const session = await loadPracticeSessionForUser(userId, sessionId);
+  assertSessionMutable(session);
+  const link = findSessionQuestion(session, questionId);
+  const answerRecord = (session.answer_records || []).find((record) => record.question_id === questionId);
+  if (!answerRecord || !isPracticeAnswered(answerRecord.answer_content)) {
+    throw Object.assign(new Error('请先完成本题作答'), { code: 40001 });
+  }
+
+  const now = new Date();
+  if (isExamSession(session)) {
+    const updated = await prisma.answerRecord.update({
+      where: { answer_record_id: answerRecord.answer_record_id },
+      data: {
+        item_status: ITEM_STATUS.CONFIRMED,
+        confirmed_at: now,
+        submitted_at: now,
+      },
+    });
+    return {
+      practice_session_id: sessionId,
+      question_id: questionId,
+      item_id: questionId,
+      itemStatus: ITEM_STATUS.CONFIRMED,
+      item_status: ITEM_STATUS.CONFIRMED,
+      saved: true,
+      saved_at: updated.saved_at ? updated.saved_at.toISOString() : saved?.saved_at || null,
+      confirmed_at: now.toISOString(),
+      session: serializeSession(session),
+    };
+  }
+
+  if (answerRecord.item_status === ITEM_STATUS.GRADED) {
+    const detail = await getPracticeSessionDetail(userId, sessionId);
+    const result = detail.results.find((item) => item.question_id === questionId);
+    return {
+      practice_session_id: sessionId,
+      question_id: questionId,
+      itemStatus: ITEM_STATUS.GRADED,
+      item_status: ITEM_STATUS.GRADED,
+      results: result ? [result] : [],
+      session: detail.session,
+    };
+  }
+
+  const gradingResults = await gradingService.gradeAnswers([link.question], {
+    [questionId]: answerRecord.answer_content,
+  }, userId);
+  const result = gradingResults[0];
+  const gradingStatus = toGradingStatusEnum(result.grading_status);
+  const maxScore = result.max_score ?? link.question.score ?? 0;
+  const score = result.score ?? 0;
+
+  const updatedAnswer = await prisma.answerRecord.update({
+    where: { answer_record_id: answerRecord.answer_record_id },
+    data: {
+      item_status: ITEM_STATUS.GRADED,
+      submitted_at: now,
+      confirmed_at: now,
+      graded_at: now,
+      is_correct: result.is_correct,
+      score,
+      max_score: maxScore,
+      grading_status: gradingStatus,
+      feedback: result.feedback || null,
+    },
+  });
+
+  if (result.ai_grading) {
+    await prisma.aiGradingRecord.create({
+      data: {
+        answer_record_id: updatedAnswer.answer_record_id,
+        score: result.ai_grading.score,
+        total_score: result.ai_grading.total_score,
+        comment: result.ai_grading.comment || '',
+        rubric_matched: result.ai_grading.rubric_matched || [],
+        rubric_missing: result.ai_grading.rubric_missing || [],
+        is_ai_generated: result.ai_grading.is_ai_generated || false,
+        ai_provider: result.ai_grading.ai_provider || null,
+        model_name: result.ai_grading.model_name || null,
+      },
+    });
+  }
+
+  const answerPayload = answerResultPayload({ result, question: link.question, storedAnswer: answerRecord.answer_content });
+  const questionMap = { [questionId]: link.question };
+
+  // 错题练习：更新原错题的 review_status
+  if (session.source_type === SOURCE_TYPE.WRONG_QUESTION_PRACTICE && session.navigation_config) {
+    const navConfig = session.navigation_config || {};
+    const wrongQuestionIds = navConfig.wrongQuestionIds || [];
+    if (wrongQuestionIds.length > 0) {
+      // 找到当前题目关联的原错题ID
+      const sessionQuestion = session.questions.find(q => q.question_id === questionId);
+      // 从 navigation_config 中查找对应的 wrong_question_id
+      // 由于题目顺序可能被打乱，我们使用 question_id 匹配
+      await wrongQuestionService.updateReviewStatus(userId, wrongQuestionIds.find(() => true), {
+        isCorrect: result.is_correct,
+      }).catch(err => console.error('[practice] updateReviewStatus failed:', err.message));
+    }
+  }
+
+  await wrongQuestionService.createOrUpdateWrongQuestions({
+    studentId: userId,
+    submissionId: sessionId,
+    sourceType: 'practice',
+    answerResults: [answerPayload],
+    questionMap,
+  });
+  await masteryService.updateMasteryAfterSubmission({
+    studentId: userId,
+    courseId: session.course_id,
+    answerResults: [answerPayload],
+    questionMap,
+  });
+
+  return {
+    practice_session_id: sessionId,
+    question_id: questionId,
+    item_id: questionId,
+    itemStatus: ITEM_STATUS.GRADED,
+    item_status: ITEM_STATUS.GRADED,
+    correct: result.is_correct,
+    score,
+    correctAnswer: link.question.correct_answer,
+    correct_answer: link.question.correct_answer,
+    analysis: link.question.analysis || result.feedback || null,
+    results: [answerPayload],
+    session: {
+      ...serializeSession(session),
+      status: SESSION_STATUS.IN_PROGRESS,
+    },
+  };
+}
+
+async function buildPracticeSessionResult(userId, sessionId) {
+  const session = await loadPracticeSessionForUser(userId, sessionId);
+  const questionMap = {};
+  const results = [];
+  for (const link of session.questions) {
+    questionMap[link.question_id] = link.question;
+    const record = (session.answer_records || []).find((item) => item.question_id === link.question_id);
+    if (!record) continue;
+    results.push({
+      question_id: link.question_id,
+      question_type: toLower(link.question.question_type),
+      title: link.question.title,
+      question_content: link.question.content,
+      student_answer: record.answer_content,
+      correct_answer: link.question.correct_answer,
+      answer_analysis: link.question.analysis || record.feedback || null,
+      is_correct: record.is_correct,
+      score: record.score,
+      max_score: record.max_score || link.question.score || 0,
+      total_score: record.max_score || link.question.score || 0,
+      grading_status: toLower(record.grading_status),
+      feedback: record.feedback || null,
+      item_status: publicItemStatus(record),
+    });
+  }
+  const correctCount = results.filter((item) => item.is_correct === true).length;
+  const wrongCount = results.filter((item) => item.is_correct !== true).length;
+  return {
+    session: serializeSession(session),
+    summary: {
+      question_count: session.questions.length,
+      answered_count: session.answer_records.filter((item) => isPracticeAnswered(item.answer_content)).length,
+      correct_count: correctCount,
+      wrong_count: wrongCount,
+      auto_graded_count: results.filter((item) => item.grading_status === 'auto_graded').length,
+      ai_graded_count: results.filter((item) => item.grading_status === 'ai_graded').length,
+      pending_count: results.filter((item) => item.grading_status === 'pending').length,
+      already_submitted: true,
+    },
+    results,
+  };
+}
+
+async function submitPracticeSession(userId, sessionId, params = {}) {
+  // 请求时兜底：检查是否超时（防止重复提交）
+  const expired = await checkAndExpireIfNeeded(sessionId);
+  if (expired) {
+    throw Object.assign(new Error('答题时间已截止，系统已自动交卷'), { code: 40001 });
+  }
+
+  if (Array.isArray(params.answers) && params.answers.length > 0) {
+    for (const item of params.answers) {
+      const questionId = toPositiveInt(item.questionId ?? item.question_id, 'questionId');
+      try {
+        await savePracticeAnswer(userId, sessionId, questionId, {
+          answer: getAnswerFromPayload(item),
+          clientUpdatedAt: item.clientUpdatedAt ?? item.client_updated_at,
+        });
+      } catch (err) {
+        if (!/已判分/.test(err.message || '')) throw err;
+      }
+    }
+  }
+
+  let session = await loadPracticeSessionForUser(userId, sessionId);
+  if (isSessionFinal(session)) {
+    return buildPracticeSessionResult(userId, sessionId);
+  }
+  if (!isSessionActive(session) && normalizeStoredSessionStatus(session.status) !== SESSION_STATUS.EXPIRED) {
+    throw Object.assign(new Error('该答题会话不能提交'), { code: 40001 });
+  }
+
+  const now = new Date();
+  const submitRequestId = params.submitRequestId ? String(params.submitRequestId).slice(0, 100) : null;
+  await prisma.practiceSession.update({
+    where: { practice_session_id: sessionId },
+    data: {
+      status: SESSION_STATUS.SUBMITTING,
+      submit_request_id: submitRequestId || session.submit_request_id,
+      last_active_at: now,
+    },
+  });
+
+  session = await loadPracticeSessionForUser(userId, sessionId);
+  const questions = session.questions.map((item) => item.question);
+  const answerMap = {};
+  for (const record of session.answer_records || []) {
+    answerMap[record.question_id] = record.answer_content;
+  }
+
+  const gradingResults = await gradingService.gradeAnswers(questions, answerMap, userId);
+  const questionMap = {};
+  for (const question of questions) questionMap[question.question_id] = question;
+
+  const transactionResult = await prisma.$transaction(async (tx) => {
+    let totalScore = 0;
+    let objectiveScore = 0;
+    let aiScore = 0;
+    let correctCount = 0;
+    let wrongCount = 0;
+    let autoGradedCount = 0;
+    let aiGradedCount = 0;
+    let pendingCount = 0;
+    const updatedAnswers = [];
+
+    for (const result of gradingResults) {
+      const question = questionMap[result.question_id];
+      const existing = (session.answer_records || []).find((record) => record.question_id === result.question_id);
+      const storedAnswer = answerMap[result.question_id] || { answer: null };
+      const gradingStatus = toGradingStatusEnum(result.grading_status);
+      const maxScore = result.max_score ?? question?.score ?? 0;
+      const score = result.score ?? 0;
+
+      const answerData = {
+        answer_content: storedAnswer,
+        submitted_at: now,
+        confirmed_at: existing?.confirmed_at || now,
+        graded_at: now,
+        item_status: ITEM_STATUS.GRADED,
+        is_correct: result.is_correct,
+        score,
+        max_score: maxScore,
+        grading_status: gradingStatus,
+        feedback: result.feedback || null,
+      };
+
+      let answerRecord;
+      if (existing) {
+        answerRecord = await tx.answerRecord.update({
+          where: { answer_record_id: existing.answer_record_id },
+          data: answerData,
+        });
+      } else {
+        answerRecord = await tx.answerRecord.create({
+          data: {
+            student_user_id: userId,
+            question_id: result.question_id,
+            practice_session_id: sessionId,
+            started_at: session.started_at || now,
+            attempt_no: 1,
+            saved_at: now,
+            ...answerData,
+          },
+        });
+      }
+
+      if (result.ai_grading) {
+        await tx.aiGradingRecord.create({
+          data: {
+            answer_record_id: answerRecord.answer_record_id,
+            score: result.ai_grading.score,
+            total_score: result.ai_grading.total_score,
+            comment: result.ai_grading.comment || '',
+            rubric_matched: result.ai_grading.rubric_matched || [],
+            rubric_missing: result.ai_grading.rubric_missing || [],
+            is_ai_generated: result.ai_grading.is_ai_generated || false,
+            ai_provider: result.ai_grading.ai_provider || null,
+            model_name: result.ai_grading.model_name || null,
+          },
+        });
+      }
+
+      totalScore += score;
+      if (gradingStatus === 'AI_GRADED') {
+        aiScore += score; aiGradedCount += 1;
+      } else if (gradingStatus === 'AUTO_GRADED') {
+        objectiveScore += score; autoGradedCount += 1;
+      } else if (gradingStatus === 'PENDING') {
+        pendingCount += 1;
+      }
+      if (result.is_correct === true) correctCount += 1;
+      else wrongCount += 1;
+
+      updatedAnswers.push(answerResultPayload({ result, question, storedAnswer }));
+    }
+
+    const maxSessionScore = questions.reduce((sum, question) => sum + (question.score || 0), 0);
+    await tx.practiceSession.update({
+      where: { practice_session_id: sessionId },
+      data: {
+        status: SESSION_STATUS.SUBMITTED,
+        submitted_at: now,
+        duration_seconds: session.started_at
+          ? Math.max(0, Math.round((now - new Date(session.started_at)) / 1000))
+          : 0,
+        total_score: totalScore,
+        max_score: maxSessionScore,
+        objective_score: objectiveScore,
+        ai_score: aiScore,
+        correct_count: correctCount,
+        wrong_count: wrongCount,
+      },
+    });
+
+    return {
+      updatedAnswers,
+      totalScore,
+      maxSessionScore,
+      correctCount,
+      wrongCount,
+      autoGradedCount,
+      aiGradedCount,
+      pendingCount,
+    };
+  });
+
+  // 错题练习：更新原错题的 review_status
+  if (session.source_type === SOURCE_TYPE.WRONG_QUESTION_PRACTICE && session.navigation_config) {
+    const navConfig = session.navigation_config || {};
+    const storedWrongQuestionIds = navConfig.wrongQuestionIds || [];
+    for (const answer of transactionResult.updatedAnswers) {
+      // 通过 question_id 找到对应的 wrong_question
+      const wq = await prisma.wrongQuestion.findFirst({
+        where: {
+          student_user_id: userId,
+          question_id: answer.question_id,
+          status: 'UNRESOLVED',
+        },
+        orderBy: { created_at: 'desc' },
+      });
+      if (wq) {
+        try {
+          await wrongQuestionService.updateReviewStatus(userId, wq.wrong_question_id, {
+            isCorrect: answer.is_correct,
+          });
+        } catch (err) {
+          console.error('[practice] review status update failed:', err.message);
+        }
+      }
+    }
+  }
+
+  const wrongQuestionResult = await wrongQuestionService.createOrUpdateWrongQuestions({
+    studentId: userId,
+    submissionId: sessionId,
+    sourceType: 'practice',
+    answerResults: transactionResult.updatedAnswers,
+    questionMap,
+  });
+
+  const masteryResults = await masteryService.updateMasteryAfterSubmission({
+    studentId: userId,
+    courseId: session.course_id,
+    answerResults: transactionResult.updatedAnswers,
+    questionMap,
+  });
+
+  return {
+    session: {
+      practice_session_id: sessionId,
+      subject_id: session.course_id,
+      course_id: session.course_id,
+      class_id: session.teaching_class_id,
+      mode: normalizeStoredAttemptMode(session.mode, session.answer_mode),
+      answer_mode: String(session.answer_mode || '').toUpperCase(),
+      status: SESSION_STATUS.SUBMITTED,
+      score: transactionResult.totalScore,
+      total_score: transactionResult.maxSessionScore,
+      submitted_at: now.toISOString(),
+      duration_seconds: session.started_at
+        ? Math.max(0, Math.round((now - new Date(session.started_at)) / 1000))
+        : 0,
+      server_time: new Date().toISOString(),
+    },
+    summary: {
+      question_count: questions.length,
+      answered_count: Object.values(answerMap).filter(isPracticeAnswered).length,
+      correct_count: transactionResult.correctCount,
+      wrong_count: transactionResult.wrongCount,
+      auto_graded_count: transactionResult.autoGradedCount,
+      ai_graded_count: transactionResult.aiGradedCount,
+      pending_count: transactionResult.pendingCount,
+      wrong_question_created_count: wrongQuestionResult.created,
+      wrong_question_updated_count: wrongQuestionResult.updated,
+    },
+    results: transactionResult.updatedAnswers,
+    mastery_changes: masteryResults.map((item) => ({
+      knowledge_point_id: item.knowledge_point_id,
+      mastery_score: item.mastery_score,
+      mastery_level: item.mastery_level,
+      score_change: item.adjustment,
+    })),
+  };
+}
+
+async function getActiveAttempt(userId) {
+  // 查找所有进行中的答题会话（不限 mode）
+  // 优先返回需要 forceResume 的会话（考试/限时测验 > 普通练习）
+  const activeSessions = await prisma.practiceSession.findMany({
+    where: {
+      student_user_id: userId,
+      status: { in: [SESSION_STATUS.CREATED, SESSION_STATUS.IN_PROGRESS, SESSION_STATUS.SUBMITTING, 'in_progress'] },
+    },
+    orderBy: { updated_at: 'desc' },
+    take: 10, // 取最近10条，避免查询过多
+  });
+
+  if (activeSessions.length === 0) return { active: false, attempt: null, hasActiveAttempt: false };
+
+  // 优先选择 forceResume 的会话（考试/限时测验），否则取最近更新的
+  let active = activeSessions[0];
+  for (const s of activeSessions) {
+    const st = s.source_type || (s.mode === ATTEMPT_MODE.EXAM ? SOURCE_TYPE.MOCK_EXAM : SOURCE_TYPE.SELF_PRACTICE);
+    if (st === SOURCE_TYPE.MOCK_EXAM || (st === SOURCE_TYPE.TEACHER_TASK && s.expires_at)) {
+      active = s;
+      break; // 强制恢复类型的会话优先
+    }
+  }
+
+  const detail = await getPracticeSessionDetail(userId, active.practice_session_id);
+
+  // 根据来源类型决定是否强制恢复
+  let forceResume = false;
+  const sourceType = active.source_type || (
+    active.mode === ATTEMPT_MODE.EXAM ? SOURCE_TYPE.MOCK_EXAM : SOURCE_TYPE.SELF_PRACTICE
+  );
+
+  if (sourceType === SOURCE_TYPE.MOCK_EXAM) {
+    forceResume = true;
+  } else if (sourceType === SOURCE_TYPE.TEACHER_TASK) {
+    // 教师限时测验需强制恢复
+    forceResume = !!active.expires_at;
+  }
+  // SELF_PRACTICE 和 WRONG_QUESTION_PRACTICE 不强制恢复
+
+  return {
+    hasActiveAttempt: true,
+    active: true,
+    attemptId: active.practice_session_id,
+    sourceType,
+    status: toLower(active.status),
+    forceResume,
+    expiresAt: active.expires_at ? active.expires_at.toISOString() : null,
+    attempt: {
+      ...detail.session,
+      route: `#/student/practice/sessions/${active.practice_session_id}`,
+    },
+    session: detail.session,
+    questions: detail.questions,
+    answers: detail.answers,
+  };
+}
+
+/**
+ * 为教师任务创建/恢复答题 attempt
+ * 复用统一 PracticeSession 体系，不再使用独立 TaskSubmission
+ */
+async function startTaskAttempt(userId, taskId) {
+  // 1. 校验任务存在
+  const task = await prisma.learningTask.findUnique({
+    where: { task_id: taskId },
+    include: {
+      course: true,
+      question_links: {
+        orderBy: { question_order: 'asc' },
+        include: {
+          question: {
+            include: {
+              options: { orderBy: { option_order: 'asc' } },
+              knowledge_point: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!task) {
+    throw Object.assign(new Error('任务不存在'), { code: 40002 });
+  }
+
+  // 2. 校验学生已选修课程
+  const enrollment = await prisma.studentCourseEnrollment.findFirst({
+    where: { student_user_id: userId, course_id: task.course_id, enrollment_status: 'active' },
+  });
+  if (!enrollment) {
+    throw Object.assign(new Error('未加入该课程'), { code: 40301 });
+  }
+
+  // 3. 校验任务状态
+  if (task.status !== 'PUBLISHED') {
+    throw Object.assign(new Error('任务未发布或已关闭'), { code: 40001 });
+  }
+
+  // 4. 校验截止时间
+  const now = new Date();
+  if (task.deadline && new Date(task.deadline) < now && !task.allow_late_submit) {
+    throw Object.assign(new Error('任务已截止'), { code: 40001 });
+  }
+
+  // 5. 题目数量检查
+  if (task.question_links.length === 0) {
+    throw Object.assign(new Error('该任务暂无题目'), { code: 40002 });
+  }
+
+  // 6. 查找现有进行中的 attempt
+  const existingAttempt = await prisma.practiceSession.findFirst({
+    where: {
+      student_user_id: userId,
+      source_type: SOURCE_TYPE.TEACHER_TASK,
+      source_id: taskId,
+      status: { in: ['IN_PROGRESS', 'CREATED'] },
+    },
+    orderBy: { created_at: 'desc' },
+  });
+
+  if (existingAttempt) {
+    // 恢复已有 attempt
+    const detail = await getPracticeSessionDetail(userId, existingAttempt.practice_session_id);
+    return {
+      ...detail,
+      task: {
+        task_id: task.task_id,
+        task_title: task.title,
+        task_type: toLower(task.task_type),
+        deadline: task.deadline ? task.deadline.toISOString() : null,
+        allow_late_submit: task.allow_late_submit,
+      },
+      isResumed: true,
+    };
+  }
+
+  // 7. 确定 mode 和 answer_mode
+  const isQuizType = task.task_type === 'QUIZ';
+  const mode = isQuizType ? ATTEMPT_MODE.EXAM : ATTEMPT_MODE.PAPER_PRACTICE;
+  const answerMode = 'PAPER';
+
+  // 8. 构建题目列表（不含正确答案）
+  const questions = task.question_links.map((link) => {
+    const q = link.question;
+    return {
+      question_id: q.question_id,
+      question_type: toLower(q.question_type),
+      question_content: q.content,
+      title: q.title,
+      difficulty_level: toLower(q.difficulty_level),
+      score: q.score,
+      question_order: link.question_order,
+      is_ai_generated: q.is_ai_generated || false,
+      knowledge_points: q.knowledge_point
+        ? [{ knowledge_point_id: q.knowledge_point.knowledge_point_id, knowledge_point_name: q.knowledge_point.knowledge_point_name }]
+        : [],
+      options: q.options.map((opt) => ({
+        option_id: opt.option_id,
+        option_label: opt.option_key,
+        option_content: opt.option_content,
+      })),
+    };
+  });
+
+  const totalScore = task.question_links.reduce((sum, l) => sum + (l.question.score || 0), 0);
+
+  // 9. 计算过期时间（限时任务）
+  let expiresAt = null;
+  if (task.deadline) {
+    expiresAt = new Date(task.deadline);
+  }
+
+  // 10. 创建 PracticeSession
+  const session = await prisma.practiceSession.create({
+    data: {
+      student_user_id: userId,
+      course_id: task.course_id,
+      mode,
+      answer_mode: answerMode,
+      question_count: questions.length,
+      status: SESSION_STATUS.IN_PROGRESS,
+      started_at: now,
+      expires_at: expiresAt,
+      max_score: totalScore,
+      source_type: SOURCE_TYPE.TEACHER_TASK,
+      source_id: taskId,
+      task_id: taskId,
+      navigation_config: {
+        navigationMode: 'FREE',
+        allowModifyConfirmedAnswer: false,
+        showResultAfterItemSubmit: isQuizType ? false : true,
+        lockNavigationUntilCurrentConfirmed: false,
+      },
+    },
+  });
+
+  // 11. 创建 PracticeSessionQuestion 关联
+  await prisma.practiceSessionQuestion.createMany({
+    data: questions.map((q, idx) => ({
+      practice_session_id: session.practice_session_id,
+      question_id: q.question_id,
+      question_order: idx + 1,
+    })),
+  });
+
+  return {
+    session: {
+      practice_session_id: session.practice_session_id,
+      course_id: session.course_id,
+      mode: toLower(session.mode),
+      answer_mode: toLower(session.answer_mode),
+      question_count: session.question_count,
+      status: toLower(session.status),
+      started_at: session.started_at.toISOString(),
+      expires_at: session.expires_at ? session.expires_at.toISOString() : null,
+      total_score: totalScore,
+      source_type: session.source_type,
+      source_id: session.source_id,
+    },
+    task: {
+      task_id: task.task_id,
+      task_title: task.title,
+      task_type: toLower(task.task_type),
+      deadline: task.deadline ? task.deadline.toISOString() : null,
+      allow_late_submit: task.allow_late_submit,
+    },
+    questions,
+    isResumed: false,
   };
 }
 
@@ -1329,7 +2393,15 @@ async function startSimilarPractice(userId, wrongQuestionId, params = {}) {
     userId,
     courseId,
     classId: resolvedClassId,
-    mode: 'similar',
+    mode: ATTEMPT_MODE.SINGLE_PRACTICE,
+    answerMode: 'SINGLE',
+    navigationConfig: {
+      navigationMode: 'SEQUENTIAL',
+      allowModifyConfirmedAnswer: false,
+      showResultAfterItemSubmit: true,
+      lockNavigationUntilCurrentConfirmed: true,
+      source: 'wrong_question_similar',
+    },
     selectedQuestions,
   });
 
@@ -1444,9 +2516,209 @@ async function markWrongQuestionMastered(userId, wrongQuestionId) {
   };
 }
 
+/**
+ * 从错题列表创建练习（原题顺序/打乱重做）
+ * 复用统一 PracticeSession 体系
+ */
+async function startWrongQuestionPractice(userId, params = {}) {
+  const wrongQuestionIds = (params.wrongQuestionIds || [])
+    .map((id) => parseInt(id, 10))
+    .filter((id) => !isNaN(id) && id > 0);
+
+  if (wrongQuestionIds.length === 0) {
+    throw Object.assign(new Error('wrongQuestionIds 不能为空'), { code: 40001 });
+  }
+  if (wrongQuestionIds.length > 50) {
+    throw Object.assign(new Error('单次最多练习50道错题'), { code: 40001 });
+  }
+
+  const practiceMode = String(params.practiceMode || params.mode || 'ORIGINAL_ORDER').toUpperCase();
+  if (!['ORIGINAL_ORDER', 'ORIGINAL_SHUFFLE'].includes(practiceMode)) {
+    throw Object.assign(new Error('practiceMode 参数不合法，可选 ORIGINAL_ORDER / ORIGINAL_SHUFFLE'), { code: 40001 });
+  }
+
+  // 查询所有错题并验证归属
+  const wrongQuestions = await prisma.wrongQuestion.findMany({
+    where: {
+      wrong_question_id: { in: wrongQuestionIds },
+      student_user_id: userId,
+    },
+    include: {
+      question: {
+        include: {
+          options: { orderBy: { option_order: 'asc' } },
+          knowledge_point: true,
+          course: true,
+        },
+      },
+    },
+  });
+
+  if (wrongQuestions.length === 0) {
+    throw Object.assign(new Error('没有找到有效的错题记录'), { code: 40002 });
+  }
+
+  // 检查是否所有请求的错题都找到了
+  if (wrongQuestions.length !== wrongQuestionIds.length) {
+    throw Object.assign(new Error('部分错题记录不存在或无权操作'), { code: 40301 });
+  }
+
+  // 确定课程（取第一道错题的课程）
+  const courseId = wrongQuestions[0].course_id || wrongQuestions[0].question?.course_id;
+  if (!courseId) {
+    throw Object.assign(new Error('错题缺少课程信息'), { code: 40002 });
+  }
+
+  // 构建题目列表
+  let questions = wrongQuestions.map((wq, index) => {
+    const q = wq.question;
+    const questionData = {
+      question_id: q.question_id,
+      question_type: toLower(q.question_type),
+      question_content: q.content,
+      title: q.title,
+      difficulty_level: toLower(q.difficulty_level),
+      score: q.score,
+      question_order: index + 1,
+      is_ai_generated: q.is_ai_generated || false,
+      knowledge_point: q.knowledge_point
+        ? { knowledge_point_id: q.knowledge_point.knowledge_point_id, knowledge_point_name: q.knowledge_point.knowledge_point_name }
+        : null,
+      options: q.options.map((opt) => ({
+        option_id: opt.option_id,
+        option_label: opt.option_key,
+        option_content: opt.option_content,
+        is_correct: opt.is_correct,
+      })),
+      // 保存错题关联信息
+      wrong_question_id: wq.wrong_question_id,
+      source_question_id: wq.question_id,
+    };
+
+    if (practiceMode === 'ORIGINAL_SHUFFLE') {
+      // 打乱选项顺序
+      if (questionData.options.length >= 2) {
+        const shuffled = shuffle(questionData.options);
+        // 构建答案映射
+        const answerMapping = {};
+        shuffled.forEach((opt, newIndex) => {
+          if (opt.is_correct) {
+            const newLabel = String.fromCharCode(65 + newIndex);
+            if (!answerMapping[newLabel]) answerMapping[newLabel] = [];
+            answerMapping[newLabel].push(true);
+          }
+        });
+        questionData.optionOrder = shuffled.map((opt, i) => ({
+          originalLabel: opt.option_label,
+          newLabel: String.fromCharCode(65 + i),
+          option_content: opt.option_content,
+          is_correct: opt.is_correct,
+        }));
+        // 更新选项标签
+        questionData.options = shuffled.map((opt, i) => ({
+          ...opt,
+          option_label: String.fromCharCode(65 + i),
+        }));
+        questionData.answerMapping = answerMapping;
+      }
+    }
+
+    return questionData;
+  });
+
+  // 打乱题目顺序
+  if (practiceMode === 'ORIGINAL_SHUFFLE') {
+    questions = shuffle(questions).map((q, i) => ({ ...q, question_order: i + 1 }));
+  }
+
+  const totalScore = wrongQuestions.reduce((sum, wq) => sum + (wq.question?.score || 0), 0);
+
+  const now = new Date();
+  const answerMode = params.answerMode === 'PAPER' ? 'PAPER' : 'SINGLE';
+
+  // 创建 PracticeSession
+  const session = await prisma.practiceSession.create({
+    data: {
+      student_user_id: userId,
+      course_id: courseId,
+      mode: answerMode === 'PAPER' ? ATTEMPT_MODE.PAPER_PRACTICE : ATTEMPT_MODE.SINGLE_PRACTICE,
+      answer_mode: answerMode,
+      question_count: questions.length,
+      status: SESSION_STATUS.IN_PROGRESS,
+      started_at: now,
+      max_score: totalScore,
+      source_type: SOURCE_TYPE.WRONG_QUESTION_PRACTICE,
+      source_id: null,
+      navigation_config: {
+        navigationMode: answerMode === 'PAPER' ? 'FREE' : 'SEQUENTIAL',
+        allowModifyConfirmedAnswer: false,
+        showResultAfterItemSubmit: true,
+        lockNavigationUntilCurrentConfirmed: answerMode !== 'PAPER',
+        generationMode: practiceMode,
+        wrongQuestionIds,
+      },
+    },
+  });
+
+  // 创建 PracticeSessionQuestion 关联
+  await prisma.practiceSessionQuestion.createMany({
+    data: questions.map((q, idx) => ({
+      practice_session_id: session.practice_session_id,
+      question_id: q.question_id,
+      question_order: idx + 1,
+    })),
+  });
+
+  // 构建返回题目列表（不含正确答案，与 startTaskAttempt 保持一致）
+  const publicQuestions = questions.map((q) => ({
+    question_id: q.question_id,
+    question_type: q.question_type,
+    question_content: q.question_content,
+    title: q.title,
+    difficulty_level: q.difficulty_level,
+    score: q.score,
+    question_order: q.question_order,
+    is_ai_generated: q.is_ai_generated || false,
+    knowledge_points: q.knowledge_point ? [q.knowledge_point] : [],
+    options: q.options.map((opt) => ({
+      option_id: opt.option_id,
+      option_label: opt.option_label,
+      option_content: opt.option_content,
+    })),
+    wrong_question_id: q.wrong_question_id,
+    optionOrder: q.optionOrder || null,
+  }));
+
+  return {
+    session: {
+      practice_session_id: session.practice_session_id,
+      course_id: session.course_id,
+      mode: toLower(session.mode),
+      answer_mode: toLower(session.answer_mode),
+      question_count: session.question_count,
+      status: toLower(session.status),
+      started_at: session.started_at.toISOString(),
+      total_score: totalScore,
+      source_type: session.source_type,
+      generation_mode: practiceMode,
+      wrong_question_ids: wrongQuestionIds,
+    },
+    questions: publicQuestions,
+    wrong_question_count: wrongQuestions.length,
+    practice_mode: practiceMode,
+  };
+}
+
 module.exports = {
+  SOURCE_TYPE,
   startPractice,
   submitPractice,
+  getActiveAttempt,
+  startTaskAttempt,
+  getPracticeSessionDetail,
+  savePracticeAnswer,
+  submitPracticeItem,
+  submitPracticeSession,
   askAiForQuestion,
   buildPracticeAiMessages,
   createPracticeAiCompletionStream,
@@ -1454,4 +2726,5 @@ module.exports = {
   getWrongQuestions,
   markWrongQuestionMastered,
   startSimilarPractice,
+  startWrongQuestionPractice,
 };

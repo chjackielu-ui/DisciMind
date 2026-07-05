@@ -8,6 +8,12 @@ const controller = require('../controllers/student-video.controller');
 
 const router = Router();
 
+// B 站封面代理：供 <img> 直接访问，控制器会做图片域名白名单校验。
+router.get(
+  '/videos/cover-proxy',
+  controller.proxyVideoCover,
+);
+
 // 获取视频推荐
 router.get(
   '/videos/recommendations',

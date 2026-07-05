@@ -2,7 +2,7 @@
 // AI 相关功能暂不实现，仅展示"开发中"提示
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
 const menuItems = [
@@ -22,7 +22,7 @@ export async function renderAdminAiConfig(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(localStorage.getItem('token') || '', user)
+    setAuth(getToken(), user)
   } catch {
     if (!user) {
       clearAuth()

@@ -2,14 +2,30 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+const { loadEnv } = require('./config/env');
 const errorHandler = require('./middlewares/error.middleware');
+
+loadEnv();
 
 const app = express();
 
 // ---------- 全局中间件 ----------
 
-// 允许跨域请求
-app.use(cors());
+function getAllowedOrigins() {
+  const configured = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173';
+  return configured.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+// 允许前端携带 HttpOnly Refresh Token Cookie。
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowed = getAllowedOrigins();
+    if (allowed.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
+  credentials: true,
+}));
 
 // 解析 JSON 请求体
 app.use(express.json());

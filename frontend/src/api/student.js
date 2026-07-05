@@ -2,7 +2,7 @@
 // 所有学生端 API 请求统一从此文件导出
 
 import { get, post, patch, put, upload, del, BASE_URL } from './request.js'
-import { getToken, clearAuth } from '../utils/auth.js'
+import { getToken, clearAuth, refreshAuthSession } from '../utils/auth.js'
 
 /**
  * 获取学生首页仪表盘综合数据
@@ -144,6 +144,14 @@ export function saveAnswers(submissionId, answers) {
   return put(`/student/task-submissions/${submissionId}/answers`, { answers })
 }
 
+/**
+ * 使用统一 attempt 体系开始教师任务答题
+ * @param {number} taskId
+ */
+export function startTaskAttempt(taskId) {
+  return post(`/student/tasks/${taskId}/attempt`)
+}
+
 export function saveStudentAnswers(submissionId, data = {}) {
   return put(`/student/task-submissions/${submissionId}/answers`, data)
 }
@@ -189,8 +197,13 @@ async function practiceGet(path, params = {}) {
   try {
     return await get(`/practice${suffix}`)
   } catch (err) {
-    if (/Cannot\s+GET\s+\/api\/practice/.test(err.message || '')) {
-      return get(`/student/practice${suffix}`)
+    if (/Cannot\s+(GET|POST|PUT|PATCH|DELETE)\s+\/api\/practice/.test(err.message || '')) {
+      try {
+        return await get(`/student/practice${suffix}`)
+      } catch (_fallbackErr) {
+        // 两条路径都失败，抛出主路径错误
+        throw err
+      }
     }
     throw err
   }
@@ -200,8 +213,24 @@ async function practicePost(path, data = {}, options = {}) {
   try {
     return await post(`/practice${path}`, data, options)
   } catch (err) {
-    if (/Cannot\s+POST\s+\/api\/practice/.test(err.message || '')) {
-      return post(`/student/practice${path}`, data, options)
+    if (/Cannot\s+(POST|GET|PUT|PATCH|DELETE)\s+\/api\/practice/.test(err.message || '')) {
+      try {
+        return await post(`/student/practice${path}`, data, options)
+      } catch (_fallbackErr) {
+        // 两条路径都失败，抛出主路径错误
+        throw err
+      }
+    }
+    throw err
+  }
+}
+
+async function practicePut(path, data = {}, options = {}) {
+  try {
+    return await put(`/practice${path}`, data, options)
+  } catch (err) {
+    if (/Cannot\s+PUT\s+\/api\/practice/.test(err.message || '')) {
+      return put(`/student/practice${path}`, data, options)
     }
     throw err
   }
@@ -227,6 +256,26 @@ export function startPractice(data = {}, options = {}) {
  */
 export function submitPractice(data = {}) {
   return practicePost('/submit', data)
+}
+
+export function getActivePracticeAttempt() {
+  return practiceGet('/active')
+}
+
+export function getPracticeSessionDetail(sessionId) {
+  return practiceGet(`/sessions/${sessionId}`)
+}
+
+export function savePracticeItemAnswer(sessionId, itemId, data = {}) {
+  return practicePut(`/sessions/${sessionId}/items/${itemId}/answer`, data)
+}
+
+export function submitPracticeItem(sessionId, itemId, data = {}) {
+  return practicePost(`/sessions/${sessionId}/items/${itemId}/submit`, data)
+}
+
+export function submitPracticeSession(sessionId, data = {}) {
+  return practicePost(`/sessions/${sessionId}/submit`, data)
 }
 
 /**
@@ -256,6 +305,7 @@ export async function streamPracticeQuestionAi(questionId, data = {}, options = 
       headers,
       body: JSON.stringify(data),
       signal: options.signal,
+      credentials: 'include',
     })
   } catch (err) {
     if (err.name === 'AbortError') throw err
@@ -266,6 +316,7 @@ export async function streamPracticeQuestionAi(questionId, data = {}, options = 
         headers,
         body: JSON.stringify(data),
         signal: options.signal,
+        credentials: 'include',
       })
     } catch (err2) {
       if (err2.name === 'AbortError') throw err2
@@ -276,6 +327,10 @@ export async function streamPracticeQuestionAi(questionId, data = {}, options = 
   if (!response.ok) {
     const result = await response.json().catch(() => null)
     if (result?.code === 40101 || result?.code === 40102) {
+      if (!options._retryAuth) {
+        await refreshAuthSession()
+        return streamPracticeQuestionAi(questionId, data, { ...options, _retryAuth: true })
+      }
       clearAuth()
       window.location.hash = '#/login'
     }
@@ -357,6 +412,228 @@ export function markPracticeWrongQuestionMastered(wrongQuestionId) {
  */
 export function startSimilarPractice(wrongQuestionId, data = {}) {
   return practicePost(`/wrong-questions/${wrongQuestionId}/similar`, data)
+}
+
+// ========================
+// 错题本升级接口
+// ========================
+
+/**
+ * 获取错题概览统计
+ * @param {object} params - { courseId }
+ */
+export function getWrongQuestionOverview(params = {}) {
+  return practiceGet('/wrong-questions/overview', params)
+}
+
+/**
+ * 获取错题分类树（课程→章节→知识点）
+ * @param {object} params - { courseId }
+ */
+export function getWrongQuestionTaxonomy(params = {}) {
+  return practiceGet('/wrong-questions/taxonomy', params)
+}
+
+/**
+ * 多条件查询错题列表
+ * @param {object} params - { courseId, chapterId, knowledgePointId, wrongReason, reviewStatus, questionType, difficulty, tags, collectionId, sort, page, pageSize, search }
+ */
+export function queryWrongQuestions(params = {}) {
+  return practiceGet('/wrong-questions', params)
+}
+
+/**
+ * 获取单条错题详情
+ * @param {number} wrongQuestionId
+ */
+export function getWrongQuestionDetail(wrongQuestionId) {
+  return practiceGet(`/wrong-questions/${wrongQuestionId}`)
+}
+
+/**
+ * 更新单条错题
+ * @param {number} wrongQuestionId
+ * @param {object} data - { wrongReason, wrongReasonSource, reviewStatus, status }
+ */
+export function updateWrongQuestion(wrongQuestionId, data = {}) {
+  return requestPatch(`/practice/wrong-questions/${wrongQuestionId}`, data)
+}
+
+/**
+ * 批量更新错题
+ * @param {object} data - { ids: number[], reviewStatus?, wrongReason? }
+ */
+export function batchUpdateWrongQuestions(data = {}) {
+  return requestPatch('/practice/wrong-questions/batch', data)
+}
+
+// --- 标签管理 ---
+
+/**
+ * 获取用户标签列表
+ */
+export function getWrongQuestionTags() {
+  return practiceGet('/wrong-questions/tags')
+}
+
+/**
+ * 创建标签
+ * @param {object} data - { name, color }
+ */
+export function createWrongQuestionTag(data = {}) {
+  return practicePost('/wrong-questions/tags', data)
+}
+
+/**
+ * 更新标签
+ * @param {number} tagId
+ * @param {object} data - { name, color }
+ */
+export function updateWrongQuestionTag(tagId, data = {}) {
+  return requestPut(`/practice/wrong-questions/tags/${tagId}`, data)
+}
+
+/**
+ * 删除标签
+ * @param {number} tagId
+ */
+export function deleteWrongQuestionTag(tagId) {
+  return requestDel(`/practice/wrong-questions/tags/${tagId}`)
+}
+
+/**
+ * 给错题添加标签
+ * @param {number} wrongQuestionId
+ * @param {number} tagId
+ */
+export function addTagToWrongQuestion(wrongQuestionId, tagId) {
+  return practicePost(`/wrong-questions/${wrongQuestionId}/tags`, { tagId })
+}
+
+/**
+ * 移除错题的标签
+ * @param {number} wrongQuestionId
+ * @param {number} tagId
+ */
+export function removeTagFromWrongQuestion(wrongQuestionId, tagId) {
+  return requestDel(`/practice/wrong-questions/${wrongQuestionId}/tags/${tagId}`)
+}
+
+// --- 错题系列 ---
+
+/**
+ * 获取错题系列列表
+ */
+export function getWrongQuestionCollections() {
+  return practiceGet('/wrong-questions/collections')
+}
+
+/**
+ * 获取错题系列详情
+ * @param {number} collectionId
+ */
+export function getWrongQuestionCollectionDetail(collectionId) {
+  return practiceGet(`/wrong-questions/collections/${collectionId}`)
+}
+
+/**
+ * 创建错题系列
+ * @param {object} data - { name, description, wrongQuestionIds }
+ */
+export function createWrongQuestionCollection(data = {}) {
+  return practicePost('/wrong-questions/collections', data)
+}
+
+/**
+ * 更新错题系列
+ * @param {number} collectionId
+ * @param {object} data - { name, description }
+ */
+export function updateWrongQuestionCollection(collectionId, data = {}) {
+  return requestPut(`/practice/wrong-questions/collections/${collectionId}`, data)
+}
+
+/**
+ * 删除错题系列
+ * @param {number} collectionId
+ */
+export function deleteWrongQuestionCollection(collectionId) {
+  return requestDel(`/practice/wrong-questions/collections/${collectionId}`)
+}
+
+// --- AI 生成任务 ---
+
+/**
+ * 创建 AI 生成任务
+ * @param {object} data - { mode, sourceQuestions, count, difficulty, sourceType }
+ */
+export function createAiGenerationJob(data = {}) {
+  return practicePost('/wrong-questions/ai-generation', data)
+}
+
+/**
+ * 查询 AI 生成任务状态
+ * @param {number} jobId
+ */
+export function getAiGenerationJob(jobId) {
+  return practiceGet(`/wrong-questions/ai-generation/${jobId}`)
+}
+
+/**
+ * 重试 AI 生成任务失败部分
+ * @param {number} jobId
+ */
+export function retryAiGenerationJob(jobId) {
+  return practicePost(`/wrong-questions/ai-generation/${jobId}/retry`)
+}
+
+/**
+ * 取消 AI 生成任务
+ * @param {number} jobId
+ */
+export function cancelAiGenerationJob(jobId) {
+  return practicePost(`/wrong-questions/ai-generation/${jobId}/cancel`)
+}
+
+/**
+ * 从错题创建练习（原题顺序/打乱重做）
+ * @param {object} data - { wrongQuestionIds, practiceMode: 'ORIGINAL_ORDER'|'ORIGINAL_SHUFFLE', answerMode }
+ */
+export function startWrongQuestionPractice(data = {}) {
+  return practicePost('/wrong-questions/start-practice', data)
+}
+
+async function requestPatch(path, data = {}) {
+  try {
+    return await patch(path, data)
+  } catch (err) {
+    if (/Cannot\s+PATCH/.test(err.message || '')) {
+      return patch(`/student${path.replace('/practice', '')}`, data)
+    }
+    throw err
+  }
+}
+
+async function requestPut(path, data = {}) {
+  try {
+    return await put(path, data)
+  } catch (err) {
+    if (/Cannot\s+PUT/.test(err.message || '')) {
+      return put(`/student${path.replace('/practice', '')}`, data)
+    }
+    throw err
+  }
+}
+
+async function requestDel(path, data = {}) {
+  try {
+    return await del(path, data)
+  } catch (err) {
+    if (/Cannot\s+DELETE/.test(err.message || '')) {
+      return del(`/student${path.replace('/practice', '')}`, data)
+    }
+    throw err
+  }
 }
 
 // ========================
@@ -497,6 +774,7 @@ export async function streamAiChatMessage(conversationId, data = {}, options = {
       headers,
       body: JSON.stringify(data),
       signal: options.signal,
+      credentials: 'include',
     })
   } catch (err) {
     if (err.name === 'AbortError') throw err
@@ -506,6 +784,10 @@ export async function streamAiChatMessage(conversationId, data = {}, options = {
   if (!response.ok) {
     const result = await response.json().catch(() => null)
     if (result?.code === 40101 || result?.code === 40102) {
+      if (!options._retryAuth) {
+        await refreshAuthSession()
+        return streamAiChatMessage(conversationId, data, { ...options, _retryAuth: true })
+      }
       clearAuth()
       window.location.hash = '#/login'
     }

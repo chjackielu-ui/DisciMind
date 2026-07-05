@@ -1,7 +1,7 @@
 // 教师端 - 学情分析页
 
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { getTeacherDashboard, getAnalyticsProgress, getAnalyticsKnowledgeHeatmap, getAnalyticsScoreDistribution, getAnalyticsQuestionFrequency, getAnalyticsWeakKnowledgePoints } from '../api/teacher.js'
 
@@ -11,7 +11,7 @@ export async function renderTeacherAnalytics(app) {
   try {
     const result = await getMe()
     user = result.data.user
-    setAuth(getUser() ? localStorage.getItem('token') : '', user)
+    setAuth(getUser() ? getToken() : '', user)
   } catch {
     if (!user) {
       clearAuth()
