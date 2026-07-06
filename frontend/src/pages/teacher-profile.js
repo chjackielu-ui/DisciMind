@@ -1,4 +1,4 @@
-// 教师端 - 个人中心
+﻿// 教师端 - 个人中心
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
@@ -24,26 +24,26 @@ export async function renderTeacherProfile(app) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
   const contentHTML = `
     <div class="dashboard-content">
+      <div style="margin-bottom:12px;">
+        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
+      </div>
       <div class="page-header">
-        <h2 class="page-title">👤 个人中心</h2>
+        <h2 class="page-title">个人中心</h2>
         <p class="page-subtitle">个人信息与消息通知</p>
       </div>
 
       <div class="content-columns">
         <!-- 个人信息卡片 -->
         <div class="card">
-          <h3 class="card-title">📋 个人信息</h3>
+          <h3 class="card-title">个人信息</h3>
           <div class="user-info-grid">
             <div class="info-item">
               <span class="info-label">用户名</span>
@@ -86,7 +86,7 @@ export async function renderTeacherProfile(app) {
         <!-- 消息通知 -->
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 class="card-title" style="margin-bottom:0;">🔔 消息通知</h3>
+            <h3 class="card-title" style="margin-bottom:0;">消息通知</h3>
             <button class="btn btn-link" id="btn-mark-all-read" style="font-size:0.8rem;padding:4px 12px;">全部已读</button>
           </div>
           <div id="notification-list">
@@ -124,12 +124,12 @@ export async function renderTeacherProfile(app) {
       }
 
       const typeLabels = {
-        task_published: '📝 任务发布',
-        task_deadline: '⏰ 任务截止',
-        document_review: '📄 文档审核',
-        document_parsed: '📄 文档解析',
-        ai_grading_done: '🤖 AI 批改',
-        system_notice: '📢 系统通知',
+        task_published: '任务发布',
+        task_deadline: '任务截止',
+        document_review: '文档审核',
+        document_parsed: '文档解析',
+        ai_grading_done: 'AI 批改',
+        system_notice: '系统通知',
       }
 
       container.innerHTML = `

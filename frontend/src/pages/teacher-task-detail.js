@@ -27,12 +27,9 @@ export async function renderTeacherTaskDetail(app, params) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 

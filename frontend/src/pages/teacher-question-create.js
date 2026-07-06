@@ -25,17 +25,17 @@ export async function renderTeacherQuestionCreate(app, params) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
   const contentHTML = `
     <div class="dashboard-content">
+      <div style="margin-bottom:12px;">
+        <a href="#/teacher/questions" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回题库</a>
+      </div>
       <div class="page-header">
         <h2 class="page-title">${isEdit ? '✏️ 编辑题目' : '📝 新建题目'}</h2>
         <p class="page-subtitle">${isEdit ? '修改题目内容与设置' : '为课程添加新的练习题目'}</p>

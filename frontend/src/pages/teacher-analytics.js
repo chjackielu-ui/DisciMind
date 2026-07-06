@@ -3,7 +3,7 @@
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
-import { getTeacherDashboard, getAnalyticsProgress, getAnalyticsKnowledgeHeatmap, getAnalyticsScoreDistribution, getAnalyticsQuestionFrequency, getAnalyticsWeakKnowledgePoints } from '../api/teacher.js'
+import { getTeacherCourses, getTeacherDashboard, getAnalyticsProgress, getAnalyticsKnowledgeHeatmap, getAnalyticsScoreDistribution, getAnalyticsQuestionFrequency, getAnalyticsWeakKnowledgePoints } from '../api/teacher.js'
 
 export async function renderTeacherAnalytics(app) {
   let user = getUser()
@@ -24,20 +24,32 @@ export async function renderTeacherAnalytics(app) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
   const contentHTML = `
     <div class="dashboard-content">
       <div class="page-header">
-        <h2 class="page-title">📊 学情分析</h2>
+        <h2 class="page-title">学情分析</h2>
         <p class="page-subtitle">查看课程整体学习数据与学生表现统计</p>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
+      </div>
+
+      <!-- 课程选择器 -->
+      <div class="card" style="margin-bottom:20px;padding:14px 20px;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <label for="course-select" style="font-weight:600;font-size:0.9rem;color:var(--text);">选择课程：</label>
+          <select id="course-select" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+            <option value="">全部课程</option>
+          </select>
+          <span id="course-hint" style="font-size:0.8rem;color:var(--text-muted);">切换课程后将自动刷新分析数据</span>
+        </div>
       </div>
 
       <!-- 概览卡片 -->
@@ -52,23 +64,38 @@ export async function renderTeacherAnalytics(app) {
 
       <!-- 成绩分布 -->
       <div class="card" style="margin-bottom:20px;">
-        <h3 class="card-title">📈 成绩分布</h3>
+        <h3 class="card-title">成绩分布</h3>
         <div id="score-distribution-container">
           <div class="empty-hint">加载中...</div>
         </div>
       </div>
 
-      <!-- 薄弱知识点和高频提问两栏 -->
-      <div class="content-columns">
+      <!-- 关键词词云 -->
+      <div class="card" style="margin-bottom:20px;">
+        <h3 class="card-title">学科对话关键词词云</h3>
+        <p style="font-size:0.8rem;color:var(--text-muted);margin:-8px 0 12px;">基于学生学科对话提取的高频关键词，字体越大表示出现频率越高</p>
+        <div id="word-cloud-container" style="min-height:120px;padding:8px 0;">
+          <div class="empty-hint">加载中...</div>
+        </div>
+      </div>
+
+      <!-- 薄弱知识点、高频提问、混淆标签三栏 -->
+      <div class="content-columns-3" style="margin-bottom:20px;">
         <div class="card">
-          <h3 class="card-title">🔴 薄弱知识点排行</h3>
+          <h3 class="card-title">薄弱知识点排行</h3>
           <div id="weak-kp-container">
             <div class="empty-hint">加载中...</div>
           </div>
         </div>
         <div class="card">
-          <h3 class="card-title">❓ 高频提问统计</h3>
+          <h3 class="card-title">高频提问统计</h3>
           <div id="question-frequency-container">
+            <div class="empty-hint">加载中...</div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="card-title">常见混淆点</h3>
+          <div id="confusion-tags-container" style="min-height:60px;">
             <div class="empty-hint">加载中...</div>
           </div>
         </div>
@@ -83,10 +110,52 @@ export async function renderTeacherAnalytics(app) {
     user,
   })
 
+  // ---- 课程选择状态 ----
+  let selectedCourseId = null
+  let courseList = []
+  let isLoadingData = false
+
+  // 加载课程列表
+  async function loadCourses() {
+    const select = document.getElementById('course-select')
+    if (!select) return
+    try {
+      const res = await getTeacherCourses()
+      courseList = res.data?.list || []
+      select.innerHTML = '<option value="">全部课程</option>' +
+        courseList.map(c => `<option value="${c.course_id}">${c.course_name}</option>`).join('')
+    } catch (err) {
+      console.error('加载课程列表失败', err)
+    }
+  }
+
+  // 课程切换事件
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'course-select') {
+      selectedCourseId = e.target.value ? parseInt(e.target.value) : null
+      // 更新标题显示
+      const titleEl = document.querySelector('.page-title')
+      if (titleEl) {
+        const courseName = e.target.options[e.target.selectedIndex]?.text || ''
+        titleEl.textContent = courseName
+          ? `学情分析 — ${courseName}`
+          : '学情分析'
+      }
+      loadAll()
+    }
+  })
+
+  // 获取当前课程参数（供各 API 调用使用）
+  function getCourseParams() {
+    return selectedCourseId ? { course_id: selectedCourseId } : {}
+  }
+
   // 加载概览数据
   async function loadAll() {
+    if (isLoadingData) return
+    isLoadingData = true
     try {
-      const dashboardRes = await getTeacherDashboard()
+      const dashboardRes = await getTeacherDashboard(getCourseParams())
       const dashboard = dashboardRes.data || {}
 
       document.getElementById('stat-students').textContent = dashboard.student_count ?? '-'
@@ -101,7 +170,7 @@ export async function renderTeacherAnalytics(app) {
 
     // 成绩分布
     try {
-      const scoreRes = await getAnalyticsScoreDistribution()
+      const scoreRes = await getAnalyticsScoreDistribution(getCourseParams())
       const dist = scoreRes.data?.distribution || {}
       const total = scoreRes.data?.total_sessions || 0
       const avg = scoreRes.data?.average_score_rate || 0
@@ -134,7 +203,7 @@ export async function renderTeacherAnalytics(app) {
 
     // 薄弱知识点
     try {
-      const weakRes = await getAnalyticsWeakKnowledgePoints()
+      const weakRes = await getAnalyticsWeakKnowledgePoints(getCourseParams())
       const weakList = weakRes.data?.list || []
       const container = document.getElementById('weak-kp-container')
 
@@ -155,13 +224,16 @@ export async function renderTeacherAnalytics(app) {
       document.getElementById('weak-kp-container').innerHTML = `<div class="empty-hint">加载失败</div>`
     }
 
-    // 高频提问
+    // 高频提问 + 词云 + 混淆标签（同一个 API 返回）
     try {
-      const freqRes = await getAnalyticsQuestionFrequency()
+      const freqRes = await getAnalyticsQuestionFrequency(getCourseParams())
       const freqList = freqRes.data?.list || []
       const totalQ = freqRes.data?.total_questions || 0
-      const container = document.getElementById('question-frequency-container')
+      const wordCloud = freqRes.data?.word_cloud || []
+      const topTags = freqRes.data?.top_tags || []
 
+      // 高频提问列表
+      const container = document.getElementById('question-frequency-container')
       container.innerHTML = `
         <div style="margin-bottom:10px;font-size:0.8rem;color:var(--text-muted);">共 ${totalQ} 次提问</div>
         ${freqList.length === 0 ? '<div class="empty-hint">暂无提问数据</div>' : freqList.slice(0, 10).map(item => `
@@ -174,10 +246,55 @@ export async function renderTeacherAnalytics(app) {
           </div>
         `).join('')}
       `
+
+      // 词云渲染
+      const wcContainer = document.getElementById('word-cloud-container')
+      if (!wordCloud || wordCloud.length === 0) {
+        wcContainer.innerHTML = '<div class="empty-hint">暂无词云数据（学生进行学科对话后将自动生成）</div>'
+      } else {
+        const maxCount = Math.max(...wordCloud.map(w => w.count), 1)
+        const minFont = 12
+        const maxFont = 42
+        const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#64748b']
+        wcContainer.innerHTML = `
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;padding:16px;min-height:100px;background:rgba(255,255,255,0.4);border-radius:16px;border:1px solid var(--border);">
+            ${wordCloud.map(w => {
+              const ratio = w.count / maxCount
+              const fontSize = minFont + ratio * (maxFont - minFont)
+              const color = colors[Math.floor(Math.random() * colors.length)]
+              const opacity = 0.55 + ratio * 0.45
+              return `<span style="display:inline-block;font-size:${fontSize}px;font-weight:${ratio > 0.5 ? 700 : 400};color:${color};opacity:${opacity};padding:4px 8px;border-radius:8px;transition:all 0.2s;cursor:default;line-height:1.4;" title="出现 ${w.count} 次">${w.keyword}</span>`
+            }).join('')}
+          </div>
+        `
+      }
+
+      // 混淆标签渲染
+      const tagContainer = document.getElementById('confusion-tags-container')
+      if (!topTags || topTags.length === 0) {
+        tagContainer.innerHTML = '<div class="empty-hint">暂无标签数据</div>'
+      } else {
+        tagContainer.innerHTML = `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${topTags.map(t => {
+              const count = t.count || 1
+              return `<span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;background:#f0f0ff;color:#6366f1;border-radius:16px;font-size:0.85rem;border:1px solid #e0e0ff;">
+                <span>${t.tag}</span>
+                <span style="background:#6366f1;color:#fff;border-radius:10px;padding:0 6px;font-size:0.7rem;font-weight:600;line-height:1.5;">${count}</span>
+              </span>`
+            }).join('')}
+          </div>
+        `
+      }
     } catch (err) {
       document.getElementById('question-frequency-container').innerHTML = `<div class="empty-hint">加载失败</div>`
+      const wcEl = document.getElementById('word-cloud-container')
+      if (wcEl) wcEl.innerHTML = '<div class="empty-hint">加载失败</div>'
+    } finally {
+      isLoadingData = false
     }
   }
 
-  loadAll()
+  // 初始化：先加载课程列表，再加载分析数据
+  loadCourses().then(() => loadAll())
 }

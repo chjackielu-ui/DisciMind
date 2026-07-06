@@ -347,24 +347,140 @@ async function getQuestionFrequency(user, query) {
     };
   }
 
-  // 按知识点聚合学生提问
+  // 限定数据源：仅来自学科专属助手（agent_type = COURSE_QA）的学生提问
+  // 即 student_question_record 关联的 ChatConversation.agent_type = 'course_qa'
   const questions = await prisma.studentQuestionRecord.findMany({
-    where,
+    where: {
+      ...where,
+      OR: [
+        { conversation_id: null }, // 兼容旧记录：无会话关联也纳入
+        {
+          conversation: {
+            agent_type: 'COURSE_QA',
+          },
+        },
+      ],
+    },
     include: {
       analysis_records: {
-        include: { knowledge_point: true },
+        include: {
+          knowledge_point: true,
+          keywords: true,
+          confusion_tags: true,
+        },
         take: 1,
       },
     },
     orderBy: { created_at: 'desc' },
   });
 
+  // 加载当前课程范围下的知识点名称和别名，用于关键词匹配
+  const courseIdList = courseIds || [];
+  const knowledgePoints = await prisma.knowledgePoint.findMany({
+    where: courseIdList.length > 0 ? { course_id: { in: courseIdList } } : {},
+    include: { aliases: true },
+  });
+
+  // 构建知识点相关词集合（知识点名 + 别名，小写去重）
+  const kpTermSet = new Set();
+  for (const kp of knowledgePoints) {
+    if (kp.knowledge_point_name) {
+      kpTermSet.add(kp.knowledge_point_name.toLowerCase());
+    }
+    for (const alias of kp.aliases) {
+      if (alias.alias_text) {
+        kpTermSet.add(alias.alias_text.toLowerCase());
+      }
+    }
+  }
+
+  // 判断一个词是否与某知识点相关（包含关系或完全匹配）
+  function isRelatedToKnowledgePoint(term) {
+    if (!term || term.length < 2) return false;
+    const lower = term.toLowerCase();
+    if (kpTermSet.has(lower)) return true;
+    // 检查是否包含在某个知识点名称中（如"线性回归"出现在"线性回归模型"中）
+    for (const kpTerm of kpTermSet) {
+      if (kpTerm.includes(lower) || lower.includes(kpTerm)) return true;
+    }
+    return false;
+  }
+
   const kpMap = {};
   const studentSet = new Set();
+
+  // 词云聚合：全局关键词和标签
+  const globalKeywordMap = {};
+  const globalTagMap = {};
 
   for (const q of questions) {
     studentSet.add(q.student_user_id);
     const analysis = q.analysis_records?.[0];
+
+    // 获取关键词：优先使用AI分析结果
+    let keywords = analysis?.keywords || [];
+    let confusionTags = analysis?.confusion_tags || [];
+
+    // 如果AI有提取关键词，先按知识点相关性过滤
+    if (keywords.length > 0) {
+      keywords = keywords.filter((kw) =>
+        isRelatedToKnowledgePoint(kw.keyword),
+      );
+    }
+
+    // 从 analysis_records 获取该记录关联的知识点名称作为补充关键词
+    const kpFromAnalysis = analysis?.knowledge_point;
+    const kpRelatedTerms = [];
+    if (kpFromAnalysis?.knowledge_point_name) {
+      // 将当前知识点本身作为关键词候选
+      kpRelatedTerms.push({
+        keyword: kpFromAnalysis.knowledge_point_name,
+        weight: 1,
+      });
+    }
+
+    // 合并：AI关键词（已过滤）+ 知识点名称补充
+    keywords = [...keywords, ...kpRelatedTerms];
+
+    // 如果仍然没有关键词，但原始问题存在，则从原始问题提取并过滤
+    if (keywords.length === 0 && q.raw_question) {
+      const cleaned = q.raw_question.replace(
+        /[，。！？、；：""''（）【】《》\s,\.!\?\?;:"'\(\)\[\]{}]+/g,
+        ' ',
+      );
+      const words = [...new Set(cleaned.split(/\s+/).filter((w) => w.length >= 2))];
+      for (const w of words) {
+        if (isRelatedToKnowledgePoint(w)) {
+          keywords.push({ keyword: w, weight: 1 });
+        }
+      }
+    }
+
+    // 聚合关键词（全局）
+    for (const kw of keywords) {
+      const key = kw.keyword.trim().toLowerCase();
+      if (!key || key.length < 2) continue;
+      if (!globalKeywordMap[key]) {
+        globalKeywordMap[key] = { keyword: kw.keyword, count: 0, weight: 0 };
+      }
+      globalKeywordMap[key].count += 1;
+      globalKeywordMap[key].weight = Math.max(
+        globalKeywordMap[key].weight,
+        kw.weight || 1,
+      );
+    }
+
+    // 聚合标签（全局）
+    for (const tag of confusionTags) {
+      const t = tag.tag?.trim();
+      if (!t) continue;
+      if (!globalTagMap[t]) {
+        globalTagMap[t] = { tag: t, count: 0 };
+      }
+      globalTagMap[t].count += 1;
+    }
+
+    // 按知识点聚合
     const kp = analysis?.knowledge_point;
     if (!kp) continue;
 
@@ -374,25 +490,77 @@ async function getQuestionFrequency(user, query) {
         knowledge_point_name: kp.knowledge_point_name,
         question_count: 0,
         student_ids: new Set(),
+        top_keywords: [],
+        top_confusion_tags: [],
       };
     }
     kpMap[kp.knowledge_point_id].question_count += 1;
     kpMap[kp.knowledge_point_id].student_ids.add(q.student_user_id);
+
+    // 知识点维度的关键词/标签
+    for (const kw of keywords) {
+      const key = kw.keyword.trim().toLowerCase();
+      if (!key || key.length < 2) continue;
+      const existing = kpMap[kp.knowledge_point_id].top_keywords.find(
+        (k) => k.keyword.toLowerCase() === key,
+      );
+      if (existing) {
+        existing.count += 1;
+        existing.weight = Math.max(existing.weight, kw.weight || 1);
+      } else {
+        kpMap[kp.knowledge_point_id].top_keywords.push({
+          keyword: kw.keyword,
+          count: 1,
+          weight: kw.weight || 1,
+        });
+      }
+    }
+    for (const tag of confusionTags) {
+      const existing = kpMap[kp.knowledge_point_id].top_confusion_tags.find(
+        (t) => t.tag === tag.tag,
+      );
+      if (existing) {
+        existing.count += 1;
+      } else {
+        kpMap[kp.knowledge_point_id].top_confusion_tags.push({
+          tag: tag.tag,
+          count: 1,
+        });
+      }
+    }
   }
 
+  // 排序：知识点列表按提问数降序
   const list = Object.values(kpMap)
     .map((item) => ({
       knowledge_point_id: item.knowledge_point_id,
       knowledge_point_name: item.knowledge_point_name,
       question_count: item.question_count,
       student_count: item.student_ids.size,
+      top_keywords: item.top_keywords
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
+      top_confusion_tags: item.top_confusion_tags
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
     }))
     .sort((a, b) => b.question_count - a.question_count);
+
+  // 全局词云数据（已经过知识点相关性过滤）
+  const wordCloud = Object.values(globalKeywordMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 50);
+
+  const topTags = Object.values(globalTagMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
 
   return {
     total_questions: questions.length,
     total_students: studentSet.size,
     list,
+    word_cloud: wordCloud,
+    top_tags: topTags,
   };
 }
 

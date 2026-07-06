@@ -1,4 +1,4 @@
-// 管理员端 AI 配置页面（占位）
+﻿// 管理员端 AI 配置页面（占位）
 // AI 相关功能暂不实现，仅展示"开发中"提示
 
 import { getMe } from '../api/auth.js'
@@ -8,12 +8,8 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-  { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-  { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-  { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-  { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
 ]
 
 export async function renderAdminAiConfig(app) {
@@ -35,18 +31,21 @@ export async function renderAdminAiConfig(app) {
 
   const contentHTML = `
     <div class="dashboard-content">
+      <div style="margin-bottom:12px;">
+        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
+      </div>
       <!-- 欢迎横幅 -->
       <div class="welcome-banner admin-banner">
         <div class="welcome-text">
           <h2>AI 模型配置</h2>
           <p>${displayName}，管理 AI 模型与 API 配置</p>
         </div>
-        <div class="welcome-illustration">🤖</div>
+        <div class="welcome-illustration"></div>
       </div>
 
       <!-- 开发中提示 -->
       <div class="card" style="text-align:center;padding:60px 24px;">
-        <div style="font-size:4rem;margin-bottom:20px;">🚧</div>
+        <div style="font-size:4rem;margin-bottom:20px;"></div>
         <h3 style="color:var(--stu-dark);font-size:1.3rem;margin-bottom:12px;">该功能正在开发中，敬请期待</h3>
         <p style="color:var(--stu-text-muted);font-size:0.92rem;max-width:400px;margin:0 auto;line-height:1.8;">
           管理员端 AI 模型配置功能包含：<br />
@@ -61,31 +60,31 @@ export async function renderAdminAiConfig(app) {
 
       <!-- 功能入口占位 -->
       <div class="card">
-        <h3 class="card-title">🔧 规划中的功能模块</h3>
+        <h3 class="card-title">规划中的功能模块</h3>
         <div class="admin-links">
           <div class="admin-link-item" style="opacity:0.6;cursor:default;">
-            <span class="admin-link-icon">🔌</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">AI 模型供应商</span>
               <span class="admin-link-desc">配置与管理 AI 模型（开发中）</span>
             </div>
           </div>
           <div class="admin-link-item" style="opacity:0.6;cursor:default;">
-            <span class="admin-link-icon">🤖</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">Dify 智能体配置</span>
               <span class="admin-link-desc">连接与管理 Dify 工作流（开发中）</span>
             </div>
           </div>
           <div class="admin-link-item" style="opacity:0.6;cursor:default;">
-            <span class="admin-link-icon">📊</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">AI 调用统计</span>
               <span class="admin-link-desc">查看 AI 服务调用情况（开发中）</span>
             </div>
           </div>
           <div class="admin-link-item" style="opacity:0.6;cursor:default;">
-            <span class="admin-link-icon">🔐</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">API 密钥管理</span>
               <span class="admin-link-desc">安全管理第三方 API 密钥（开发中）</span>
@@ -96,7 +95,7 @@ export async function renderAdminAiConfig(app) {
 
       <!-- 账户信息 -->
       <div class="card user-info-card">
-        <h3 class="card-title">📋 账户信息</h3>
+        <h3 class="card-title">账户信息</h3>
         <div class="user-info-grid">
           <div class="info-item">
             <span class="info-label">用户名</span>

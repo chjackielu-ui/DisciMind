@@ -1,4 +1,4 @@
-// 管理端 — 课程详情页
+﻿// 管理端 — 课程详情页
 // 支持四个标签页：章节管理 | 知识点管理 | 教学班级 | 授课教师
 
 import { getMe } from '../api/auth.js'
@@ -70,12 +70,8 @@ export async function renderAdminCourseDetail(app, params) {
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
     { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-    { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-    { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-    { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-    { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-    { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-    { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+    { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+    { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
   ]
 
   // ---- 初始骨架 ----
@@ -176,26 +172,26 @@ export async function renderAdminCourseDetail(app, params) {
             </div>
           </div>
           <div style="display:flex;gap:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);flex-wrap:wrap;">
-            <span>📚 ${chapters.length} 个章节</span>
-            <span>🎯 ${allKnowledgePoints.length} 个知识点</span>
-            <span>🏫 ${teachingClasses.length} 个教学班级</span>
-            <span>👨‍🏫 ${teachers.length} 位教师</span>
+            <span>${chapters.length} 个章节</span>
+            <span>${allKnowledgePoints.length} 个知识点</span>
+            <span>${teachingClasses.length} 个教学班级</span>
+            <span>👨‍${teachers.length} 位教师</span>
           </div>
         </div>
 
         <!-- 标签页导航 -->
         <div class="tabs-nav" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;">
           <button class="tab-btn active" data-tab="chapters" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            📖 章节管理
+            章节管理
           </button>
           <button class="tab-btn" data-tab="knowledge" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            🎯 知识点管理
+            知识点管理
           </button>
           <button class="tab-btn" data-tab="classes" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            🏫 教学班级
+            教学班级
           </button>
           <button class="tab-btn" data-tab="teachers" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            👨‍🏫 授课教师
+            👨‍授课教师
           </button>
         </div>
 
@@ -441,7 +437,7 @@ export async function renderAdminCourseDetail(app, params) {
             <button class="btn-back" onclick="window.location.hash='#/admin/courses'">← 返回课程列表</button>
           </div>
           <div class="error-state">
-            <div class="error-icon">⚠️</div>
+            <div class="error-icon"></div>
             <div class="error-message">${escapeHtml(message)}</div>
             <button class="btn-retry" onclick="window.location.reload()">重新加载</button>
           </div>
@@ -528,7 +524,7 @@ export async function renderAdminCourseDetail(app, params) {
             </div>
             <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);padding-top:10px;border-top:1px solid var(--border);margin-bottom:12px;">
               <span>👨‍🎓 ${tc.student_count || 0} 名学生</span>
-              <span>📅 ${formatDate(tc.created_at, 'date')}</span>
+              <span>${formatDate(tc.created_at, 'date')}</span>
             </div>
             <div style="display:flex;gap:8px;">
               <button class="btn-edit-class" data-class-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;font-size:0.85rem;">编辑</button>

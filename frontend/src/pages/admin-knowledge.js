@@ -1,4 +1,4 @@
-// 管理员端知识库管理页面
+﻿// 管理员端知识库管理页面
 
 import { getMe } from '../api/auth.js'
 import { getAdminKnowledgeDocuments, reviewKnowledgeDocument } from '../api/admin.js'
@@ -53,7 +53,7 @@ export async function renderAdminKnowledge(app) {
       return `<div class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>`
     }
     if (state.error) {
-      return `<div class="error-state"><div class="error-icon">⚠️</div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
+      return `<div class="error-state"><div class="error-icon"></div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
     }
 
     const totalPages = Math.ceil(state.total / state.pageSize) || 1
@@ -104,9 +104,24 @@ export async function renderAdminKnowledge(app) {
       </div>`
     }
 
+    const subNavHTML = `
+      <div class="sub-nav" style="display:flex;gap:0;margin-bottom:16px;background:var(--bg);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+        <a href="#/admin/knowledge" style="flex:1;padding:10px 16px;text-align:center;font-weight:600;color:var(--primary);background:rgba(99,102,241,0.06);text-decoration:none;border-bottom:2px solid var(--primary);font-size:0.9rem;">知识库管理</a>
+        <a href="#/admin/logs" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">操作日志</a>
+        <a href="#/admin/notifications" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">通知管理</a>
+        <a href="#/admin/ai-config" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">🤖 AI 配置</a>
+      </div>
+    `
+
     return `
       <div class="section-header">
-        <h2>📖 知识库管理</h2>
+        <h2>系统管理</h2>
+      </div>
+
+      ${subNavHTML}
+
+      <div class="section-header" style="margin-top:0;border:none;">
+        <h3 style="font-size:1rem;font-weight:600;margin:0;">知识库文档</h3>
       </div>
 
       <div class="search-bar">

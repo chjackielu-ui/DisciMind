@@ -26,12 +26,9 @@ export async function renderTeacherDashboard(app) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
@@ -43,7 +40,7 @@ export async function renderTeacherDashboard(app) {
           <h2>欢迎你，${displayName}</h2>
           <p>教学工作顺利，桃李满天下！</p>
         </div>
-        <div class="welcome-illustration">👨‍🏫</div>
+        <div class="welcome-illustration"></div>
       </div>
 
       <!-- 数据卡片 -->
@@ -60,30 +57,24 @@ export async function renderTeacherDashboard(app) {
       <div class="content-columns">
         <!-- 快捷入口 -->
         <div class="card">
-          <h3 class="card-title">🚀 快捷入口</h3>
+          <h3 class="card-title">快捷入口</h3>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div class="quick-link" data-hash="#/teacher/courses" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:1.5rem;">📚</div>
               <div style="font-size:0.85rem;margin-top:4px;">课程管理</div>
             </div>
             <div class="quick-link" data-hash="#/teacher/tasks" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:1.5rem;">📝</div>
               <div style="font-size:0.85rem;margin-top:4px;">作业任务</div>
             </div>
             <div class="quick-link" data-hash="#/teacher/students" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:1.5rem;">👨‍🎓</div>
               <div style="font-size:0.85rem;margin-top:4px;">学生管理</div>
             </div>
             <div class="quick-link" data-hash="#/teacher/analytics" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:1.5rem;">📊</div>
               <div style="font-size:0.85rem;margin-top:4px;">学情分析</div>
             </div>
             <div class="quick-link" data-hash="#/teacher/questions" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:1.5rem;">📝</div>
               <div style="font-size:0.85rem;margin-top:4px;">题库管理</div>
             </div>
             <div class="quick-link" data-hash="#" id="ai-quick-btn" style="padding:14px;border:1px solid #a78bfa;border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;background:rgba(167,139,250,0.05);">
-              <div style="font-size:1.5rem;">🤖</div>
               <div style="font-size:0.85rem;margin-top:4px;color:#7c3aed;">AI 助手</div>
             </div>
           </div>
@@ -91,7 +82,7 @@ export async function renderTeacherDashboard(app) {
 
         <!-- 账户信息 -->
         <div class="card user-info-card">
-          <h3 class="card-title">📋 账户信息</h3>
+          <h3 class="card-title">账户信息</h3>
           <div class="user-info-grid">
             <div class="info-item">
               <span class="info-label">用户名</span>
@@ -126,7 +117,7 @@ export async function renderTeacherDashboard(app) {
     <div class="card" id="notification-section" style="margin-top:0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <h3 class="card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
-          🔔 消息通知
+          消息通知
           <span id="unread-badge" style="display:none;background:#dc2626;color:#fff;font-size:0.72rem;padding:1px 8px;border-radius:10px;font-weight:600;"></span>
         </h3>
         <button class="btn-mark-all-read" id="notif-mark-all-read" style="padding:5px 14px;font-size:0.8rem;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;color:var(--text-secondary);display:none;">全部标记已读</button>
@@ -219,14 +210,14 @@ export async function renderTeacherDashboard(app) {
       }
 
       if (list.length === 0) {
-        notifListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.9rem;">📭 暂无消息通知</div>'
+        notifListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.9rem;">暂无消息通知</div>'
         return
       }
 
       const typeLabels = {
-        task_published: '📝 任务发布', task_deadline: '⏰ 任务截止',
-        document_review: '📄 文档审核', document_parsed: '📖 文档解析',
-        ai_grading_done: '🤖 AI批改', system_notice: '🔔 系统通知',
+        task_published: '任务发布', task_deadline: '任务截止',
+        document_review: '文档审核', document_parsed: '文档解析',
+        ai_grading_done: 'AI批改', system_notice: '系统通知',
       }
 
       notifListEl.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${
@@ -281,7 +272,7 @@ export async function renderTeacherDashboard(app) {
       })
     } catch (err) {
       console.error('[teacher] 加载消息通知失败:', err.message)
-      notifListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">⚠️ 消息通知加载失败</div>'
+      notifListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">消息通知加载失败</div>'
     }
   }
 
@@ -293,9 +284,9 @@ export async function renderTeacherDashboard(app) {
     }
 
     const typeLabels = {
-      task_published: '📝 任务发布', task_deadline: '⏰ 任务截止',
-      document_review: '📄 文档审核', document_parsed: '📖 文档解析',
-      ai_grading_done: '🤖 AI批改', system_notice: '🔔 系统通知',
+      task_published: '任务发布', task_deadline: '任务截止',
+      document_review: '文档审核', document_parsed: '文档解析',
+      ai_grading_done: 'AI批改', system_notice: '系统通知',
     }
     const time = notif.created_at ? new Date(notif.created_at).toLocaleString('zh-CN') : ''
     const typeLabel = typeLabels[notif.notification_type] || notif.notification_type
