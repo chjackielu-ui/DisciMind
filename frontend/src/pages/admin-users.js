@@ -1,4 +1,4 @@
-// 管理员端 — 用户管理页面
+﻿// 管理员端 — 用户管理页面
 // 支持搜索、筛选、重置密码、启用/禁用、删除用户
 
 import { getMe } from '../api/auth.js'
@@ -11,12 +11,8 @@ const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-  { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-  { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-  { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-  { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
 ]
 
 function escapeHtml(str) {
@@ -100,7 +96,7 @@ export async function renderAdminUsers(app) {
     } else if (error) {
       tableHTML = `
         <div class="empty-state">
-          <div class="empty-icon">⚠️</div>
+          <div class="empty-icon"></div>
           <p>${escapeHtml(error)}</p>
           <button class="btn-sm btn-primary" style="margin-top:12px;" id="btn-retry-load">重新加载</button>
         </div>

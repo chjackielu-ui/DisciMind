@@ -26,20 +26,29 @@ export async function renderTeacherCourses(app) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
   const contentHTML = `
     <div class="dashboard-content">
+      <div style="margin-bottom:12px;">
+        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
+      </div>
       <div class="page-header">
-        <h2 class="page-title">📚 我的课程</h2>
-        <p class="page-subtitle">管理您所教授的课程、教学班级与教学内容</p>
+        <h2 class="page-title">教学管理</h2>
+        <p class="page-subtitle">管理课程、教学班级、学生与知识库</p>
+      </div>
+
+      <!-- 子导航 -->
+      <div class="card" style="margin-bottom:20px;padding:0;overflow:hidden;">
+        <div style="display:flex;gap:0;background:var(--bg);border-bottom:2px solid var(--border);">
+          <a href="#/teacher/courses" style="flex:1;padding:12px 16px;text-align:center;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;text-decoration:none;background:rgba(99,102,241,0.04);">课程管理</a>
+          <a href="#/teacher/students" style="flex:1;padding:12px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;border-bottom:2px solid transparent;">学生管理</a>
+          <a href="#/teacher/knowledge" style="flex:1;padding:12px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;border-bottom:2px solid transparent;">知识库</a>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom: 20px;">

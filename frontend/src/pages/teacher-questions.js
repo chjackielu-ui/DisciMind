@@ -23,19 +23,19 @@ export async function renderTeacherQuestions(app) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
   const contentHTML = `
     <div class="dashboard-content">
+      <div style="margin-bottom:12px;">
+        <a href="#/teacher/tasks" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回作业考试</a>
+      </div>
       <div class="page-header">
-        <h2 class="page-title">📝 题库管理</h2>
+        <h2 class="page-title">题库管理</h2>
         <p class="page-subtitle">管理课程题目，支持单选题、多选题、判断题、填空题、简答题</p>
       </div>
 

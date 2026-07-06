@@ -1,4 +1,4 @@
-// 管理员端首页 — 系统总览仪表盘
+﻿// 管理员端首页 — 系统总览仪表盘
 
 import { getMe } from '../api/auth.js'
 import { getAdminDashboard } from '../api/admin.js'
@@ -45,12 +45,8 @@ export async function renderAdminDashboard(app) {
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
     { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-    { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-    { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-    { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-    { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-    { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-    { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+    { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+    { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
   ]
 
   const contentHTML = `
@@ -95,7 +91,7 @@ export async function renderAdminDashboard(app) {
       <!-- 待审核文档提示 -->
       ${stats.pending_review_document_count > 0 ? `
       <div class="card" style="border-left: 4px solid #7C3AED;">
-        <h3 class="card-title">📋 待处理事项</h3>
+        <h3 class="card-title">待处理事项</h3>
         <p style="color: var(--stu-text-secondary); font-size: 0.92rem;">
           共有 <strong style="color: #7C3AED;">${stats.pending_review_document_count}</strong> 份知识库文档等待审核，
           <a href="#/admin/knowledge" style="color: #7C3AED; font-weight: 600;">点击前往处理</a>
@@ -105,45 +101,45 @@ export async function renderAdminDashboard(app) {
 
       <!-- 系统管理入口 -->
       <div class="card">
-        <h3 class="card-title">⚙️ 系统管理入口</h3>
+        <h3 class="card-title"> 系统管理入口</h3>
         <div class="admin-links">
           <div class="admin-link-item" data-hash="#/admin/users">
-            <span class="admin-link-icon">👥</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">用户管理</span>
               <span class="admin-link-desc">管理学生、教师、管理员账号</span>
             </div>
           </div>
           <div class="admin-link-item" data-hash="#/admin/courses">
-            <span class="admin-link-icon">📚</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">课程管理</span>
               <span class="admin-link-desc">创建和维护课程信息</span>
             </div>
           </div>
           <div class="admin-link-item" data-hash="#/admin/classes">
-            <span class="admin-link-icon">🏫</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">班级管理</span>
               <span class="admin-link-desc">管理行政班级与教学班级</span>
             </div>
           </div>
           <div class="admin-link-item" data-hash="#/admin/knowledge">
-            <span class="admin-link-icon">📖</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">知识库管理</span>
               <span class="admin-link-desc">管理知识库文档与分类</span>
             </div>
           </div>
           <div class="admin-link-item" data-hash="#/admin/logs">
-            <span class="admin-link-icon">📋</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">操作日志</span>
               <span class="admin-link-desc">查看系统操作与运行日志</span>
             </div>
           </div>
           <div class="admin-link-item" data-hash="#/admin/notifications">
-            <span class="admin-link-icon">🔔</span>
+            <span class="admin-link-icon"></span>
             <div class="admin-link-info">
               <span class="admin-link-title">通知管理</span>
               <span class="admin-link-desc">管理系统通知消息</span>
@@ -154,7 +150,7 @@ export async function renderAdminDashboard(app) {
 
       <!-- 账户信息 -->
       <div class="card user-info-card">
-        <h3 class="card-title">📋 账户信息</h3>
+        <h3 class="card-title">账户信息</h3>
         <div class="user-info-grid">
           <div class="info-item">
             <span class="info-label">用户名</span>

@@ -1,4 +1,4 @@
-// 教师端 — 课程详情页
+﻿// 教师端 — 课程详情页
 // 支持三个标签页：教学班级 | 章节与知识点 | 课程信息
 
 import { getMe } from '../api/auth.js'
@@ -44,12 +44,9 @@ export async function renderTeacherCourseDetail(app, params) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '我的课程', icon: 'book', hash: '#/teacher/courses' },
-    { label: '学生管理', icon: 'user', hash: '#/teacher/students' },
-    { label: '作业测试', icon: 'alert', hash: '#/teacher/tasks' },
-    { label: '题库管理', icon: 'star', hash: '#/teacher/questions' },
-    { label: '知识库', icon: 'book', hash: '#/teacher/knowledge' },
-    { label: '学情分析', icon: 'star', hash: '#/teacher/analytics' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
 
@@ -147,24 +144,24 @@ export async function renderTeacherCourseDetail(app, params) {
             </div>
           </div>
           <div style="display:flex;gap:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);flex-wrap:wrap;">
-            <span>👨‍🏫 授课教师：${escapeHtml(teachers || '未设置')}</span>
-            <span>📚 ${course.chapters?.length || chapters.length || 0} 个章节</span>
-            <span>🎯 ${course.knowledge_point_count || 0} 个知识点</span>
-            <span>🏫 ${classes.length} 个教学班级</span>
-            <span>👨‍🎓 ${course.student_count || 0} 名学生</span>
+            <span>授课教师：${escapeHtml(teachers || '未设置')}</span>
+            <span>${course.chapters?.length || chapters.length || 0} 个章节</span>
+            <span>${course.knowledge_point_count || 0} 个知识点</span>
+            <span>${classes.length} 个教学班级</span>
+            <span>${course.student_count || 0} 名学生</span>
           </div>
         </div>
 
         <!-- 标签页导航 -->
         <div class="tabs-nav" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;">
           <button class="tab-btn active" data-tab="classes" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            🏫 教学班级
+            教学班级
           </button>
           <button class="tab-btn" data-tab="chapters" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            📖 章节与知识点
+            章节与知识点
           </button>
           <button class="tab-btn" data-tab="info" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            ℹ️ 课程信息
+            课程信息
           </button>
         </div>
 
@@ -415,7 +412,7 @@ export async function renderTeacherCourseDetail(app, params) {
             <button class="btn-back" onclick="window.location.hash='#/teacher/courses'">← 返回课程列表</button>
           </div>
           <div class="error-state">
-            <div class="error-icon">⚠️</div>
+            <div class="error-icon"></div>
             <div class="error-message">${escapeHtml(message)}</div>
             <button class="btn-retry" onclick="window.location.reload()">重新加载</button>
           </div>
@@ -442,8 +439,8 @@ export async function renderTeacherCourseDetail(app, params) {
               ${tc.description ? `<div style="margin-top:4px;color:var(--text-muted);">${escapeHtml(tc.description)}</div>` : ''}
             </div>
             <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);padding-top:10px;border-top:1px solid var(--border);margin-bottom:12px;">
-              <span>👨‍🎓 ${tc.student_count || 0} 名学生</span>
-              <span>📅 ${formatDate(tc.created_at, 'date')}</span>
+              <span>${tc.student_count || 0} 名学生</span>
+              <span>${formatDate(tc.created_at, 'date')}</span>
             </div>
             <div style="display:flex;gap:8px;">
               <button class="btn-view-students" data-class-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;font-size:0.85rem;">查看学生</button>
@@ -489,7 +486,7 @@ export async function renderTeacherCourseDetail(app, params) {
               ${kp.difficulty_level === 'hard' ? '较难' : kp.difficulty_level === 'medium' ? '中等' : '基础'}
             </span>
             <span style="font-size:0.8rem;color:var(--text-muted);">${kp.question_count || 0} 题</span>
-            <button class="btn-delete-kp" data-kp-id="${kp.knowledge_point_id}" data-chapter-id="${chapterId}" style="padding:2px 8px;border:none;background:none;color:#dc2626;cursor:pointer;font-size:0.85rem;" title="删除知识点">✕</button>
+            <button class="btn-delete-kp" data-kp-id="${kp.knowledge_point_id}" data-chapter-id="${chapterId}" style="padding:2px 8px;border:none;background:none;color:#dc2626;cursor:pointer;font-size:0.85rem;" title="删除知识点"></button>
           </div>
         `).join('')}
       </div>
@@ -642,17 +639,21 @@ export async function renderTeacherCourseDetail(app, params) {
       } else {
         body.innerHTML = `
           <div style="display:flex;flex-direction:column;gap:8px;">
-            ${students.map(s => `
+            ${students.map(s => {
+              const name = s.student_name || s.student?.profile?.real_name || s.student?.username || '未知'
+              const uname = s.student?.username || ''
+              const initial = name !== '未知' ? name[0] : '?'
+              return `
               <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">
                 <div style="width:34px;height:34px;border-radius:50%;background:var(--stu-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.85rem;font-weight:600;flex-shrink:0;">
-                  ${(s.real_name || s.username || '?')[0]}
+                  ${initial}
                 </div>
                 <div style="flex:1;">
-                  <div style="font-weight:600;color:var(--stu-dark);">${escapeHtml(s.real_name || s.username || '未知')}</div>
-                  <div style="font-size:0.8rem;color:var(--text-muted);">${s.username ? `用户名：${escapeHtml(s.username)}` : ''}</div>
+                  <div style="font-weight:600;color:var(--stu-dark);">${escapeHtml(name)}</div>
+                  <div style="font-size:0.8rem;color:var(--text-muted);">${uname ? `用户名：${escapeHtml(uname)}` : '学号：' + (s.student_no || '-')}</div>
                 </div>
-              </div>
-            `).join('')}
+              </div>`
+            }).join('')}
           </div>
         `
       }

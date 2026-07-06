@@ -1,4 +1,4 @@
-// 管理员端个人中心页面
+﻿// 管理员端个人中心页面
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
@@ -7,12 +7,8 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-  { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-  { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-  { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-  { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
 ]
 
 export async function renderAdminProfile(app) {
@@ -34,12 +30,15 @@ export async function renderAdminProfile(app) {
 
   const contentHTML = `
     <div class="dashboard-content">
+      <div style="margin-bottom:12px;">
+        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
+      </div>
       <div class="section-header">
-        <h2>👤 个人中心</h2>
+        <h2>个人中心</h2>
       </div>
 
       <div class="card user-info-card">
-        <h3 class="card-title">📋 账户信息</h3>
+        <h3 class="card-title">账户信息</h3>
         <div class="user-info-grid">
           <div class="info-item">
             <span class="info-label">用户 ID</span>
@@ -77,7 +76,7 @@ export async function renderAdminProfile(app) {
       </div>
 
       <div class="card">
-        <h3 class="card-title">🔒 安全设置</h3>
+        <h3 class="card-title">安全设置</h3>
         <div style="display:flex;flex-direction:column;gap:12px;padding:8px 0;">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--stu-border);">
             <div>

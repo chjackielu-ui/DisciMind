@@ -1,4 +1,4 @@
-// 管理员端通知管理页面
+﻿// 管理员端通知管理页面
 
 import { getMe } from '../api/auth.js'
 import { getAdminNotifications, createAdminNotification, markNotificationRead, markAllNotificationsRead } from '../api/admin.js'
@@ -8,12 +8,8 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-  { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-  { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-  { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-  { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
 ]
 
 const notificationTypeLabels = {
@@ -61,7 +57,7 @@ export async function renderAdminNotifications(app) {
       return `<div class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>`
     }
     if (state.error) {
-      return `<div class="error-state"><div class="error-icon">⚠️</div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
+      return `<div class="error-state"><div class="error-icon"></div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
     }
 
     const totalPages = Math.ceil(state.total / state.pageSize) || 1
@@ -100,8 +96,11 @@ export async function renderAdminNotifications(app) {
     }
 
     return `
+      <div style="margin-bottom:12px;">
+        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
+      </div>
       <div class="section-header">
-        <h2>🔔 通知管理</h2>
+        <h2>通知管理</h2>
         <div style="display:flex;gap:8px;">
           <button class="btn-sm btn-secondary" id="btn-create-notification">+ 发送通知</button>
           <button class="btn-sm btn-secondary" id="btn-mark-all-read">全部标记已读</button>

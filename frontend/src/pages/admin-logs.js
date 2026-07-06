@@ -1,4 +1,4 @@
-// 管理员端操作日志页面
+﻿// 管理员端操作日志页面
 
 import { getMe } from '../api/auth.js'
 import { getOperationLogs } from '../api/admin.js'
@@ -8,12 +8,8 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-  { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-  { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-  { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-  { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
 ]
 
 export async function renderAdminLogs(app) {
@@ -52,7 +48,7 @@ export async function renderAdminLogs(app) {
       return `<div class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>`
     }
     if (state.error) {
-      return `<div class="error-state"><div class="error-icon">⚠️</div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
+      return `<div class="error-state"><div class="error-icon"></div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
     }
 
     const totalPages = Math.ceil(state.total / state.pageSize) || 1
@@ -94,8 +90,11 @@ export async function renderAdminLogs(app) {
     }
 
     return `
+      <div style="margin-bottom:12px;">
+        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
+      </div>
       <div class="section-header">
-        <h2>📋 操作日志</h2>
+        <h2>操作日志</h2>
       </div>
 
       <div class="search-bar">

@@ -1,4 +1,4 @@
-// 管理端 — 行政班级管理页面
+﻿// 管理端 — 行政班级管理页面
 // 支持搜索、筛选、分页、新建/编辑/删除班级
 
 import { getMe } from '../api/auth.js'
@@ -24,12 +24,8 @@ export async function renderAdminClasses(app) {
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
     { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-    { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-    { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-    { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-    { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-    { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-    { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+    { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+    { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
   ]
 
   // ---- 页面状态 ----
@@ -144,7 +140,7 @@ export async function renderAdminClasses(app) {
         <tr>
           <td colspan="7">
             <div class="empty-state">
-              <div class="empty-icon">⚠️</div>
+              <div class="empty-icon"></div>
               <p>${escapeHtml(errorMsg)}</p>
               <button class="btn-sm btn-primary" id="btn-retry" style="margin-top:12px;">重新加载</button>
             </div>
@@ -155,7 +151,7 @@ export async function renderAdminClasses(app) {
         <tr>
           <td colspan="7">
             <div class="empty-state">
-              <div class="empty-icon">📭</div>
+              <div class="empty-icon"></div>
               <p>暂无班级数据</p>
               <p style="font-size:0.82rem;margin-top:4px;">点击上方「新建班级」按钮创建第一个班级</p>
             </div>
@@ -232,6 +228,9 @@ export async function renderAdminClasses(app) {
     // ---- 完整页面 HTML ----
     const contentHTML = `
       <div class="dashboard-content">
+        <div style="margin-bottom:12px;">
+          <a href="#/admin/courses" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回教学管理</a>
+        </div>
         <div class="section-header">
           <h2>行政班级管理</h2>
           <button class="btn-sm btn-primary" id="btn-create-class">+ 新建班级</button>
@@ -301,7 +300,7 @@ export async function renderAdminClasses(app) {
           <h3>确认删除</h3>
           <p id="delete-msg" style="margin-bottom:12px;color:var(--stu-text-secondary);"></p>
           <div id="delete-student-warning" style="display:none;padding:12px;background:#FEF3C7;border:1px solid #FDE68A;border-radius:8px;margin-bottom:12px;font-size:0.85rem;color:#92400E;">
-            ⚠️ 该班级中还有 <strong id="delete-student-count">0</strong> 名学生，删除班级不会删除学生账号，但会解除学生与该班级的关联关系。
+             该班级中还有 <strong id="delete-student-count">0</strong> 名学生，删除班级不会删除学生账号，但会解除学生与该班级的关联关系。
           </div>
           <div class="modal-actions">
             <button class="btn-cancel" id="btn-delete-cancel">取消</button>

@@ -1,4 +1,4 @@
-// 管理端 - 课程列表页
+﻿// 管理端 - 课程列表页
 // 展示全部课程，支持搜索、筛选、分页、创建及归档
 
 import { getMe } from '../api/auth.js'
@@ -65,12 +65,8 @@ export async function renderAdminCourses(app) {
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
     { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-    { label: '课程管理', icon: 'book', hash: '#/admin/courses' },
-    { label: '班级管理', icon: 'star', hash: '#/admin/classes' },
-    { label: '知识库管理', icon: 'book', hash: '#/admin/knowledge' },
-    { label: '操作日志', icon: 'alert', hash: '#/admin/logs' },
-    { label: '通知管理', icon: 'message', hash: '#/admin/notifications' },
-    { label: 'AI 配置', icon: 'message', hash: '#/admin/ai-config' },
+    { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
+    { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
   ]
 
   // ---- 加载课程列表 ----
@@ -135,12 +131,20 @@ export async function renderAdminCourses(app) {
       </div>
     `
 
+    const subNavHTML = `
+      <div class="sub-nav" style="display:flex;gap:0;margin-bottom:16px;background:var(--bg);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
+        <a href="#/admin/courses" style="flex:1;padding:10px 16px;text-align:center;font-weight:600;color:var(--primary);background:rgba(99,102,241,0.06);text-decoration:none;border-bottom:2px solid var(--primary);font-size:0.9rem;">课程管理</a>
+        <a href="#/admin/classes" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">班级管理</a>
+      </div>
+    `
+
     // 加载状态
     if (isLoading) {
       return `
         <div class="section-header">
           <h2>课程管理</h2>
         </div>
+        ${subNavHTML}
         ${searchBarHTML}
         <div class="loading-state">
           <div class="loading-spinner"></div>
@@ -157,7 +161,7 @@ export async function renderAdminCourses(app) {
         </div>
         ${searchBarHTML}
         <div class="empty-state">
-          <div class="empty-icon">⚠️</div>
+          <div class="empty-icon"></div>
           <p>${escapeHtml(error)}</p>
           <button class="btn-sm btn-primary" id="btn-retry" style="margin-top:12px;">重新加载</button>
         </div>
@@ -174,6 +178,7 @@ export async function renderAdminCourses(app) {
           <h2>课程管理</h2>
           <span style="color:var(--stu-text-muted);font-size:0.85rem;">共 ${totalCount} 门课程</span>
         </div>
+        ${subNavHTML}
         ${searchBarHTML}
         <div class="empty-state">
           <div class="empty-icon">📚</div>
@@ -229,6 +234,7 @@ export async function renderAdminCourses(app) {
         <h2>课程管理</h2>
         <span style="color:var(--stu-text-muted);font-size:0.85rem;">共 ${totalCount} 门课程</span>
       </div>
+      ${subNavHTML}
       ${searchBarHTML}
       ${courseGridHTML}
       ${paginationHTML}
