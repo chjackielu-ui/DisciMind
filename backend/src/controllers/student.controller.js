@@ -292,6 +292,58 @@ async function getPortrait(req, res) {
 }
 
 // ========================
+// 8. 课程知识点掌握分布
+// ========================
+
+/**
+ * GET /api/student/courses/:course_id/mastery-distribution
+ */
+async function getCourseMasteryDistribution(req, res) {
+  try {
+    const userId = getUserId(req);
+    const courseId = parseInt(req.params.course_id, 10);
+
+    if (isNaN(courseId) || courseId < 1) {
+      return fail(res, 40001, 'course_id 参数不合法');
+    }
+
+    const data = await studentService.getCourseMasteryDistribution(userId, courseId);
+    return success(res, data, '获取知识点掌握分布成功');
+  } catch (err) {
+    console.error('[student.controller] getCourseMasteryDistribution 异常:', err.message);
+    if (err.code === 40301) return fail(res, 40301, err.message);
+    if (err.code === 40002) return fail(res, 40002, err.message);
+    return fail(res, 50001, '服务器错误');
+  }
+}
+
+// ========================
+// 9. 课程能力画像
+// ========================
+
+/**
+ * GET /api/student/courses/:course_id/ability-profile
+ */
+async function getCourseAbilityProfile(req, res) {
+  try {
+    const userId = getUserId(req);
+    const courseId = parseInt(req.params.course_id, 10);
+
+    if (isNaN(courseId) || courseId < 1) {
+      return fail(res, 40001, 'course_id 参数不合法');
+    }
+
+    const data = await studentService.getCourseAbilityProfile(userId, courseId);
+    return success(res, data, '获取课程能力画像成功');
+  } catch (err) {
+    console.error('[student.controller] getCourseAbilityProfile 异常:', err.message);
+    if (err.code === 40301) return fail(res, 40301, err.message);
+    if (err.code === 40002) return fail(res, 40002, err.message);
+    return fail(res, 50001, '服务器错误');
+  }
+}
+
+// ========================
 // 导出
 // ========================
 
@@ -310,4 +362,6 @@ module.exports = {
   getStudyRecords,
   createStudyRecord,
   getPortrait,
+  getCourseMasteryDistribution,
+  getCourseAbilityProfile,
 };

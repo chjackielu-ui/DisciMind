@@ -2,7 +2,7 @@
 // v2: 统一 SVG 图标、优化对齐、菜单 hash 导航
 
 import { getUserDisplayName, logoutSession } from './auth.js'
-import { iconHome, iconBook, iconAlert, iconStar, iconUser, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
+import { getIcon, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
 import { createAiChatConversation, streamAiChatMessage } from '../api/student.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from './markdown.js'
 
@@ -12,9 +12,6 @@ const STUDENT_SIDEBAR_FIRST_VISIT_KEY = 'discimind.studentSidebarFirstVisitSeen'
 const AI_FLOAT_STATE_KEY = 'discimind.studentAiFloatState'
 const AI_FLOAT_EDGE_MARGIN = 18
 const AI_FLOAT_MAX_INPUT = 2000
-
-// 图标名 → 图标函数映射
-const ICON_MAP = { home: iconHome, book: iconBook, alert: iconAlert, star: iconStar, user: iconUser, message: iconMessage }
 
 let sidebarExpanded = true
 let sidebarPinned = false
@@ -37,9 +34,9 @@ export function renderDashboardLayout(app, config) {
 
   // 构建菜单 HTML（使用 SVG 图标）
   const currentHash = window.location.hash.slice(1) || ''
-  const menuHTML = menuItems.map((item, index) => {
-    const iconFn = ICON_MAP[item.icon] || iconHome
-    const iconSVG = typeof iconFn === 'function' ? iconFn() : iconHome()
+  const menuHTML = menuItems.map((item) => {
+    const iconSVG = getIcon(item.icon)
+    const itemId = getMenuItemId(item)
     // 精确匹配：优先使用 item.matchHash 函数，否则精确比较 hash
     let isActive = false
     if (typeof item.matchHash === 'function') {
@@ -49,18 +46,18 @@ export function renderDashboardLayout(app, config) {
       isActive = currentHash === itemPath
     }
     return `
-      <div class="sidebar-menu-item${isActive ? ' active' : ''}" data-hash="${item.hash || ''}">
+      <button type="button" class="sidebar-menu-item${isActive ? ' active' : ''}" data-menu-id="${escapeHtml(itemId)}" data-hash="${escapeHtml(item.hash || '')}" aria-current="${isActive ? 'page' : 'false'}" title="${escapeHtml(item.label)}">
         <span class="sidebar-menu-icon">${iconSVG}</span>
-        <span class="sidebar-menu-text">${item.label}</span>
-        <span class="menu-tooltip">${item.label}</span>
-      </div>`
+        <span class="sidebar-menu-text">${escapeHtml(item.label)}</span>
+        <span class="menu-tooltip">${escapeHtml(item.label)}</span>
+      </button>`
   }).join('')
 
   const roleClass = user?.role === 'teacher' ? ' role-teacher' : user?.role === 'admin' ? ' role-admin' : ''
 
   app.innerHTML = `
     <div class="student-dashboard-wrapper${roleClass}">
-      <nav class="student-sidebar ${sidebarExpanded ? 'expanded' : 'collapsed'}" id="student-sidebar">
+      <nav class="student-sidebar ${sidebarExpanded ? 'expanded' : 'collapsed'}" id="student-sidebar" style="--sidebar-menu-count:${Math.max(1, menuItems.length)}">
         <div class="sidebar-brand">
           <div class="sidebar-brand-mark">
             <img src="/logo.png" alt="DisciMind" />
@@ -182,6 +179,12 @@ export function renderDashboardLayout(app, config) {
   })
 
   initStudentAiFloat(user)
+}
+
+function getMenuItemId(item) {
+  if (item?.id) return item.id
+  const source = item?.hash || item?.label || 'menu-item'
+  return String(source).replace(/^#/, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'menu-item'
 }
 
 function shouldExpandSidebarInitially(user) {

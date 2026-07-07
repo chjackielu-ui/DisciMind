@@ -2,12 +2,12 @@
 // 新增：知识点排序、搜索、筛选
 
 import { getMe } from '../api/auth.js'
-import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints } from '../api/student.js'
+import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints, getCourseMasteryDistribution, getCourseAbilityProfile } from '../api/student.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, masteryLabel, difficultyLabel } from '../utils/format.js'
-import { disposeAllCharts, bindResize, initChart, renderRingChart, renderHorizontalBarChart, CHART_COLORS } from '../utils/echarts.js'
+import { disposeAllCharts, bindResize, initChart, renderRingChart, renderHorizontalBarChart, renderRadarChart, renderEmptyPanel, CHART_COLORS } from '../utils/echarts.js'
 import * as echarts from 'echarts'
 import { buildMindData, createMindMap, getKnowledgeStatus } from '../components/kgraph/KgMindMap.js'
 import { buildVideoPanelHTML, loadKpVideosToPanel } from '../components/kgraph/KgVideoPanel.js'
@@ -29,16 +29,198 @@ function sortKPs(kps, sortBy) {
   }
 }
 
-function renderDetailCharts(kps) {
+async function renderDetailCharts(courseId) {
   bindResize()
-  if (!kps || kps.length === 0) return
-  const lc = { excellent: 0, good: 0, general: 0, weak: 0 }
-  kps.forEach(k => { const l = k.mastery_level || 'weak'; if (lc[l] !== undefined) lc[l]++ })
-  const rd = [{ name: '优秀', value: lc.excellent, itemStyle: { color: '#4CAF84' } }, { name: '良好', value: lc.good, itemStyle: { color: CHART_COLORS.primary } }, { name: '一般', value: lc.general, itemStyle: { color: CHART_COLORS.warm } }, { name: '薄弱', value: lc.weak, itemStyle: { color: CHART_COLORS.softRed } }].filter(d => d.value > 0)
-  if (rd.length === 0) rd.push({ name: '暂无数据', value: 1, itemStyle: { color: '#E2E8F0' } })
-  renderRingChart('chart-detail-mastery-ring', rd, '掌握等级分布')
-  const sorted = [...kps].sort((a, b) => (a.mastery_score || 0) - (b.mastery_score || 0))
-  renderHorizontalBarChart('chart-detail-kp-bar', sorted.map(k => k.knowledge_point_name), sorted.map(k => k.mastery_score || 0), '知识点掌握度详情')
+
+  // 渲染掌握等级分布环形图
+  try {
+    const mr = await getCourseMasteryDistribution(courseId)
+    const distData = mr.data?.distribution || []
+    const total = mr.data?.total || 0
+    const learned = mr.data?.learned || 0
+
+    if (distData.length === 0 || distData.every(d => d.count === 0)) {
+      renderEmptyPanel('chart-detail-mastery-ring', '暂无掌握分布数据', '继续学习后系统将分析知识点掌握等级分布。')
+    } else {
+      const ringData = distData
+        .filter(d => d.count > 0)
+        .map(d => ({
+          name: d.label,
+          value: d.count,
+          itemStyle: {
+            color:
+              d.level === 'excellent' ? '#4CAF84' :
+              d.level === 'good' ? CHART_COLORS.primary :
+              d.level === 'general' ? CHART_COLORS.warm :
+              d.level === 'weak' ? CHART_COLORS.softRed :
+              '#B0BEC5',
+          },
+        }))
+
+      if (ringData.length === 0) {
+        renderEmptyPanel('chart-detail-mastery-ring', '暂无分布数据', '暂无知识点掌握数据。')
+        return
+      }
+
+      const inst = initChart('chart-detail-mastery-ring', ringData)
+      if (!inst) return
+
+      inst.setOption({
+        title: {
+          text: '掌握等级分布',
+          left: 'center',
+          top: 8,
+          textStyle: { fontSize: 15, fontWeight: 600, color: CHART_COLORS.deep },
+        },
+        tooltip: {
+          backgroundColor: 'rgba(22,66,91,0.94)',
+          borderColor: 'rgba(129,195,215,0.3)',
+          borderWidth: 1,
+          textStyle: { color: '#fff', fontSize: 13 },
+          formatter: (params) => {
+            const item = distData.find(d => d.label === params.name)
+            return `<b>${params.name}</b><br/>数量：${params.value} 个<br/>占比：${item?.percentage || 0}%`
+          },
+        },
+        legend: {
+          bottom: 0,
+          textStyle: { color: '#627D98', fontSize: 11 },
+          itemWidth: 10,
+          itemHeight: 10,
+          itemGap: 12,
+        },
+        series: [{
+          type: 'pie',
+          radius: ['52%', '76%'],
+          center: ['50%', '46%'],
+          avoidLabelOverlap: false,
+          itemStyle: { borderRadius: 5, borderColor: '#fff', borderWidth: 2 },
+          label: { show: false },
+          emphasis: { label: { show: true, fontSize: 13, fontWeight: 'bold' }, scaleSize: 6 },
+          data: ringData,
+        }],
+        graphic: total > 0 ? [{
+          type: 'text',
+          left: 'center',
+          top: '40%',
+          style: {
+            text: `${learned}/${total}`,
+            textAlign: 'center',
+            fill: CHART_COLORS.deep,
+            fontSize: 18,
+            fontWeight: 'bold',
+          },
+        }, {
+          type: 'text',
+          left: 'center',
+          top: '48%',
+          style: {
+            text: '已学习/总知识点',
+            textAlign: 'center',
+            fill: '#627D98',
+            fontSize: 11,
+          },
+        }] : [],
+        color: ringData.map(d => d.itemStyle.color),
+      })
+    }
+  } catch (err) {
+    console.error('加载掌握分布失败:', err)
+    renderEmptyPanel('chart-detail-mastery-ring', '数据加载失败', '请检查网络连接后刷新页面重试。')
+  }
+
+  // 渲染课程能力雷达图
+  try {
+    const ar = await getCourseAbilityProfile(courseId)
+    const profile = ar.data
+    const dimensions = profile?.dimensions || []
+
+    if (dimensions.length === 0) {
+      renderEmptyPanel('chart-detail-ability-radar', '暂无能力画像', '继续学习后系统将生成课程能力画像。')
+    } else {
+      const indicators = dimensions.map(d => ({ name: d.label, max: 100 }))
+      const values = dimensions.map(d => d.score || 0)
+
+      const inst = initChart('chart-detail-ability-radar')
+      if (!inst) return
+
+      const overallScore = profile?.overall_score || 0
+      const levelText = profile?.level || ''
+      const strengthsText = (profile?.strengths || []).join('、')
+      const improvementsText = (profile?.improvements || []).join('、')
+
+      inst.setOption({
+        title: {
+          text: '课程能力画像',
+          left: 'center',
+          top: 8,
+          textStyle: { fontSize: 15, fontWeight: 600, color: CHART_COLORS.deep },
+        },
+        tooltip: {
+          backgroundColor: 'rgba(22,66,91,0.94)',
+          borderColor: 'rgba(129,195,215,0.3)',
+          borderWidth: 1,
+          textStyle: { color: '#fff', fontSize: 13 },
+        },
+        radar: {
+          center: ['50%', '52%'],
+          radius: '62%',
+          indicator: indicators,
+          splitNumber: 4,
+          axisName: { color: '#476579', fontSize: 11 },
+          axisLine: { lineStyle: { color: 'rgba(47,102,144,0.16)' } },
+          splitLine: { lineStyle: { color: 'rgba(47,102,144,0.12)' } },
+          splitArea: {
+            areaStyle: {
+              color: ['rgba(129,195,215,0.06)', 'rgba(76,175,132,0.04)'],
+            },
+          },
+        },
+        series: [{
+          type: 'radar',
+          symbol: 'circle',
+          symbolSize: 5,
+          lineStyle: { width: 2.5, color: CHART_COLORS.primary },
+          itemStyle: { color: CHART_COLORS.primary },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 1, [
+              { offset: 0, color: 'rgba(47,102,144,0.28)' },
+              { offset: 1, color: 'rgba(129,195,215,0.10)' },
+            ]),
+          },
+          data: [{ value: values, name: '能力维度' }],
+        }],
+        graphic: overallScore > 0 ? [
+          {
+            type: 'text',
+            left: 'center',
+            bottom: 44,
+            style: {
+              text: `${overallScore}分`,
+              textAlign: 'center',
+              fill: CHART_COLORS.deep,
+              fontSize: 17,
+              fontWeight: 'bold',
+            },
+          },
+          {
+            type: 'text',
+            left: 'center',
+            bottom: 28,
+            style: {
+              text: levelText,
+              textAlign: 'center',
+              fill: '#627D98',
+              fontSize: 11,
+            },
+          },
+        ] : [],
+      })
+    }
+  } catch (err) {
+    console.error('加载能力画像失败:', err)
+    renderEmptyPanel('chart-detail-ability-radar', '数据加载失败', '请检查网络连接后刷新页面重试。')
+  }
 }
 
 function renderHeroProgress(course) {
@@ -428,7 +610,16 @@ export async function renderStudentCourseDetail(app) {
         <button class="course-action-btn" id="btn-course-practice" type="button">进入智能练习</button>
       </div>
       ${buildKnowledgeGraphSection(course, chapters, kps)}
-      <div class="charts-grid"><div class="chart-card"><div class="chart-header"><span class="chart-title">🎯 掌握等级分布</span></div><div class="chart-container" id="chart-detail-mastery-ring"></div></div><div class="chart-card" style="grid-column:1/-1;"><div class="chart-header"><span class="chart-title">📊 知识点掌握度详情</span></div><div class="chart-container-lg" id="chart-detail-kp-bar"></div></div></div>
+      <div class="course-charts-row">
+        <div class="course-chart-panel" id="panel-mastery-ring">
+          <div class="chart-header"><span class="chart-title">🎯 掌握等级分布</span></div>
+          <div class="chart-body" id="chart-detail-mastery-ring"></div>
+        </div>
+        <div class="course-chart-panel" id="panel-ability-radar">
+          <div class="chart-header"><span class="chart-title">🧭 课程能力画像</span></div>
+          <div class="chart-body" id="chart-detail-ability-radar"></div>
+        </div>
+      </div>
       <div class="card" style="margin-bottom:24px;"><h3 class="card-title">🗺️ 章节学习地图</h3><div class="chapter-timeline">${chapters.map((ch, idx) => { const chKps = kps.filter(k => k.chapter_id === ch.chapter_id); return `<div class="chapter-node"><div class="chapter-dot">${idx + 1}</div><div class="chapter-content"><div class="chapter-name">${escapeHtml(ch.chapter_name)}</div><div class="chapter-desc">${escapeHtml(ch.description || '')} · ${ch.knowledge_point_count || 0} 个知识点</div><div class="kp-pills">${chKps.map(k => `<span class="kp-pill mastery-${k.mastery_level || 'unknown'}" title="${masteryLabel(k.mastery_level)} · ${k.mastery_score || 0}分">${escapeHtml(k.knowledge_point_name)}</span>`).join('')}${chKps.length === 0 ? '<span class="kp-pill mastery-unknown">暂无知识点</span>' : ''}</div></div></div>` }).join('')}</div></div>
       <div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><h3 class="card-title" style="margin-bottom:0;">📋 知识点列表</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><input class="search-box" type="text" id="kp-search" placeholder="🔍 搜索知识点..." style="width:200px;padding:7px 14px;font-size:0.85rem;" /><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="kp-sort"><option value="default">课程顺序</option><option value="score-asc">掌握分数↑</option><option value="score-desc">掌握分数↓</option><option value="name">知识点名称</option><option value="difficulty">难度</option><option value="recent">最近学习</option></select></div></div></div><div class="filter-bar" id="kp-filter-bar"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="excellent">优秀</button><button class="filter-chip" data-filter="good">良好</button><button class="filter-chip" data-filter="general">一般</button><button class="filter-chip" data-filter="weak">薄弱</button></div><div id="kp-list-container" style="display:flex;flex-direction:column;gap:12px;">${kps.map(k => buildKpCard(k)).join('')}</div><div id="kp-no-results" class="no-filter-results" style="display:none;">没有符合条件的数据<span class="btn-clear-filter" id="kp-clear-filter">清除筛选</span></div></div>
     `
@@ -438,7 +629,7 @@ export async function renderStudentCourseDetail(app) {
   renderDashboardLayout(app, { menuItems, contentHTML, user })
 
   if (!loadError && course) {
-    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(kps); bindDetailEvents(kps) }, 150)
+    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps) }, 150)
   }
 }
 

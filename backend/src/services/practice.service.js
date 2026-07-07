@@ -699,6 +699,8 @@ async function createPracticeSessionFromQuestions({
   answerMode = 'SINGLE',
   navigationConfig = null,
   expiresAt = null,
+  sourceType = SOURCE_TYPE.SELF_PRACTICE,
+  sourceId = null,
   selectedQuestions,
 }) {
   const maxScore = selectedQuestions.reduce((sum, question) => sum + (question.score || 0), 0);
@@ -717,6 +719,8 @@ async function createPracticeSessionFromQuestions({
       last_active_at: new Date(),
       expires_at: expiresAt || null,
       navigation_config: navigationConfig,
+      source_type: sourceType,
+      source_id: sourceId,
       questions: {
         create: selectedQuestions.map((question, index) => ({
           question_id: question.question_id,
@@ -804,6 +808,7 @@ async function startPractice(userId, params) {
     answerMode: attemptConfig.answerMode,
     navigationConfig: attemptConfig.navigationConfig,
     expiresAt,
+    sourceType: SOURCE_TYPE.SELF_PRACTICE,
     selectedQuestions,
   });
 
@@ -859,7 +864,7 @@ async function submitPractice(userId, params) {
   if (session.student_user_id !== userId) {
     throw Object.assign(new Error('无权提交该练习会话'), { code: 40301 });
   }
-  if (session.status !== 'in_progress') {
+  if (!isSessionActive(session)) {
     throw Object.assign(new Error('该练习已提交，不能重复提交'), { code: 40001 });
   }
 
@@ -987,12 +992,11 @@ async function submitPractice(userId, params) {
     }
 
     const maxSessionScore = questions.reduce((sum, question) => sum + (question.score || 0), 0);
-    const finalStatus = pendingCount > 0 ? 'submitted' : 'graded';
 
     await tx.practiceSession.update({
       where: { practice_session_id: sessionId },
       data: {
-        status: finalStatus,
+        status: SESSION_STATUS.SUBMITTED,
         submitted_at: now,
         duration_seconds: session.started_at
           ? Math.max(0, Math.round((now - new Date(session.started_at)) / 1000))
@@ -1427,6 +1431,39 @@ async function submitPracticeItem(userId, sessionId, questionId, params = {}) {
     questionMap,
   });
 
+  let finalSessionStatus = SESSION_STATUS.IN_PROGRESS;
+  let finalSessionPayload = serializeSession(session);
+  const gradedRecords = await prisma.answerRecord.findMany({
+    where: {
+      practice_session_id: sessionId,
+      item_status: ITEM_STATUS.GRADED,
+    },
+  });
+  if (!isExamSession(session) && gradedRecords.length >= session.questions.length) {
+    const maxSessionScore = session.questions.reduce((sum, item) => sum + (item.question?.score || 0), 0);
+    const totalScore = gradedRecords.reduce((sum, record) => sum + (record.score || 0), 0);
+    const correctCount = gradedRecords.filter((record) => record.is_correct === true).length;
+    const wrongCount = gradedRecords.filter((record) => record.is_correct !== true).length;
+    const completedAt = new Date();
+    const updatedSession = await prisma.practiceSession.update({
+      where: { practice_session_id: sessionId },
+      data: {
+        status: SESSION_STATUS.SUBMITTED,
+        submitted_at: completedAt,
+        duration_seconds: session.started_at
+          ? Math.max(0, Math.round((completedAt - new Date(session.started_at)) / 1000))
+          : 0,
+        total_score: totalScore,
+        max_score: maxSessionScore,
+        correct_count: correctCount,
+        wrong_count: wrongCount,
+        last_active_at: completedAt,
+      },
+    });
+    finalSessionStatus = SESSION_STATUS.SUBMITTED;
+    finalSessionPayload = serializeSession(updatedSession);
+  }
+
   return {
     practice_session_id: sessionId,
     question_id: questionId,
@@ -1440,8 +1477,8 @@ async function submitPracticeItem(userId, sessionId, questionId, params = {}) {
     analysis: link.question.analysis || result.feedback || null,
     results: [answerPayload],
     session: {
-      ...serializeSession(session),
-      status: SESSION_STATUS.IN_PROGRESS,
+      ...finalSessionPayload,
+      status: finalSessionStatus,
     },
   };
 }
@@ -1731,6 +1768,160 @@ async function submitPracticeSession(userId, sessionId, params = {}) {
   };
 }
 
+function isPracticeHistorySource(session) {
+  const sourceType = String(session?.source_type || '').toUpperCase();
+  return !sourceType || [
+    SOURCE_TYPE.SELF_PRACTICE,
+    SOURCE_TYPE.MOCK_EXAM,
+    SOURCE_TYPE.WRONG_QUESTION_PRACTICE,
+  ].includes(sourceType);
+}
+
+function sessionListStatusFilter(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (!normalized || normalized === 'all') return {};
+  if (normalized === 'active' || normalized === 'unfinished') {
+    return { status: { in: [SESSION_STATUS.CREATED, SESSION_STATUS.IN_PROGRESS, SESSION_STATUS.SUBMITTING, 'created', 'in_progress', 'submitting'] } };
+  }
+  if (normalized === 'history' || normalized === 'finished') {
+    return { status: { in: [SESSION_STATUS.SUBMITTED, SESSION_STATUS.ABANDONED, SESSION_STATUS.EXPIRED, 'submitted', 'abandoned', 'expired'] } };
+  }
+  const upper = normalized.toUpperCase();
+  if ([SESSION_STATUS.CREATED, SESSION_STATUS.IN_PROGRESS, SESSION_STATUS.SUBMITTING, SESSION_STATUS.SUBMITTED, SESSION_STATUS.ABANDONED, SESSION_STATUS.EXPIRED].includes(upper)) {
+    return { status: upper };
+  }
+  return {};
+}
+
+function serializeSessionListItem(session) {
+  const status = normalizeStoredSessionStatus(session.status);
+  const mode = normalizeStoredAttemptMode(session.mode, session.answer_mode);
+  const isExam = mode === ATTEMPT_MODE.EXAM;
+  const answerRecords = session.answer_records || [];
+  const questionCount = session.question_count || session._count?.questions || 0;
+  const answeredCount = answerRecords.filter((record) => isPracticeAnswered(record.answer_content)).length;
+  const gradedWrongCount = answerRecords.filter((record) => record.is_correct === false).length;
+  const wrongCount = status === SESSION_STATUS.SUBMITTED
+    ? (session.wrong_count || gradedWrongCount || 0)
+    : gradedWrongCount;
+  const canContinue = isSessionActive(session) &&
+    !isExam &&
+    isPracticeHistorySource(session);
+  const lastActiveAt = session.last_active_at || session.updated_at || session.started_at;
+
+  return {
+    practice_session_id: session.practice_session_id,
+    course_id: session.course_id,
+    course_name: session.course?.course_name || '自主练习',
+    mode,
+    answer_mode: String(session.answer_mode || '').toUpperCase() || null,
+    status,
+    is_exam: isExam,
+    can_continue: canContinue,
+    question_count: questionCount,
+    answered_count: answeredCount,
+    wrong_count: wrongCount,
+    correct_count: session.correct_count || 0,
+    score: session.total_score,
+    total_score: session.max_score,
+    started_at: session.started_at ? session.started_at.toISOString() : null,
+    submitted_at: session.submitted_at ? session.submitted_at.toISOString() : null,
+    last_active_at: lastActiveAt ? lastActiveAt.toISOString() : null,
+    duration_seconds: session.duration_seconds,
+    source_type: session.source_type || (isExam ? SOURCE_TYPE.MOCK_EXAM : SOURCE_TYPE.SELF_PRACTICE),
+    route: `#/student/practice/sessions/${session.practice_session_id}`,
+  };
+}
+
+async function listPracticeSessions(userId, query = {}) {
+  const { page, pageSize, skip } = parsePagination(query);
+  const where = {
+    student_user_id: userId,
+    OR: [
+      { source_type: null },
+      { source_type: { in: [SOURCE_TYPE.SELF_PRACTICE, SOURCE_TYPE.MOCK_EXAM, SOURCE_TYPE.WRONG_QUESTION_PRACTICE] } },
+    ],
+    ...sessionListStatusFilter(query.status),
+  };
+
+  const courseId = toPositiveInt(query.courseId ?? query.course_id ?? query.subjectId ?? query.subject_id, 'courseId', false);
+  if (courseId) where.course_id = courseId;
+
+  const [sessions, total] = await Promise.all([
+    prisma.practiceSession.findMany({
+      where,
+      orderBy: [{ updated_at: 'desc' }, { practice_session_id: 'desc' }],
+      skip,
+      take: pageSize,
+      include: {
+        course: true,
+        answer_records: {
+          select: {
+            question_id: true,
+            answer_content: true,
+            item_status: true,
+            is_correct: true,
+          },
+        },
+        _count: { select: { questions: true } },
+      },
+    }),
+    prisma.practiceSession.count({ where }),
+  ]);
+
+  const list = sessions.map(serializeSessionListItem);
+  return {
+    list,
+    active: list.filter((item) => item.can_continue),
+    total,
+    page,
+    page_size: pageSize,
+  };
+}
+
+async function abandonPracticeSession(userId, sessionId) {
+  const session = await loadPracticeSessionForUser(userId, sessionId);
+  if (!isPracticeHistorySource(session)) {
+    throw Object.assign(new Error('该答题会话不支持在练习中心放弃'), { code: 40301 });
+  }
+  if (isSessionFinal(session)) {
+    return {
+      abandoned: false,
+      session: serializeSession(session),
+    };
+  }
+
+  const now = new Date();
+  const updated = await prisma.practiceSession.update({
+    where: { practice_session_id: sessionId },
+    data: {
+      status: SESSION_STATUS.ABANDONED,
+      submit_reason: 'USER_ABANDONED',
+      last_active_at: now,
+      duration_seconds: session.started_at
+        ? Math.max(0, Math.round((now - new Date(session.started_at)) / 1000))
+        : session.duration_seconds,
+    },
+    include: {
+      course: true,
+      answer_records: {
+        select: {
+          question_id: true,
+          answer_content: true,
+          item_status: true,
+          is_correct: true,
+        },
+      },
+      _count: { select: { questions: true } },
+    },
+  });
+
+  return {
+    abandoned: true,
+    session: serializeSessionListItem(updated),
+  };
+}
+
 async function getActiveAttempt(userId) {
   // 查找所有进行中的答题会话（不限 mode）
   // 优先返回需要 forceResume 的会话（考试/限时测验 > 普通练习）
@@ -1748,7 +1939,7 @@ async function getActiveAttempt(userId) {
   // 优先选择 forceResume 的会话（考试/限时测验），否则取最近更新的
   let active = activeSessions[0];
   for (const s of activeSessions) {
-    const st = s.source_type || (s.mode === ATTEMPT_MODE.EXAM ? SOURCE_TYPE.MOCK_EXAM : SOURCE_TYPE.SELF_PRACTICE);
+    const st = s.source_type || SOURCE_TYPE.SELF_PRACTICE;
     if (st === SOURCE_TYPE.MOCK_EXAM || (st === SOURCE_TYPE.TEACHER_TASK && s.expires_at)) {
       active = s;
       break; // 强制恢复类型的会话优先
@@ -1759,9 +1950,7 @@ async function getActiveAttempt(userId) {
 
   // 根据来源类型决定是否强制恢复
   let forceResume = false;
-  const sourceType = active.source_type || (
-    active.mode === ATTEMPT_MODE.EXAM ? SOURCE_TYPE.MOCK_EXAM : SOURCE_TYPE.SELF_PRACTICE
-  );
+  const sourceType = active.source_type || SOURCE_TYPE.SELF_PRACTICE;
 
   if (sourceType === SOURCE_TYPE.MOCK_EXAM) {
     forceResume = true;
@@ -2005,7 +2194,7 @@ async function buildPracticeAiMessages(userId, questionId, sessionId) {
   if (session.student_user_id !== userId) {
     throw Object.assign(new Error('无权访问该练习会话'), { code: 40301 });
   }
-  if (session.status === 'in_progress') {
+  if (isSessionActive(session)) {
     throw Object.assign(new Error('练习提交后才允许使用 AI 追问'), { code: 40301 });
   }
   if (session.questions.length === 0) {
@@ -2188,7 +2377,7 @@ async function generateAnalysis(userId, questionId, params) {
   if (session.student_user_id !== userId) {
     throw Object.assign(new Error('无权访问该练习会话'), { code: 40301 });
   }
-  if (session.status === 'in_progress') {
+  if (isSessionActive(session)) {
     throw Object.assign(new Error('练习提交后才允许生成解析'), { code: 40301 });
   }
   if (session.questions.length === 0) {
@@ -2402,6 +2591,8 @@ async function startSimilarPractice(userId, wrongQuestionId, params = {}) {
       lockNavigationUntilCurrentConfirmed: true,
       source: 'wrong_question_similar',
     },
+    sourceType: SOURCE_TYPE.WRONG_QUESTION_PRACTICE,
+    sourceId: wrongQuestionId,
     selectedQuestions,
   });
 
@@ -2714,6 +2905,8 @@ module.exports = {
   startPractice,
   submitPractice,
   getActiveAttempt,
+  listPracticeSessions,
+  abandonPracticeSession,
   startTaskAttempt,
   getPracticeSessionDetail,
   savePracticeAnswer,

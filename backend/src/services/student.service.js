@@ -1375,6 +1375,145 @@ async function getStudentPortrait(userId) {
 }
 
 // ========================
+// 8. 课程知识点掌握分布
+// ========================
+
+/**
+ * 获取学生在某课程下的知识点掌握等级分布
+ * 返回各等级的数量和占比
+ */
+async function getCourseMasteryDistribution(userId, courseId) {
+  await ensureStudentInCourse(userId, courseId);
+
+  const [totalKps, masteryRecords] = await Promise.all([
+    prisma.knowledgePoint.count({ where: { course_id: courseId } }),
+    prisma.studentMasteryRecord.findMany({
+      where: { student_user_id: userId, course_id: courseId },
+    }),
+  ]);
+
+  // 按 mastery_level 分组统计
+  const levelMap = {
+    EXCELLENT: { level: 'excellent', label: '已掌握', count: 0 },
+    GOOD: { level: 'good', label: '较熟悉', count: 0 },
+    GENERAL: { level: 'general', label: '学习中', count: 0 },
+    WEAK: { level: 'weak', label: '薄弱', count: 0 },
+  };
+
+  const learnedKpIds = new Set();
+  for (const record of masteryRecords) {
+    const info = levelMap[record.mastery_level];
+    if (info) {
+      info.count += 1;
+      learnedKpIds.add(record.knowledge_point_id);
+    }
+  }
+
+  const learnedCount = learnedKpIds.size;
+  const unlearnedCount = Math.max(0, totalKps - learnedCount);
+
+  const distribution = [
+    levelMap.EXCELLENT,
+    levelMap.GOOD,
+    levelMap.GENERAL,
+    levelMap.WEAK,
+    { level: 'unlearned', label: '未学习', count: unlearnedCount },
+  ].map(item => ({
+    ...item,
+    percentage: totalKps > 0 ? Math.round(item.count / totalKps * 10000) / 100 : 0,
+  }));
+
+  return {
+    course_id: courseId,
+    total: totalKps,
+    learned: learnedCount,
+    distribution,
+  };
+}
+
+// ========================
+// 9. 课程能力画像
+// ========================
+
+/**
+ * 获取学生在某课程下的能力画像（6维度）
+ * 优先从 StudentPortraitSnapshot 读取，回退到 StudentPortrait 计算
+ */
+async function getCourseAbilityProfile(userId, courseId) {
+  await ensureStudentInCourse(userId, courseId);
+
+  // 优先读取最新的 snapshot
+  const latestSnapshot = await prisma.studentPortraitSnapshot.findFirst({
+    where: { student_user_id: userId, course_id: courseId },
+    orderBy: { snapshot_date: 'desc' },
+  });
+
+  const portrait = await prisma.studentPortrait.findUnique({
+    where: {
+      student_user_id_course_id: {
+        student_user_id: userId,
+        course_id: courseId,
+      },
+    },
+  });
+
+  // 从 snapshot 的 learning_scores JSON 中提取维度数据
+  let dimensions = [];
+  let overallScore = 0;
+  let level = '一般';
+  let strengths = [];
+  let improvements = [];
+
+  if (latestSnapshot && latestSnapshot.learning_scores) {
+    const ls = latestSnapshot.learning_scores;
+    if (ls.dimensions && Array.isArray(ls.dimensions)) {
+      dimensions = ls.dimensions;
+    }
+    overallScore = ls.overallScore || 0;
+    level = ls.level || '一般';
+    strengths = ls.strengths || [];
+    improvements = ls.improvements || [];
+  }
+
+  // 如果 snapshot 中没有维度数据，从 portrait 构建
+  if (dimensions.length === 0 && portrait) {
+    dimensions = [
+      { key: 'knowledgeUnderstanding', label: '知识理解', score: Math.round(portrait.mastery_score || 0) },
+      { key: 'practicePerformance', label: '练习表现', score: Math.round(portrait.test_score || 0) },
+      { key: 'problemAnalysis', label: '问题分析', score: Math.round(portrait.qa_score || 0) },
+      { key: 'learningEngagement', label: '学习投入', score: Math.round(portrait.activity_score || 0) },
+      { key: 'learningPlanning', label: '学习规划', score: Math.round(portrait.progress_score || 0) },
+      { key: 'reflectionImprovement', label: '反思改进', score: Math.round(portrait.wrong_question_score || 0) },
+    ];
+    overallScore = Math.round(portrait.learning_total_score || 0);
+
+    // 简单判定等级
+    if (overallScore >= 85) level = '优秀';
+    else if (overallScore >= 70) level = '良好';
+    else if (overallScore >= 50) level = '一般';
+    else level = '待提升';
+
+    // 从维度中找优势和待提升
+    const sorted = [...dimensions].sort((a, b) => b.score - a.score);
+    strengths = sorted.slice(0, 2).map(d => d.label);
+    improvements = sorted.slice(-2).reverse().map(d => d.label);
+  }
+
+  return {
+    course_id: courseId,
+    student_id: userId,
+    overall_score: overallScore,
+    level,
+    dimensions,
+    strengths,
+    improvements,
+    updated_at: latestSnapshot?.snapshot_date?.toISOString()
+      || portrait?.updated_at?.toISOString()
+      || null,
+  };
+}
+
+// ========================
 // 导出
 // ========================
 
@@ -1393,4 +1532,6 @@ module.exports = {
   getStudyRecords,
   createStudyRecord,
   getStudentPortrait,
+  getCourseMasteryDistribution,
+  getCourseAbilityProfile,
 };

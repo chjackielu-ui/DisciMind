@@ -43,6 +43,22 @@ export function getStudentCourseKnowledgePoints(courseId) {
 }
 
 /**
+ * 获取课程知识点掌握等级分布
+ * @param {number} courseId
+ */
+export function getCourseMasteryDistribution(courseId) {
+  return get(`/student/courses/${courseId}/mastery-distribution`)
+}
+
+/**
+ * 获取课程能力画像（6维度雷达图数据）
+ * @param {number} courseId
+ */
+export function getCourseAbilityProfile(courseId) {
+  return get(`/student/courses/${courseId}/ability-profile`)
+}
+
+/**
  * 获取知识点详情
  * @param {number} knowledgePointId
  */
@@ -262,8 +278,16 @@ export function getActivePracticeAttempt() {
   return practiceGet('/active')
 }
 
+export function getPracticeSessions(params = {}) {
+  return practiceGet('/sessions', params)
+}
+
 export function getPracticeSessionDetail(sessionId) {
   return practiceGet(`/sessions/${sessionId}`)
+}
+
+export function abandonPracticeSession(sessionId) {
+  return practicePost(`/sessions/${sessionId}/abandon`, {})
 }
 
 export function savePracticeItemAnswer(sessionId, itemId, data = {}) {

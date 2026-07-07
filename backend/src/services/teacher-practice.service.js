@@ -141,7 +141,7 @@ async function buildSessionWhere(user, query = {}) {
   const classId = toPositiveInt(query.classId ?? query.class_id, 'classId', false);
   const submittedAt = buildSubmittedAtFilter(query);
   const where = {
-    status: { not: 'in_progress' },
+    status: { notIn: ['IN_PROGRESS', 'in_progress'] },
   };
 
   if (courseIds) where.course_id = { in: courseIds };
@@ -158,7 +158,7 @@ async function buildSessionWhere(user, query = {}) {
 
 function summarizeSessions(sessions) {
   const totalSessions = sessions.length;
-  const submittedSessions = sessions.filter((item) => item.status !== 'in_progress').length;
+  const submittedSessions = sessions.filter((item) => item.status !== 'IN_PROGRESS' && item.status !== 'in_progress').length;
   const studentIds = new Set(sessions.map((item) => item.student_user_id));
   const questionCount = sessions.reduce((sum, item) => sum + (item.question_count || 0), 0);
   const correctCount = sessions.reduce((sum, item) => sum + (item.correct_count || 0), 0);

@@ -167,7 +167,7 @@ async function getStudent(user, studentUserId) {
   const summary = await prisma.practiceSession.aggregate({
     _count: { practice_session_id: true },
     _sum: { correct_count: true, question_count: true, duration_seconds: true },
-    where: { student_user_id: studentUserId, status: { not: 'in_progress' } },
+    where: { student_user_id: studentUserId, status: { notIn: ['IN_PROGRESS', 'in_progress'] } },
   });
 
   return {
@@ -379,7 +379,7 @@ async function refreshPortrait(user, studentUserId, body) {
     : 0;
 
   const sessions = await prisma.practiceSession.findMany({
-    where: { student_user_id: studentUserId, course_id: courseId, status: { not: 'in_progress' } },
+    where: { student_user_id: studentUserId, course_id: courseId, status: { notIn: ['IN_PROGRESS', 'in_progress'] } },
   });
 
   const totalQuestions = sessions.reduce((s, sess) => s + (sess.question_count || 0), 0);

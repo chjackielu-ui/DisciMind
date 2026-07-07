@@ -54,6 +54,22 @@ router.get(
   studentController.getCourseKnowledgePoints,
 );
 
+// 课程知识点掌握分布
+router.get(
+  '/courses/:course_id/mastery-distribution',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.getCourseMasteryDistribution,
+);
+
+// 课程能力画像
+router.get(
+  '/courses/:course_id/ability-profile',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.getCourseAbilityProfile,
+);
+
 // ========== 知识点 ==========
 
 // 单个知识点详情
