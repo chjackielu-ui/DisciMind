@@ -2,7 +2,7 @@
 // 支持搜索、筛选、重置密码、启用/禁用、删除用户
 
 import { getMe } from '../api/auth.js'
-import { getAdminUsers, updateUserStatus, resetUserPassword, deleteUser } from '../api/admin.js'
+import { getAdminUsers, updateAdminUser, updateUserStatus, resetUserPassword, deleteUser } from '../api/admin.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 
@@ -11,8 +11,17 @@ const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses', prefixMatch: '/admin/courses', children: [
+      { label: '课程管理', hash: '#/admin/courses' },
+      { label: '班级管理', hash: '#/admin/classes' },
+    ]},
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge', prefixMatch: '/admin/knowledge', children: [
+      { label: '知识库管理', hash: '#/admin/knowledge' },
+      { label: '操作日志', hash: '#/admin/logs' },
+      { label: '通知管理', hash: '#/admin/notifications' },
+      { label: 'AI 配置', hash: '#/admin/ai-config' },
+      { label: '个人信息', hash: '#/admin/profile' },
+    ]},
 ]
 
 function escapeHtml(str) {
@@ -198,6 +207,7 @@ export async function renderAdminUsers(app) {
         <td>${formatDate(u.created_at || u.createdAt || '')}</td>
         <td>
           <div class="action-btns">
+            <button class="btn-edit-user" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}" data-role="${u.role}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;font-size:0.8rem;">编辑</button>
             <button class="btn-reset-pwd" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}">重置密码</button>
             <button class="btn-toggle-status" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}" data-status="${u.status || 'active'}">${statusActionLabel}</button>
             ${isStudent ? `<button class="btn-danger btn-delete" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}">删除</button>` : ''}
@@ -346,7 +356,13 @@ export async function renderAdminUsers(app) {
         const username = target.dataset.username
         const status = target.dataset.status
 
-        if (target.classList.contains('btn-reset-pwd')) {
+        if (target.classList.contains('btn-edit-user')) {
+          const role = target.dataset.role
+          const user = users.find(u => (u.user_id || u.id) === userId)
+          modalTargetUser = { user_id: userId, username, role, ...user }
+          modalType = 'edit-user'
+          showModal()
+        } else if (target.classList.contains('btn-reset-pwd')) {
           modalTargetUser = { user_id: userId, username }
           modalType = 'reset-password'
           showModal()
@@ -370,6 +386,8 @@ export async function renderAdminUsers(app) {
     let html = ''
     if (modalType === 'reset-password') {
       html = buildResetPasswordModal()
+    } else if (modalType === 'edit-user') {
+      html = buildEditUserModal()
     } else if (modalType === 'toggle-status') {
       html = buildToggleStatusModal()
     } else if (modalType === 'delete') {
@@ -400,6 +418,8 @@ export async function renderAdminUsers(app) {
     document.getElementById('btn-modal-confirm')?.addEventListener('click', async () => {
       if (modalType === 'reset-password') {
         await handleResetPassword()
+      } else if (modalType === 'edit-user') {
+        await handleEditUser()
       } else if (modalType === 'toggle-status') {
         await handleToggleStatus()
       } else if (modalType === 'delete') {
@@ -466,6 +486,60 @@ export async function renderAdminUsers(app) {
     }
   }
 
+  function buildEditUserModal() {
+    if (!modalTargetUser) return ''
+    const u = modalTargetUser
+    const realName = u.profile?.real_name || u.real_name || ''
+    const college = u.profile?.college || ''
+    const major = u.profile?.major || ''
+    const studentNo = u.profile?.student_no || u.student_no || ''
+    const email = u.email || ''
+    const phone = u.phone || ''
+    const roleLabel = u.role === 'teacher' ? '教师' : u.role === 'student' ? '学生' : u.role
+    return `
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-box">
+          <h3>编辑用户信息 — ${escapeHtml(u.username)}（${roleLabel}）</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0;">
+            <div class="form-group"><label>真实姓名</label><input type="text" id="edit-real-name" value="${escapeHtml(realName)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
+            <div class="form-group"><label>邮箱</label><input type="email" id="edit-email" value="${escapeHtml(email)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
+            <div class="form-group"><label>手机号</label><input type="text" id="edit-phone" value="${escapeHtml(phone)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
+            <div class="form-group"><label>学院</label><input type="text" id="edit-college" value="${escapeHtml(college)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
+            <div class="form-group"><label>专业</label><input type="text" id="edit-major" value="${escapeHtml(major)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
+            ${u.role === 'student' ? `<div class="form-group"><label>学号</label><input type="text" id="edit-student-no" value="${escapeHtml(studentNo)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>` : ''}
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+            <button class="btn" id="btn-modal-cancel" style="padding:8px 20px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;">取消</button>
+            <button class="btn btn-primary" id="btn-modal-confirm" style="padding:8px 20px;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;">保存</button>
+          </div>
+        </div>
+      </div>
+    `
+  }
+
+  async function handleEditUser() {
+    if (!modalTargetUser) return
+    const data = {
+      real_name: document.getElementById('edit-real-name')?.value.trim(),
+      email: document.getElementById('edit-email')?.value.trim(),
+      phone: document.getElementById('edit-phone')?.value.trim(),
+      college: document.getElementById('edit-college')?.value.trim(),
+      major: document.getElementById('edit-major')?.value.trim(),
+    }
+    if (modalTargetUser.role === 'student') {
+      data.student_no = document.getElementById('edit-student-no')?.value.trim() || null
+    }
+    if (!data.real_name) { showToast('真实姓名不能为空', 'error'); return }
+    try {
+      await updateAdminUser(modalTargetUser.user_id, data)
+      showToast(`用户「${modalTargetUser.username}」信息已更新`)
+      hideModal()
+      fetchUsers()
+    } catch (err) {
+      showToast(err.message || '更新失败', 'error')
+    }
+  }
+
   async function handleDeleteUser() {
     if (!modalTargetUser) return
 
@@ -517,3 +591,5 @@ export async function renderAdminUsers(app) {
   // 开始加载数据
   fetchUsers()
 }
+
+

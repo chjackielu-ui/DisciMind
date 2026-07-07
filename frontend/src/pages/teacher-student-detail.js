@@ -1,4 +1,4 @@
-// 教师端 - 学生详情页
+﻿// 教师端 - 学生详情页
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
@@ -27,8 +27,15 @@ export async function renderTeacherStudentDetail(app, params) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
+      { label: '课程管理', hash: '#/teacher/courses' },
+      { label: '学生管理', hash: '#/teacher/students' },
+      { label: '知识库', hash: '#/teacher/knowledge' },
+    ]},
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
+      { label: '作业任务', hash: '#/teacher/tasks' },
+      { label: '题库管理', hash: '#/teacher/questions' },
+    ]},
     { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
@@ -180,3 +187,4 @@ export async function renderTeacherStudentDetail(app, params) {
 
   loadData()
 }
+

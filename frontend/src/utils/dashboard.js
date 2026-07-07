@@ -34,24 +34,74 @@ export function renderDashboardLayout(app, config) {
 
   // 构建菜单 HTML（使用 SVG 图标）
   const currentHash = window.location.hash.slice(1) || ''
-  const menuHTML = menuItems.map((item) => {
-    const iconSVG = getIcon(item.icon)
-    const itemId = getMenuItemId(item)
-    // 精确匹配：优先使用 item.matchHash 函数，否则精确比较 hash
+let activeParentHash = ''
+
+const menuHTML = menuItems.map((item, index) => {
+  const iconSvg = getIcon(item.icon)
+  const itemId = getMenuItemId(item)
+  const hasChildren =
+    Array.isArray(item.children) && item.children.length > 0
     let isActive = false
     if (typeof item.matchHash === 'function') {
       isActive = item.matchHash(currentHash)
+    } else if (item.prefixMatch) {
+      isActive = currentHash.startsWith(item.prefixMatch)
     } else if (item.hash) {
       const itemPath = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
       isActive = currentHash === itemPath
     }
+    // 如果自身不活跃，检查是否有子项匹配
+    if (!isActive && hasChildren) {
+      const parentHash = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
+      isActive = item.children.some(child => {
+        const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
+        return currentHash === childHash
+      })
+      if (isActive) activeParentHash = parentHash
+    }
+    if (!isActive && item.prefixMatch && currentHash.startsWith(item.prefixMatch)) {
+      isActive = true
+    }
+    const arrowHTML = hasChildren ? `<span class="sidebar-menu-arrow">></span>` : ''
     return `
-      <button type="button" class="sidebar-menu-item${isActive ? ' active' : ''}" data-menu-id="${escapeHtml(itemId)}" data-hash="${escapeHtml(item.hash || '')}" aria-current="${isActive ? 'page' : 'false'}" title="${escapeHtml(item.label)}">
-        <span class="sidebar-menu-icon">${iconSVG}</span>
+      <button
+        type="button"
+        class="sidebar-menu-item${isActive ? ' active' : ''}"
+        data-menu-id="${escapeHtml(itemId)}"
+        data-hash="${escapeHtml(item.hash || '')}"
+        data-has-children="${hasChildren ? '1' : '0'}"
+        aria-current="${isActive ? 'page' : 'false'}"
+        title="${escapeHtml(item.label)}"
+      >
+        <span class="sidebar-menu-icon">${iconSvg}</span>
         <span class="sidebar-menu-text">${escapeHtml(item.label)}</span>
+        ${arrowHTML}
         <span class="menu-tooltip">${escapeHtml(item.label)}</span>
       </button>`
   }).join('')
+
+  // 构建二级导航面板 HTML
+  let subNavHTML = ''
+  const activeParent = menuItems.find(item => {
+    if (!item.children) return false
+    const parentHash = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
+    if (activeParentHash === parentHash) return true
+    if (item.prefixMatch && currentHash.startsWith(item.prefixMatch)) return true
+    return item.children.some(child => {
+      const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
+      return currentHash === childHash
+    })
+  })
+  if (activeParent && activeParent.children) {
+    subNavHTML = `
+      <div class="sub-nav-panel" id="sub-nav-panel">
+        ${activeParent.children.map(child => {
+          const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
+          const isChildActive = currentHash === childHash
+          return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}">${child.label}</div>`
+        }).join('')}
+      </div>`
+  }
 
   const roleClass = user?.role === 'teacher' ? ' role-teacher' : user?.role === 'admin' ? ' role-admin' : ''
 
@@ -96,6 +146,7 @@ export function renderDashboardLayout(app, config) {
       </nav>
 
       <main class="student-main" id="student-main">${contentHTML}</main>
+      ${subNavHTML}
       ${renderStudentAiFloat(user)}
     </div>
   `
@@ -110,9 +161,12 @@ export function renderDashboardLayout(app, config) {
     sidebarExpanded = true
     updateWrapperState()
   }
-  function collapseSidebar() {
+  function collapseSidebar(force = false) {
     if (!sidebar) return
-    if (sidebarPinned || isHoveringSidebar) return
+    // 二级导航展开时，不缩回一级导航（除非强制缩回）
+    const panel = document.getElementById('sub-nav-panel')
+    const hasSubNav = panel && panel.classList.contains('visible')
+    if (!force && (sidebarPinned || isHoveringSidebar || hasSubNav)) return
     sidebar.classList.remove('expanded'); sidebar.classList.add('collapsed')
     sidebarExpanded = false
     updateWrapperState()
@@ -135,14 +189,14 @@ export function renderDashboardLayout(app, config) {
 
   if (sidebar) {
     sidebar.addEventListener('mouseenter', () => { isHoveringSidebar = true; if (collapseTimer) clearTimeout(collapseTimer); expandSidebar() })
-    sidebar.addEventListener('mouseleave', () => { isHoveringSidebar = false; collapseTimer = setTimeout(collapseSidebar, 600) })
+    sidebar.addEventListener('mouseleave', () => { isHoveringSidebar = false; collapseTimer = setTimeout(collapseSidebar, 50) })
   }
 
   if (pinBtn) {
     pinBtn.addEventListener('click', () => {
       sidebarPinned = !sidebarPinned
       if (sidebarPinned) { pinBtn.classList.add('pinned'); pinBtn.querySelector('.pin-icon-svg').innerHTML = iconPinFilled(); expandSidebar() }
-      else { pinBtn.classList.remove('pinned'); pinBtn.querySelector('.pin-icon-svg').innerHTML = iconPin(); if (!isHoveringSidebar) { clearTimeout(collapseTimer); collapseTimer = setTimeout(collapseSidebar, 400) } }
+      else { pinBtn.classList.remove('pinned'); pinBtn.querySelector('.pin-icon-svg').innerHTML = iconPin(); if (!isHoveringSidebar) { clearTimeout(collapseTimer); collapseTimer = setTimeout(collapseSidebar, 50) } }
       updateWrapperState()
     })
   }
@@ -154,7 +208,7 @@ export function renderDashboardLayout(app, config) {
 
   window.addEventListener('resize', () => { if (window.innerWidth <= 768 && sidebarExpanded && !sidebarPinned && !isHoveringSidebar) collapseSidebar() }, { passive: true })
 
-  autoCollapseTimer = setTimeout(() => { if (!isHoveringSidebar && !sidebarPinned && sidebarExpanded) collapseSidebar() }, 2500)
+  autoCollapseTimer = setTimeout(() => { if (!isHoveringSidebar && !sidebarPinned && sidebarExpanded) collapseSidebar() }, 300)
 
   // 退出
   document.getElementById('btn-logout')?.addEventListener('click', async () => {
@@ -168,15 +222,61 @@ export function renderDashboardLayout(app, config) {
     if (user.role === 'student') window.location.hash = '#/student/profile'
   })
 
-  // 菜单点击
+  // 菜单点击 — 有子项的展开二级导航，无子项的直接跳转
   document.querySelectorAll('.sidebar-menu-item').forEach(item => {
     item.addEventListener('click', () => {
-      document.querySelectorAll('.sidebar-menu-item').forEach(i => i.classList.remove('active'))
-      item.classList.add('active')
       const hash = item.dataset.hash
-      if (hash) window.location.hash = hash
+      const hasChildren = item.dataset.hasChildren === '1'
+      if (hasChildren) {
+        // 展开/切换二级导航：先高亮当前项，再渲染子面板
+        document.querySelectorAll('.sidebar-menu-item').forEach(i => i.classList.remove('active'))
+        item.classList.add('active')
+        // 找到对应的 children 生成子面板
+        const label = item.querySelector('.sidebar-menu-text')?.textContent || ''
+        const parent = menuItems.find(m => m.label === label)
+        if (parent && parent.children) {
+          const panel = document.getElementById('sub-nav-panel')
+          const newPanelHTML = parent.children.map(child => {
+            const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
+            const isChildActive = window.location.hash.slice(1) === childHash
+            return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}">${child.label}</div>`
+          }).join('')
+          if (panel) {
+            panel.innerHTML = newPanelHTML
+            panel.classList.add('visible')
+          }
+          bindSubNavClicks()
+        }
+        if (hash) window.location.hash = hash
+      } else {
+        // 无子项：隐藏子面板，跳转
+        const panel = document.getElementById('sub-nav-panel')
+        if (panel) panel.classList.remove('visible')
+        document.querySelectorAll('.sidebar-menu-item').forEach(i => i.classList.remove('active'))
+        item.classList.add('active')
+        if (hash) window.location.hash = hash
+      }
     })
   })
+
+  // 二级导航点击
+  function bindSubNavClicks() {
+    document.querySelectorAll('.sub-nav-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation()
+        document.querySelectorAll('.sub-nav-item').forEach(i => i.classList.remove('active'))
+        item.classList.add('active')
+        // 隐藏二级导航面板
+        const panel = document.getElementById('sub-nav-panel')
+        if (panel) panel.classList.remove('visible')
+        // 强制缩回一级导航
+        collapseSidebar(true)
+        const hash = item.dataset.hash
+        if (hash) window.location.hash = hash
+      })
+    })
+  }
+  bindSubNavClicks()
 
   initStudentAiFloat(user)
 }
@@ -188,15 +288,14 @@ function getMenuItemId(item) {
 }
 
 function shouldExpandSidebarInitially(user) {
-  if (user?.role !== 'student') return true
+  // 所有角色统一：首次访问时展开，后续访问默认折叠
   try {
-    if (window.sessionStorage.getItem(STUDENT_SIDEBAR_FIRST_VISIT_KEY) === '1') return false
-    const currentHash = window.location.hash.slice(1) || ''
-    const isStudentLanding = currentHash === '/student/dashboard' || currentHash === '/student'
-    window.sessionStorage.setItem(STUDENT_SIDEBAR_FIRST_VISIT_KEY, '1')
-    return isStudentLanding
-  } catch {
+    const storageKey = STUDENT_SIDEBAR_FIRST_VISIT_KEY
+    if (window.sessionStorage.getItem(storageKey) === '1') return false
+    window.sessionStorage.setItem(storageKey, '1')
     return true
+  } catch {
+    return false
   }
 }
 

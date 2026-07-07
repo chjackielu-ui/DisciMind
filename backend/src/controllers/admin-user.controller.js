@@ -68,4 +68,18 @@ async function deleteUser(req, res) {
   }
 }
 
-module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser };
+async function updateUser(req, res) {
+  try {
+    const userId = parseInt(req.params.user_id, 10);
+    if (!userId || userId < 1) {
+      return fail(res, 40001, '用户 ID 不合法');
+    }
+    const data = await userService.updateUser(userId, req.body || {});
+    return success(res, data, '用户信息已更新');
+  } catch (err) {
+    console.error('[admin-user] updateUser error:', err.message);
+    return fail(res, err.code || 50001, err.message);
+  }
+}
+
+module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser, updateUser };
