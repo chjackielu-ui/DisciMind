@@ -6,6 +6,7 @@
 
 import { getMe } from '../api/auth.js'
 import {
+  abandonPracticeSession,
   getPracticeSessionDetail,
   savePracticeItemAnswer,
   submitPracticeItem,
@@ -28,6 +29,7 @@ import {
   getQuestionKnowledgePoint,
   isPracticeAnswered,
   loadPracticeSessionSnapshot,
+  removePracticeSessionSnapshot,
   normalizeQuestionType,
   savePracticeSessionSnapshot,
 } from '../components/practice/practice-components.js'
@@ -117,6 +119,7 @@ function getSessionMode(snapshot) { return snapshot?.config?.sessionMode || 'pra
 function getAnswerMode(snapshot) { return snapshot?.config?.answerMode || 'single' }
 function isExamMode(snapshot) { return getSessionMode(snapshot) === 'exam' }
 function isSingleMode(snapshot) { return getAnswerMode(snapshot) === 'single' && !isExamMode(snapshot) }
+function shouldPersistProgress(snapshot) { return !isExamMode(snapshot) }
 
 function inferConfigFromSession(session = {}, fallback = {}) {
   const mode = String(session.mode || '').toUpperCase()
@@ -243,11 +246,12 @@ function buildTopbar(snapshot, state) {
       <div class="exam-meta-row">
         <span>进度 ${answered}/${total}</span>
         <span>用时 <b id="practice-elapsed">${formatElapsed(elapsed)}</b></span>
-        ${!state.submitted ? `<span>保存 ${escapeHtml(state.saveStatus || '已同步')}</span>` : ''}
+        ${!state.submitted ? `<span>${exam ? '进度不保存' : `保存 ${escapeHtml(state.saveStatus || '已同步')}`}</span>` : ''}
         ${snapshot.generated_count ? `<span>AI补题 ${snapshot.generated_count}</span>` : ''}
       </div>
     </div>
     <div class="topbar-right">
+      ${!state.submitted ? '<button class="complex-btn-secondary" id="btn-back-practice-top" type="button">离开本次</button>' : ''}
       ${state.submitted ? '<button class="complex-btn-secondary" id="btn-back-practice-top" type="button">← 返回练习中心</button>' : ''}
       ${state.submitted ? '<button class="complex-btn-secondary" id="btn-go-wrong-book" type="button">错题本</button>' : ''}
     </div>
@@ -534,12 +538,12 @@ function buildBottomBar(snapshot, state) {
     <div class="complex-actions">
       <button class="complex-btn-ghost" id="btn-prev-practice-question" type="button" ${state.currentIndex === 0 ? 'disabled' : ''}>上一题</button>
       <button class="complex-btn-ghost" id="btn-next-practice-question" type="button" ${isLast ? 'disabled' : ''}>下一题</button>
-      <button class="complex-btn-secondary" id="btn-submit-current" type="button" ${state.submitted || state.itemSubmitting || (!exam && currentResult) ? 'disabled' : ''}>
+      ${exam ? '' : `<button class="complex-btn-secondary" id="btn-submit-current" type="button" ${state.submitted || state.itemSubmitting || currentResult ? 'disabled' : ''}>
         ${state.itemSubmitting ? '处理中...' : (exam ? (currentStatus === 'CONFIRMED' ? '重新确认本题' : '确认本题') : (currentResult ? '已提交本题' : '提交本题'))}
-      </button>
+      </button>`}
     </div>
     <div class="complex-actions">
-      ${state.submitted ? '<button class="complex-btn-secondary" id="btn-back-practice-bottom" type="button">返回练习中心</button>' : ''}
+      ${state.submitted ? '<button class="complex-btn-secondary" id="btn-back-practice-bottom" type="button">返回练习中心</button>' : '<button class="complex-btn-secondary" id="btn-back-practice-bottom" type="button">离开本次</button>'}
       <button class="complex-btn" id="btn-submit-practice" type="button" ${state.submitted || state.submitting ? 'disabled' : ''}>
         ${state.submitting ? '提交中...' : (state.submitted ? '已提交' : '提交整卷')}
       </button>
@@ -594,25 +598,29 @@ function startElapsedTimer(state) {
 // 专注模式
 // ========================
 
-function enableFocusMode(state, snapshot, sessionId) {
+function enableFocusMode(state, snapshot, sessionId, onLeaveAttempt) {
   if (focusModeCleanup) focusModeCleanup()
   const wrapper = document.querySelector('.student-dashboard-wrapper')
-  if (wrapper) wrapper.classList.add('practice-focus-active')
-  document.querySelectorAll('.sidebar-menu-item').forEach(item => {
-    const hash = item.dataset.hash || ''
-    if (hash !== `#/student/practice/sessions/${sessionId}`) {
-      item.classList.add('practice-locked')
-      item.setAttribute('title', '完成并提交本次练习后可访问')
-    }
-  })
+  const locked = isPracticeLocked(state, snapshot)
+  if (locked && wrapper) wrapper.classList.add('practice-focus-active')
+  if (locked) {
+    document.querySelectorAll('.sidebar-menu-item').forEach(item => {
+      const hash = item.dataset.hash || ''
+      if (hash !== `#/student/practice/sessions/${sessionId}`) {
+        item.classList.add('practice-locked')
+        item.setAttribute('title', '完成并提交本次练习后可访问')
+      }
+    })
+  }
 
   function beforeUnloadHandler(e) {
-    if (isPracticeLocked(state, snapshot)) { e.preventDefault(); e.returnValue = '当前练习尚未提交，离开后可能丢失作答进度，确认离开吗？'; return e.returnValue }
+    if (!state.submitted) {
+      e.preventDefault()
+      e.returnValue = isExamMode(snapshot) ? '考试模式不会保存进度，确认离开吗？' : '当前练习尚未提交，确认离开吗？'
+      return e.returnValue
+    }
   }
   window.addEventListener('beforeunload', beforeUnloadHandler)
-
-  // 捕获的目标 hash（从侧边栏点击或浏览器导航获取）
-  let pendingTargetHash = null
 
   // 侧边栏点击拦截
   function sidebarClickHandler(e) {
@@ -620,31 +628,27 @@ function enableFocusMode(state, snapshot, sessionId) {
     if (!item) return
     const hash = item.dataset.hash || ''
     if (hash === `#/student/practice/sessions/${sessionId}`) return
-    if (!isPracticeLocked(state, snapshot)) return
+    if (state.submitted) return
     e.preventDefault(); e.stopImmediatePropagation()
-    pendingTargetHash = hash
-    showLeaveModal(state, snapshot, sessionId)
+    onLeaveAttempt?.(hash || '#/student/practice')
   }
   document.querySelector('.sidebar-menu')?.addEventListener('click', sidebarClickHandler, true)
 
   // 顶部返回按钮拦截
   function backButtonHandler(e) {
-    const btn = e.target.closest('.btn-back, [id^="btn-back"]')
-    if (!btn || !isPracticeLocked(state, snapshot)) return
+    const btn = e.target.closest('.btn-back, [id^="btn-back-practice"]')
+    if (!btn || state.submitted) return
     e.preventDefault(); e.stopPropagation()
-    pendingTargetHash = null // 返回无具体目标
-    showLeaveModal(state, snapshot, sessionId)
+    onLeaveAttempt?.('#/student/practice')
   }
   document.addEventListener('click', backButtonHandler, true)
 
-  const capturedId = sessionId
   function hashChangeHandler(e) {
-    if (!isPracticeLocked(state, snapshot)) return
+    if (state.submitted) return
     const nh = (window.location.hash || '').slice(1)
     if (/^\/student\/practice\/sessions\/\d+$/.test(nh)) return
     e.preventDefault(); e.stopImmediatePropagation()
-    pendingTargetHash = `#${nh}`
-    showLeaveModal(state, snapshot, sessionId)
+    onLeaveAttempt?.(`#${nh}`)
   }
   window.addEventListener('hashchange', hashChangeHandler, true)
 
@@ -657,60 +661,6 @@ function enableFocusMode(state, snapshot, sessionId) {
     document.querySelectorAll('.sidebar-menu-item.practice-locked').forEach(i => { i.classList.remove('practice-locked'); i.removeAttribute('title') })
     focusModeCleanup = null
   }
-}
-
-/**
- * 显示统一离开确认模态框
- */
-function showLeaveModal(state, snapshot, sessionId) {
-  const questions = snapshot?.questions || []
-  const results = snapshot?.results || {}
-  const answeredCount = Object.values(results).filter(r => r).length
-
-  const sessionMode = getSessionMode(snapshot)
-  const modalMode = sessionMode === 'exam' ? 'exam' : 'practice'
-
-  showExamLeaveModal({
-    mode: modalMode,
-    title: snapshot?.subject?.course_name || '答题',
-    answeredCount,
-    totalCount: questions.length,
-    hasUnsavedChanges: false,
-    onContinue: () => {
-      // 恢复当前 hash
-      if (window.location.hash !== `#/student/practice/sessions/${sessionId}`) {
-        window.location.hash = `#/student/practice/sessions/${sessionId}`
-      }
-    },
-    onSubmitAndLeave: async () => {
-      // 触发整卷提交
-      await submitPaperInternal(state, snapshot, sessionId)
-      // 提交成功后导航
-      if (pendingTargetHash) {
-        window.location.hash = pendingTargetHash
-      }
-    },
-    onSaveAndLeave: async () => {
-      // 练习模式：保存当前答案后退出
-      if (typeof flushCurrentAnswer === 'function') {
-        try { await flushCurrentAnswer() } catch {}
-      }
-      if (pendingTargetHash) {
-        window.location.hash = pendingTargetHash
-      } else {
-        window.location.hash = '#/student/practice'
-      }
-    },
-    onAbandon: () => {
-      // 练习模式：直接放弃
-      disableFocusMode()
-      if (pendingTargetHash) {
-        window.location.hash = pendingTargetHash
-      } else {
-        window.location.hash = '#/student/practice'
-      }
-    },
-  })
 }
 
 function disableFocusMode() {
@@ -737,9 +687,19 @@ export async function renderStudentPracticeSession(app, params = {}) {
   let snapshot = localSnapshot
   try {
     const remote = await getPracticeSessionDetail(sessionId)
-    snapshot = buildSnapshotFromRemote(remote.data || {}, localSnapshot)
-    savePracticeSessionSnapshot(sessionId, snapshot)
+    const remoteData = remote.data || {}
+    const remoteConfig = inferConfigFromSession(remoteData.session || {}, {})
+    snapshot = buildSnapshotFromRemote(remoteData, remoteConfig.sessionMode === 'exam' ? {} : localSnapshot)
+    if (shouldPersistProgress(snapshot)) savePracticeSessionSnapshot(sessionId, snapshot)
+    else removePracticeSessionSnapshot(sessionId)
   } catch (err) {
+    if (localSnapshot?.config?.sessionMode === 'exam') {
+      removePracticeSessionSnapshot(sessionId)
+      renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: buildMissing(), user })
+      document.getElementById('btn-back-practice')?.addEventListener('click', () => { window.location.hash = '#/student/practice' })
+      showToast('考试模式不使用本地缓存，请重新进入或开始新的考试。', 'warning')
+      return
+    }
     if (!localSnapshot.questions?.length) {
       renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: buildMissing(), user })
       document.getElementById('btn-back-practice')?.addEventListener('click', () => { window.location.hash = '#/student/practice' })
@@ -774,6 +734,10 @@ export async function renderStudentPracticeSession(app, params = {}) {
   }
 
   function persist() {
+    if (!shouldPersistProgress(snapshot)) {
+      removePracticeSessionSnapshot(sessionId)
+      return
+    }
     savePracticeSessionSnapshot(sessionId, {
       ...snapshot, questions: state.questions, answers: state.answers,
       currentIndex: state.currentIndex, submitted: state.submitted, result: state.result,
@@ -822,7 +786,7 @@ export async function renderStudentPracticeSession(app, params = {}) {
     renderMathInMarkdownElements(main)
     scrollChatToBottom()
     startElapsedTimer(state)
-    if (isPracticeLocked(state, snapshot)) enableFocusMode(state, snapshot, sessionId)
+    if (!state.submitted) enableFocusMode(state, snapshot, sessionId, requestLeave)
     else disableFocusMode()
   }
 
@@ -835,6 +799,10 @@ export async function renderStudentPracticeSession(app, params = {}) {
 
   async function saveQuestionAnswer(question, { silent = true } = {}) {
     if (!question || state.submitted) return true
+    if (isExamMode(snapshot)) {
+      state.saveStatus = '考试模式不保存'
+      return true
+    }
     const result = state.resultsById[question.question_id]
     const exam = isExamMode(snapshot)
     if (result && !exam) return true
@@ -862,6 +830,10 @@ export async function renderStudentPracticeSession(app, params = {}) {
   }
 
   function scheduleSaveCurrentQuestion() {
+    if (isExamMode(snapshot)) {
+      state.saveStatus = '考试模式不保存'
+      return
+    }
     if (saveTimer) clearTimeout(saveTimer)
     const question = state.questions[state.currentIndex]
     state.saveStatus = '有未保存修改'
@@ -873,6 +845,7 @@ export async function renderStudentPracticeSession(app, params = {}) {
   }
 
   async function flushCurrentAnswer() {
+    if (isExamMode(snapshot)) return true
     if (saveTimer) {
       clearTimeout(saveTimer)
       saveTimer = null
@@ -946,7 +919,8 @@ export async function renderStudentPracticeSession(app, params = {}) {
     } catch (err) { state.itemSubmitting = false; showToast(err.message || '提交失败，请稍后重试', 'error'); rerender() }
   }
 
-  async function submitPaper() {
+  async function submitPaper(options = {}) {
+    const { confirmBeforeSubmit = true } = options
     if (state.submitting || state.submitted) return
     const unanswered = state.questions.filter(q => !isPracticeAnswered(state.answers[q.question_id])).length
     const confirmed = state.questions.filter(q => state.itemStatuses[q.question_id] === 'CONFIRMED').length
@@ -958,7 +932,7 @@ export async function renderStudentPracticeSession(app, params = {}) {
       isExamMode(snapshot) ? `已确认：${confirmed}` : `已单题提交：${graded}`,
       isExamMode(snapshot) ? '提交后不可撤销。' : '提交后将生成整卷结果。',
     ].join('\n')
-    if (!window.confirm(message)) return
+    if (confirmBeforeSubmit && !window.confirm(message)) return false
     state.submitting = true; rerender()
     try {
       const saved = await flushCurrentAnswer()
@@ -973,7 +947,59 @@ export async function renderStudentPracticeSession(app, params = {}) {
       stopTimer(); persist()
       showToast('提交成功，已生成练习结果', 'success')
       rerender()
-    } catch (err) { state.submitting = false; showToast(err.message || '提交失败，请稍后重试', 'error'); rerender() }
+      return true
+    } catch (err) { state.submitting = false; showToast(err.message || '提交失败，请稍后重试', 'error'); rerender(); return false }
+  }
+
+  async function abandonCurrentSession() {
+    try {
+      await abandonPracticeSession(sessionId)
+      removePracticeSessionSnapshot(sessionId)
+      state.submitted = true
+      stopTimer()
+      disableFocusMode()
+      showToast(isExamMode(snapshot) ? '已放弃本次考试' : '已放弃本次练习', 'success')
+      return true
+    } catch (err) {
+      showToast(err.message || '放弃失败，请稍后重试', 'error')
+      return false
+    }
+  }
+
+  function requestLeave(targetHash = '#/student/practice') {
+    if (state.submitted) {
+      window.location.hash = targetHash
+      return
+    }
+
+    showExamLeaveModal({
+      mode: isExamMode(snapshot) ? 'exam' : 'practice',
+      title: snapshot?.subject?.course_name || '智能练习',
+      answeredCount: answeredCount(state.questions, state.answers),
+      totalCount: state.questions.length,
+      hasUnsavedChanges: state.saveStatus === '有未保存修改',
+      onContinue: () => {
+        if (window.location.hash !== `#/student/practice/sessions/${sessionId}`) {
+          window.location.hash = `#/student/practice/sessions/${sessionId}`
+        }
+      },
+      onSubmitAndLeave: async () => {
+        const ok = await submitPaper({ confirmBeforeSubmit: false })
+        if (!ok) throw new Error('提交失败，请稍后重试')
+        disableFocusMode()
+        window.location.hash = targetHash
+      },
+      onSaveAndLeave: isExamMode(snapshot) ? null : async () => {
+        const ok = await flushCurrentAnswer()
+        if (!ok) throw new Error('保存失败，请稍后重试')
+        disableFocusMode()
+        window.location.hash = targetHash
+      },
+      onAbandon: async () => {
+        const ok = await abandonCurrentSession()
+        if (ok) window.location.hash = targetHash
+      },
+    })
   }
 
   // ========================
@@ -1088,7 +1114,7 @@ export async function renderStudentPracticeSession(app, params = {}) {
 
   function bindEvents() {
     function goBack() {
-      if (isPracticeLocked(state, snapshot)) { showToast('请先完成并提交本次练习。', 'warning'); return }
+      if (!state.submitted) { requestLeave('#/student/practice'); return }
       window.location.hash = '#/student/practice'
     }
     document.getElementById('btn-back-practice')?.addEventListener('click', goBack)
@@ -1205,5 +1231,5 @@ export async function renderStudentPracticeSession(app, params = {}) {
   bindEvents()
   renderMathInMarkdownElements(document.getElementById('student-main'))
   startElapsedTimer(state)
-  if (isPracticeLocked(state, snapshot)) enableFocusMode(state, snapshot, sessionId)
+  if (!state.submitted) enableFocusMode(state, snapshot, sessionId, requestLeave)
 }

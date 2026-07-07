@@ -62,6 +62,33 @@ export function iconMessage() {
   `)
 }
 
+// 学情分析 — 趋势柱状图
+export function iconChart() {
+  return svgWrap(`
+    <path d="M4 19V5"/>
+    <path d="M4 19h17"/>
+    <rect x="7" y="11" width="3" height="5" rx="1"/>
+    <rect x="12" y="7" width="3" height="9" rx="1"/>
+    <rect x="17" y="4" width="3" height="12" rx="1"/>
+  `)
+}
+
+// 作业考试 — 编辑笔
+export function iconEdit() {
+  return svgWrap(`
+    <path d="M12 20h9"/>
+    <path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/>
+  `)
+}
+
+// 系统设置 — 齿轮
+export function iconSettings() {
+  return svgWrap(`
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1 .6 1.65 1.65 0 00-.33 1.82V22a2 2 0 01-4 0v-.09A1.65 1.65 0 009 20.4a1.65 1.65 0 00-1.82-.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-.6-1 1.65 1.65 0 00-1.82-.33H2a2 2 0 010-4h.09A1.65 1.65 0 003.6 9a1.65 1.65 0 00.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-.6 1.65 1.65 0 00.33-1.82V2a2 2 0 014 0v.09A1.65 1.65 0 0015 3.6a1.65 1.65 0 001.82.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.36.18.66.48.84.84H22a2 2 0 010 4h-.09A1.65 1.65 0 0019.4 15z"/>
+  `)
+}
+
 // 图钉 — 固定
 export function iconPin() {
   return svgWrap(`
@@ -146,6 +173,10 @@ export const NAV_ICONS = {
   star: iconStar,
   user: iconUser,
   message: iconMessage,
+  chart: iconChart,
+  analytics: iconChart,
+  edit: iconEdit,
+  settings: iconSettings,
   pin: iconPin,
   pinFilled: iconPinFilled,
   logout: iconLogout,

@@ -3,9 +3,11 @@
 
 import { getMe } from '../api/auth.js'
 import {
+  abandonPracticeSession,
   getPracticeWrongQuestions,
-  getStudentCourseKnowledgePoints,
+  getPracticeSessions,
   getStudentCourses,
+  getStudentRecommendations,
   startPractice,
 } from '../api/student.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
@@ -19,6 +21,7 @@ import {
   QUESTION_COUNT_OPTIONS,
   ANSWER_MODES,
   PRACTICE_SESSION_MODES,
+  answerModeLabel,
   buildQuestionTypeCapsules,
   buildDifficultyCards,
   buildAnswerModeSelector,
@@ -26,6 +29,8 @@ import {
   buildQuestionCountSelector,
   getModeDescription,
   normalizeQuestionType,
+  practiceSessionModeLabel,
+  removePracticeSessionSnapshot,
   savePracticeSessionSnapshot,
 } from '../components/practice/practice-components.js'
 
@@ -95,6 +100,56 @@ function normalizeSelectedTypes(selectedTypes, questionCount) {
   const selected = (selectedTypes || []).filter(Boolean)
   if (selected.length > 0) return selected.slice(0, limit)
   return PRACTICE_QUESTION_TYPES.slice(0, limit).map(item => item.value)
+}
+
+function normalizeSessionStatus(status) {
+  return String(status || '').trim().toUpperCase()
+}
+
+function isActiveSession(session) {
+  return ['CREATED', 'IN_PROGRESS', 'SUBMITTING'].includes(normalizeSessionStatus(session?.status))
+}
+
+function canContinueSession(session) {
+  return Boolean(session?.can_continue) && isActiveSession(session)
+}
+
+function getPrimaryActiveSession(sessions = []) {
+  return (sessions || []).find(canContinueSession) || null
+}
+
+function formatDateTime(value) {
+  if (!value) return '暂无记录'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '暂无记录'
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatSessionStatus(status) {
+  const normalized = normalizeSessionStatus(status)
+  if (['CREATED', 'IN_PROGRESS', 'SUBMITTING'].includes(normalized)) return '进行中'
+  if (normalized === 'SUBMITTED') return '已提交'
+  if (normalized === 'ABANDONED') return '已放弃'
+  if (normalized === 'EXPIRED') return '已超时'
+  return '未知状态'
+}
+
+function formatSessionMode(session) {
+  const mode = String(session?.mode || '').toUpperCase()
+  const sessionMode = mode === 'EXAM' ? 'exam' : 'practice'
+  const answerMode = String(session?.answer_mode || '').toUpperCase() === 'PAPER' ? 'paper' : 'single'
+  return `${practiceSessionModeLabel(sessionMode)} · ${answerModeLabel(answerMode)}`
+}
+
+function sessionProgressText(session) {
+  const answered = Number(session?.answered_count || 0)
+  const total = Number(session?.question_count || 0)
+  return `${answered}/${total} 题`
 }
 
 // ========================
@@ -175,68 +230,105 @@ function buildSubjectCard(subjects, selectedSubjectId) {
 }
 
 // 练习配置卡片
-function buildConfigCard(state, typeLimit) {
+function getStartHint(state, hasConfig) {
+  if (hasConfig || state.starting) return ''
+  if (!state.subjectId) return '请先选择练习科目'
+  if (!state.questionTypes.length) return '请至少选择一种题型'
+  if (!state.difficulty) return '请选择难度'
+  if (!state.questionCount || Number(state.questionCount) < 1) return '请设置题目数量'
+  return ''
+}
+
+function buildConfigCard(state, typeLimit, hasConfig) {
   const sessionMode = state.sessionMode || 'practice'
   const answerMode = state.answerMode || 'single'
   const isExam = sessionMode === 'exam'
   const count = Number(state.questionCount)
+  const btnDisabled = !hasConfig || state.starting
+  const btnText = state.starting ? '正在准备题目...' : '开始练习'
+  const hint = getStartHint(state, hasConfig)
 
   return `
     <section class="practice-card-v2 config-card ${!state.subjectId ? 'config-disabled' : ''}">
-      <h3 class="complex-section-title">练习设置</h3>
-
-      <!-- 题型选择 -->
-      <div class="config-block">
-        <div class="config-block-head">
-          <span>选择题型</span>
-          <small>最多选择 ${typeLimit} 种</small>
+      <div class="practice-card-v2-head config-title-row">
+        <div>
+          <h3 class="complex-section-title">练习设置</h3>
+          <small>配置题型、难度、数量和作答方式</small>
         </div>
-        <div class="type-capsule-grid" id="practice-type-capsules">
-          ${buildQuestionTypeCapsules(state.questionTypes, typeLimit)}
+        <span class="config-mode-pill">${isExam ? '考试不保存进度' : '自动保存进度'}</span>
+      </div>
+
+      <div class="practice-config-split">
+        <div class="practice-config-main">
+          <!-- 题型选择 -->
+          <div class="config-block">
+            <div class="config-block-head">
+              <span>选择题型</span>
+              <small>最多选择 ${typeLimit} 种</small>
+            </div>
+            <div class="type-capsule-grid" id="practice-type-capsules">
+              ${buildQuestionTypeCapsules(state.questionTypes, typeLimit)}
+            </div>
+          </div>
+
+          <!-- 难度选择 -->
+          <div class="config-block">
+            <div class="config-block-head">
+              <span>选择难度</span>
+            </div>
+            <div class="diff-card-grid" id="practice-difficulty-cards">
+              ${buildDifficultyCards(state.difficulty)}
+            </div>
+          </div>
+        </div>
+
+        <div class="practice-config-side">
+          <!-- 题目数量 -->
+          <div class="config-block">
+            <div class="config-block-head">
+              <span>题目数量</span>
+              ${count > 20 ? '<small class="hint-warning">题目较多，可能需要 AI 补题</small>' : ''}
+            </div>
+            <div class="count-selector" id="practice-count-selector">
+              ${buildQuestionCountSelector(state.questionCount, state.customCount)}
+            </div>
+            ${state.countError ? `<p class="config-error">${state.countError}</p>` : ''}
+          </div>
+
+          <!-- 作答模式（练习/考试） -->
+          <div class="config-block">
+            <div class="config-block-head">
+              <span>作答模式</span>
+            </div>
+            <div class="mode-option-grid" id="practice-session-mode">
+              ${buildSessionModeSelector(sessionMode)}
+            </div>
+          </div>
+
+          <!-- 出题方式（单题/整卷） -->
+          <div class="config-block" id="answer-mode-block">
+            <div class="config-block-head">
+              <span>出题方式</span>
+              ${isExam ? '<small>考试模式默认整卷提交</small>' : ''}
+            </div>
+            <div class="mode-option-grid" id="practice-answer-mode">
+              ${buildAnswerModeSelector(answerMode, isExam)}
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 难度选择 -->
-      <div class="config-block">
-        <div class="config-block-head">
-          <span>选择难度</span>
+      <div class="practice-config-footer">
+        <div class="practice-start-summary">
+          <b>${isExam ? '考试模式' : '练习模式'}</b>
+          <span>${state.questionTypes.length || 0} 种题型 · ${count || 0} 题 · ${isExam ? '提交后查看解析' : '可保存后继续'}</span>
+          ${hint ? `<em>${hint}</em>` : ''}
         </div>
-        <div class="diff-card-grid" id="practice-difficulty-cards">
-          ${buildDifficultyCards(state.difficulty)}
-        </div>
-      </div>
-
-      <!-- 题目数量 -->
-      <div class="config-block">
-        <div class="config-block-head">
-          <span>题目数量</span>
-          ${count > 20 ? '<small class="hint-warning">题目较多，可能需要 AI 补题</small>' : ''}
-        </div>
-        <div class="count-selector" id="practice-count-selector">
-          ${buildQuestionCountSelector(state.questionCount, state.customCount)}
-        </div>
-        ${state.countError ? `<p class="config-error">${state.countError}</p>` : ''}
-      </div>
-
-      <!-- 作答模式（练习/考试） -->
-      <div class="config-block">
-        <div class="config-block-head">
-          <span>作答模式</span>
-        </div>
-        <div class="mode-option-grid" id="practice-session-mode">
-          ${buildSessionModeSelector(sessionMode)}
-        </div>
-      </div>
-
-      <!-- 出题方式（单题/整卷） -->
-      <div class="config-block" id="answer-mode-block">
-        <div class="config-block-head">
-          <span>出题方式</span>
-          ${isExam ? '<small>考试模式默认整卷提交</small>' : ''}
-        </div>
-        <div class="mode-option-grid" id="practice-answer-mode">
-          ${buildAnswerModeSelector(answerMode, isExam)}
-        </div>
+        <button class="complex-btn btn-start-practice-v2" id="btn-start-practice" type="button"
+          ${btnDisabled ? 'disabled' : ''}>
+          ${state.starting ? '<span class="btn-spinner"></span>' : ''}
+          ${btnText}
+        </button>
       </div>
     </section>`
 }
@@ -297,6 +389,119 @@ function buildWrongBookCard(wrongStats) {
     </section>`
 }
 
+// 推荐学习入口卡片
+function buildRecommendationEntryCard(recommendations) {
+  const list = (recommendations || []).slice(0, 3)
+  return `
+    <section class="practice-card-v2 recommendation-entry-card">
+      <div class="practice-card-v2-head">
+        <h3 class="complex-section-title">推荐学习内容</h3>
+        <button class="complex-btn-secondary" id="btn-go-recommendations" type="button">查看推荐</button>
+      </div>
+      ${list.length ? `
+        <div class="recommend-entry-list">
+          ${list.map(item => `
+            <button type="button" class="recommend-entry-item" data-go-recommendations>
+              <span>${escapeHtml(item.title || '推荐内容')}</span>
+              <small>${escapeHtml(item.reason || '根据你的学习数据推荐')}</small>
+            </button>
+          `).join('')}
+        </div>
+      ` : '<p class="recommend-entry-empty">暂无推荐内容，完成练习后会持续更新。</p>'}
+    </section>`
+}
+
+function buildResumeCard(activeSession) {
+  if (!activeSession) {
+    return `
+      <section class="practice-card-v2 practice-resume-card empty">
+        <div>
+          <span class="practice-card-eyebrow">继续练习</span>
+          <h3 class="complex-section-title">暂无未完成练习</h3>
+          <p>练习模式会自动保存进度，离开后可以从这里继续作答。</p>
+        </div>
+      </section>`
+  }
+
+  return `
+    <section class="practice-card-v2 practice-resume-card active">
+      <div class="resume-main">
+        <span class="practice-card-eyebrow">继续上次练习</span>
+        <h3 class="complex-section-title">${escapeHtml(activeSession.course_name || '自主练习')}</h3>
+        <p>${escapeHtml(formatSessionMode(activeSession))} · 已作答 ${sessionProgressText(activeSession)} · ${formatDateTime(activeSession.last_active_at)}</p>
+      </div>
+      <div class="resume-actions">
+        <button class="complex-btn" type="button" data-continue-session="${activeSession.practice_session_id}">继续作答</button>
+        <button class="complex-btn-secondary danger" type="button" data-abandon-session="${activeSession.practice_session_id}">放弃本次</button>
+      </div>
+    </section>`
+}
+
+function buildPracticeHistoryCard(sessions = []) {
+  const list = (sessions || []).slice(0, 6)
+  return `
+    <section class="practice-card-v2 practice-history-card">
+      <div class="practice-card-v2-head">
+        <div>
+          <h3 class="complex-section-title">练习历史</h3>
+          <small>查看每一轮练习、错题数量和未完成状态</small>
+        </div>
+      </div>
+      ${list.length ? `
+        <div class="practice-history-list">
+          ${list.map(session => {
+            const status = normalizeSessionStatus(session.status)
+            const active = isActiveSession(session)
+            const submitted = status === 'SUBMITTED'
+            const abandoned = status === 'ABANDONED'
+            const wrongCount = Number(session.wrong_count || 0)
+            return `
+              <article class="practice-history-item ${active ? 'active' : submitted ? 'submitted' : abandoned ? 'abandoned' : ''}">
+                <div class="history-item-main">
+                  <div class="history-title-row">
+                    <b>${escapeHtml(session.course_name || '自主练习')}</b>
+                    <span>${formatSessionStatus(session.status)}</span>
+                  </div>
+                  <p>${escapeHtml(formatSessionMode(session))}</p>
+                  <div class="history-meta-row">
+                    <em>${sessionProgressText(session)}</em>
+                    <em>错题 ${wrongCount} 道</em>
+                    <em>${formatDateTime(session.submitted_at || session.last_active_at || session.started_at)}</em>
+                  </div>
+                </div>
+                <div class="history-actions">
+                  ${canContinueSession(session) ? `<button type="button" class="complex-btn-secondary" data-continue-session="${session.practice_session_id}">继续</button>` : ''}
+                  ${active && !canContinueSession(session) ? `<button type="button" class="complex-btn-secondary danger" data-abandon-session="${session.practice_session_id}">放弃</button>` : ''}
+                  ${submitted ? `<button type="button" class="complex-btn-secondary" data-view-session="${session.practice_session_id}">回看</button>` : ''}
+                </div>
+              </article>`
+          }).join('')}
+        </div>
+      ` : '<p class="practice-history-empty">完成一次练习后，这里会显示历史记录和错题统计。</p>'}
+    </section>`
+}
+
+function buildPracticeInsightCard(sessions = []) {
+  const submitted = (sessions || []).filter(item => normalizeSessionStatus(item.status) === 'SUBMITTED')
+  const active = (sessions || []).filter(canContinueSession)
+  const wrongTotal = submitted.reduce((sum, item) => sum + Number(item.wrong_count || 0), 0)
+  return `
+    <section class="practice-card-v2 practice-insight-card">
+      <div class="insight-stat">
+        <b>${active.length}</b>
+        <span>可继续</span>
+      </div>
+      <div class="insight-stat">
+        <b>${submitted.length}</b>
+        <span>已完成</span>
+      </div>
+      <div class="insight-stat warning">
+        <b>${wrongTotal}</b>
+        <span>历史错题</span>
+      </div>
+    </section>`
+}
+
 // 底部开始练习操作区
 function buildStartBar(state, hasConfig) {
   const btnDisabled = !hasConfig || state.starting
@@ -347,7 +552,7 @@ function buildAiGeneratingModal() {
 
 // 页面整体结构
 function buildPage(data, state) {
-  const { subjects, wrongStats } = data
+  const { subjects, wrongStats, recommendations, sessions } = data
   if (!subjects.length) return buildEmpty()
 
   const sessionMode = state.sessionMode || 'practice'
@@ -355,16 +560,26 @@ function buildPage(data, state) {
   const typeLimit = getTypeLimit(state.questionCount)
   const hasConfig = state.subjectId && state.questionTypes.length > 0
     && state.difficulty && Number(state.questionCount) >= 1
+  const activeSession = getPrimaryActiveSession(sessions)
 
   return `
     <div class="complex-shell practice-shell-v2">
       ${buildHero(subjects.length, wrongStats?.total)}
       <div class="practice-v2-grid">
         ${buildSubjectCard(subjects, state.subjectId)}
-        ${buildConfigCard(state, typeLimit)}
-        ${buildModeInfoCard(sessionMode, answerMode)}
-        ${buildWrongBookCard(wrongStats)}
-        ${buildStartBar(state, hasConfig)}
+        <div class="practice-main-grid">
+          <div class="practice-center-workbench">
+            ${buildResumeCard(activeSession)}
+            ${buildConfigCard(state, typeLimit, hasConfig)}
+            ${buildModeInfoCard(sessionMode, answerMode)}
+          </div>
+          <aside class="practice-side-rail">
+            ${buildPracticeInsightCard(sessions)}
+            ${buildPracticeHistoryCard(sessions)}
+            ${buildWrongBookCard(wrongStats)}
+            ${buildRecommendationEntryCard(recommendations)}
+          </aside>
+        </div>
       </div>
     </div>`
 }
@@ -414,13 +629,19 @@ export async function renderStudentPracticeCenter(app) {
   // 并行加载数据
   let courses = []
   let wrongStats = { total: 0, unresolved: 0, mastered: 0, recent: 0 }
+  let recommendations = []
+  let sessions = []
   try {
-    const [courseResult, ws] = await Promise.all([
+    const [courseResult, ws, recResult, sessionResult] = await Promise.all([
       getStudentCourses(),
       loadWrongStats(),
+      getStudentRecommendations({ page_size: 4 }).catch(() => ({ data: { list: [] } })),
+      getPracticeSessions({ page_size: 8 }).catch(() => ({ data: { list: [] } })),
     ])
     courses = courseResult.data?.list || []
     wrongStats = ws
+    recommendations = recResult.data?.list || []
+    sessions = sessionResult.data?.list || []
   } catch (err) {
     renderDashboardLayout(app, {
       menuItems: STUDENT_MENU_ITEMS,
@@ -454,7 +675,7 @@ export async function renderStudentPracticeCenter(app) {
     generatingAbort: null,
   }
   state.questionTypes = normalizeSelectedTypes(state.questionTypes, state.questionCount)
-  const data = { subjects, wrongStats }
+  const data = { subjects, wrongStats, recommendations, sessions }
 
   function syncQuestionTypes() {
     state.questionTypes = normalizeSelectedTypes(state.questionTypes, state.questionCount)
@@ -487,12 +708,36 @@ export async function renderStudentPracticeCenter(app) {
       && state.difficulty && validateCount()
   }
 
+  async function refreshSessions() {
+    try {
+      const result = await getPracticeSessions({ page_size: 8 })
+      data.sessions = result.data?.list || []
+    } catch {
+      data.sessions = data.sessions || []
+    }
+  }
+
   function rerender() {
     syncQuestionTypes()
     const main = document.getElementById('student-main')
     if (!main) return
     main.innerHTML = buildPage(data, state)
     bindEvents()
+  }
+
+  async function abandonSession(sessionId) {
+    if (!sessionId) return
+    const ok = window.confirm('确定放弃本次作答吗？放弃后不会继续保存进度，也不会生成成绩。')
+    if (!ok) return
+    try {
+      await abandonPracticeSession(sessionId)
+      removePracticeSessionSnapshot(sessionId)
+      await refreshSessions()
+      showToast('已放弃本次作答', 'success')
+      rerender()
+    } catch (err) {
+      showToast(err.message || '放弃练习失败，请稍后重试', 'error')
+    }
   }
 
   // ========================
@@ -565,6 +810,12 @@ export async function renderStudentPracticeCenter(app) {
       return
     }
     syncQuestionTypes()
+
+    const activeSession = getPrimaryActiveSession(data.sessions)
+    if (activeSession) {
+      const ok = window.confirm('当前还有一轮未完成练习。已保存的进度会保留在“继续练习”中，仍要开始新的练习吗？')
+      if (!ok) return
+    }
 
     const questionCount = getEffectiveQuestionCount()
     const sessionMode = state.sessionMode || 'practice'
@@ -651,7 +902,11 @@ export async function renderStudentPracticeCenter(app) {
         startedAtMs: Date.parse(serverSession.started_at || '') || Date.now(),
         practice_session_id: sessionId,
       }
-      savePracticeSessionSnapshot(sessionId, snapshot)
+      if (snapshot.config.sessionMode === 'exam') {
+        removePracticeSessionSnapshot(sessionId)
+      } else {
+        savePracticeSessionSnapshot(sessionId, snapshot)
+      }
       if (startData.warning) showToast(startData.warning, 'warning')
       else showToast('练习已生成', 'success')
       window.location.hash = `#/student/practice/sessions/${sessionId}`
@@ -680,6 +935,25 @@ export async function renderStudentPracticeCenter(app) {
   function bindEvents() {
     document.getElementById('btn-go-courses')?.addEventListener('click', () => { window.location.hash = '#/student/courses' })
     document.getElementById('btn-go-wrong-book')?.addEventListener('click', () => { window.location.hash = '#/student/wrong-questions' })
+    document.getElementById('btn-go-recommendations')?.addEventListener('click', () => { window.location.hash = '#/student/recommendations' })
+    document.querySelectorAll('[data-go-recommendations]').forEach(btn => {
+      btn.addEventListener('click', () => { window.location.hash = '#/student/recommendations' })
+    })
+    document.querySelectorAll('[data-continue-session]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sessionId = btn.dataset.continueSession
+        if (sessionId) window.location.hash = `#/student/practice/sessions/${sessionId}`
+      })
+    })
+    document.querySelectorAll('[data-view-session]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sessionId = btn.dataset.viewSession
+        if (sessionId) window.location.hash = `#/student/practice/sessions/${sessionId}`
+      })
+    })
+    document.querySelectorAll('[data-abandon-session]').forEach(btn => {
+      btn.addEventListener('click', () => abandonSession(Number(btn.dataset.abandonSession)))
+    })
     document.getElementById('btn-start-practice')?.addEventListener('click', startNow)
 
     // 科目卡片选择

@@ -325,6 +325,12 @@ export function savePracticeSessionSnapshot(sessionId, payload) {
   localStorage.setItem(practiceSessionStorageKey(sessionId), JSON.stringify(payload))
 }
 
+export function removePracticeSessionSnapshot(sessionId) {
+  if (!sessionId) return
+  localStorage.removeItem(practiceSessionStorageKey(sessionId))
+  sessionStorage.removeItem(practiceSessionStorageKey(sessionId))
+}
+
 export function loadPracticeSessionSnapshot(sessionId) {
   if (!sessionId) return null
   try {

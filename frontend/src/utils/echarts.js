@@ -105,14 +105,21 @@ export function defaultTooltip() {
 }
 
 let resizeBound = false
-export function bindResize() {
-  if (resizeBound) return
-  resizeBound = true
-  window.addEventListener('resize', () => {
+function resizeAllCharts() {
+  window.requestAnimationFrame(() => {
     chartInstances.forEach((inst) => {
       try { inst.resize() } catch (e) { /* ignore */ }
     })
   })
+}
+
+export function bindResize() {
+  if (resizeBound) return
+  resizeBound = true
+  window.addEventListener('resize', resizeAllCharts, { passive: true })
+  window.addEventListener('orientationchange', () => {
+    window.setTimeout(resizeAllCharts, 160)
+  }, { passive: true })
 }
 
 // ========================

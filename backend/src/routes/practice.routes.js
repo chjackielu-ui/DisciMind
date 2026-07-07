@@ -34,10 +34,24 @@ router.get(
 );
 
 router.get(
+  '/sessions',
+  authMiddleware,
+  roleMiddleware(['student']),
+  controller.listPracticeSessions,
+);
+
+router.get(
   '/sessions/:sessionId',
   authMiddleware,
   roleMiddleware(['student']),
   controller.getPracticeSession,
+);
+
+router.post(
+  '/sessions/:sessionId/abandon',
+  authMiddleware,
+  roleMiddleware(['student']),
+  controller.abandonPracticeSession,
 );
 
 router.put(
