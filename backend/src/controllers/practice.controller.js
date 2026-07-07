@@ -74,6 +74,18 @@ async function getActiveAttempt(req, res) {
   }
 }
 
+async function listPracticeSessions(req, res) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+
+    const data = await practiceService.listPracticeSessions(userId, req.query || {});
+    return success(res, data, '获取练习历史成功');
+  } catch (err) {
+    return handleError(res, 'listPracticeSessions', err);
+  }
+}
+
 async function getPracticeSession(req, res) {
   try {
     const userId = getUserId(req);
@@ -84,6 +96,19 @@ async function getPracticeSession(req, res) {
     return success(res, data, '获取答题会话成功');
   } catch (err) {
     return handleError(res, 'getPracticeSession', err);
+  }
+}
+
+async function abandonPracticeSession(req, res) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+
+    const sessionId = parsePositiveInt(req.params.sessionId || req.params.session_id, 'sessionId');
+    const data = await practiceService.abandonPracticeSession(userId, sessionId);
+    return success(res, data, data.abandoned ? '已放弃本次作答' : '该练习已结束');
+  } catch (err) {
+    return handleError(res, 'abandonPracticeSession', err);
   }
 }
 
@@ -585,7 +610,9 @@ module.exports = {
   startPractice,
   submitPractice,
   getActiveAttempt,
+  listPracticeSessions,
   getPracticeSession,
+  abandonPracticeSession,
   savePracticeAnswer,
   submitPracticeItem,
   submitPracticeSession,

@@ -117,7 +117,7 @@ async function getDashboard(user, query) {
         _avg: { total_score: true, max_score: true },
         where: {
           course_id: { in: courseIdList },
-          status: { not: 'in_progress' },
+          status: { notIn: ['IN_PROGRESS', 'in_progress'] },
           total_score: { not: null },
           max_score: { not: null, gt: 0 },
         },
@@ -177,7 +177,7 @@ async function getProgress(user, query) {
 
   const classId = toPositiveInt(query.classId ?? query.class_id, 'class_id', false);
 
-  const where = { status: { not: 'in_progress' }, ...courseFilter };
+  const where = { status: { notIn: ['IN_PROGRESS', 'in_progress'] }, ...courseFilter };
   if (classId) where.teaching_class_id = classId;
 
   const sessions = await prisma.practiceSession.findMany({
@@ -234,7 +234,7 @@ async function getProgress(user, query) {
   }));
 
   const totalSessions = sessions.length;
-  const submittedSessions = sessions.filter((s) => s.status !== 'in_progress').length;
+  const submittedSessions = sessions.filter((s) => s.status !== 'IN_PROGRESS' && s.status !== 'in_progress').length;
 
   return {
     summary: {
@@ -292,7 +292,7 @@ async function getScoreDistribution(user, query) {
 
   const classId = toPositiveInt(query.classId ?? query.class_id, 'class_id', false);
 
-  const sessionWhere = { status: { not: 'in_progress' }, total_score: { not: null }, max_score: { not: null, gt: 0 }, ...courseFilter };
+  const sessionWhere = { status: { notIn: ['IN_PROGRESS', 'in_progress'] }, total_score: { not: null }, max_score: { not: null, gt: 0 }, ...courseFilter };
   if (classId) sessionWhere.teaching_class_id = classId;
 
   const sessions = await prisma.practiceSession.findMany({

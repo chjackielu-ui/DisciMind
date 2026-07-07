@@ -25,6 +25,8 @@
   --stu-radius-sm: 14px;
   --stu-sidebar-expanded: 250px;
   --stu-sidebar-collapsed: 84px;
+  --stu-mobile-nav-height: 68px;
+  --stu-mobile-nav-edge: 12px;
 }
 
 /* ============================================
@@ -32,6 +34,8 @@
    ============================================ */
 .student-dashboard-wrapper {
   min-height: 100vh;
+  max-width: 100%;
+  min-width: 0;
   background:
     linear-gradient(135deg, rgba(129, 195, 215, 0.22) 0%, rgba(129, 195, 215, 0) 34%),
     linear-gradient(225deg, rgba(76, 175, 132, 0.10) 0%, rgba(76, 175, 132, 0) 30%),
@@ -223,9 +227,15 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 11px 14px;
+  border: 0;
   border-radius: var(--stu-radius-sm);
+  background: transparent;
+  color: inherit;
   cursor: pointer;
+  font-family: var(--font);
+  text-align: left;
   transition:
     background 0.2s ease,
     transform 0.2s ease,
@@ -795,6 +805,8 @@
   padding-bottom: 40px;
   min-height: 100vh;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   position: relative;
   z-index: 1;
@@ -814,6 +826,7 @@
   flex-direction: column;
   gap: 24px;
   width: 100%;
+  min-width: 0;
 }
 
 /* ============================================
@@ -1759,17 +1772,41 @@
    十一、响应式 — 手机 ≤768px
    ============================================ */
 @media (max-width: 768px) {
+  .student-dashboard-wrapper {
+    --stu-mobile-nav-height: 68px;
+    --stu-mobile-nav-edge: clamp(8px, 3vw, 14px);
+  }
+
   .student-sidebar {
-    left: 12px;
-    right: 12px;
+    left: var(--stu-mobile-nav-edge);
+    right: var(--stu-mobile-nav-edge);
     top: auto;
-    bottom: 12px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
     width: auto;
-    height: 64px;
+    max-width: calc(100vw - (var(--stu-mobile-nav-edge) * 2));
+    height: var(--stu-mobile-nav-height);
     flex-direction: row;
-    border-radius: 22px;
-    padding: 0 8px;
+    border-radius: 20px;
+    padding: 7px;
     align-items: center;
+    overflow: hidden;
+    box-sizing: border-box;
+    background:
+      linear-gradient(180deg, rgba(47, 102, 144, 0.58), rgba(47, 102, 144, 0.38)),
+      rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 14px 34px rgba(22, 66, 91, 0.20),
+      0 0 0 1px rgba(255, 255, 255, 0.10) inset;
+  }
+
+  .student-sidebar::after,
+  .student-sidebar.collapsed::after,
+  .student-sidebar.collapsed:hover::after {
+    inset: 0;
+    border-radius: inherit;
+    filter: none;
+    opacity: 0.18;
+    box-shadow: none;
   }
 
   .student-sidebar .sidebar-brand,
@@ -1779,29 +1816,92 @@
   }
 
   .student-sidebar .sidebar-menu-wrap {
-    flex-direction: row;
-    flex: 1;
-    justify-content: space-around;
+    display: grid;
+    grid-template-columns: repeat(var(--sidebar-menu-count), minmax(0, 1fr));
+    align-items: stretch;
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    justify-content: stretch;
     padding: 0;
-    overflow-y: visible;
-    gap: 0;
+    overflow: hidden;
+    gap: 4px;
   }
 
   .student-sidebar .sidebar-menu-item {
     flex-direction: column;
-    gap: 2px;
-    padding: 6px 8px;
-    border-radius: 12px;
+    justify-content: center;
+    align-items: center;
+    gap: 1px;
+    width: 100%;
+    min-width: 0;
+    min-height: 50px;
+    padding: 4px 2px;
+    border-radius: 15px;
+    overflow: hidden;
+    text-align: center;
+    transform: none;
+    touch-action: manipulation;
   }
 
-  .student-sidebar .sidebar-menu-text {
-    font-size: 10px;
-    opacity: 1;
+  .student-sidebar .sidebar-menu-item:hover {
     transform: none;
   }
 
-  .student-sidebar .sidebar-menu-icon {
-    font-size: 16px;
+  .student-sidebar .sidebar-menu-item.active {
+    background: rgba(129, 195, 215, 0.22);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  }
+
+  .student-sidebar .sidebar-menu-item.active::before {
+    content: none;
+  }
+
+  .student-sidebar .sidebar-menu-text,
+  .student-sidebar.collapsed .sidebar-menu-text,
+  .student-sidebar.expanded .sidebar-menu-text,
+  .student-sidebar.collapsed:hover .sidebar-menu-text {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    min-height: 1.15em;
+    flex: 0 0 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.15;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    position: static;
+  }
+
+  .student-sidebar .sidebar-menu-icon,
+  .student-sidebar.collapsed .sidebar-menu-icon,
+  .student-sidebar.expanded .sidebar-menu-icon,
+  .student-sidebar.collapsed:hover .sidebar-menu-icon {
+    width: 34px;
+    height: 30px;
+    min-width: 0;
+    flex: 0 0 auto;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .student-sidebar .sidebar-menu-icon svg,
+  .student-sidebar.collapsed .sidebar-menu-icon svg,
+  .student-sidebar.expanded .sidebar-menu-icon svg,
+  .student-sidebar.collapsed:hover .sidebar-menu-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .student-sidebar .sidebar-menu-item .menu-tooltip {
+    display: none;
   }
 
   .student-sidebar.collapsed,
@@ -1809,16 +1909,29 @@
     width: auto;
   }
 
+  .student-sidebar.collapsed:hover {
+    width: auto;
+  }
+
+  .student-sidebar.collapsed:hover .sidebar-menu-item {
+    justify-content: center;
+    padding: 4px 2px;
+    gap: 1px;
+  }
+
   .student-main {
-    padding: 16px 16px 100px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 16px 16px calc(var(--stu-mobile-nav-height) + 42px + env(safe-area-inset-bottom));
   }
 
   .student-dashboard-wrapper.sidebar-expanded .student-main {
-    padding: 16px 16px 100px;
+    padding: 16px 16px calc(var(--stu-mobile-nav-height) + 42px + env(safe-area-inset-bottom));
   }
 
   .student-dashboard-wrapper.sidebar-collapsed .student-main {
-    padding: 16px 16px 100px;
+    padding: 16px 16px calc(var(--stu-mobile-nav-height) + 42px + env(safe-area-inset-bottom));
   }
 
   .ai-float-widget {
@@ -1888,33 +2001,54 @@
    十二、响应式 — 超小屏 ≤380px
    ============================================ */
 @media (max-width: 380px) {
+  .student-dashboard-wrapper {
+    --stu-mobile-nav-height: 64px;
+    --stu-mobile-nav-edge: 8px;
+  }
+
   .student-sidebar {
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    height: 58px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    height: var(--stu-mobile-nav-height);
     border-radius: 18px;
+    padding: 6px;
   }
 
   .student-sidebar .sidebar-menu-item {
-    padding: 4px 6px;
+    min-height: 48px;
+    padding: 3px 1px;
+    border-radius: 13px;
   }
 
-  .student-sidebar .sidebar-menu-text {
+  .student-sidebar .sidebar-menu-text,
+  .student-sidebar.collapsed .sidebar-menu-text,
+  .student-sidebar.expanded .sidebar-menu-text,
+  .student-sidebar.collapsed:hover .sidebar-menu-text {
     font-size: 9px;
   }
 
-  .student-sidebar .sidebar-menu-icon {
-    font-size: 14px;
+  .student-sidebar .sidebar-menu-icon,
+  .student-sidebar.collapsed .sidebar-menu-icon,
+  .student-sidebar.expanded .sidebar-menu-icon,
+  .student-sidebar.collapsed:hover .sidebar-menu-icon {
+    width: 30px;
+    height: 28px;
+  }
+
+  .student-sidebar .sidebar-menu-icon svg,
+  .student-sidebar.collapsed .sidebar-menu-icon svg,
+  .student-sidebar.expanded .sidebar-menu-icon svg,
+  .student-sidebar.collapsed:hover .sidebar-menu-icon svg {
+    width: 18px;
+    height: 18px;
   }
 
   .student-main {
-    padding: 12px 12px 90px;
+    padding: 12px 12px calc(var(--stu-mobile-nav-height) + 34px + env(safe-area-inset-bottom));
   }
 
   .student-dashboard-wrapper.sidebar-expanded .student-main,
   .student-dashboard-wrapper.sidebar-collapsed .student-main {
-    padding: 12px 12px 90px;
+    padding: 12px 12px calc(var(--stu-mobile-nav-height) + 34px + env(safe-area-inset-bottom));
   }
 }
 

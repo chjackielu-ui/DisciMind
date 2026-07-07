@@ -2,7 +2,7 @@
 // v2: 统一 SVG 图标、优化对齐、菜单 hash 导航
 
 import { getUserDisplayName, logoutSession } from './auth.js'
-import { iconHome, iconBook, iconAlert, iconStar, iconUser, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
+import { getIcon, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
 import { createAiChatConversation, streamAiChatMessage } from '../api/student.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from './markdown.js'
 
@@ -12,9 +12,6 @@ const STUDENT_SIDEBAR_FIRST_VISIT_KEY = 'discimind.studentSidebarFirstVisitSeen'
 const AI_FLOAT_STATE_KEY = 'discimind.studentAiFloatState'
 const AI_FLOAT_EDGE_MARGIN = 18
 const AI_FLOAT_MAX_INPUT = 2000
-
-// 图标名 → 图标函数映射
-const ICON_MAP = { home: iconHome, book: iconBook, alert: iconAlert, star: iconStar, user: iconUser, message: iconMessage }
 
 let sidebarExpanded = true
 let sidebarPinned = false
@@ -37,12 +34,13 @@ export function renderDashboardLayout(app, config) {
 
   // 构建菜单 HTML（使用 SVG 图标）
   const currentHash = window.location.hash.slice(1) || ''
-  let activeParentHash = ''
-  const menuHTML = menuItems.map((item, index) => {
-    const iconFn = ICON_MAP[item.icon] || iconHome
-    const iconSVG = typeof iconFn === 'function' ? iconFn() : iconHome()
-    const hasChildren = item.children && item.children.length > 0
-    // 激活判断：优先使用 matchHash 函数，其次 prefixMatch 前缀匹配，最后精确比较 hash
+let activeParentHash = ''
+
+const menuHTML = menuItems.map((item, index) => {
+  const iconSvg = getIcon(item.icon)
+  const itemId = getMenuItemId(item)
+  const hasChildren =
+    Array.isArray(item.children) && item.children.length > 0
     let isActive = false
     if (typeof item.matchHash === 'function') {
       isActive = item.matchHash(currentHash)
@@ -66,12 +64,20 @@ export function renderDashboardLayout(app, config) {
     }
     const arrowHTML = hasChildren ? `<span class="sidebar-menu-arrow">></span>` : ''
     return `
-      <div class="sidebar-menu-item${isActive ? ' active' : ''}" data-hash="${item.hash || ''}" data-has-children="${hasChildren ? '1' : '0'}">
-        <span class="sidebar-menu-icon">${iconSVG}</span>
-        <span class="sidebar-menu-text">${item.label}</span>
+      <button
+        type="button"
+        class="sidebar-menu-item${isActive ? ' active' : ''}"
+        data-menu-id="${escapeHtml(itemId)}"
+        data-hash="${escapeHtml(item.hash || '')}"
+        data-has-children="${hasChildren ? '1' : '0'}"
+        aria-current="${isActive ? 'page' : 'false'}"
+        title="${escapeHtml(item.label)}"
+      >
+        <span class="sidebar-menu-icon">${iconSvg}</span>
+        <span class="sidebar-menu-text">${escapeHtml(item.label)}</span>
         ${arrowHTML}
-        <span class="menu-tooltip">${item.label}</span>
-      </div>`
+        <span class="menu-tooltip">${escapeHtml(item.label)}</span>
+      </button>`
   }).join('')
 
   // 构建二级导航面板 HTML
@@ -101,7 +107,7 @@ export function renderDashboardLayout(app, config) {
 
   app.innerHTML = `
     <div class="student-dashboard-wrapper${roleClass}">
-      <nav class="student-sidebar ${sidebarExpanded ? 'expanded' : 'collapsed'}" id="student-sidebar">
+      <nav class="student-sidebar ${sidebarExpanded ? 'expanded' : 'collapsed'}" id="student-sidebar" style="--sidebar-menu-count:${Math.max(1, menuItems.length)}">
         <div class="sidebar-brand">
           <div class="sidebar-brand-mark">
             <img src="/logo.png" alt="DisciMind" />
@@ -273,6 +279,12 @@ export function renderDashboardLayout(app, config) {
   bindSubNavClicks()
 
   initStudentAiFloat(user)
+}
+
+function getMenuItemId(item) {
+  if (item?.id) return item.id
+  const source = item?.hash || item?.label || 'menu-item'
+  return String(source).replace(/^#/, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'menu-item'
 }
 
 function shouldExpandSidebarInitially(user) {

@@ -81,6 +81,20 @@ function injectToastStyles() {
       from { opacity: 1; transform: translateX(0) scale(1); }
       to { opacity: 0; transform: translateX(40px) scale(0.92); }
     }
+    @media (max-width: 768px) {
+      .toast-container {
+        left: 16px;
+        right: 16px;
+        top: 16px;
+      }
+      .toast-item {
+        width: 100%;
+        max-width: calc(100vw - 32px);
+        box-sizing: border-box;
+        padding: 11px 14px;
+        overflow-wrap: anywhere;
+      }
+    }
   `
   document.head.appendChild(style)
 }

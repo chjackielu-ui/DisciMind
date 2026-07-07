@@ -74,6 +74,13 @@ function persistSessionId(sessionId) {
   else ssRemove(SESSION_ID_KEY)
 }
 
+function normalizeSessionId(sessionId) {
+  if (sessionId === undefined) return undefined
+  if (sessionId == null || sessionId === '') return null
+  const normalized = Number(sessionId)
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : null
+}
+
 function cleanLegacyStorage() {
   // 清理旧 localStorage 残留
   try { localStorage.removeItem(LEGACY_USER_KEY) } catch {}
@@ -91,6 +98,12 @@ function notifyAuthChanged() {
 function setStatus(status) {
   authStatus = status
   notifyAuthChanged()
+}
+
+function markAuthenticatedIfUser() {
+  const user = getStoredUser()
+  if (user && getStoredToken()) setStatus(AUTH_STATUS.AUTHENTICATED)
+  return user
 }
 
 // ---------- 跨标签页协调 ----------
@@ -133,7 +146,9 @@ export function setAuth(token, user, sessionId) {
   }
   if (user) {
     persistUser(user)
-    persistSessionId(sessionId != null ? sessionId : (user.sessionId || null))
+    const hasSessionArg = arguments.length >= 3 && sessionId !== undefined
+    const nextSessionId = normalizeSessionId(hasSessionArg ? sessionId : (user.sessionId ?? user.session_id))
+    if (hasSessionArg || nextSessionId !== undefined) persistSessionId(nextSessionId)
     ssSet(SESSION_AUTHENTICATED_KEY, 'true')
   } else {
     persistUser(null)
@@ -348,13 +363,14 @@ export async function initializeAuth() {
     try {
       await refreshSessionViaStorage()
       startIdleCheck()
-      return getUser()
+      return markAuthenticatedIfUser()
     } catch {
       // session/refresh 失败，尝试 Cookie 刷新作为辅助续期
       try {
         const data = await refreshAuthSession()
         if (data.user && getStoredSessionId()) {
           startIdleCheck()
+          setStatus(AUTH_STATUS.AUTHENTICATED)
           return data.user
         }
       } catch {
@@ -362,7 +378,7 @@ export async function initializeAuth() {
       }
       // 刷新失败但 sessionStorage token 可能仍有效，保持当前状态
       startIdleCheck()
-      return getStoredUser()
+      return markAuthenticatedIfUser()
     }
   })()
     .catch(() => {

@@ -53,7 +53,7 @@ export function showExamLeaveModal(options = {}) {
   let buttonHTML = '';
 
   if (isExam) {
-    // 考试模式：继续答题 + 提交并退出
+    // 考试模式：继续答题 + 提交并退出 + 可选放弃考试
     buttonHTML = `
       <button class="exam-leave-btn exam-leave-btn-continue" id="exam-leave-continue">
         继续答题
@@ -61,6 +61,11 @@ export function showExamLeaveModal(options = {}) {
       <button class="exam-leave-btn exam-leave-btn-submit" id="exam-leave-submit">
         提交整卷并退出
       </button>
+      ${onAbandon ? `
+        <button class="exam-leave-btn exam-leave-btn-abandon" id="exam-leave-abandon">
+          放弃考试并退出
+        </button>
+      ` : ''}
     `;
   } else if (isTask) {
     // 教师任务：继续答题 + 提交并退出 + (可选)保存进度退出
@@ -113,7 +118,7 @@ export function showExamLeaveModal(options = {}) {
           </div>
         </div>
         ${hasUnsavedChanges ? '<p class="exam-leave-warning">⚠ 当前题目有未保存的答案</p>' : ''}
-        ${isExam ? '<p class="exam-leave-notice">离开后无法继续作答，请确认是否要提交整卷。</p>' : ''}
+        ${isExam ? '<p class="exam-leave-notice">考试模式不会保存作答进度，离开前请提交整卷或放弃本次考试。</p>' : ''}
         ${!isExam && unansweredCount > 0 ? `<p class="exam-leave-notice">还有 ${unansweredCount} 道题目未作答。</p>` : ''}
       </div>
       <div class="exam-leave-footer">
