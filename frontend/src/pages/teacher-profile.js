@@ -24,8 +24,15 @@ export async function renderTeacherProfile(app) {
 
   const menuItems = [
     { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses' },
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks' },
+    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
+      { label: '课程管理', hash: '#/teacher/courses' },
+      { label: '学生管理', hash: '#/teacher/students' },
+      { label: '知识库', hash: '#/teacher/knowledge' },
+    ]},
+    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
+      { label: '作业任务', hash: '#/teacher/tasks' },
+      { label: '题库管理', hash: '#/teacher/questions' },
+    ]},
     { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
     { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
   ]
@@ -43,43 +50,43 @@ export async function renderTeacherProfile(app) {
       <div class="content-columns">
         <!-- 个人信息卡片 -->
         <div class="card">
-          <h3 class="card-title">个人信息</h3>
-          <div class="user-info-grid">
-            <div class="info-item">
-              <span class="info-label">用户名</span>
-              <span class="info-value">${user.username || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">角色</span>
-              <span class="info-value">教师</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">真实姓名</span>
-              <span class="info-value">${user.profile?.real_name || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">学院</span>
-              <span class="info-value">${user.profile?.college || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">工号</span>
-              <span class="info-value">${user.profile?.teacher_no || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">邮箱</span>
-              <span class="info-value">${user.email || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">手机号</span>
-              <span class="info-value">${user.phone || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">性别</span>
-              <span class="info-value">${user.profile?.gender === 'male' ? '男' : user.profile?.gender === 'female' ? '女' : '-'}</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h3 class="card-title" style="margin:0;">个人信息</h3>
+            <button class="btn btn-sm" id="btn-toggle-edit" style="padding:5px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-size:0.85rem;">编辑</button>
+          </div>
+          <div id="profile-display">
+            <div class="user-info-grid">
+              <div class="info-item"><span class="info-label">用户名</span><span class="info-value">${user.username || '-'}</span></div>
+              <div class="info-item"><span class="info-label">角色</span><span class="info-value">教师</span></div>
+              <div class="info-item"><span class="info-label">真实姓名</span><span class="info-value">${user.profile?.real_name || '-'}</span></div>
+              <div class="info-item"><span class="info-label">学院</span><span class="info-value">${user.profile?.college || '-'}</span></div>
+              <div class="info-item"><span class="info-label">专业</span><span class="info-value">${user.profile?.major || '-'}</span></div>
+              <div class="info-item"><span class="info-label">工号</span><span class="info-value">${user.profile?.teacher_no || '-'}</span></div>
+              <div class="info-item"><span class="info-label">邮箱</span><span class="info-value">${user.email || '-'}</span></div>
+              <div class="info-item"><span class="info-label">手机号</span><span class="info-value">${user.phone || '-'}</span></div>
+              <div class="info-item"><span class="info-label">性别</span><span class="info-value">${user.profile?.gender === 'male' ? '男' : user.profile?.gender === 'female' ? '女' : '-'}</span></div>
             </div>
           </div>
-          <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <p style="font-size:0.85rem;color:var(--text-muted);">个人信息修改功能请通过系统管理页面操作</p>
+          <div id="profile-edit" style="display:none;">
+            <div class="user-info-grid">
+              <div class="info-item"><span class="info-label">真实姓名</span><input type="text" id="edit-real-name" value="${user.profile?.real_name || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
+              <div class="info-item"><span class="info-label">学院</span><input type="text" id="edit-college" value="${user.profile?.college || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
+              <div class="info-item"><span class="info-label">专业</span><input type="text" id="edit-major" value="${user.profile?.major || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
+              <div class="info-item"><span class="info-label">邮箱</span><input type="email" id="edit-email" value="${user.email || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
+              <div class="info-item"><span class="info-label">手机号</span><input type="text" id="edit-phone" value="${user.phone || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
+              <div class="info-item"><span class="info-label">性别</span>
+                <select id="edit-gender" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:#fff;">
+                  <option value="" ${!user.profile?.gender ? 'selected' : ''}>未设置</option>
+                  <option value="male" ${user.profile?.gender === 'male' ? 'selected' : ''}>男</option>
+                  <option value="female" ${user.profile?.gender === 'female' ? 'selected' : ''}>女</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+              <button class="btn btn-primary" id="btn-save-profile" style="padding:8px 24px;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;font-size:0.9rem;">保存</button>
+              <button class="btn" id="btn-cancel-edit" style="padding:8px 24px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-size:0.9rem;">取消</button>
+              <span id="profile-save-status" style="font-size:0.85rem;color:var(--text-muted);align-self:center;"></span>
+            </div>
           </div>
         </div>
 
@@ -175,6 +182,70 @@ export async function renderTeacherProfile(app) {
     }
   })
 
+  // ---- 个人信息编辑 ----
+  let isEditing = false
+  const toggleBtn = document.getElementById('btn-toggle-edit')
+  const displayDiv = document.getElementById('profile-display')
+  const editDiv = document.getElementById('profile-edit')
+  const saveStatus = document.getElementById('profile-save-status')
+  const cancelBtn = document.getElementById('btn-cancel-edit')
+  const saveBtn = document.getElementById('btn-save-profile')
+
+  function toggleEditMode() {
+    isEditing = !isEditing
+    displayDiv.style.display = isEditing ? 'none' : ''
+    editDiv.style.display = isEditing ? '' : 'none'
+    toggleBtn.textContent = isEditing ? '取消' : '编辑'
+    saveStatus.textContent = ''
+  }
+
+  if (toggleBtn) toggleBtn.addEventListener('click', toggleEditMode)
+  if (cancelBtn) cancelBtn.addEventListener('click', toggleEditMode)
+  if (saveBtn) saveBtn.addEventListener('click', async () => {
+    const data = {
+      real_name: document.getElementById('edit-real-name').value.trim(),
+      college: document.getElementById('edit-college').value.trim(),
+      major: document.getElementById('edit-major').value.trim(),
+      email: document.getElementById('edit-email').value.trim(),
+      phone: document.getElementById('edit-phone').value.trim(),
+      gender: document.getElementById('edit-gender').value || undefined,
+    }
+    if (!data.real_name) { saveStatus.textContent = '真实姓名不能为空'; saveStatus.style.color = '#dc2626'; return }
+    saveStatus.textContent = '保存中...'
+    saveStatus.style.color = 'var(--text-muted)'
+    saveBtn.disabled = true
+    try {
+      const { updateMe } = await import('../api/auth.js')
+      const res = await updateMe(data)
+      const updated = res.data?.user || {}
+      // 更新显示
+      const display = document.querySelectorAll('#profile-display .info-value')
+      if (display[2]) display[2].textContent = data.real_name || '-'
+      if (display[3]) display[3].textContent = data.college || '-'
+      if (display[4]) display[4].textContent = data.major || '-'
+      if (display[6]) display[6].textContent = data.email || '-'
+      if (display[7]) display[7].textContent = data.phone || '-'
+      if (display[8]) display[8].textContent = data.gender === 'male' ? '男' : data.gender === 'female' ? '女' : '-'
+      // 更新 user 对象
+      if (user.profile) {
+        user.profile.real_name = data.real_name
+        user.profile.college = data.college || null
+        user.profile.major = data.major || null
+        user.profile.gender = data.gender || null
+      }
+      user.email = data.email || null
+      user.phone = data.phone || null
+      saveStatus.textContent = '保存成功'
+      saveStatus.style.color = '#10b981'
+      setTimeout(() => { toggleEditMode(); saveStatus.textContent = '' }, 1000)
+    } catch (err) {
+      saveStatus.textContent = '保存失败: ' + (err.message || '未知错误')
+      saveStatus.style.color = '#dc2626'
+    } finally {
+      saveBtn.disabled = false
+    }
+  })
+
   function formatTime(isoStr) {
     if (!isoStr) return ''
     const d = new Date(isoStr)
@@ -192,3 +263,4 @@ export async function renderTeacherProfile(app) {
 
   loadNotifications()
 }
+

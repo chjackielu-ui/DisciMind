@@ -7,8 +7,17 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 const menuItems = [
   { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
   { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '教学管理', icon: 'book', hash: '#/admin/courses' },
-  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
+  { label: '教学管理', icon: 'book', hash: '#/admin/courses', prefixMatch: '/admin/courses', children: [
+      { label: '课程管理', hash: '#/admin/courses' },
+      { label: '班级管理', hash: '#/admin/classes' },
+    ]},
+  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge', prefixMatch: '/admin/knowledge', children: [
+      { label: '知识库管理', hash: '#/admin/knowledge' },
+      { label: '操作日志', hash: '#/admin/logs' },
+      { label: '通知管理', hash: '#/admin/notifications' },
+      { label: 'AI 配置', hash: '#/admin/ai-config' },
+      { label: '个人信息', hash: '#/admin/profile' },
+    ]},
 ]
 
 export async function renderAdminProfile(app) {
@@ -108,3 +117,5 @@ export async function renderAdminProfile(app) {
     alert('该功能正在开发中，敬请期待')
   })
 }
+
+

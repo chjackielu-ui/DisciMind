@@ -28,6 +28,7 @@ router.get('/dashboard', dashboardController.getDashboard);
 router.get('/users', userController.getUserList);
 router.put('/users/:user_id/status', userController.updateUserStatus);
 router.put('/users/:user_id/password', userController.resetUserPassword);
+router.put('/users/:user_id', userController.updateUser);
 router.delete('/users/:user_id', userController.deleteUser);
 
 // ==================== 3. 课程管理 ====================

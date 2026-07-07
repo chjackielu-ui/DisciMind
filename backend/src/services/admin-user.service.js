@@ -150,4 +150,48 @@ async function deleteUser(userId) {
   return { user_id: userId };
 }
 
-module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser };
+/**
+ * 更新用户资料（管理员用）
+ */
+async function updateUser(userId, data) {
+  const user = await prisma.user.findUnique({
+    where: { user_id: userId },
+    include: { profile: true },
+  });
+  if (!user) {
+    throw Object.assign(new Error('用户不存在'), { code: 40002 });
+  }
+
+  const userData = {};
+  if (data.email !== undefined) userData.email = data.email || null;
+  if (data.phone !== undefined) userData.phone = data.phone || null;
+
+  if (Object.keys(userData).length > 0) {
+    await prisma.user.update({ where: { user_id: userId }, data: userData });
+  }
+
+  const profileData = {};
+  if (data.real_name !== undefined) profileData.real_name = data.real_name;
+  if (data.college !== undefined) profileData.college = data.college || null;
+  if (data.major !== undefined) profileData.major = data.major || null;
+  if (data.gender !== undefined) {
+    const genderMap = { male: 'MALE', female: 'FEMALE', unknown: 'UNKNOWN' };
+    profileData.gender = genderMap[data.gender] || 'UNKNOWN';
+  }
+  if (data.student_no !== undefined) profileData.student_no = data.student_no || null;
+  if (data.teacher_no !== undefined) profileData.teacher_no = data.teacher_no || null;
+
+  if (Object.keys(profileData).length > 0) {
+    if (user.profile) {
+      await prisma.userProfile.update({ where: { user_id: userId }, data: profileData });
+    } else {
+      await prisma.userProfile.create({
+        data: { user_id: userId, real_name: profileData.real_name || user.username, ...profileData },
+      });
+    }
+  }
+
+  return { user_id: userId };
+}
+
+module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser, updateUser };
