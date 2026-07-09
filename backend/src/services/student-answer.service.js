@@ -491,9 +491,13 @@ async function submitTask(userId, taskId, submissionId, answers) {
 
       // AI 批改记录
       if (result.ai_grading) {
+        const targetAnswerRecord = answerRecords.find((ar) => ar.question_id === result.question_id);
+        if (!targetAnswerRecord) {
+          throw new Error(`答题记录未找到：question_id=${result.question_id}，submission_id=${submissionId}`);
+        }
         await tx.aiGradingRecord.create({
           data: {
-            answer_record_id: answerRecords.find((ar) => ar.question_id === result.question_id)?.answer_record_id || 0,
+            answer_record_id: targetAnswerRecord.answer_record_id,
             score: result.ai_grading.score,
             total_score: result.ai_grading.total_score,
             comment: result.ai_grading.comment || '',

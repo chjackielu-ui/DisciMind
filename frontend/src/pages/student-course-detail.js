@@ -231,8 +231,8 @@ function renderHeroProgress(course) {
   inst.setOption({ series: [{ type: 'pie', radius: ['70%', '88%'], center: ['50%', '50%'], silent: true, label: { show: true, position: 'center', fontSize: 22, fontWeight: 'bold', color: '#fff', formatter: `${progress}%` }, data: [{ value: progress, itemStyle: { color: 'rgba(255,255,255,0.9)', borderRadius: 6 } }, { value: Math.max(0, 100 - progress), itemStyle: { color: 'rgba(255,255,255,0.15)' } }] }] })
 }
 
-function buildKpCard(kp) {
-  return `<div class="kp-list-card" data-kp-id="${kp.knowledge_point_id}" data-mastery="${kp.mastery_level || 'unknown'}" data-name="${escapeHtml(kp.knowledge_point_name)}"><div style="flex:1;min-width:0;"><div style="font-weight:600;color:var(--text-main);margin-bottom:4px;">${escapeHtml(kp.knowledge_point_name)}</div><div style="font-size:0.8rem;color:var(--text-sub);">${escapeHtml(kp.chapter_name || '')} · ${difficultyLabel(kp.difficulty_level)} · ${escapeHtml(kp.knowledge_point_code)}</div></div><div style="text-align:center;flex-shrink:0;"><div style="font-size:1.3rem;font-weight:700;color:var(--stu-primary);">${kp.mastery_score || 0}</div><span class="kp-pill mastery-${kp.mastery_level || 'unknown'}" style="font-size:0.72rem;">${masteryLabel(kp.mastery_level)}</span></div><div style="font-size:0.75rem;color:var(--text-hint);flex-shrink:0;">${kp.last_study_at ? formatDate(kp.last_study_at, 'date') : '未学习'}</div></div>`
+function buildKpCard(kp, courseId) {
+  return `<div class="kp-list-card" data-kp-id="${kp.knowledge_point_id}" data-mastery="${kp.mastery_level || 'unknown'}" data-name="${escapeHtml(kp.knowledge_point_name)}"><div style="flex:1;min-width:0;"><div style="font-weight:600;color:var(--text-main);margin-bottom:4px;">${escapeHtml(kp.knowledge_point_name)}</div><div style="font-size:0.8rem;color:var(--text-sub);">${escapeHtml(kp.chapter_name || '')} · ${difficultyLabel(kp.difficulty_level)} · ${escapeHtml(kp.knowledge_point_code)}</div></div><div style="text-align:center;flex-shrink:0;"><div style="font-size:1.3rem;font-weight:700;color:var(--stu-primary);">${kp.mastery_score || 0}</div><span class="kp-pill mastery-${kp.mastery_level || 'unknown'}" style="font-size:0.72rem;">${masteryLabel(kp.mastery_level)}</span></div><button class="course-action-btn" style="padding:7px 10px;font-size:0.78rem;flex-shrink:0;" type="button" data-kp-trainer data-course-id="${courseId}" data-kp-id="${kp.knowledge_point_id}">训练师诊断</button><div style="font-size:0.75rem;color:var(--text-hint);flex-shrink:0;">${kp.last_study_at ? formatDate(kp.last_study_at, 'date') : '未学习'}</div></div>`
 }
 
 const KG_STATUS_LABELS = {
@@ -621,7 +621,7 @@ export async function renderStudentCourseDetail(app) {
         </div>
       </div>
       <div class="card" style="margin-bottom:24px;"><h3 class="card-title">🗺️ 章节学习地图</h3><div class="chapter-timeline">${chapters.map((ch, idx) => { const chKps = kps.filter(k => k.chapter_id === ch.chapter_id); return `<div class="chapter-node"><div class="chapter-dot">${idx + 1}</div><div class="chapter-content"><div class="chapter-name">${escapeHtml(ch.chapter_name)}</div><div class="chapter-desc">${escapeHtml(ch.description || '')} · ${ch.knowledge_point_count || 0} 个知识点</div><div class="kp-pills">${chKps.map(k => `<span class="kp-pill mastery-${k.mastery_level || 'unknown'}" title="${masteryLabel(k.mastery_level)} · ${k.mastery_score || 0}分">${escapeHtml(k.knowledge_point_name)}</span>`).join('')}${chKps.length === 0 ? '<span class="kp-pill mastery-unknown">暂无知识点</span>' : ''}</div></div></div>` }).join('')}</div></div>
-      <div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><h3 class="card-title" style="margin-bottom:0;">📋 知识点列表</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><input class="search-box" type="text" id="kp-search" placeholder="🔍 搜索知识点..." style="width:200px;padding:7px 14px;font-size:0.85rem;" /><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="kp-sort"><option value="default">课程顺序</option><option value="score-asc">掌握分数↑</option><option value="score-desc">掌握分数↓</option><option value="name">知识点名称</option><option value="difficulty">难度</option><option value="recent">最近学习</option></select></div></div></div><div class="filter-bar" id="kp-filter-bar"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="excellent">优秀</button><button class="filter-chip" data-filter="good">良好</button><button class="filter-chip" data-filter="general">一般</button><button class="filter-chip" data-filter="weak">薄弱</button></div><div id="kp-list-container" style="display:flex;flex-direction:column;gap:12px;">${kps.map(k => buildKpCard(k)).join('')}</div><div id="kp-no-results" class="no-filter-results" style="display:none;">没有符合条件的数据<span class="btn-clear-filter" id="kp-clear-filter">清除筛选</span></div></div>
+      <div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><h3 class="card-title" style="margin-bottom:0;">📋 知识点列表</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><input class="search-box" type="text" id="kp-search" placeholder="🔍 搜索知识点..." style="width:200px;padding:7px 14px;font-size:0.85rem;" /><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="kp-sort"><option value="default">课程顺序</option><option value="score-asc">掌握分数↑</option><option value="score-desc">掌握分数↓</option><option value="name">知识点名称</option><option value="difficulty">难度</option><option value="recent">最近学习</option></select></div></div></div><div class="filter-bar" id="kp-filter-bar"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="excellent">优秀</button><button class="filter-chip" data-filter="good">良好</button><button class="filter-chip" data-filter="general">一般</button><button class="filter-chip" data-filter="weak">薄弱</button></div><div id="kp-list-container" style="display:flex;flex-direction:column;gap:12px;">${kps.map(k => buildKpCard(k, course.course_id)).join('')}</div><div id="kp-no-results" class="no-filter-results" style="display:none;">没有符合条件的数据<span class="btn-clear-filter" id="kp-clear-filter">清除筛选</span></div></div>
     `
   }
 
@@ -629,7 +629,7 @@ export async function renderStudentCourseDetail(app) {
   renderDashboardLayout(app, { menuItems, contentHTML, user })
 
   if (!loadError && course) {
-    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps) }, 150)
+    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps, course.course_id) }, 150)
   }
 }
 
@@ -642,7 +642,7 @@ function bindCourseActionEvents(course) {
   })
 }
 
-function bindDetailEvents(kps) {
+function bindDetailEvents(kps, courseId) {
   let currentFilter = 'all', currentSort = 'default'
 
   function applyAll() {
@@ -653,7 +653,7 @@ function bindDetailEvents(kps) {
     filtered = sortKPs(filtered, currentSort)
     const container = document.getElementById('kp-list-container')
     const noResults = document.getElementById('kp-no-results')
-    if (container) container.innerHTML = filtered.map(k => buildKpCard(k)).join('')
+    if (container) container.innerHTML = filtered.map(k => buildKpCard(k, courseId)).join('')
     if (noResults) noResults.style.display = filtered.length === 0 ? '' : 'none'
   }
 
@@ -666,5 +666,10 @@ function bindDetailEvents(kps) {
     document.getElementById('kp-search').value = ''; currentFilter = 'all'; currentSort = 'default'
     document.querySelectorAll('#kp-filter-bar .filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === 'all'))
     document.getElementById('kp-sort').value = 'default'; applyAll()
+  })
+  document.getElementById('kp-list-container')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-kp-trainer]')
+    if (!btn) return
+    window.location.hash = `#/student/trainer?courseId=${encodeURIComponent(btn.dataset.courseId)}&knowledgePointId=${encodeURIComponent(btn.dataset.kpId)}`
   })
 }

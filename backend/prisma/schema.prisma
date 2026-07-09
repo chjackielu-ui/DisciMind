@@ -2,8 +2,7 @@
 // 项目：学研智擎 DisciMind
 // 数据库：MySQL
 // 说明：字段名尽量与 API 接口文档保持一致，数据库表名通过 @@map 映射为 snake_case。
-// 如果你使用的是较新的 Prisma 版本，并且项目要求在 prisma.config.ts 中配置 DATABASE_URL，
-// 可以根据当前 Prisma 版本调整 datasource 写法。常见项目仍可使用 url = env("DATABASE_URL")。
+// Prisma 7 通过 prisma.config.ts 加载 DATABASE_URL。
 
 generator client {
   provider = "prisma-client-js"
@@ -11,7 +10,6 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 // ========================
@@ -94,6 +92,7 @@ enum AgentType {
   PERSONALIZED_RECOMMENDATION @map("personalized_recommendation")
   QUESTION_GENERATION         @map("question_generation")
   DOCUMENT_SUMMARY            @map("document_summary")
+  TRAINER                     @map("trainer")
 }
 
 enum AiChatMode {
@@ -578,6 +577,7 @@ model KnowledgePoint {
   video_resources        VideoResource[]
   video_generation_tasks VideoGenerationTask[]
   learning_path_steps    LearningPathStep[]
+  practice_sessions      PracticeSession[]
 
   @@unique([course_id, knowledge_point_code])
   @@index([chapter_id])
@@ -1069,6 +1069,7 @@ model Question {
   answer_records          AnswerRecord[]
   programming_submissions ProgrammingSubmission[]
   wrong_questions         WrongQuestion[]
+  trainer_session_questions TrainerSessionQuestion[]
 
   @@index([course_id])
   @@index([knowledge_point_id])
@@ -1181,6 +1182,7 @@ model PracticeSession {
   practice_session_id Int       @id @default(autoincrement())
   student_user_id     Int
   course_id           Int
+  knowledge_point_id  Int?
   teaching_class_id   Int?
   mode                String    @default("SINGLE_PRACTICE") @db.VarChar(30)
   answer_mode         String    @default("SINGLE") @db.VarChar(30)
@@ -1210,12 +1212,19 @@ model PracticeSession {
 
   student        User                      @relation("PracticeSessionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
   course         Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_point KnowledgePoint?          @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
   teaching_class TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
   questions      PracticeSessionQuestion[]
   answer_records AnswerRecord[]
+  trainer_detail TrainerSessionDetail?
+  trainer_questions TrainerSessionQuestion[]
+  agent_run_records AgentRunRecord[]
 
   @@index([student_user_id])
+  @@index([student_user_id, status])
+  @@index([student_user_id, knowledge_point_id, status])
   @@index([course_id])
+  @@index([knowledge_point_id])
   @@index([teaching_class_id])
   @@index([status])
   @@index([mode])
@@ -1239,6 +1248,51 @@ model PracticeSessionQuestion {
   @@unique([practice_session_id, question_id])
   @@index([question_id])
   @@map("practice_session_questions")
+}
+
+model TrainerSessionDetail {
+  trainer_session_detail_id Int      @id @default(autoincrement())
+  practice_session_id       Int      @unique
+  current_phase             String   @default("setup") @db.VarChar(30)
+  current_question_key      String?  @db.VarChar(100)
+  mastery_before            Float?
+  mastery_after             Float?
+  question_count            Int      @default(0)
+  covered_pitfall_count     Int      @default(0)
+  diagnostic_summary_json   Json?
+  final_report_json         Json?
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  practice_session PracticeSession @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: Cascade)
+
+  @@map("trainer_session_details")
+}
+
+model TrainerSessionQuestion {
+  trainer_session_question_id Int      @id @default(autoincrement())
+  practice_session_id         Int
+  question_id                 Int?
+  question_key                String   @db.VarChar(100)
+  question_order              Int      @default(0)
+  full_question_json          Json
+  public_question_json        Json
+  target_pitfall_id           String?  @db.VarChar(100)
+  target_pitfall_json         Json?
+  difficulty                  String?  @db.VarChar(20)
+  adaptive_action             String?  @db.VarChar(50)
+  status                      String   @default("active") @db.VarChar(20)
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  practice_session PracticeSession       @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: Cascade)
+  question         Question?             @relation(fields: [question_id], references: [question_id], onDelete: SetNull)
+  answer_details   TrainerAnswerDetail[]
+
+  @@unique([practice_session_id, question_key])
+  @@index([practice_session_id, question_order])
+  @@index([question_id])
+  @@map("trainer_session_questions")
 }
 
 model AnswerRecord {
@@ -1273,16 +1327,36 @@ model AnswerRecord {
   submission         TaskSubmission?   @relation(fields: [submission_id], references: [submission_id], onDelete: SetNull)
   practice_session   PracticeSession?  @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: SetNull)
   ai_grading_records AiGradingRecord[]
+  trainer_answer_detail TrainerAnswerDetail?
 
   @@index([student_user_id])
   @@index([question_id])
   @@index([task_id])
   @@index([submission_id])
   @@index([practice_session_id])
+  @@index([practice_session_id, created_at])
   @@index([practice_session_id, question_id])
   @@index([submission_id, question_id])
   @@index([item_status])
   @@map("answer_records")
+}
+
+model TrainerAnswerDetail {
+  trainer_answer_detail_id    Int      @id @default(autoincrement())
+  answer_record_id            Int      @unique
+  trainer_session_question_id Int?
+  confidence_level            String?  @db.VarChar(20)
+  deep_evaluation_json        Json?
+  adaptive_decision_json      Json?
+  deterministic_result_json   Json?
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  answer_record            AnswerRecord            @relation(fields: [answer_record_id], references: [answer_record_id], onDelete: Cascade)
+  trainer_session_question TrainerSessionQuestion? @relation(fields: [trainer_session_question_id], references: [trainer_session_question_id], onDelete: SetNull)
+
+  @@index([trainer_session_question_id])
+  @@map("trainer_answer_details")
 }
 
 model AiGradingRecord {
@@ -1815,15 +1889,27 @@ model AgentRunRecord {
   error_message        String?   @db.Text
   dify_workflow_run_id String?   @db.VarChar(255)
   response_time_ms     Int?
+  request_id           String?   @db.VarChar(128)
+  practice_session_id  Int?
+  mode                 String?   @db.VarChar(50)
+  total_tokens         Int?
+  elapsed_ms           Int?
+  error_code           String?   @db.VarChar(100)
+  input_summary        Json?
+  output_summary       Json?
   created_at           DateTime  @default(now())
 
   agent_config           AiAgentConfig?         @relation(fields: [agent_config_id], references: [agent_config_id], onDelete: SetNull)
   user                   User?                  @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+  practice_session       PracticeSession?       @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: SetNull)
   recommendation_records RecommendationRecord[]
 
   @@index([agent_type])
   @@index([user_id])
   @@index([status])
+  @@index([request_id])
+  @@index([practice_session_id, created_at])
+  @@index([mode])
   @@map("agent_run_records")
 }
 

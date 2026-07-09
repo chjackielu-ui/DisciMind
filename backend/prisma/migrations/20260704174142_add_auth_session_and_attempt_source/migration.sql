@@ -4,9 +4,6 @@ ALTER TABLE `practice_sessions` ADD COLUMN `source_id` INTEGER NULL,
     ADD COLUMN `submit_reason` VARCHAR(30) NULL,
     ADD COLUMN `task_id` INTEGER NULL;
 
--- AlterTable
-ALTER TABLE `refresh_tokens` ADD COLUMN `session_id` INTEGER NULL;
-
 -- CreateTable
 CREATE TABLE `auth_sessions` (
     `session_id` INTEGER NOT NULL AUTO_INCREMENT,
@@ -34,6 +31,3 @@ CREATE INDEX `practice_sessions_source_id_idx` ON `practice_sessions`(`source_id
 
 -- AddForeignKey
 ALTER TABLE `auth_sessions` ADD CONSTRAINT `auth_sessions_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE `auth_sessions` ADD CONSTRAINT `auth_sessions_refresh_token_id_fkey` FOREIGN KEY (`refresh_token_id`) REFERENCES `refresh_tokens`(`refresh_token_id`) ON DELETE SET NULL ON UPDATE CASCADE;

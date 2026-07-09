@@ -837,6 +837,13 @@ async function submitPractice(userId, params) {
     submitRequestId: params.submitRequestId ?? params.submit_request_id,
   });
 
+  // ================================================================
+  // 注意：以下代码为不可达的旧实现（上方 return 已提前退出）。
+  // 保留以供未来重构参考，其中 finalStatus 变量未定义。
+  // 如需恢复此代码段，请先补全 finalStatus 的定义。
+  // ================================================================
+
+  /* eslint-disable no-unreachable */
   const sessionId = toPositiveInt(params.sessionId ?? params.session_id ?? params.practiceSessionId ?? params.practice_session_id, 'sessionId');
   const answerMap = normalizeSubmittedAnswers(params.answers);
 
@@ -1407,13 +1414,13 @@ async function submitPracticeItem(userId, sessionId, questionId, params = {}) {
     const navConfig = session.navigation_config || {};
     const wrongQuestionIds = navConfig.wrongQuestionIds || [];
     if (wrongQuestionIds.length > 0) {
-      // 找到当前题目关联的原错题ID
-      const sessionQuestion = session.questions.find(q => q.question_id === questionId);
-      // 从 navigation_config 中查找对应的 wrong_question_id
-      // 由于题目顺序可能被打乱，我们使用 question_id 匹配
-      await wrongQuestionService.updateReviewStatus(userId, wrongQuestionIds.find(() => true), {
-        isCorrect: result.is_correct,
-      }).catch(err => console.error('[practice] updateReviewStatus failed:', err.message));
+      // wrongQuestionIds 与 session.questions 按索引一一对应
+      const sessionQuestionIndex = session.questions.findIndex(q => q.question_id === questionId);
+      if (sessionQuestionIndex >= 0 && sessionQuestionIndex < wrongQuestionIds.length) {
+        await wrongQuestionService.updateReviewStatus(userId, wrongQuestionIds[sessionQuestionIndex], {
+          isCorrect: result.is_correct,
+        }).catch(err => console.error('[practice] updateReviewStatus failed:', err.message));
+      }
     }
   }
 
