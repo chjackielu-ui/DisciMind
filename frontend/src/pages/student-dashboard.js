@@ -7,6 +7,7 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatPercent, formatDate, recommendTypeLabel, isOverdue } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
+import { getCourseCoverUrl } from '../utils/course-cover.js'
 
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace(/\/api\/?$/, '')
 
@@ -206,8 +207,10 @@ function buildCourseProgress(courses = []) {
               const detail = course.progress_detail || {}
               const completed = detail.completed ?? course.completed_knowledge_count
               const total = detail.total ?? course.knowledge_point_count
+              const coverUrl = getCourseCoverUrl(course)
               return `
-                <button type="button" class="home-course-card" data-course-id="${course.course_id}">
+                <button type="button" class="home-course-card${coverUrl ? ' has-thumb' : ''}" data-course-id="${course.course_id}">
+                  ${coverUrl ? `<div class="home-course-thumb"><img src="${escapeHtml(coverUrl)}" alt="${escapeHtml(course.course_name || '课程')}封面" loading="lazy" onerror="this.style.display='none'" /></div>` : ''}
                   <div class="home-course-title-row">
                     <b>${escapeHtml(course.course_name || '未命名课程')}</b>
                     <span>${progress}%</span>

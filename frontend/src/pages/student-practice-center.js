@@ -411,6 +411,23 @@ function buildRecommendationEntryCard(recommendations) {
     </section>`
 }
 
+function buildTrainerEntryCard(subjects = [], state = {}) {
+  const selected = subjects.find(subject => String(subject.course_id) === String(state.subjectId)) || subjects[0] || null
+  const hash = selected
+    ? `#/student/trainer?courseId=${encodeURIComponent(selected.course_id)}`
+    : '#/student/trainer'
+  return `
+    <section class="practice-card-v2">
+      <div class="practice-card-v2-head">
+        <div>
+          <h3 class="complex-section-title">AI 训练师</h3>
+          <small>基于知识点生成诊断题、深度批改和下一题策略</small>
+        </div>
+      </div>
+      <button class="complex-btn" id="btn-open-trainer" type="button" data-hash="${hash}" style="width:100%;">立即使用</button>
+    </section>`
+}
+
 function buildResumeCard(activeSession) {
   if (!activeSession) {
     return `
@@ -574,6 +591,7 @@ function buildPage(data, state) {
             ${buildModeInfoCard(sessionMode, answerMode)}
           </div>
           <aside class="practice-side-rail">
+            ${buildTrainerEntryCard(subjects, state)}
             ${buildPracticeInsightCard(sessions)}
             ${buildPracticeHistoryCard(sessions)}
             ${buildWrongBookCard(wrongStats)}
@@ -936,6 +954,9 @@ export async function renderStudentPracticeCenter(app) {
     document.getElementById('btn-go-courses')?.addEventListener('click', () => { window.location.hash = '#/student/courses' })
     document.getElementById('btn-go-wrong-book')?.addEventListener('click', () => { window.location.hash = '#/student/wrong-questions' })
     document.getElementById('btn-go-recommendations')?.addEventListener('click', () => { window.location.hash = '#/student/recommendations' })
+    document.getElementById('btn-open-trainer')?.addEventListener('click', (event) => {
+      window.location.hash = event.currentTarget.dataset.hash || '#/student/trainer'
+    })
     document.querySelectorAll('[data-go-recommendations]').forEach(btn => {
       btn.addEventListener('click', () => { window.location.hash = '#/student/recommendations' })
     })

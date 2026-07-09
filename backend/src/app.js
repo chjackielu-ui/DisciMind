@@ -125,6 +125,14 @@ app.use('/api/student', studentChatRoutes);
 const aiChatRoutes = require('./routes/ai-chat.routes');
 app.use('/api/ai-chat', aiChatRoutes);
 
+// Dify 训练师 Workflow
+const trainerRoutes = require('./modules/dify/trainer.routes');
+app.use('/api/ai/trainer', trainerRoutes);
+
+// 训练师 Agent 业务接口
+const trainerAgentRoutes = require('./modules/agent/trainer/trainer.routes');
+app.use('/api/agent/trainer', trainerAgentRoutes);
+
 // 知识库文档模块
 const studentDocumentRoutes = require('./routes/student-document.routes');
 app.use('/api/student', studentDocumentRoutes);

@@ -9,6 +9,7 @@ CREATE TABLE `refresh_tokens` (
     `last_used_at` DATETIME(3) NULL,
     `device_info` VARCHAR(255) NULL,
     `ip_address` VARCHAR(64) NULL,
+    `session_id` INTEGER NULL,
 
     UNIQUE INDEX `refresh_tokens_token_hash_key`(`token_hash`),
     INDEX `refresh_tokens_user_id_idx`(`user_id`),
@@ -21,6 +22,9 @@ ALTER TABLE `refresh_tokens`
     ADD CONSTRAINT `refresh_tokens_user_id_fkey`
     FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`)
     ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Add FK for auth_sessions → refresh_tokens (moved from 20260704174142)
+ALTER TABLE `auth_sessions` ADD CONSTRAINT `auth_sessions_refresh_token_id_fkey` FOREIGN KEY (`refresh_token_id`) REFERENCES `refresh_tokens`(`refresh_token_id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Practice session state machine fields. Existing rows remain readable through service-level compatibility mapping.
 ALTER TABLE `practice_sessions`

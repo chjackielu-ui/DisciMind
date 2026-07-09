@@ -9,6 +9,7 @@ import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatPercent, formatDate } from '../utils/format.js'
 import { disposeAllCharts, bindResize, initChart } from '../utils/echarts.js'
 import * as echarts from 'echarts'
+import { getCourseCoverUrl } from '../utils/course-cover.js'
 
 // ========================
 // 排序
@@ -35,17 +36,21 @@ function renderCoursesChart(courses) {
   if (!courses || courses.length === 0) return
   const inst = initChart('chart-courses-progress')
   if (!inst) return
+  const chartHeight = courses.length === 1 ? 180 : Math.min(240, 80 + courses.length * 50)
+  document.getElementById('chart-courses-progress').style.height = chartHeight + 'px'
   inst.setOption({
-    tooltip: { backgroundColor: 'rgba(22,66,91,0.94)', borderColor: 'rgba(129,195,215,0.3)', borderWidth: 1, textStyle: { color: '#fff', fontSize: 13 } },
-    grid: { left: '3%', right: '4%', top: 10, bottom: 10, containLabel: true },
-    xAxis: { type: 'category', data: courses.map(c => c.course_name), axisLabel: { color: '#627D98', fontSize: 12 }, axisTick: { show: false }, axisLine: { lineStyle: { color: 'rgba(22,66,91,0.1)' } } },
-    yAxis: { type: 'value', max: 100, axisLabel: { color: '#627D98', formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(22,66,91,0.06)' } } },
+    tooltip: { backgroundColor: 'rgba(22,66,91,0.94)', borderColor: 'rgba(129,195,215,0.3)', borderWidth: 1, textStyle: { color: '#fff', fontSize: 12 } },
+    grid: { left: '3%', right: '4%', top: 8, bottom: 8, containLabel: true },
+    xAxis: { type: 'category', data: courses.map(c => c.course_name), axisLabel: { color: '#5A6B80', fontSize: 11 }, axisTick: { show: false }, axisLine: { lineStyle: { color: 'rgba(22,66,91,0.08)' } } },
+    yAxis: { type: 'value', max: 100, axisLabel: { color: '#8899AE', fontSize: 11, formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(22,66,91,0.05)' } } },
     series: [{
-      type: 'bar', barWidth: courses.length === 1 ? 80 : 48,
-      data: courses.map(c => ({ value: c.progress || 0, itemStyle: { borderRadius: [10, 10, 0, 0], color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#81C3D7' }, { offset: 1, color: '#2F6690' }]) } })),
-      label: { show: true, position: 'top', color: '#627D98', fontSize: 13, fontWeight: 'bold', formatter: '{c}%' },
+      type: 'bar', barWidth: courses.length === 1 ? 100 : Math.max(32, 60 - courses.length * 3),
+      data: courses.map(c => ({ value: c.progress || 0, itemStyle: { borderRadius: [8, 8, 0, 0], color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#81C3D7' }, { offset: 1, color: '#2F6690' }]) } })),
+      label: { show: true, position: 'top', color: '#5A6B80', fontSize: 12, fontWeight: 'bold', formatter: '{c}%' },
+      emphasis: { itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#A8D8EA' }, { offset: 1, color: '#3A7CA5' }]) } },
     }],
   })
+  inst.resize()
 }
 
 // ========================
@@ -70,7 +75,57 @@ function buildCourseCard(course) {
   const lastText = course.last_position
     ? `${escapeHtml(course.last_position)}${course.last_study_at ? ' · ' + formatDate(course.last_study_at, 'short') : ''}`
     : '尚未开始'
-  return `<div class="course-card" data-course-id="${course.course_id}"><div class="card-top-bar"></div><div class="card-body"><div class="card-title-row"><div class="card-course-name">${escapeHtml(course.course_name)}</div><div class="card-course-code">${escapeHtml(course.course_code)}</div></div><div class="card-desc">${escapeHtml(course.description || '暂无课程描述')}</div><div class="card-meta"><span class="meta-item">🏫 ${escapeHtml(course.teaching_class_name || '-')}</span>${teachers ? `<span class="meta-item">👨‍🏫 ${escapeHtml(teachers)}</span>` : ''}<span class="meta-item">📖 ${course.chapter_count || 0} 章</span><span class="meta-item">📺 ${course.video_count || 0} 视频</span><span class="meta-item">📝 ${course.question_count || 0} 题</span></div><div class="course-progress-bar-wrap"><div class="progress-header"><span class="progress-label">学习进度</span><span class="progress-value">${formatPercent(progress)}</span></div><div class="course-progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div><div class="course-last-position">${lastText}</div></div><div class="kp-stats-row"><div class="kp-stat-item"><div class="kp-stat-value">${total}</div><div class="kp-stat-label">总知识点</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#4CAF84;">${mastered}</div><div class="kp-stat-label">已掌握</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#F0B85E;">${general}</div><div class="kp-stat-label">一般</div></div><div class="kp-stat-item"><div class="kp-stat-value" style="color:#E0576E;">${weak}</div><div class="kp-stat-label">薄弱</div></div></div><div class="course-card-actions"><button class="btn-enter-course">${progress > 0 ? '继续学习' : '开始学习'} →</button><button class="btn-course-wrong-book" type="button">错题本</button></div></div></div>`
+
+  const coverUrl = getCourseCoverUrl(course)
+  const fallbackCover = '/pics/books/book_covers/default.svg'
+
+  // 右侧封面区域
+  const coverPanelHTML = `
+    <div class="course-card-cover-panel">
+      <div class="cover-bg-pattern"></div>
+      ${coverUrl
+        ? `<img src="${escapeHtml(coverUrl)}" alt="《${escapeHtml(course.course_name)}》课程封面" loading="lazy" onerror="this.onerror=null;this.src='${escapeHtml(fallbackCover)}';" />`
+        : `<div class="cover-placeholder" aria-hidden="true">${escapeHtml((course.course_name || '课').slice(0, 1))}</div>`}
+    </div>`
+
+  // 课程代码、教师、视频、习题
+  const code = course.course_code ? `<span>${escapeHtml(course.course_code)}</span>` : ''
+  const teacherSpan = teachers ? `<span>${escapeHtml(teachers)}</span>` : ''
+  const stats = [
+    course.question_count ? `${course.question_count} 习题` : '',
+    course.video_count ? `${course.video_count} 视频` : '',
+  ].filter(Boolean).join(' · ')
+
+  return `<article class="course-card-h" data-course-id="${course.course_id}">
+    <div class="course-card-main">
+      <h3 class="course-card-name">${escapeHtml(course.course_name)}</h3>
+      <p class="course-card-desc">${escapeHtml(course.description || '暂无课程描述')}</p>
+      <div class="course-card-meta-row">
+        ${code}${code && teacherSpan ? ' · ' : ''}${teacherSpan}${(code || teacherSpan) && stats ? ' · ' : ''}${stats}
+      </div>
+      <div class="course-card-last">${lastText}</div>
+    </div>
+    <div class="course-card-progress">
+      <div class="progress-header-h">
+        <span>学习进度</span>
+        <b>${formatPercent(progress)}</b>
+      </div>
+      <div class="progress-bar-h">
+        <div class="progress-bar-h-fill" style="width:${progress}%"></div>
+      </div>
+      <div class="kp-inline-stats">
+        <span class="kp-stat">${total} 总</span>
+        <span class="kp-stat mastered">${mastered} 已掌握</span>
+        <span class="kp-stat general">${general} 一般</span>
+        <span class="kp-stat weak">${weak} 薄弱</span>
+      </div>
+      <div class="course-card-actions-h">
+        <button class="btn-enter-course-h">${progress > 0 ? '继续学习' : '开始学习'} →</button>
+        <button class="btn-course-wrong-book-h" type="button">错题本</button>
+      </div>
+    </div>
+    ${coverPanelHTML}
+  </article>`
 }
 
 // ========================
@@ -100,7 +155,7 @@ export async function renderStudentCourses(app) {
     contentHTML = `
       <div class="page-header"><div class="page-header-row"><div><h1 class="page-title">我的课程</h1><p class="page-subtitle">查看当前已加入课程、学习进度与知识点掌握状态</p></div><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><div class="search-box"><span class="search-icon">🔍</span><input type="text" id="course-search" placeholder="搜索课程名称或代码..." /></div><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="course-sort"><option value="progress-desc">学习进度↓</option><option value="progress-asc">学习进度↑</option><option value="name">课程名称</option><option value="weak-desc">薄弱知识点↓</option><option value="mastered-desc">已掌握知识点↓</option></select></div></div></div></div>
       ${buildOverviewBar(courses)}
-      <div class="chart-card" style="margin-bottom:28px;"><div class="chart-header"><span class="chart-title">📊 课程学习进度对比</span></div><div class="chart-container" id="chart-courses-progress" style="height:${courses.length === 1 ? '200px' : '300px'};"></div></div>
+      <div class="chart-card" style="margin-bottom:24px;"><div class="chart-header"><span class="chart-title">课程学习进度对比</span></div><div class="chart-container" id="chart-courses-progress" style="height:220px;"></div></div>
       <div class="courses-grid" id="courses-grid">${sortCourses(courses, defaultSort).map(c => buildCourseCard(c)).join('')}</div>
       <div id="no-filter-results" class="no-filter-results" style="display:none;">没有符合筛选条件的课程<span class="btn-clear-filter" id="btn-clear-filter">清除筛选</span></div>
     `
@@ -142,21 +197,21 @@ function bindEvents(courses) {
   bindCardClicks()
 
   function bindCardClicks() {
-    document.querySelectorAll('.course-card').forEach(card => {
+    document.querySelectorAll('.course-card-h').forEach(card => {
       card.addEventListener('click', (e) => {
         if (e.target.closest('button')) return
         const cid = card.dataset.courseId; if (cid) window.location.hash = `#/student/courses/${cid}`
       })
     })
-    document.querySelectorAll('.btn-enter-course').forEach(btn => {
+    document.querySelectorAll('.btn-enter-course-h').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        e.stopPropagation(); const card = btn.closest('.course-card'); const cid = card?.dataset.courseId; if (cid) window.location.hash = `#/student/courses/${cid}`
+        e.stopPropagation(); const card = btn.closest('.course-card-h'); const cid = card?.dataset.courseId; if (cid) window.location.hash = `#/student/courses/${cid}`
       })
     })
-    document.querySelectorAll('.btn-course-wrong-book').forEach(btn => {
+    document.querySelectorAll('.btn-course-wrong-book-h').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
-        const card = btn.closest('.course-card')
+        const card = btn.closest('.course-card-h')
         const cid = card?.dataset.courseId
         if (cid) window.location.hash = `#/student/wrong-questions?subjectId=${encodeURIComponent(cid)}`
       })

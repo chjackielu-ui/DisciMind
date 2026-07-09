@@ -14,10 +14,12 @@ import { renderStudentProfile } from '../pages/student-profile.js'
 import { renderStudentAiChat } from '../pages/student-ai-chat.js'
 import { renderStudentPracticeCenter } from '../pages/student-practice-center.js'
 import { renderStudentPracticeSession } from '../pages/student-practice-session.js'
+import { renderStudentTrainerSession } from '../pages/student-trainer-session.js'
 import { renderStudentTaskAnswer } from '../pages/student-task-answer.js'
 import { renderStudentSubmissionResult } from '../pages/student-submission-result.js'
 import { renderStudentDocuments } from '../pages/student-documents.js'
 import { renderStudentVideos } from '../pages/student-videos.js'
+import { renderStudentAgentDetail } from '../pages/agent/AgentDetailPage.js'
 import { getActivePracticeAttempt } from '../api/student.js'
 import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
 import { renderTeacherCourses } from '../pages/teacher-courses.js'
@@ -62,6 +64,7 @@ const staticRoutes = {
   '/student/dashboard': { render: renderStudentDashboard, auth: true, roles: ['student'] },
   '/student/courses': { render: renderStudentCourses, auth: true, roles: ['student'] },
   '/student/practice': { render: renderStudentPracticeCenter, auth: true, roles: ['student'] },
+  '/student/trainer': { render: renderStudentTrainerSession, auth: true, roles: ['student'] },
   '/student/wrong-questions': { render: renderStudentWrongQuestions, auth: true, roles: ['student'] },
   '/student/recommendations': { render: renderStudentRecommendations, auth: true, roles: ['student'] },
   '/student/portrait': { render: renderStudentPortrait, auth: true, roles: ['student'] },
@@ -69,6 +72,7 @@ const staticRoutes = {
   '/student/ai-chat': { render: renderStudentAiChat, auth: true, roles: ['student'] },
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
+  '/student/agents/trainer': { render: renderStudentAgentDetail, auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/courses': { render: renderTeacherCourses, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/students': { render: renderTeacherStudents, auth: true, roles: ['teacher', 'admin'] },
@@ -104,6 +108,14 @@ const dynamicRoutes = [
     auth: true,
     roles: ['student'],
     paramNames: ['practice_session_id'],
+  },
+  {
+    // #/student/trainer/sessions/:session_id
+    pattern: /^\/student\/trainer\/sessions\/(\d+)$/,
+    render: renderStudentTrainerSession,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['session_id'],
   },
   {
     // #/student/courses/:course_id
