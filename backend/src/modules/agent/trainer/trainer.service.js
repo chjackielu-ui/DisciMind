@@ -4,7 +4,13 @@ const prisma = require('../../../config/prisma');
 const masteryService = require('../../../services/mastery.service');
 const wrongQuestionService = require('../../../services/wrong-question.service');
 const trainerWorkflowService = require('../../dify/trainer-workflow.service');
+const diagnosticianService = require('../diagnostician/diagnostician.service');
 const { TrainerWorkflowError } = require('../../dify/trainer.errors');
+const {
+  applyClaimedIntervention,
+  claimPendingIntervention,
+  failClaimedIntervention,
+} = require('../common/intervention.service');
 const { createTrainerAgentError } = require('./trainer.errors');
 const {
   pickQuestionKey,
@@ -26,6 +32,16 @@ const PRACTICE_MODE = 'AI_TRAINER';
 const ACTIVE_STATUSES = ['CREATED', 'IN_PROGRESS', 'SUBMITTING', 'created', 'in_progress', 'submitting'];
 const FINAL_STATUSES = ['SUBMITTED', 'ABANDONED', 'EXPIRED', 'submitted', 'abandoned', 'expired', 'graded'];
 const QUESTION_SCORE = 10;
+const TRAINER_NODE_DEFAULTS = Object.freeze({
+  targetQuestionCount: 5,
+  minQuestionCount: 3,
+  maxQuestionCount: 8,
+  targetMastery: 80,
+  consecutiveCorrectToFinish: 3,
+  allowSkip: true,
+  difficultyMode: 'adaptive',
+  exitMode: 'target_or_mastery_or_streak',
+});
 
 const QUESTION_TYPE_TO_PRISMA = {
   single_choice: 'SINGLE_CHOICE',
@@ -48,6 +64,93 @@ const DIFFICULTY_TO_PRISMA = {
 
 function lower(value) {
   return value == null ? null : String(value).toLowerCase();
+}
+
+function boundedInt(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
+
+function normalizePracticeConfig(config = {}, fallbackTarget = TRAINER_NODE_DEFAULTS.targetQuestionCount) {
+  const targetQuestionCount = boundedInt(
+    config.targetQuestionCount ?? config.questionCount,
+    fallbackTarget,
+    1,
+    20,
+  );
+  const minQuestionCount = boundedInt(
+    config.minQuestionCount,
+    Math.min(TRAINER_NODE_DEFAULTS.minQuestionCount, targetQuestionCount),
+    1,
+    targetQuestionCount,
+  );
+  const maxQuestionCount = boundedInt(
+    config.maxQuestionCount,
+    Math.max(TRAINER_NODE_DEFAULTS.maxQuestionCount, targetQuestionCount),
+    targetQuestionCount,
+    20,
+  );
+  return {
+    targetQuestionCount,
+    minQuestionCount,
+    maxQuestionCount,
+    targetMastery: boundedInt(config.targetMastery, TRAINER_NODE_DEFAULTS.targetMastery, 0, 100),
+    consecutiveCorrectToFinish: boundedInt(
+      config.consecutiveCorrectToFinish,
+      TRAINER_NODE_DEFAULTS.consecutiveCorrectToFinish,
+      1,
+      maxQuestionCount,
+    ),
+    allowSkip: config.allowSkip !== false,
+    difficultyMode: String(config.difficultyMode || TRAINER_NODE_DEFAULTS.difficultyMode),
+    exitMode: String(config.exitMode || TRAINER_NODE_DEFAULTS.exitMode),
+  };
+}
+
+function workflowBinding(params = {}) {
+  if (!params.learningSessionId || !params.nodeExecutionId) return null;
+  return {
+    learningSessionId: Number(params.learningSessionId),
+    nodeExecutionId: Number(params.nodeExecutionId),
+    executionVersion: Number(params.executionVersion || 1),
+  };
+}
+
+function getWorkflowBinding(session) {
+  return session?.navigation_config?.learningWorkflow || null;
+}
+
+function isCancelledError(err) {
+  return ['TRAINER_RUN_CANCELLED', 'STALE_NODE_EXECUTION', 'SESSION_CLOSED'].includes(err?.code);
+}
+
+async function assertWorkflowExecutionActive(sessionId, binding) {
+  if (!binding) return true;
+  const [practiceSession, nodeRun, learningSession] = await Promise.all([
+    prisma.practiceSession.findUnique({
+      where: { practice_session_id: Number(sessionId) },
+      select: { status: true },
+    }),
+    prisma.learningSessionNodeRun.findUnique({
+      where: { node_run_id: Number(binding.nodeExecutionId) },
+      select: { status: true, trainer_session_id: true, execution_version: true, session_id: true },
+    }),
+    prisma.learningSession.findUnique({
+      where: { session_id: Number(binding.learningSessionId) },
+      select: { current_node_run_id: true, status: true },
+    }),
+  ]);
+  const active = practiceSession && ACTIVE_STATUSES.includes(practiceSession.status)
+    && nodeRun?.status === 'RUNNING'
+    && Number(nodeRun.trainer_session_id) === Number(sessionId)
+    && Number(nodeRun.execution_version || 1) === Number(binding.executionVersion || 1)
+    && Number(nodeRun.session_id) === Number(binding.learningSessionId)
+    && Number(learningSession?.current_node_run_id) === Number(binding.nodeExecutionId)
+    && learningSession?.status === 'RUNNING';
+  if (!active) {
+    throw createTrainerAgentError('TRAINER_RUN_CANCELLED', '当前训练请求已取消或已过期', 409);
+  }
+  return true;
 }
 
 function isFinalStatus(status) {
@@ -404,7 +507,8 @@ async function getTrainerContext(userId, params) {
       lastWrongAt: toIso(item.last_wrong_at),
       updatedAt: toIso(item.updated_at),
     })),
-    activeSession: activeSession
+    // 学习流节点只复用绑定到同一个 nodeExecution 的会话；普通训练页才受课程级活动会话约束。
+    activeSession: workflowBinding(params) ? null : activeSession
       ? {
           sessionId: activeSession.practice_session_id,
           status: activeSession.status,
@@ -490,8 +594,8 @@ function metadataElapsedMs(metadata) {
 }
 
 async function markRunSuccess(runId, metadata, outputSummary) {
-  return prisma.agentRunRecord.update({
-    where: { agent_run_id: runId },
+  return prisma.agentRunRecord.updateMany({
+    where: { agent_run_id: runId, status: 'RUNNING' },
     data: {
       status: 'SUCCESS',
       dify_workflow_run_id: metadata?.workflow_run_id || null,
@@ -505,8 +609,8 @@ async function markRunSuccess(runId, metadata, outputSummary) {
 }
 
 async function markRunFailed(runId, err) {
-  return prisma.agentRunRecord.update({
-    where: { agent_run_id: runId },
+  return prisma.agentRunRecord.updateMany({
+    where: { agent_run_id: runId, status: 'RUNNING' },
     data: {
       status: 'FAILED',
       error_code: err?.code || 'TRAINER_INTERNAL_ERROR',
@@ -589,17 +693,25 @@ async function persistTrainerQuestion(tx, {
 }
 
 async function createTrainerSession(userId, params) {
-  const context = await getTrainerContext(userId, params);
+  // 传统 Trainer API 的 questionCount 仅表示首批诊断题数；学习流才通过 practiceConfig 声明节点退出题量。
+  const practiceConfig = normalizePracticeConfig(
+    params.practiceConfig || {},
+    params.practiceConfig ? params.questionCount : TRAINER_NODE_DEFAULTS.targetQuestionCount,
+  );
+  const normalizedParams = { ...params, questionCount: practiceConfig.targetQuestionCount };
+  const binding = workflowBinding(normalizedParams);
+  const context = await getTrainerContext(userId, normalizedParams);
+
+  // 幂等: 如果已有活动会话, 直接返回 (不抛错)
   if (context.activeSession) {
-    throw createTrainerAgentError('EXISTING_ACTIVE_SESSION', '已有进行中的训练师会话', 409, {
-      sessionId: context.activeSession.sessionId,
-    });
+    const existingSession = await getTrainerSession(userId, context.activeSession.sessionId);
+    return { ...existingSession, reused: true };
   }
 
   const existingRun = await prisma.agentRunRecord.findFirst({
     where: {
       user_id: userId,
-      request_id: params.requestId,
+      request_id: normalizedParams.requestId,
       agent_type: 'TRAINER',
       mode: 'diagnostic_pre_test',
       status: 'SUCCESS',
@@ -611,7 +723,7 @@ async function createTrainerSession(userId, params) {
     return getTrainerSession(userId, existingRun.practice_session_id);
   }
 
-  const payload = buildDiagnosticPayload(context, params);
+  const payload = buildDiagnosticPayload(context, normalizedParams);
   const difyUser = trainerWorkflowService.buildDifyUser(userId);
   let session;
   let runRecord;
@@ -620,8 +732,8 @@ async function createTrainerSession(userId, params) {
     session = await tx.practiceSession.create({
       data: {
         student_user_id: userId,
-        course_id: params.courseId,
-        knowledge_point_id: params.knowledgePointId,
+          course_id: normalizedParams.courseId,
+          knowledge_point_id: normalizedParams.knowledgePointId,
         teaching_class_id: context.enrollment.teachingClassId,
         mode: PRACTICE_MODE,
         answer_mode: 'SINGLE',
@@ -631,11 +743,13 @@ async function createTrainerSession(userId, params) {
         last_active_at: new Date(),
         max_score: 0,
         source_type: SOURCE_TYPE,
-        navigation_config: {
-          navigationMode: 'ADAPTIVE',
-          allowModifyConfirmedAnswer: false,
-          showResultAfterItemSubmit: true,
-        },
+          navigation_config: {
+            navigationMode: 'ADAPTIVE',
+            allowModifyConfirmedAnswer: false,
+            showResultAfterItemSubmit: true,
+            practiceConfig,
+            ...(binding ? { learningWorkflow: binding } : {}),
+          },
       },
     });
 
@@ -644,22 +758,39 @@ async function createTrainerSession(userId, params) {
         practice_session_id: session.practice_session_id,
         current_phase: 'diagnostic_generating',
         mastery_before: context.mastery.masteryScore,
-        question_count: params.questionCount,
-        diagnostic_summary_json: {
-          contextLoaded: true,
-          requestedQuestionCount: params.questionCount,
+          question_count: practiceConfig.targetQuestionCount,
+          diagnostic_summary_json: {
+            contextLoaded: true,
+            requestedQuestionCount: practiceConfig.targetQuestionCount,
+            practiceConfig,
+            ...(binding ? { learningWorkflow: binding } : {}),
+          },
         },
-      },
-    });
+      });
+
+      if (binding) {
+        const linked = await tx.learningSessionNodeRun.updateMany({
+          where: {
+            node_run_id: binding.nodeExecutionId,
+            session_id: binding.learningSessionId,
+            status: 'RUNNING',
+            execution_version: binding.executionVersion,
+          },
+          data: { trainer_session_id: session.practice_session_id, agent_type: 'TRAINER' },
+        });
+        if (!linked.count) {
+          throw createTrainerAgentError('TRAINER_RUN_CANCELLED', '学习流节点已经结束，不能创建训练会话', 409);
+        }
+      }
 
     runRecord = await tx.agentRunRecord.create({
       data: {
         user_id: userId,
         student_user_id: userId,
-        course_id: params.courseId,
+          course_id: normalizedParams.courseId,
         practice_session_id: session.practice_session_id,
         agent_type: 'TRAINER',
-        request_id: params.requestId,
+          request_id: normalizedParams.requestId,
         mode: 'diagnostic_pre_test',
         status: 'RUNNING',
         input_summary: buildInputSummary(context, payload),
@@ -671,15 +802,18 @@ async function createTrainerSession(userId, params) {
   try {
     const { businessResult, metadata } = await trainerWorkflowService.runTrainerWorkflow({
       mode: 'diagnostic_pre_test',
-      requestId: params.requestId,
+      requestId: normalizedParams.requestId,
       payload,
-      locale: params.locale,
+      locale: normalizedParams.locale,
       debug: false,
       difyUser,
     });
 
+    // Dify 不能保证物理取消；在任何题目落库前重新确认学习流 nodeExecution 仍有效。
+    await assertWorkflowExecutionActive(session.practice_session_id, binding);
+
     const questions = extractDiagnosticQuestions(businessResult)
-      .slice(0, params.questionCount)
+      .slice(0, practiceConfig.targetQuestionCount)
       .map((question, index) => normalizeFullQuestion(question, index + 1));
 
     if (questions.length === 0) {
@@ -691,8 +825,8 @@ async function createTrainerSession(userId, params) {
       for (let i = 0; i < questions.length; i += 1) {
         persisted.push(await persistTrainerQuestion(tx, {
           sessionId: session.practice_session_id,
-          courseId: params.courseId,
-          knowledgePointId: params.knowledgePointId,
+          courseId: normalizedParams.courseId,
+          knowledgePointId: normalizedParams.knowledgePointId,
           userId,
           fullQuestion: questions[i],
           questionOrder: i + 1,
@@ -718,9 +852,11 @@ async function createTrainerSession(userId, params) {
           current_question_key: persisted[0].publicQuestion.questionKey,
           question_count: persisted.length,
           diagnostic_summary_json: {
-            requestId: businessResult.request_id || params.requestId,
-            mode: businessResult.mode || 'diagnostic_pre_test',
-            questionCount: persisted.length,
+            requestId: businessResult.request_id || normalizedParams.requestId,
+          mode: businessResult.mode || 'diagnostic_pre_test',
+          questionCount: persisted.length,
+          practiceConfig,
+          ...(binding ? { learningWorkflow: binding } : {}),
             summary: getBusinessResultPayload(businessResult).summary || null,
           },
         },
@@ -728,13 +864,16 @@ async function createTrainerSession(userId, params) {
     });
 
     await markRunSuccess(runRecord.agent_run_id, metadata, {
-      requestId: businessResult.request_id || params.requestId,
+      requestId: businessResult.request_id || normalizedParams.requestId,
       mode: businessResult.mode || 'diagnostic_pre_test',
       questionCount: questions.length,
     });
 
     return getTrainerSession(userId, session.practice_session_id);
   } catch (err) {
+    if (isCancelledError(err)) {
+      return { cancelled: true, session: await getTrainerSession(userId, session.practice_session_id).catch(() => null) };
+    }
     await markRunFailed(runRecord.agent_run_id, err);
     await failPracticeSession(session.practice_session_id, err);
     throw err;
@@ -840,13 +979,38 @@ function buildSessionView(session) {
     progress,
     latestFeedback,
     latestAdaptiveDecision,
+    practiceConfig: normalizePracticeConfig(
+      session.trainer_detail?.diagnostic_summary_json?.practiceConfig
+        || session.navigation_config?.practiceConfig
+        || {},
+      session.trainer_detail?.question_count || session.question_count,
+    ),
   };
 }
 
 async function getTrainerSession(userId, sessionId) {
   const session = await loadTrainerSession(userId, sessionId);
+  const mastery = await prisma.studentMasteryRecord.findUnique({
+    where: {
+      student_user_id_course_id_knowledge_point_id: {
+        student_user_id: Number(userId),
+        course_id: session.course_id,
+        knowledge_point_id: session.knowledge_point_id,
+      },
+    },
+  }).catch(() => null);
+  const practiceConfig = normalizePracticeConfig(
+    session.trainer_detail?.diagnostic_summary_json?.practiceConfig
+      || session.navigation_config?.practiceConfig
+      || {},
+    session.trainer_detail?.question_count || session.question_count,
+  );
+  const completion = shouldCompleteTrainerNode(buildCompletionContext(session, mastery?.mastery_score ?? null, practiceConfig));
   return {
     ...buildSessionView(session),
+    practiceConfig,
+    currentMastery: mastery?.mastery_score ?? session.trainer_detail?.mastery_after ?? null,
+    completion,
     events: buildEventsFromSession(session),
   };
 }
@@ -909,6 +1073,14 @@ async function getNextUnansweredQuestion(sessionId, excludeQuestionId = null) {
 }
 
 async function persistAdaptiveQuestionIfNeeded({ session, businessResult, userId }) {
+  const practiceConfig = normalizePracticeConfig(
+    session.trainer_detail?.diagnostic_summary_json?.practiceConfig
+      || session.navigation_config?.practiceConfig
+      || {},
+    session.trainer_detail?.question_count || session.question_count,
+  );
+  if ((session.trainer_questions || []).length >= practiceConfig.maxQuestionCount) return null;
+  await assertWorkflowExecutionActive(session.practice_session_id, getWorkflowBinding(session));
   const nextExisting = await getNextUnansweredQuestion(session.practice_session_id);
   if (nextExisting) return nextExisting.public_question_json;
 
@@ -1000,7 +1172,28 @@ function buildDeepEvaluationPayload({ session, trainerQuestion, fullQuestion, an
   };
 }
 
-function buildAdaptivePayload({ session, trainerQuestion, answerResult, evaluation }) {
+async function loadPendingTrainerIntervention(userId, session) {
+  return claimPendingIntervention({
+    studentUserId: userId,
+    targetAgent: 'trainer',
+    courseId: session.course_id,
+    knowledgePointId: session.knowledge_point_id,
+    practiceSessionId: session.practice_session_id,
+  });
+}
+
+function interventionPayload(intervention) {
+  if (!intervention) return null;
+  return {
+    id: intervention.intervention_uid,
+    action: intervention.action,
+    params: intervention.params_json || {},
+    reason: intervention.trigger_reason || '',
+    source: intervention.source,
+  };
+}
+
+function buildAdaptivePayload({ session, trainerQuestion, answerResult, evaluation, pendingIntervention = null }) {
   const fullQuestion = trainerQuestion.full_question_json || {};
   return {
     session: {
@@ -1021,6 +1214,7 @@ function buildAdaptivePayload({ session, trainerQuestion, answerResult, evaluati
       selected_option: answerResult.selectedOption,
     },
     deep_evaluation: evaluation,
+    diagnostician_instruction: interventionPayload(pendingIntervention),
     recent_questions: (session.trainer_questions || []).map((item) => ({
       question_key: item.question_key,
       question_order: item.question_order,
@@ -1030,10 +1224,74 @@ function buildAdaptivePayload({ session, trainerQuestion, answerResult, evaluati
   };
 }
 
+// ========================
+// Trainer 节点退出规则 (硬性上限 + 业务完成条件)
+// ========================
+
+function shouldCompleteTrainerNode(context) {
+  const {
+    answeredCount, targetQuestionCount, minQuestionCount, maxQuestionCount,
+    consecutiveCorrect, currentMastery, targetMastery,
+    consecutiveCorrectToFinish,
+  } = context;
+
+  // maxQuestionCount 是硬上限：无论 Agent 给出何种策略，都不能继续生成题目。
+  if (answeredCount >= maxQuestionCount) {
+    return { shouldComplete: true, reason: 'max_questions_reached' };
+  }
+  if (answeredCount >= targetQuestionCount) {
+    return { shouldComplete: true, reason: 'target_questions_reached' };
+  }
+  if (answeredCount >= minQuestionCount && currentMastery != null && Number(currentMastery) >= targetMastery) {
+    return { shouldComplete: true, reason: 'target_mastery_reached', earlyReached: true };
+  }
+  if (answeredCount >= minQuestionCount && consecutiveCorrect >= consecutiveCorrectToFinish) {
+    return { shouldComplete: true, reason: 'consecutive_correct_reached', earlyReached: true };
+  }
+  return { shouldComplete: false, reason: 'in_progress' };
+}
+
+function buildCompletionContext(session, currentMastery = null, practiceConfig = null) {
+  const answered = session.answer_records || [];
+  const answeredCount = answered.length;
+  const config = practiceConfig || normalizePracticeConfig(
+    session.trainer_detail?.diagnostic_summary_json?.practiceConfig
+      || session.navigation_config?.practiceConfig
+      || {},
+    session.trainer_detail?.question_count || session.question_count,
+  );
+  let consecutiveCorrect = 0;
+  for (const record of answered) {
+    consecutiveCorrect = record.is_correct === true ? consecutiveCorrect + 1 : 0;
+  }
+
+  const correctCount = answered.filter((r) => r.is_correct === true).length;
+  const accuracy = answeredCount > 0 ? correctCount / answeredCount : 0;
+
+  return {
+    answeredCount,
+    correctCount,
+    targetQuestionCount: config.targetQuestionCount,
+    minQuestionCount: config.minQuestionCount,
+    maxQuestionCount: config.maxQuestionCount,
+    consecutiveCorrect,
+    currentMastery,
+    targetMastery: config.targetMastery,
+    consecutiveCorrectToFinish: config.consecutiveCorrectToFinish,
+    accuracy,
+  };
+}
+
 async function submitTrainerAnswer(userId, sessionId, params) {
   let session = await loadTrainerSession(userId, sessionId);
+  await assertWorkflowExecutionActive(sessionId, getWorkflowBinding(session));
   if (isFinalStatus(session.status)) {
     throw createTrainerAgentError('SESSION_CLOSED', '完成或放弃后的会话不能继续答题', 400);
+  }
+
+  // 检查是否已完成 (shouldComplete=true 后拒绝继续生成题目)
+  if (session.trainer_detail?.current_phase === 'completed') {
+    throw createTrainerAgentError('SESSION_ALREADY_COMPLETED', '训练师练习已完成，不能继续答题', 400);
   }
 
   const trainerQuestion = (session.trainer_questions || []).find((item) => item.question_key === params.questionKey);
@@ -1118,6 +1376,7 @@ async function submitTrainerAnswer(userId, sessionId, params) {
       debug: false,
       difyUser,
     });
+    await assertWorkflowExecutionActive(sessionId, getWorkflowBinding(session));
     evaluation = extractEvaluationResult(businessResult);
     await markRunSuccess(evalRun.agent_run_id, metadata, {
       mode: businessResult.mode || 'deep_evaluation',
@@ -1126,6 +1385,7 @@ async function submitTrainerAnswer(userId, sessionId, params) {
       errorType: evaluation.error_type || null,
     });
   } catch (err) {
+    if (isCancelledError(err)) throw err;
     evaluationFailed = true;
     evaluation = {
       status: 'unavailable',
@@ -1189,7 +1449,25 @@ async function submitTrainerAnswer(userId, sessionId, params) {
 
   session = await loadTrainerSession(userId, sessionId);
 
-  if (!evaluationFailed) {
+  const currentMasteryRecord = await prisma.studentMasteryRecord.findUnique({
+    where: {
+      student_user_id_course_id_knowledge_point_id: {
+        student_user_id: Number(userId),
+        course_id: session.course_id,
+        knowledge_point_id: session.knowledge_point_id,
+      },
+    },
+  }).catch(() => null);
+  const practiceConfig = normalizePracticeConfig(
+    session.trainer_detail?.diagnostic_summary_json?.practiceConfig
+      || session.navigation_config?.practiceConfig
+      || {},
+    session.trainer_detail?.question_count || session.question_count,
+  );
+  const completionContext = buildCompletionContext(session, currentMasteryRecord?.mastery_score ?? null, practiceConfig);
+  const completion = shouldCompleteTrainerNode(completionContext);
+
+  if (!completion.shouldComplete && !evaluationFailed) {
     const adaptiveRequestId = `${params.requestId}_adaptive_${sessionId}_${trainerQuestion.question_key}`.slice(0, 128);
     const adaptiveRun = await createRunRecord({
       userId,
@@ -1202,6 +1480,17 @@ async function submitTrainerAnswer(userId, sessionId, params) {
         isCorrect: answerResult.isCorrect,
       },
     });
+    const pendingTrainerIntervention = await loadPendingTrainerIntervention(userId, session);
+    if (pendingTrainerIntervention) {
+      adaptiveRun.input_summary = {
+        ...(adaptiveRun.input_summary || {}),
+        diagnosticianInstruction: interventionPayload(pendingTrainerIntervention),
+      };
+      await prisma.agentRunRecord.update({
+        where: { agent_run_id: adaptiveRun.agent_run_id },
+        data: { input_summary: adaptiveRun.input_summary },
+      }).catch(() => null);
+    }
 
     try {
       const difyUser = trainerWorkflowService.buildDifyUser(userId);
@@ -1213,6 +1502,7 @@ async function submitTrainerAnswer(userId, sessionId, params) {
           trainerQuestion,
           answerResult,
           evaluation,
+          pendingIntervention: pendingTrainerIntervention,
         }),
         locale: params.locale,
         debug: false,
@@ -1229,8 +1519,19 @@ async function submitTrainerAnswer(userId, sessionId, params) {
         questionKey: trainerQuestion.question_key,
         action: adaptiveDecision?.action || null,
         hasNextQuestion: Boolean(nextQuestion),
+        appliedIntervention: pendingTrainerIntervention?.intervention_uid || null,
       });
+      if (pendingTrainerIntervention) {
+        await applyClaimedIntervention(pendingTrainerIntervention, {
+          runId: adaptiveRun.agent_run_id,
+          result: {
+            adaptiveAction: adaptiveDecision?.action || null,
+            nextQuestion: Boolean(nextQuestion),
+          },
+        }).catch(() => null);
+      }
     } catch (err) {
+      if (isCancelledError(err)) throw err;
       adaptiveDecision = {
         status: 'unavailable',
         errorCode: err?.code || 'TRAINER_ADAPTIVE_FAILED',
@@ -1238,8 +1539,14 @@ async function submitTrainerAnswer(userId, sessionId, params) {
       };
       nextQuestion = (await getNextUnansweredQuestion(sessionId))?.public_question_json || null;
       await markRunFailed(adaptiveRun.agent_run_id, err);
+      if (pendingTrainerIntervention) {
+        await failClaimedIntervention(pendingTrainerIntervention, {
+          runId: adaptiveRun.agent_run_id,
+          error: err,
+        }).catch(() => null);
+      }
     }
-  } else {
+  } else if (!completion.shouldComplete) {
     nextQuestion = (await getNextUnansweredQuestion(sessionId))?.public_question_json || null;
   }
 
@@ -1282,6 +1589,39 @@ async function submitTrainerAnswer(userId, sessionId, params) {
   }
 
   const refreshed = await loadTrainerSession(userId, sessionId);
+
+  // 如果应该完成，清空 nextQuestion 并标记练习完成
+  if (completion.shouldComplete) {
+    nextQuestion = null;
+    await prisma.trainerSessionDetail.update({
+      where: { practice_session_id: sessionId },
+      data: { current_phase: 'completed' },
+    }).catch(() => null);
+
+    console.log('[trainer.service] Trainer 节点完成:', {
+      sessionId,
+      reason: completion.reason,
+      answeredCount: completionContext.answeredCount,
+      correctCount: completionContext.correctCount,
+      accuracy: Math.round(completionContext.accuracy * 100) + '%',
+    });
+  }
+
+  let diagnosticianIntervention = null;
+  try {
+    diagnosticianIntervention = await diagnosticianService.maybeGenerateInterventionAfterTrainerAnswer(userId, sessionId, {
+      locale: params.locale,
+      requestId: `${params.requestId}_diagnostician_${sessionId}_${trainerQuestion.question_key}`.slice(0, 128),
+    });
+  } catch (err) {
+    console.warn('[trainer.service] 诊断师干预触发失败:', {
+      sessionId,
+      questionKey: trainerQuestion.question_key,
+      code: err?.code || 'DIAGNOSTICIAN_TRIGGER_FAILED',
+      message: err?.message,
+    });
+  }
+
   return {
     answerResult: {
       answerRecordId: answerRecord.answer_record_id,
@@ -1302,7 +1642,23 @@ async function submitTrainerAnswer(userId, sessionId, params) {
     nextQuestion,
     sessionProgress: buildSessionView(refreshed).progress,
     agentEvents: buildEventsFromSession(refreshed),
+    diagnosticianIntervention,
     duplicated: false,
+    completion: {
+      shouldComplete: completion.shouldComplete,
+      reason: completion.reason,
+      answeredCount: completionContext.answeredCount,
+      correctCount: completionContext.correctCount,
+      accuracy: Math.round(completionContext.accuracy * 100) / 100,
+      maxQuestionCount: completionContext.maxQuestionCount,
+      targetQuestionCount: completionContext.targetQuestionCount,
+      minQuestionCount: completionContext.minQuestionCount,
+      currentMastery: completionContext.currentMastery,
+      targetMastery: completionContext.targetMastery,
+      consecutiveCorrect: completionContext.consecutiveCorrect,
+      consecutiveCorrectToFinish: completionContext.consecutiveCorrectToFinish,
+      earlyReached: completion.earlyReached || false,
+    },
   };
 }
 
@@ -1585,5 +1941,8 @@ module.exports = {
   getTrainerSession,
   listTrainerSessions,
   normalizeFullQuestion,
+  normalizePracticeConfig,
+  shouldCompleteTrainerNode,
+  buildCompletionContext,
   submitTrainerAnswer,
 };

@@ -7,6 +7,7 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node --test \"test/*.test.js\"",
+    "diagnose:dify": "node scripts/diagnose-dify-agents.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

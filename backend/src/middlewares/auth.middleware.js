@@ -23,11 +23,21 @@ async function authMiddleware(req, res, next) {
 
   // 没有 token
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
+    const authErrRes = {
       code: 40101,
+      source: 'discimind',
+      stage: 'local_jwt_authentication',
       message: '未登录或 token 缺失',
       data: null,
-    });
+    };
+    // Log diagnostic info without exposing full token
+    if (authHeader) {
+      const partial = authHeader.substring(0, 20) + '...';
+      console.log(`[Agent][auth] failed stage=local_jwt_authentication status=401 reason=invalid_header partial=${partial}`);
+    } else {
+      console.log(`[Agent][auth] failed stage=local_jwt_authentication status=401 reason=missing_header`);
+    }
+    return res.status(401).json(authErrRes);
   }
 
   const token = authHeader.split(' ')[1];
@@ -46,6 +56,8 @@ async function authMiddleware(req, res, next) {
     if (!user || user.status !== 'ACTIVE') {
       return res.status(401).json({
         code: 40102,
+        source: 'discimind',
+        stage: 'local_jwt_authentication',
         message: '账号不存在或已被禁用，请重新登录',
         data: null,
       });
@@ -66,6 +78,8 @@ async function authMiddleware(req, res, next) {
         if (!session || session.revoked_at || new Date(session.expires_at) <= new Date()) {
           return res.status(401).json({
             code: 40102,
+            source: 'discimind',
+            stage: 'local_jwt_authentication',
             message: '登录会话已过期，请重新登录',
             data: null,
           });
@@ -87,6 +101,8 @@ async function authMiddleware(req, res, next) {
     // token 无效或已过期
     return res.status(401).json({
       code: 40102,
+      source: 'discimind',
+      stage: 'local_jwt_authentication',
       message: 'token 无效或已过期',
       data: null,
     });

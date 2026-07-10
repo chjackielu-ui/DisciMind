@@ -1489,6 +1489,242 @@ async function main() {
   log(`  - 答题记录：${answerRecords.length} 条`)
   log(`  - 错题记录：${answerRecords.filter((record) => record.seed.wrong).length} 条`)
   log(`  - AI 补题日志：1 条，采纳题目 ${generatedQuestions.length} 道`)
+
+  // -------- 学习流系统模板种子数据 --------
+
+  log('\n--- 学习流系统模板 ---')
+
+  const SYS_TEMPLATES = [
+    {
+      key: 'sys_standard',
+      title: '标准学习流',
+      description: '学习前状态分析 → 概念讲解 → 例题分析 → 基础练习 → 掌握度判断 → 学习总结。掌握不足时通过类比讲解和巩固练习进行补救。',
+      graph: {
+        entryNodeId: 'node_1',
+        nodes: [
+          { id: 'node_1', type: 'concept_explanation', title: '概念讲解', config: { estimatedMinutes: 6, strategy: 'direct_instruction' }, position: { x: 120, y: 40 } },
+          { id: 'node_2', type: 'worked_example_analysis', title: '例题分析', config: { estimatedMinutes: 5 }, position: { x: 120, y: 130 } },
+          { id: 'node_3', type: 'basic_practice', title: '基础练习', config: { estimatedMinutes: 6, questionCount: 3 }, position: { x: 120, y: 220 } },
+          { id: 'node_4', type: 'mastery_gate', title: '掌握度判断', config: {}, position: { x: 120, y: 310 } },
+          { id: 'node_5', type: 'analogy_explanation', title: '类比讲解', config: { estimatedMinutes: 4, strategy: 'analogy_bridge' }, position: { x: 340, y: 130 } },
+          { id: 'node_6', type: 'basic_practice', title: '巩固练习', config: { estimatedMinutes: 4, questionCount: 2 }, position: { x: 340, y: 220 } },
+          { id: 'node_7', type: 'mastery_gate', title: '再次判断', config: {}, position: { x: 340, y: 310 } },
+          { id: 'node_8', type: 'learning_summary', title: '学习总结', config: { estimatedMinutes: 3 }, position: { x: 120, y: 400 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'node_1', target: 'node_2', condition: { type: 'always', params: {} } },
+          { id: 'e2', source: 'node_2', target: 'node_3', condition: { type: 'always', params: {} } },
+          { id: 'e3', source: 'node_3', target: 'node_4', condition: { type: 'always', params: {} } },
+          { id: 'e4', source: 'node_4', target: 'node_8', condition: { type: 'mastery_gte', params: { threshold: 80 } }, label: '掌握度 ≥ 80' },
+          { id: 'e5', source: 'node_4', target: 'node_5', condition: { type: 'mastery_lt', params: { threshold: 80 } }, label: '掌握度 < 80' },
+          { id: 'e6', source: 'node_5', target: 'node_6', condition: { type: 'always', params: {} } },
+          { id: 'e7', source: 'node_6', target: 'node_7', condition: { type: 'always', params: {} } },
+          { id: 'e8', source: 'node_7', target: 'node_8', condition: { type: 'always', params: {} } },
+        ],
+      },
+      settings: { completion_mode: 'flow_complete', target_mastery: 80, adjustment_mode: 'auto_adjust', estimated_minutes: 25 },
+    },
+    {
+      key: 'sys_practice_driven',
+      title: '练习驱动流',
+      description: '快速练习 → 自适应练习 → 错误分析 → 针对性概念讲解 → 变式练习 → 学习总结。以练习为核心驱动学习。',
+      graph: {
+        entryNodeId: 'node_1',
+        nodes: [
+          { id: 'node_1', type: 'basic_practice', title: '快速练习', config: { estimatedMinutes: 4, questionCount: 2 }, position: { x: 120, y: 40 } },
+          { id: 'node_2', type: 'adaptive_practice', title: '自适应练习', config: { estimatedMinutes: 8, questionCount: 5 }, position: { x: 120, y: 130 } },
+          { id: 'node_3', type: 'wrong_question_repair', title: '错误分析', config: { estimatedMinutes: 5 }, position: { x: 120, y: 220 } },
+          { id: 'node_4', type: 'concept_explanation', title: '针对性概念讲解', config: { estimatedMinutes: 4, strategy: 'misconception_confrontation' }, position: { x: 120, y: 310 } },
+          { id: 'node_5', type: 'adaptive_practice', title: '变式练习', config: { estimatedMinutes: 5, questionCount: 3 }, position: { x: 120, y: 400 } },
+          { id: 'node_6', type: 'learning_summary', title: '学习总结', config: { estimatedMinutes: 3 }, position: { x: 120, y: 490 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'node_1', target: 'node_2', condition: { type: 'always', params: {} } },
+          { id: 'e2', source: 'node_2', target: 'node_3', condition: { type: 'consecutive_wrong_gte', params: { threshold: 2 } }, label: '连续错误 ≥ 2' },
+          { id: 'e3', source: 'node_2', target: 'node_5', condition: { type: 'accuracy_gte', params: { threshold: 70 } }, label: '准确率 ≥ 70%' },
+          { id: 'e4', source: 'node_2', target: 'node_4', condition: { type: 'accuracy_lt', params: { threshold: 70 } }, label: '准确率 < 70%' },
+          { id: 'e5', source: 'node_3', target: 'node_4', condition: { type: 'always', params: {} } },
+          { id: 'e6', source: 'node_4', target: 'node_5', condition: { type: 'always', params: {} } },
+          { id: 'e7', source: 'node_5', target: 'node_6', condition: { type: 'always', params: {} } },
+        ],
+      },
+      settings: { completion_mode: 'flow_complete', target_mastery: 80, adjustment_mode: 'auto_adjust', estimated_minutes: 25 },
+    },
+    {
+      key: 'sys_weakness_repair',
+      title: '薄弱修复流',
+      description: '错题分析 → 概念对比 → 类比讲解 → 基础练习 → 原题或同类题重做 → 掌握度判断 → 学习总结。专门针对薄弱环节进行修复。',
+      graph: {
+        entryNodeId: 'node_1',
+        nodes: [
+          { id: 'node_1', type: 'wrong_question_repair', title: '错题分析', config: { estimatedMinutes: 5 }, position: { x: 120, y: 40 } },
+          { id: 'node_2', type: 'concept_explanation', title: '概念对比', config: { estimatedMinutes: 4, strategy: 'misconception_confrontation' }, position: { x: 120, y: 130 } },
+          { id: 'node_3', type: 'analogy_explanation', title: '类比讲解', config: { estimatedMinutes: 4, strategy: 'analogy_bridge' }, position: { x: 120, y: 220 } },
+          { id: 'node_4', type: 'basic_practice', title: '基础练习', config: { estimatedMinutes: 5, questionCount: 3 }, position: { x: 120, y: 310 } },
+          { id: 'node_5', type: 'adaptive_practice', title: '原题或同类题重做', config: { estimatedMinutes: 5, questionCount: 3 }, position: { x: 120, y: 400 } },
+          { id: 'node_6', type: 'mastery_gate', title: '掌握度判断', config: {}, position: { x: 120, y: 490 } },
+          { id: 'node_7', type: 'learning_summary', title: '学习总结', config: { estimatedMinutes: 3 }, position: { x: 120, y: 580 } },
+          { id: 'node_8', type: 'concept_explanation', title: '薄弱点复盘', config: { estimatedMinutes: 4, strategy: 'misconception_confrontation' }, position: { x: 340, y: 490 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'node_1', target: 'node_2', condition: { type: 'always', params: {} } },
+          { id: 'e2', source: 'node_2', target: 'node_3', condition: { type: 'always', params: {} } },
+          { id: 'e3', source: 'node_3', target: 'node_4', condition: { type: 'always', params: {} } },
+          { id: 'e4', source: 'node_4', target: 'node_5', condition: { type: 'always', params: {} } },
+          { id: 'e5', source: 'node_5', target: 'node_6', condition: { type: 'always', params: {} } },
+          { id: 'e6', source: 'node_6', target: 'node_7', condition: { type: 'mastery_gte', params: { threshold: 75 } }, label: '掌握度 ≥ 75' },
+          { id: 'e7', source: 'node_6', target: 'node_8', condition: { type: 'mastery_lt', params: { threshold: 75 } }, label: '掌握度 < 75' },
+          { id: 'e8', source: 'node_8', target: 'node_7', condition: { type: 'always', params: {} } },
+        ],
+      },
+      settings: { completion_mode: 'mastery_target', target_mastery: 75, adjustment_mode: 'auto_adjust', estimated_minutes: 20 },
+    },
+    {
+      key: 'sys_socratic_inquiry',
+      title: '苏格拉底探究流',
+      description: '问题引入 → 苏格拉底提问 → 概念讲解 → 应用练习 → 掌握度判断 → 学习总结。通过苏格拉底式提问引导深度理解。',
+      graph: {
+        entryNodeId: 'node_1',
+        nodes: [
+          { id: 'node_1', type: 'socratic_questioning', title: '问题引入', config: { estimatedMinutes: 5, strategy: 'socratic_dialogue' }, position: { x: 120, y: 40 } },
+          { id: 'node_2', type: 'socratic_questioning', title: '苏格拉底提问', config: { estimatedMinutes: 6, strategy: 'socratic_dialogue' }, position: { x: 120, y: 130 } },
+          { id: 'node_3', type: 'concept_explanation', title: '概念讲解', config: { estimatedMinutes: 5, strategy: 'direct_instruction' }, position: { x: 120, y: 220 } },
+          { id: 'node_4', type: 'adaptive_practice', title: '应用练习', config: { estimatedMinutes: 7, questionCount: 4 }, position: { x: 120, y: 310 } },
+          { id: 'node_5', type: 'mastery_gate', title: '掌握度判断', config: {}, position: { x: 120, y: 400 } },
+          { id: 'node_6', type: 'learning_summary', title: '学习总结', config: { estimatedMinutes: 3 }, position: { x: 120, y: 490 } },
+          { id: 'node_7', type: 'concept_explanation', title: '关键概念复盘', config: { estimatedMinutes: 4, strategy: 'socratic_dialogue' }, position: { x: 340, y: 400 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'node_1', target: 'node_2', condition: { type: 'always', params: {} } },
+          { id: 'e2', source: 'node_2', target: 'node_3', condition: { type: 'always', params: {} } },
+          { id: 'e3', source: 'node_3', target: 'node_4', condition: { type: 'always', params: {} } },
+          { id: 'e4', source: 'node_4', target: 'node_5', condition: { type: 'always', params: {} } },
+          { id: 'e5', source: 'node_5', target: 'node_6', condition: { type: 'mastery_gte', params: { threshold: 80 } }, label: '掌握度 ≥ 80' },
+          { id: 'e6', source: 'node_5', target: 'node_7', condition: { type: 'mastery_lt', params: { threshold: 80 } }, label: '掌握度 < 80' },
+          { id: 'e7', source: 'node_7', target: 'node_6', condition: { type: 'always', params: {} } },
+        ],
+      },
+      settings: { completion_mode: 'mastery_target', target_mastery: 80, adjustment_mode: 'ask_before_adjust', estimated_minutes: 30 },
+    },
+    {
+      key: 'sys_exam_sprint',
+      title: '考试冲刺流',
+      description: '知识重点扫描 → 高频基础练习 → 自适应练习 → 错题修复 → 限时检测 → 学习总结。高效冲刺备考。',
+      graph: {
+        entryNodeId: 'node_1',
+        nodes: [
+          { id: 'node_1', type: 'concept_explanation', title: '知识重点扫描', config: { estimatedMinutes: 5, strategy: 'direct_instruction', depth: 'brief' }, position: { x: 120, y: 40 } },
+          { id: 'node_2', type: 'basic_practice', title: '高频基础练习', config: { estimatedMinutes: 6, questionCount: 4 }, position: { x: 120, y: 130 } },
+          { id: 'node_3', type: 'adaptive_practice', title: '自适应练习', config: { estimatedMinutes: 8, questionCount: 5 }, position: { x: 120, y: 220 } },
+          { id: 'node_4', type: 'wrong_question_repair', title: '错题修复', config: { estimatedMinutes: 6 }, position: { x: 120, y: 310 } },
+          { id: 'node_5', type: 'adaptive_practice', title: '限时检测', config: { estimatedMinutes: 7, questionCount: 5 }, position: { x: 120, y: 400 } },
+          { id: 'node_6', type: 'learning_summary', title: '学习总结', config: { estimatedMinutes: 3 }, position: { x: 120, y: 490 } },
+        ],
+        edges: [
+          { id: 'e1', source: 'node_1', target: 'node_2', condition: { type: 'always', params: {} } },
+          { id: 'e2', source: 'node_2', target: 'node_3', condition: { type: 'always', params: {} } },
+          { id: 'e3', source: 'node_3', target: 'node_4', condition: { type: 'consecutive_wrong_gte', params: { threshold: 2 } }, label: '连续错误 ≥ 2' },
+          { id: 'e4', source: 'node_3', target: 'node_5', condition: { type: 'accuracy_gte', params: { threshold: 70 } }, label: '准确率 ≥ 70%' },
+          { id: 'e5', source: 'node_4', target: 'node_5', condition: { type: 'always', params: {} } },
+          { id: 'e6', source: 'node_5', target: 'node_6', condition: { type: 'always', params: {} } },
+        ],
+      },
+      settings: { completion_mode: 'mastery_target', target_mastery: 85, adjustment_mode: 'auto_adjust', estimated_minutes: 35 },
+    },
+  ];
+
+  // 统一把种子图排成横向层级，避免编辑器初始打开时节点挤成一条竖线。
+  const layoutTemplateGraph = (graph) => {
+    const copy = JSON.parse(JSON.stringify(graph))
+    const levels = new Map()
+    const queue = [copy.entryNodeId]
+    levels.set(copy.entryNodeId, 0)
+    while (queue.length) {
+      const current = queue.shift()
+      const level = levels.get(current) || 0
+      for (const edge of copy.edges.filter((item) => item.source === current)) {
+        if (!levels.has(edge.target)) {
+          levels.set(edge.target, level + 1)
+          queue.push(edge.target)
+        }
+      }
+    }
+    const rows = new Map()
+    copy.nodes.forEach((node) => {
+      const level = levels.get(node.id) ?? 0
+      const row = rows.get(level) || 0
+      node.position = { x: 80 + level * 260, y: 90 + row * 150 }
+      rows.set(level, row + 1)
+    })
+    return copy
+  }
+
+  for (const tmpl of SYS_TEMPLATES) {
+    const graph = layoutTemplateGraph(tmpl.graph)
+    const existing = await prisma.learningWorkflowTemplate.findUnique({
+      where: { template_key: tmpl.key },
+    });
+
+    let template;
+    if (existing) {
+      template = existing;
+      // 更新基本信息
+      await prisma.learningWorkflowTemplate.update({
+        where: { template_id: existing.template_id },
+        data: {
+          title: tmpl.title,
+          description: tmpl.description,
+          updated_at: new Date(),
+        },
+      });
+    } else {
+      template = await prisma.learningWorkflowTemplate.create({
+        data: {
+          template_key: tmpl.key,
+          title: tmpl.title,
+          description: tmpl.description,
+          owner_type: 'SYSTEM',
+          source_type: 'SYSTEM',
+          is_published: true,
+          is_default: tmpl.key === 'sys_standard',
+          course_id: mlCourse?.course_id,
+          status: 'active',
+        },
+      });
+    }
+
+    // 始终同步系统模板的单个基线版本；重复 seed 不会新增模板或版本。
+    const latestVersion = await prisma.learningWorkflowVersion.findFirst({
+      where: { template_id: template.template_id },
+      orderBy: { version_number: 'desc' },
+    })
+    if (!latestVersion) {
+      await prisma.learningWorkflowVersion.create({
+        data: {
+          template_id: template.template_id,
+          version_number: 1,
+          graph_json: graph,
+          settings_json: tmpl.settings,
+          change_summary: '系统内置初始版本',
+        },
+      });
+    } else {
+      await prisma.learningWorkflowVersion.update({
+        where: { version_id: latestVersion.version_id },
+        data: { graph_json: graph, settings_json: tmpl.settings, change_summary: '系统内置基线版本' },
+      })
+    }
+
+    log(`  学习流模板: ${tmpl.title} (${tmpl.key})`);
+  }
+
+  // 系统模板只保留这五套稳定标识，其它历史实验模板不再面向学生展示。
+  await prisma.learningWorkflowTemplate.updateMany({
+    where: { source_type: 'SYSTEM', template_key: { notIn: SYS_TEMPLATES.map((item) => item.key) } },
+    data: { status: 'archived' },
+  })
+
+  log(`学习流系统模板种子数据完成 (共 ${SYS_TEMPLATES.length} 套)`);
 }
 
 main()

@@ -337,6 +337,7 @@ npm run preview          # 预览生产构建
 | [docs/DisciMind API 接口文档 v1.0.md](docs/DisciMind%20API%20接口文档%20v1.0.md) | 完整 API 接口文档 |
 | [docs/02-development-rules.md](docs/02-development-rules.md) | 开发规范 |
 | [docs/05-ai-agent-design.md](docs/05-ai-agent-design.md) | AI 与 Agent 设计 |
+| [docs/14-agent-backend-integration.md](docs/14-agent-backend-integration.md) | 讲解者与诊断师后端接入说明 |
 
 ## 开发分支说明
 

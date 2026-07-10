@@ -232,7 +232,7 @@ function renderHeroProgress(course) {
 }
 
 function buildKpCard(kp, courseId) {
-  return `<div class="kp-list-card" data-kp-id="${kp.knowledge_point_id}" data-mastery="${kp.mastery_level || 'unknown'}" data-name="${escapeHtml(kp.knowledge_point_name)}"><div style="flex:1;min-width:0;"><div style="font-weight:600;color:var(--text-main);margin-bottom:4px;">${escapeHtml(kp.knowledge_point_name)}</div><div style="font-size:0.8rem;color:var(--text-sub);">${escapeHtml(kp.chapter_name || '')} · ${difficultyLabel(kp.difficulty_level)} · ${escapeHtml(kp.knowledge_point_code)}</div></div><div style="text-align:center;flex-shrink:0;"><div style="font-size:1.3rem;font-weight:700;color:var(--stu-primary);">${kp.mastery_score || 0}</div><span class="kp-pill mastery-${kp.mastery_level || 'unknown'}" style="font-size:0.72rem;">${masteryLabel(kp.mastery_level)}</span></div><button class="course-action-btn" style="padding:7px 10px;font-size:0.78rem;flex-shrink:0;" type="button" data-kp-trainer data-course-id="${courseId}" data-kp-id="${kp.knowledge_point_id}">训练师诊断</button><div style="font-size:0.75rem;color:var(--text-hint);flex-shrink:0;">${kp.last_study_at ? formatDate(kp.last_study_at, 'date') : '未学习'}</div></div>`
+  return `<div class="kp-list-card" data-kp-id="${kp.knowledge_point_id}" data-mastery="${kp.mastery_level || 'unknown'}" data-name="${escapeHtml(kp.knowledge_point_name)}"><div style="flex:1;min-width:0;"><div style="font-weight:600;color:var(--text-main);margin-bottom:4px;">${escapeHtml(kp.knowledge_point_name)}</div><div style="font-size:0.8rem;color:var(--text-sub);">${escapeHtml(kp.chapter_name || '')} · ${difficultyLabel(kp.difficulty_level)} · ${escapeHtml(kp.knowledge_point_code)}</div></div><div style="text-align:center;flex-shrink:0;"><div style="font-size:1.3rem;font-weight:700;color:var(--stu-primary);">${kp.mastery_score || 0}</div><span class="kp-pill mastery-${kp.mastery_level || 'unknown'}" style="font-size:0.72rem;">${masteryLabel(kp.mastery_level)}</span></div><button class="course-action-btn" style="padding:7px 10px;font-size:0.78rem;flex-shrink:0;" type="button" data-kp-trainer data-course-id="${courseId}" data-kp-id="${kp.knowledge_point_id}">训练师诊断</button><button class="course-action-btn" style="padding:7px 10px;font-size:0.78rem;flex-shrink:0;background:rgba(99,102,241,0.08);color:#6366f1;border-color:rgba(99,102,241,0.2);" type="button" data-kp-learning-flow data-course-id="${courseId}" data-kp-id="${kp.knowledge_point_id}" data-kp-name="${escapeHtml(kp.knowledge_point_name)}">学习流</button><div style="font-size:0.75rem;color:var(--text-hint);flex-shrink:0;">${kp.last_study_at ? formatDate(kp.last_study_at, 'date') : '未学习'}</div></div>`
 }
 
 const KG_STATUS_LABELS = {
@@ -668,8 +668,15 @@ function bindDetailEvents(kps, courseId) {
     document.getElementById('kp-sort').value = 'default'; applyAll()
   })
   document.getElementById('kp-list-container')?.addEventListener('click', (event) => {
-    const btn = event.target.closest('[data-kp-trainer]')
-    if (!btn) return
-    window.location.hash = `#/student/trainer?courseId=${encodeURIComponent(btn.dataset.courseId)}&knowledgePointId=${encodeURIComponent(btn.dataset.kpId)}`
+    const tb = event.target.closest('[data-kp-trainer]')
+    if (tb) {
+      window.location.hash = `#/student/trainer?courseId=${encodeURIComponent(tb.dataset.courseId)}&knowledgePointId=${encodeURIComponent(tb.dataset.kpId)}`
+      return
+    }
+    const lb = event.target.closest('[data-kp-learning-flow]')
+    if (lb) {
+      window.location.hash = `#/student/learning-flows?courseId=${encodeURIComponent(lb.dataset.courseId)}&knowledgePointId=${encodeURIComponent(lb.dataset.kpId)}&knowledgePointName=${encodeURIComponent(lb.dataset.kpName)}`
+      return
+    }
   })
 }

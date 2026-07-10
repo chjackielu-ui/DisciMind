@@ -1,5 +1,5 @@
-// TODO: Agent 控制器
-// 后续实现：接收 Agent 运行请求，调用 agentService 并返回结果
+// 预留的 Agent 聚合控制器入口。
+// 当前正式 Agent 路由由 trainer/explainer/diagnostician 子模块分别承载。
 
 const agentController = {};
 

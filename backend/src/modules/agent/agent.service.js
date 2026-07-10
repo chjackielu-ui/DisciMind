@@ -1,5 +1,5 @@
-// TODO: 自研 Agent 核心服务
-// 后续实现：任务分发、调度、执行
+// 预留的 Agent 聚合服务入口。
+// 当前正式 Agent 能力由 trainer/explainer/diagnostician 子模块实现。
 
 const agentService = {};
 

@@ -2,8 +2,7 @@ const express = require('express');
 
 const router = express.Router();
 
-// TODO: 后续接入自研 Agent 路由
-// router.post('/run', agentController.run)
-// router.get('/my', agentController.myAgents)
+// 预留的 Agent 聚合路由入口。
+// 当前正式 Agent 路由由 trainer/explainer/diagnostician 子模块分别挂载。
 
 module.exports = router;

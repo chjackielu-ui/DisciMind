@@ -9,6 +9,14 @@ const {
   stringifyHasPublicLeak,
 } = require('../src/modules/agent/trainer/trainer.sanitizer');
 const trainerService = require('../src/modules/agent/trainer/trainer.service');
+const {
+  applyClaimedIntervention,
+  claimPendingIntervention,
+  failClaimedIntervention,
+} = require('../src/modules/agent/common/intervention.service');
+const {
+  persistInterventions,
+} = require('../src/modules/agent/diagnostician/diagnostician.service');
 
 const originalRunTrainerWorkflow = workflow.runTrainerWorkflow;
 const originalBuildDifyUser = workflow.buildDifyUser;
@@ -178,12 +186,38 @@ async function cleanupSession(sessionId) {
   await prisma.trainerAnswerDetail.deleteMany({
     where: { answer_record: { practice_session_id: sessionId } },
   }).catch(() => {});
+  await prisma.agentIntervention.deleteMany({ where: { practice_session_id: sessionId } }).catch(() => {});
   await prisma.answerRecord.deleteMany({ where: { practice_session_id: sessionId } }).catch(() => {});
   await prisma.agentRunRecord.deleteMany({ where: { practice_session_id: sessionId } }).catch(() => {});
   await prisma.practiceSession.delete({ where: { practice_session_id: sessionId } }).catch(() => {});
   if (questionIds.length > 0) {
     await prisma.question.deleteMany({ where: { question_id: { in: questionIds } } }).catch(() => {});
   }
+}
+
+async function createTestIntervention(fixture, overrides = {}) {
+  const uid = overrides.uid || `test_intervention_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  return prisma.agentIntervention.create({
+    data: {
+      intervention_uid: uid,
+      student_user_id: fixture.userId,
+      course_id: fixture.courseId,
+      knowledge_point_id: fixture.knowledgePointId,
+      practice_session_id: overrides.practiceSessionId ?? null,
+      source: overrides.source || 'backend_rule',
+      target_agent: overrides.targetAgent || 'trainer',
+      action: overrides.action || 'reduce_difficulty_and_focus',
+      params_json: overrides.params || {
+        difficulty: 'basic',
+        focus_pitfall: '混淆逻辑回归系数与概率增量',
+        max_questions: 3,
+      },
+      trigger_reason: overrides.triggerReason || 'test intervention',
+      status: overrides.status || 'pending',
+      priority: overrides.priority ?? 1,
+      expires_at: overrides.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000),
+    },
+  });
 }
 
 test.after(async () => {
@@ -215,13 +249,25 @@ test('context loads real course, mastery, profile, recent practice and active se
   assert.ok(Object.prototype.hasOwnProperty.call(context, 'activeSession'));
 });
 
-test('create session persists PracticeSession as master and rejects active duplicates', async (t) => {
+test('create session persists PracticeSession and reuses active session idempotently', async (t) => {
   const fixture = await getFixture(t);
   if (!fixture) return;
   const calls = createMockWorkflow();
   let sessionId;
 
   try {
+    // Clean up any leftover active sessions from previous tests
+    await prisma.practiceSession.updateMany({
+      where: {
+        student_user_id: fixture.userId,
+        course_id: fixture.courseId,
+        knowledge_point_id: fixture.knowledgePointId,
+        source_type: 'AI_TRAINER',
+        status: { in: ['CREATED', 'IN_PROGRESS', 'SUBMITTING', 'created', 'in_progress', 'submitting'] },
+      },
+      data: { status: 'ABANDONED' },
+    });
+
     const created = await trainerService.createTrainerSession(fixture.userId, {
       ...fixture,
       questionCount: 1,
@@ -242,15 +288,17 @@ test('create session persists PracticeSession as master and rejects active dupli
     assert.equal(calls.filter((call) => call.mode === 'diagnostic_pre_test').length, 1);
     assert.equal(JSON.stringify(created.currentQuestion).includes('correct_option'), false);
 
-    await assert.rejects(
-      () => trainerService.createTrainerSession(fixture.userId, {
-        ...fixture,
-        questionCount: 1,
-        locale: 'zh-CN',
-        requestId: `test_dup_${Date.now()}`,
-      }),
-      (err) => err.code === 'EXISTING_ACTIVE_SESSION',
-    );
+    // Second call with same params should return existing session (reused=true), NOT throw
+    const reused = await trainerService.createTrainerSession(fixture.userId, {
+      ...fixture,
+      questionCount: 1,
+      locale: 'zh-CN',
+      requestId: `test_dup_${Date.now()}`,
+    });
+    assert.equal(reused.reused, true);
+    assert.equal(reused.session.sessionId, sessionId);
+    // Should NOT have created a second diagnostic_pre_test workflow call
+    assert.equal(calls.filter((call) => call.mode === 'diagnostic_pre_test').length, 1);
   } finally {
     await cleanupSession(sessionId);
     restoreWorkflow();
@@ -272,6 +320,7 @@ test('submit answer writes answer detail, wrong question, mastery update, adapti
       requestId: `test_answer_diag_${Date.now()}`,
     });
     sessionId = created.session.sessionId;
+    const intervention = await createTestIntervention(fixture, { practiceSessionId: sessionId });
 
     const submitted = await trainerService.submitTrainerAnswer(fixture.userId, sessionId, {
       questionKey: created.currentQuestion.questionKey,
@@ -303,6 +352,16 @@ test('submit answer writes answer detail, wrong question, mastery update, adapti
     assert.equal(wrongCount, 1);
     assert.equal(calls.filter((call) => call.mode === 'deep_evaluation').length, 1);
     assert.equal(calls.filter((call) => call.mode === 'adaptive_training').length, 1);
+    const adaptiveCall = calls.find((call) => call.mode === 'adaptive_training');
+    assert.equal(adaptiveCall.payload.diagnostician_instruction.action, 'reduce_difficulty_and_focus');
+    assert.equal(adaptiveCall.payload.diagnostician_instruction.params.difficulty, 'basic');
+    assert.equal(adaptiveCall.payload.diagnostician_instruction.params.focus_pitfall, '混淆逻辑回归系数与概率增量');
+
+    const applied = await prisma.agentIntervention.findUnique({
+      where: { agent_intervention_id: intervention.agent_intervention_id },
+    });
+    assert.equal(applied.status, 'applied');
+    assert.ok(applied.applied_by_run_id);
 
     const duplicated = await trainerService.submitTrainerAnswer(fixture.userId, sessionId, {
       questionKey: created.currentQuestion.questionKey,
@@ -315,10 +374,187 @@ test('submit answer writes answer detail, wrong question, mastery update, adapti
     assert.equal(duplicated.duplicated, true);
     assert.equal(await prisma.answerRecord.count({ where: { practice_session_id: sessionId } }), 1);
     assert.equal(calls.filter((call) => call.mode === 'deep_evaluation').length, 1);
+    const afterDuplicate = await prisma.agentIntervention.findUnique({
+      where: { agent_intervention_id: intervention.agent_intervention_id },
+    });
+    assert.equal(afterDuplicate.status, 'applied');
+    assert.equal(afterDuplicate.applied_by_run_id, applied.applied_by_run_id);
   } finally {
     await cleanupSession(sessionId);
     await restoreMastery(fixture.userId, fixture.courseId, fixture.knowledgePointId, snapshot);
     restoreWorkflow();
+  }
+});
+
+test('intervention claim is atomic and applied interventions are not consumed again', async (t) => {
+  const fixture = await getFixture(t);
+  if (!fixture) return;
+  const intervention = await createTestIntervention(fixture);
+
+  try {
+    const attempts = await Promise.all([
+      claimPendingIntervention({
+        studentUserId: fixture.userId,
+        targetAgent: 'trainer',
+        courseId: fixture.courseId,
+        knowledgePointId: fixture.knowledgePointId,
+      }),
+      claimPendingIntervention({
+        studentUserId: fixture.userId,
+        targetAgent: 'trainer',
+        courseId: fixture.courseId,
+        knowledgePointId: fixture.knowledgePointId,
+      }),
+    ]);
+    const claimed = attempts.filter(Boolean);
+    assert.equal(claimed.length, 1);
+    assert.equal(claimed[0].status, 'applying');
+
+    const applied = await applyClaimedIntervention(claimed[0], { result: { ok: true } });
+    assert.equal(applied.status, 'applied');
+    assert.equal(await claimPendingIntervention({
+      studentUserId: fixture.userId,
+      targetAgent: 'trainer',
+      courseId: fixture.courseId,
+      knowledgePointId: fixture.knowledgePointId,
+    }), null);
+  } finally {
+    await prisma.agentIntervention.deleteMany({
+      where: { agent_intervention_id: intervention.agent_intervention_id },
+    }).catch(() => {});
+  }
+});
+
+test('expired and cross-student interventions are not claimed', async (t) => {
+  const fixture = await getFixture(t);
+  if (!fixture) return;
+  const otherUser = await prisma.user.findFirst({
+    where: { user_id: { not: fixture.userId } },
+    orderBy: { user_id: 'asc' },
+  });
+  const expired = await createTestIntervention(fixture, {
+    expiresAt: new Date(Date.now() - 60 * 1000),
+  });
+  let isolated = null;
+
+  try {
+    assert.equal(await claimPendingIntervention({
+      studentUserId: fixture.userId,
+      targetAgent: 'trainer',
+      courseId: fixture.courseId,
+      knowledgePointId: fixture.knowledgePointId,
+    }), null);
+    const expiredAfterClaim = await prisma.agentIntervention.findUnique({
+      where: { agent_intervention_id: expired.agent_intervention_id },
+    });
+    assert.equal(expiredAfterClaim.status, 'expired');
+
+    isolated = await createTestIntervention(fixture, {
+      uid: `test_cross_student_${Date.now()}`,
+    });
+    if (otherUser) {
+      assert.equal(await claimPendingIntervention({
+        studentUserId: otherUser.user_id,
+        targetAgent: 'trainer',
+        courseId: fixture.courseId,
+        knowledgePointId: fixture.knowledgePointId,
+      }), null);
+    }
+    const ownerClaim = await claimPendingIntervention({
+      studentUserId: fixture.userId,
+      targetAgent: 'trainer',
+      courseId: fixture.courseId,
+      knowledgePointId: fixture.knowledgePointId,
+    });
+    assert.equal(ownerClaim.agent_intervention_id, isolated.agent_intervention_id);
+  } finally {
+    await prisma.agentIntervention.deleteMany({
+      where: {
+        agent_intervention_id: {
+          in: [expired.agent_intervention_id, isolated?.agent_intervention_id].filter(Boolean),
+        },
+      },
+    }).catch(() => {});
+  }
+});
+
+test('failed downstream call marks claimed intervention failed, not applied', async (t) => {
+  const fixture = await getFixture(t);
+  if (!fixture) return;
+  const intervention = await createTestIntervention(fixture);
+
+  try {
+    const claimed = await claimPendingIntervention({
+      studentUserId: fixture.userId,
+      targetAgent: 'trainer',
+      courseId: fixture.courseId,
+      knowledgePointId: fixture.knowledgePointId,
+    });
+    assert.equal(claimed.status, 'applying');
+    const failed = await failClaimedIntervention(claimed, {
+      error: { code: 'TEST_DOWNSTREAM_FAILED', message: 'downstream failed' },
+    });
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.applied_at, null);
+  } finally {
+    await prisma.agentIntervention.deleteMany({
+      where: { agent_intervention_id: intervention.agent_intervention_id },
+    }).catch(() => {});
+  }
+});
+
+test('repeated diagnostician request does not reset applied intervention to pending', async (t) => {
+  const fixture = await getFixture(t);
+  if (!fixture) return;
+  const requestId = `test_idempotent_intervention_${Date.now()}`;
+  const uid = `rule_${requestId}_1`;
+  const existing = await prisma.agentIntervention.create({
+    data: {
+      intervention_uid: uid,
+      student_user_id: fixture.userId,
+      course_id: fixture.courseId,
+      knowledge_point_id: fixture.knowledgePointId,
+      source: 'backend_rule',
+      target_agent: 'trainer',
+      action: 'reduce_difficulty_and_focus',
+      params_json: { difficulty: 'basic', focus_pitfall: 'concept_confusion', max_questions: 3 },
+      trigger_reason: 'already applied',
+      status: 'applied',
+      priority: 1,
+      applied_at: new Date(),
+    },
+  });
+
+  try {
+    const saved = await persistInterventions({
+      studentId: fixture.userId,
+      scope: {
+        course: { course_id: fixture.courseId },
+        knowledgePoint: { knowledge_point_id: fixture.knowledgePointId },
+      },
+      params: { requestId, sessionId: null },
+      runRecord: { agent_run_id: null },
+      branchResult: { result: {} },
+      deterministic: [{
+        trigger: 'repeat request',
+        target_agent: 'trainer',
+        instruction: {
+          action: 'reduce_difficulty_and_focus',
+          params: { difficulty: 'basic', focus_pitfall: 'concept_confusion', max_questions: 3 },
+        },
+        priority: 1,
+      }],
+    });
+    assert.equal(saved[0].status, 'applied');
+    const after = await prisma.agentIntervention.findUnique({
+      where: { agent_intervention_id: existing.agent_intervention_id },
+    });
+    assert.equal(after.status, 'applied');
+    assert.ok(after.applied_at);
+  } finally {
+    await prisma.agentIntervention.deleteMany({
+      where: { agent_intervention_id: existing.agent_intervention_id },
+    }).catch(() => {});
   }
 });
 

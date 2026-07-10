@@ -4,6 +4,10 @@
 
 let toastContainer = null
 let toastTimer = null
+// Dedup: same message+type within this window (ms) shows only once
+let _lastToastKey = ''
+let _lastToastTime = 0
+const TOAST_DEDUP_WINDOW = 1500
 
 const TOAST_TYPES = {
   success: { bg: '#4CAF84', icon: '✓' },
@@ -106,6 +110,15 @@ function injectToastStyles() {
  * @param {number} duration - 显示时长（毫秒），默认 2500
  */
 export function showToast(message, type = 'info', duration = 2500) {
+  // Dedup: same message+type within TOAST_DEDUP_WINDOW shows only once
+  const dedupKey = String(type) + '::' + String(message)
+  const now = Date.now()
+  if (dedupKey === _lastToastKey && (now - _lastToastTime) < TOAST_DEDUP_WINDOW) {
+    return
+  }
+  _lastToastKey = dedupKey
+  _lastToastTime = now
+
   const container = ensureContainer()
   const stack = container.querySelector('#toast-stack')
   if (!stack) return

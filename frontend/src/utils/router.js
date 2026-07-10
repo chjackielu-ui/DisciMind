@@ -10,6 +10,7 @@ import { renderStudentCourseDetail } from '../pages/student-course-detail.js'
 import { renderStudentWrongQuestions } from '../pages/student-wrong-questions.js'
 import { renderStudentRecommendations } from '../pages/student-recommendations.js'
 import { renderStudentPortrait } from '../pages/student-portrait.js'
+import { renderStudentDiagnostician } from '../pages/student-diagnostician.js'
 import { renderStudentProfile } from '../pages/student-profile.js'
 import { renderStudentAiChat } from '../pages/student-ai-chat.js'
 import { renderStudentPracticeCenter } from '../pages/student-practice-center.js'
@@ -20,6 +21,10 @@ import { renderStudentSubmissionResult } from '../pages/student-submission-resul
 import { renderStudentDocuments } from '../pages/student-documents.js'
 import { renderStudentVideos } from '../pages/student-videos.js'
 import { renderStudentAgentDetail } from '../pages/agent/AgentDetailPage.js'
+import { renderStudentLearningFlows } from '../pages/student-learning-flows.js'
+import { renderStudentLearningFlowEditor } from '../pages/student-learning-flow-editor.js'
+import { renderStudentLearningSession } from '../pages/student-learning-session.js'
+import { renderStudentLearningSummary } from '../pages/student-learning-summary.js'
 import { getActivePracticeAttempt } from '../api/student.js'
 import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
 import { renderTeacherCourses } from '../pages/teacher-courses.js'
@@ -68,11 +73,13 @@ const staticRoutes = {
   '/student/wrong-questions': { render: renderStudentWrongQuestions, auth: true, roles: ['student'] },
   '/student/recommendations': { render: renderStudentRecommendations, auth: true, roles: ['student'] },
   '/student/portrait': { render: renderStudentPortrait, auth: true, roles: ['student'] },
+  '/student/diagnostician': { render: renderStudentDiagnostician, auth: true, roles: ['student'] },
   '/student/profile': { render: renderStudentProfile, auth: true, roles: ['student'] },
   '/student/ai-chat': { render: renderStudentAiChat, auth: true, roles: ['student'] },
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
   '/student/agents/trainer': { render: renderStudentAgentDetail, auth: true, roles: ['student'] },
+  '/student/learning-flows': { render: renderStudentLearningFlows, auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/courses': { render: renderTeacherCourses, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/students': { render: renderTeacherStudents, auth: true, roles: ['teacher', 'admin'] },
@@ -151,6 +158,30 @@ const dynamicRoutes = [
     auth: true,
     roles: ['student'],
     paramNames: ['kp_id'],
+  },
+  {
+    // #/student/learning-flow/editor/:workflowId
+    pattern: /^\/student\/learning-flow\/editor\/(.+)$/,
+    render: renderStudentLearningFlowEditor,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['workflowId'],
+  },
+  {
+    // #/student/learning/session/:sessionId
+    pattern: /^\/student\/learning\/session\/(\d+)$/,
+    render: renderStudentLearningSession,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['sessionId'],
+  },
+  {
+    // #/student/learning/session/:sessionId/summary
+    pattern: /^\/student\/learning\/session\/(\d+)\/summary$/,
+    render: renderStudentLearningSummary,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['sessionId'],
   },
   // ========== 教师端动态路由 ==========
   {
