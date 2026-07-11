@@ -135,6 +135,24 @@ app.use('/api/student', studentChatRoutes);
 const aiChatRoutes = require('./routes/ai-chat.routes');
 app.use('/api/ai-chat', aiChatRoutes);
 
+// 用户智能体广场（独立于学习流和内置教学 Agent）
+const agentMarketplaceRoutes = require('./modules/agent-marketplace/agent-marketplace.routes');
+const knowledgeBaseMarketplaceRoutes = require('./modules/knowledge-base/knowledge-base.routes');
+const agentChatMarketplaceRoutes = require('./modules/agent-chat/agent-chat.routes');
+const agentReviewRoutes = require('./modules/agent-review/agent-review.routes');
+app.use('/api/agents', agentMarketplaceRoutes);
+app.use('/api/knowledge-bases', knowledgeBaseMarketplaceRoutes);
+app.use('/api', agentChatMarketplaceRoutes);
+app.use('/api/admin', agentReviewRoutes);
+
+// 全局异步任务中心（独立于学习流执行协议）
+const asyncTaskRoutes = require('./modules/async-task/async-task.routes');
+app.use('/api/tasks', asyncTaskRoutes);
+
+// FILE_GENERATOR 生成物（结构化预览、独立 DOCX 导出与鉴权下载）
+const generatedArtifactRoutes = require('./modules/file-generator/generated-artifact.routes');
+app.use('/api/generated-artifacts', generatedArtifactRoutes);
+
 // Dify 训练师 Workflow
 const trainerRoutes = require('./modules/dify/trainer.routes');
 app.use('/api/ai/trainer', trainerRoutes);

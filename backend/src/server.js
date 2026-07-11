@@ -7,6 +7,9 @@ const http = require('http');
 const app = require('./app');
 const prisma = require('./config/prisma');
 const { getLearningNarrationModule } = require('./modules/learning-narration');
+const { getAsyncTaskWorker } = require('./modules/async-task/async-task.worker');
+const generationRegistry = require('./modules/agent-chat/generation-registry');
+const { recoverInterruptedGenerations } = require('./modules/agent-chat/agent-generation.service');
 
 loadEnv();
 
@@ -53,9 +56,11 @@ function stopExpirationScanner() {
 
 // 优雅关闭
 function setupGracefulShutdown() {
-  const shutdown = (signal) => {
+  const shutdown = async (signal) => {
     console.log(`[server] 收到 ${signal} 信号，正在关闭...`);
     stopExpirationScanner();
+    generationRegistry.cancelAll();
+    await getAsyncTaskWorker().stop().catch((error) => console.error('[tasks] Worker 停止失败:', error.message));
     getLearningNarrationModule().close();
     httpServer?.close();
     // 给正在处理的请求一点时间完成
@@ -80,6 +85,9 @@ async function start() {
   }
 
   startExpirationScanner();
+  const recoveredGenerations = await recoverInterruptedGenerations();
+  if (recoveredGenerations) console.log(`[agent-generation] 已将 ${recoveredGenerations} 个遗留生成标记为 INTERRUPTED`);
+  await getAsyncTaskWorker().start();
   setupGracefulShutdown();
 
   httpServer = http.createServer(app);

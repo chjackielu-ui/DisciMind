@@ -32,6 +32,7 @@ build/
 storage/uploads/*
 storage/parsed/*
 storage/temp/*
+storage/agent-knowledge/
 !storage/uploads/.gitkeep
 !storage/parsed/.gitkeep
 !storage/temp/.gitkeep

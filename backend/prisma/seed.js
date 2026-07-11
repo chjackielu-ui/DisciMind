@@ -6,6 +6,7 @@ const { PrismaMariaDb } = require('@prisma/adapter-mariadb')
 const bcrypt = require('bcryptjs')
 const { loadEnv } = require('../src/config/env')
 const { getDatabaseConfig } = require('../src/config/database')
+const { seedAgentMarketplace } = require('./seeds/seedAgentMarketplace')
 
 loadEnv()
 
@@ -1725,6 +1726,8 @@ async function main() {
   })
 
   log(`学习流系统模板种子数据完成 (共 ${SYS_TEMPLATES.length} 套)`);
+
+  await seedAgentMarketplace({ prisma, upsertUser, upsertProfile, adminUser, studentUser, log })
 }
 
 main()

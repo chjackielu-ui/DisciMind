@@ -5,6 +5,7 @@ import { getUserDisplayName, logoutSession } from './auth.js'
 import { getIcon, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
 import { createAiChatConversation, streamAiChatMessage } from '../api/student.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from './markdown.js'
+import { mountTaskCenter } from '../components/task-center.js'
 
 const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
 const API_ORIGIN = 'http://localhost:3000'
@@ -55,7 +56,7 @@ const menuHTML = menuItems.map((item, index) => {
       const parentHash = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
       isActive = item.children.some(child => {
         const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
-        return currentHash === childHash
+        return typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
       })
       if (isActive) activeParentHash = parentHash
     }
@@ -86,10 +87,11 @@ const menuHTML = menuItems.map((item, index) => {
     if (!item.children) return false
     const parentHash = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
     if (activeParentHash === parentHash) return true
+    if (typeof item.matchHash === 'function' && item.matchHash(currentHash)) return true
     if (item.prefixMatch && currentHash.startsWith(item.prefixMatch)) return true
     return item.children.some(child => {
       const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
-      return currentHash === childHash
+      return typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
     })
   })
   if (activeParent && activeParent.children) {
@@ -97,7 +99,7 @@ const menuHTML = menuItems.map((item, index) => {
       <div class="sub-nav-panel" id="sub-nav-panel">
         ${activeParent.children.map(child => {
           const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
-          const isChildActive = currentHash === childHash
+          const isChildActive = typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
           return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}">${child.label}</div>`
         }).join('')}
       </div>`
@@ -147,6 +149,7 @@ const menuHTML = menuItems.map((item, index) => {
 
       <main class="student-main" id="student-main">${contentHTML}</main>
       ${subNavHTML}
+      ${user?.role === 'student' ? '<div class="global-task-center" id="global-task-center"></div>' : ''}
       ${renderStudentAiFloat(user)}
     </div>
   `
@@ -279,6 +282,7 @@ const menuHTML = menuItems.map((item, index) => {
   bindSubNavClicks()
 
   initStudentAiFloat(user)
+  mountTaskCenter(user)
 }
 
 function getMenuItemId(item) {

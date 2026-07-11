@@ -15,6 +15,29 @@ function decodeUrlPart(value) {
   }
 }
 
+function parseBooleanEnv(value, fallback = false) {
+  const normalized = cleanEnvValue(value).toLowerCase();
+  if (!normalized) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
+function isLoopbackHost(host) {
+  return ['localhost', '127.0.0.1', '::1'].includes(String(host || '').toLowerCase());
+}
+
+function withAuthenticationOptions(config) {
+  return {
+    ...config,
+    // MySQL 8 caching_sha2_password needs the server public key when TLS is not
+    // configured. Keep this automatic convenience local-only; remote databases
+    // must explicitly opt in (or, preferably, configure TLS/a pinned RSA key).
+    allowPublicKeyRetrieval: parseBooleanEnv(
+      process.env.DATABASE_ALLOW_PUBLIC_KEY_RETRIEVAL,
+      isLoopbackHost(config.host),
+    ),
+  };
+}
+
 function parseDatabaseUrl(rawUrl) {
   const value = cleanEnvValue(rawUrl);
   if (!value) return null;
@@ -44,28 +67,28 @@ function parseDatabaseUrl(rawUrl) {
     );
   }
 
-  return {
+  return withAuthenticationOptions({
     host: url.hostname || 'localhost',
     port: Number(url.port) || 3306,
     user: decodeUrlPart(url.username || 'root'),
     password: decodeUrlPart(url.password || ''),
     database,
     connectionLimit: Number(process.env.DATABASE_CONNECTION_LIMIT) || 5,
-  };
+  });
 }
 
 function getDatabaseConfig() {
   const fromUrl = parseDatabaseUrl(process.env.DATABASE_URL);
   if (fromUrl) return fromUrl;
 
-  return {
+  return withAuthenticationOptions({
     host: cleanEnvValue(process.env.DATABASE_HOST) || 'localhost',
     port: Number(process.env.DATABASE_PORT) || 3306,
     user: cleanEnvValue(process.env.DATABASE_USER) || 'root',
     password: cleanEnvValue(process.env.DATABASE_PASSWORD) || '',
     database: cleanEnvValue(process.env.DATABASE_NAME) || 'discimind',
     connectionLimit: Number(process.env.DATABASE_CONNECTION_LIMIT) || 5,
-  };
+  });
 }
 
 function describeDatabaseError(err) {
