@@ -1,8 +1,8 @@
 // 学习驾驶舱 v4 — DisciMind 学生端
-// 架构：DeepSeek 引导老师 + Dify 教学 Agent 并行执行
+// 架构：百炼引导老师 + 教学 Agent 并行执行
 // 核心改进：JSON 解析渲染、统一状态管理、事件委托、语句块引导
 
-import { learningWorkflowApi } from '../api/learning-workflows.js';
+import { learningWorkflowApi, streamLearningSessionAssistant } from '../api/learning-workflows.js';
 import { explainerApi } from '../api/agent.js';
 import { streamLearningGuide } from '../api/learning-guide.js';
 import { apiUrl, authFetchOptions } from '../api/stream-request.js';
@@ -14,6 +14,7 @@ import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js';
 import { getNodeType } from '../config/learning-flow.js';
 import { normalizeLearningAgentResult, getSectionConfig } from '../utils/learning-agent-result.js';
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js';
+import { LearningNarrationClient } from '../services/learning-narration.js';
 
 // ========================
 // 常量
@@ -44,6 +45,10 @@ let formalAbortCtrl = null;
 let guideActive = false;
 let formalActive = false;
 let currentRequestId = null;
+let completionChat = { messages: [], sending: false, abortController: null };
+let narrationClient = null;
+let narrationState = 'disabled';
+let lastNarrationKey = '';
 
 function initState(sessionId) {
   return {
@@ -70,6 +75,10 @@ function initState(sessionId) {
 
 let executionSequence = 0;
 function beginExecution(node) {
+  if (state?.execution?.nodeId && String(state.execution.nodeId) !== String(node.id)) {
+    narrationClient?.stop({ cancel: true }).catch(() => {});
+    lastNarrationKey = '';
+  }
   const currentRun = S?.currentNodeRun || (S?.node_runs || []).find((run) => (
     String(run.node_id) === String(node.id) && ['PENDING', 'RUNNING'].includes(run.status)
   ));
@@ -151,6 +160,12 @@ function setFormalPhase(phase, info = {}) {
     renderAgentStatus();
   }
 
+  if (info.executionStatus === 'WAITING_INPUT') {
+    if (!fa.completedAtMs) fa.completedAtMs = Date.now();
+    clearFormalAgentTimer();
+    if (fa.startedAtMs) fa.elapsedMs = fa.completedAtMs - fa.startedAtMs;
+  }
+
   state.formalAgent = { ...fa, phase, ...info };
   renderAgentStatus();
   updateActionButtons();
@@ -172,11 +187,18 @@ export function renderStudentLearningSession(app, params) {
   sessionEventCleanup?.();
   sessionEventCleanup = null;
   state = initState(sessionId);
+  completionChat.abortController?.abort();
+  completionChat = { messages: [], sending: false, abortController: null };
+  narrationClient?.destroy().catch(() => {});
+  narrationClient = new LearningNarrationClient();
+  narrationState = 'disabled';
+  lastNarrationKey = '';
 
   const html = buildPageShell();
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: html, user });
 
   setTimeout(() => bindEvents(), 50);
+  setTimeout(() => initializeNarration(), 60);
   initSession(sessionId);
 }
 
@@ -219,10 +241,24 @@ function buildPageShell() {
           <span class="lws-guide-status" id="lws-guide-status"></span>
         </div>
         <div class="lws-guide-blocks" id="lws-guide-blocks"></div>
+        <div class="lws-narration" id="lws-narration">
+          <div class="lws-narration-copy"><span id="lws-narration-title">语音伴学</span><span id="lws-narration-subtitle">未开启语音伴学</span></div>
+          <div class="lws-narration-controls">
+            <button type="button" data-learning-action="narration-toggle" id="lws-narration-toggle">开启语音伴学</button>
+            <button type="button" data-learning-action="narration-play-pause" id="lws-narration-play-pause" disabled>播放</button>
+            <button type="button" data-learning-action="narration-stop" disabled>停止</button>
+            <button type="button" data-learning-action="narration-replay" disabled>重播</button>
+            <button type="button" data-learning-action="narration-previous" disabled>上一段</button>
+            <button type="button" data-learning-action="narration-next" disabled>下一段</button>
+            <select id="lws-narration-rate" aria-label="语音倍速"><option value="0.75">0.75×</option><option value="1" selected>1.0×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select>
+            <label><input type="checkbox" id="lws-narration-subtitles" checked> 字幕</label>
+          </div>
+        </div>
       </div>
       <div class="lws-agent-status-bar" id="lws-agent-status-bar" style="display:none"></div>
        <div class="lws-content-area" id="lws-content-area" style="display:none">
          <div class="lws-node-history" id="lws-node-history"></div>
+         <div class="lws-multimodal-container" id="lws-multimodal-container" style="display:none"></div>
          <div class="lws-teaching-result" id="lws-teaching-result"></div>
       </div>
       <div class="lws-error-state" id="lws-error-state" style="display:none"></div>
@@ -275,10 +311,24 @@ function bindEvents() {
       case 'skip': await handleSkip(); break;
       case 'retry': await handleRetry(); break;
       case 'return': await handleReturn(); break;
+      case 'narration-toggle': await toggleNarration(); break;
+      case 'narration-play-pause': await toggleNarrationPlayback(); break;
+      case 'narration-stop': await stopNarration(); break;
+      case 'narration-replay': await narrationClient?.replay(); break;
+      case 'narration-previous': await narrationClient?.playRelativeSegment(-1); break;
+      case 'narration-next': await narrationClient?.playRelativeSegment(1); break;
+      case 'narration-history': await startNarrationForRun(Number(actionEl.dataset.nodeRunId), 'history_replay', true); break;
     }
   };
 
   root.addEventListener('click', handler);
+
+  const rate = document.getElementById('lws-narration-rate');
+  const onRate = () => narrationClient?.setPlaybackRate(Number(rate.value));
+  rate?.addEventListener('change', onRate);
+  const subtitles = document.getElementById('lws-narration-subtitles');
+  const onSubtitles = () => narrationClient?.setSubtitles(subtitles.checked);
+  subtitles?.addEventListener('change', onSubtitles);
 
   // Modal overlay — bind once per DOM, use named function for cleanup
   const modalOverlay = document.getElementById('lws-modal-overlay');
@@ -300,6 +350,8 @@ function bindEvents() {
       modalOverlay.removeEventListener('click', modalClickHandler);
     }
     window.removeEventListener('beforeunload', beforeUnloadHandler);
+    rate?.removeEventListener('change', onRate);
+    subtitles?.removeEventListener('change', onSubtitles);
     cleanup();
   };
 }
@@ -311,6 +363,11 @@ function cleanup() {
   if (formalAbortCtrl) { formalAbortCtrl.abort(); formalAbortCtrl = null; }
   guideActive = false;
   formalActive = false;
+  completionChat.abortController?.abort();
+  completionChat.abortController = null;
+  completionChat.sending = false;
+  narrationClient?.destroy().catch(() => {});
+  narrationClient = null;
 
   // Clear all timers
   clearFormalAgentTimer();
@@ -320,6 +377,117 @@ function cleanup() {
   if (stickyObserver) { stickyObserver.disconnect(); stickyObserver = null; }
   const sentinel = document.getElementById('lws-sticky-sentinel');
   if (sentinel) sentinel.remove();
+}
+
+// ========================
+// 实时语音导学（完全旁路，不参与学习节点状态）
+// ========================
+
+const NARRATION_STATUS = {
+  disabled: '未开启语音伴学', ready: '语音伴学已开启', preparing: '正在准备讲稿',
+  connecting: '正在连接语音服务', generating: '正在生成语音', playing: '正在播放',
+  paused: '已暂停', stopped: '已停止', done: '语音已完成', cancelled: '语音已停止',
+  unavailable: '语音暂时不可用', waiting: '等待学生回答',
+};
+
+async function initializeNarration() {
+  if (!narrationClient) return;
+  const client = narrationClient;
+  client.addEventListener('settings', ({ detail }) => {
+    if (client !== narrationClient) return;
+    const toggle = document.getElementById('lws-narration-toggle');
+    const subtitles = document.getElementById('lws-narration-subtitles');
+    if (subtitles) subtitles.checked = client.subtitlesEnabled;
+    if (!detail.enabled) {
+      if (toggle) { toggle.disabled = true; toggle.textContent = detail.unavailableReason === 'TTS_NOT_CONFIGURED' ? '语音服务暂未配置' : '语音伴学未开启'; }
+      setNarrationUi('unavailable', detail.unavailableReason === 'TTS_NOT_CONFIGURED' ? '语音服务暂未配置' : '语音伴学未开启');
+    } else if (client.enabledByUser && toggle) {
+      toggle.textContent = '关闭自动伴学';
+      setNarrationUi('ready', '点击播放以恢复语音伴学');
+    }
+  });
+  client.addEventListener('state', ({ detail }) => { if (client === narrationClient) setNarrationUi(detail.state, detail.message); });
+  client.addEventListener('segment', ({ detail }) => {
+    if (client !== narrationClient) return;
+    const title = document.getElementById('lws-narration-title');
+    const subtitle = document.getElementById('lws-narration-subtitle');
+    if (title) title.textContent = `正在讲解：${currentNodeTitle()}`;
+    if (subtitle) { subtitle.textContent = detail.subtitle || ''; subtitle.hidden = !client.subtitlesEnabled; }
+  });
+  client.addEventListener('subtitles', ({ detail }) => {
+    const subtitle = document.getElementById('lws-narration-subtitle');
+    if (subtitle) subtitle.hidden = !detail.enabled;
+  });
+  client.addEventListener('error', ({ detail }) => setNarrationUi('unavailable', detail.message));
+  try { await client.loadSettings(); } catch { setNarrationUi('unavailable', '语音暂时不可用，文字内容不受影响。'); }
+}
+
+function currentNodeTitle() {
+  const node = (S?.runtime_graph_json?.nodes || []).find((item) => String(item.id) === String(state?.nodeId));
+  return node?.title || NODE_LABELS[node?.type] || '当前学习内容';
+}
+
+function setNarrationUi(nextState, message) {
+  if (nextState === 'done' && state?.formalAgent?.executionStatus === 'WAITING_INPUT') nextState = 'waiting';
+  narrationState = nextState;
+  const subtitle = document.getElementById('lws-narration-subtitle');
+  if (subtitle && !message && !['generating', 'playing'].includes(nextState)) subtitle.textContent = NARRATION_STATUS[nextState] || '语音伴学';
+  if (subtitle && message) subtitle.textContent = message;
+  const playPause = document.getElementById('lws-narration-play-pause');
+  if (playPause) {
+    playPause.disabled = ['disabled', 'unavailable', 'preparing', 'connecting'].includes(nextState);
+    playPause.textContent = nextState === 'paused' ? '继续' : nextState === 'ready' ? '播放' : '暂停';
+  }
+  document.querySelectorAll('[data-learning-action="narration-stop"], [data-learning-action="narration-replay"], [data-learning-action="narration-previous"], [data-learning-action="narration-next"]').forEach((button) => {
+    button.disabled = ['disabled', 'unavailable', 'ready'].includes(nextState);
+  });
+}
+
+async function toggleNarration() {
+  if (!narrationClient?.settings?.enabled) return;
+  const toggle = document.getElementById('lws-narration-toggle');
+  try {
+    if (!narrationClient.enabledByUser) {
+      await narrationClient.enable();
+      if (toggle) toggle.textContent = '关闭自动伴学';
+      await maybeStartNarration(null, 'node_content', true);
+    } else {
+      narrationClient.disable();
+      lastNarrationKey = '';
+      if (toggle) toggle.textContent = '开启语音伴学';
+    }
+  } catch (error) { setNarrationUi('unavailable', error.message); }
+}
+
+async function toggleNarrationPlayback() {
+  if (!narrationClient) return;
+  if (!narrationClient.jobId && narrationClient.enabledByUser) return maybeStartNarration(null, 'node_content', true);
+  if (narrationState === 'paused') await narrationClient.resume();
+  else await narrationClient.pause();
+}
+
+async function stopNarration() { lastNarrationKey = ''; await narrationClient?.stop({ cancel: true }); }
+
+async function startNarrationForRun(nodeRunId, purpose = 'node_content', force = false) {
+  if (!narrationClient?.enabledByUser || !nodeRunId) return;
+  const nodeRun = (S?.node_runs || []).find((run) => Number(run.node_run_id) === Number(nodeRunId));
+  if (!nodeRun) return;
+  const key = `${nodeRunId}:${purpose}`;
+  if (!force && lastNarrationKey === key) return;
+  lastNarrationKey = key;
+  try {
+    await narrationClient.start({
+      sessionId: Number(S.session_id), nodeRunId: Number(nodeRunId),
+      contentBlockId: `node_${nodeRunId}_main`, purpose,
+    });
+  } catch (error) { setNarrationUi('unavailable', error.message || '语音暂时不可用，文字内容不受影响。'); }
+}
+
+async function maybeStartNarration(node, purpose = 'node_content', force = false) {
+  if (!narrationClient?.enabledByUser) return;
+  const nodeRunId = state?.execution?.nodeRunId || S?.currentNodeRun?.node_run_id
+    || (S?.node_runs || []).find((run) => String(run.node_id) === String(node?.id || state?.nodeId))?.node_run_id;
+  return startNarrationForRun(Number(nodeRunId), purpose, force);
 }
 
 // Timer cleanup helpers
@@ -341,6 +509,8 @@ function abortBoth() {
   if (formalAbortCtrl) { formalAbortCtrl.abort(); formalAbortCtrl = null; }
   guideActive = false;
   formalActive = false;
+  narrationClient?.stop({ cancel: true }).catch(() => {});
+  lastNarrationKey = '';
 }
 
 function clearNodeTimers() {
@@ -361,6 +531,7 @@ function resetCurrentNodeState() {
     workflowConnected: false, result: null, resultAnswer: null,
     error: null, startedAtMs: null, completedAtMs: null,
     elapsedMs: 0, timerId: null,
+    interaction: null,
   };
   currentRequestId = null;
 
@@ -368,6 +539,9 @@ function resetCurrentNodeState() {
 
   const teachingEl = document.getElementById('lws-teaching-result');
   if (teachingEl) teachingEl.innerHTML = '';
+
+  // Remove input composer
+  removeComposerInputComposer();
 
   hideEl('lws-agent-status-bar');
   updateActionButtons();
@@ -382,18 +556,36 @@ function archiveCurrentWorkspace(node, label = '已完成') {
   const details = document.createElement('details');
   details.className = 'lws-history-card';
   details.dataset.historyNode = nodeId;
-  details.innerHTML = `<summary>${escHtml(node?.title || NODE_LABELS[node?.type] || '已完成节点')} · ${escHtml(label)}</summary>`;
+  const run = (S?.node_runs || []).find((item) => String(item.node_id) === nodeId);
+  details.innerHTML = `<summary>${escHtml(node?.title || NODE_LABELS[node?.type] || '已完成节点')} · ${escHtml(label)}</summary>${run?.node_run_id ? `<button type="button" class="lws-history-narrate" data-learning-action="narration-history" data-node-run-id="${Number(run.node_run_id)}">朗读本段</button>` : ''}`;
   const content = document.createElement('div');
   content.className = 'lws-history-content';
   content.innerHTML = source.innerHTML;
+  // History is a visual snapshot, never an interactive workspace. Keeping
+  // copied ids makes later global lookups target the folded historical node.
+  content.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
   details.appendChild(content);
   history.appendChild(details);
 }
 
 function restorePersistedHistory() {
   const history = document.getElementById('lws-node-history');
-  if (!history || !Array.isArray(S?.completedTrainerHistory)) return;
+  if (!history) return;
   const graphNodes = S.runtime_graph_json?.nodes || [];
+  if (S?.agentMode === 'langgraph') {
+    for (const run of S.node_runs || []) {
+      if (!['COMPLETED', 'SKIPPED'].includes(run.status) || !run.content) continue;
+      if (String(run.node_id) === String(S.current_node_id)) continue;
+      const node = graphNodes.find((candidate) => String(candidate.id) === String(run.node_id));
+      const details = document.createElement('details');
+      details.className = 'lws-history-card';
+      details.dataset.historyNode = String(run.node_id);
+      details.innerHTML = `<summary>${escHtml(node?.title || NODE_LABELS[node?.type] || '学习节点')} · ${run.status === 'SKIPPED' ? '已跳过' : '已完成'}</summary><button type="button" class="lws-history-narrate" data-learning-action="narration-history" data-node-run-id="${Number(run.node_run_id)}">朗读本段</button><div class="lws-history-content">${buildUnifiedHistoryHtml(run.content)}</div>`;
+      history.appendChild(details);
+    }
+    return;
+  }
+  if (!Array.isArray(S?.completedTrainerHistory)) return;
   for (const item of S.completedTrainerHistory) {
     if (!item.trainer || [...history.children].some((el) => el.dataset.historyNode === String(item.nodeId))) continue;
     const node = graphNodes.find((candidate) => String(candidate.id) === String(item.nodeId));
@@ -408,6 +600,32 @@ function restorePersistedHistory() {
     details.innerHTML = `<summary>${escHtml(node?.title || '应用练习')} · ${item.status === 'SKIPPED' ? '已跳过' : '已完成'}</summary><div class="lws-history-content">${questions || '<p>该练习尚无已提交题目。</p>'}</div>`;
     history.appendChild(details);
   }
+}
+
+function buildUnifiedHistoryHtml(content) {
+  const data = content?.data || {};
+  if (content?.contentType === 'practice') {
+    const questions = data.questions || [];
+    return (data.answers || []).map((answer, index) => {
+      const question = questions.find((item) => String(item.questionId || item.id) === String(answer.questionId));
+      return `<article class="lws-timeline-card"><div class="lws-timeline-card-header"><span class="lws-timeline-badge question">第 ${index + 1} 题</span><span class="lws-timeline-badge ${answer.isCorrect ? 'correct' : 'incorrect'}">${answer.isCorrect ? '正确' : '错误'}</span></div><div class="lws-timeline-card-body"><div class="lws-question-stem">${escHtml(question?.stem || answer.questionStem || '')}</div><p>你的答案：${escHtml(Array.isArray(answer.studentAnswer) ? answer.studentAnswer.join(', ') : answer.studentAnswer || '')}</p><p>正确答案：${escHtml(Array.isArray(answer.correctAnswer) ? answer.correctAnswer.join(', ') : answer.correctAnswer || '')}</p>${answer.analysis || answer.feedback ? `<p class="lws-eval-analysis">${escHtml(answer.analysis || answer.feedback)}</p>` : ''}</div></article>`;
+    }).join('') || '<p>该练习尚无已提交题目。</p>';
+  }
+  const parts = [];
+  for (const section of data.sections || []) parts.push({ title: section.heading || section.title || '讲解', text: section.content || section.text || '' });
+  const scalarFields = [
+    ['核心概念', data.concept], ['讲解', data.content], ['小结', data.summary],
+    ['诊断结论', data.diagnosis_conclusion || data.overall_assessment], ['误区说明', data.misconception],
+    ['错误原因', data.root_cause || data.root_cause_analysis], ['本轮完成情况', data.completion_summary],
+    ['错题情况', data.wrong_answer_summary],
+  ];
+  for (const [title, text] of scalarFields) if (text) parts.push({ title, text });
+  for (const [title, list] of [
+    ['已掌握内容', data.mastered_content], ['薄弱内容', data.weak_content],
+    ['修复建议', data.repair_suggestions], ['后续建议', data.next_steps],
+  ]) if (Array.isArray(list) && list.length) parts.push({ title, text: list.map((item) => `• ${item}`).join('\n') });
+  return parts.map((part) => `<section class="lws-section-card"><div class="lws-section-header"><span class="lws-section-title">${escHtml(part.title)}</span></div><div class="lws-section-body">${escHtml(part.text)}</div></section>`).join('')
+    || '<p>该条历史内容格式较旧，暂时无法展示。</p>';
 }
 
 // ========================
@@ -440,7 +658,11 @@ async function initSession(sessionId) {
     restoreGuideFromNodeRun();
 
     if (S.status === 'PAUSED') { showPaused(); return; }
-    if (S.status === 'COMPLETED') { navigateTo('#/student/learning/session/' + sessionId + '/summary'); return; }
+    if (S.status === 'COMPLETED') {
+      await loadKnowledgePointData();
+      await showFlowCompleted();
+      return;
+    }
     if (S.status === 'CREATED') {
       const started = await learningWorkflowApi.startSession(sessionId);
       applySessionSnapshot(started);
@@ -536,8 +758,9 @@ function updateTopbar() {
   setText('lws-kp-name', S.knowledge_point?.knowledge_point_name || '—');
   const graph = S.runtime_graph_json || {};
   const total = (graph.nodes || []).length;
-  const completed = S.completedNodeCount || 0;
-  setText('lws-node-progress', `节点 ${completed + 1}/${total}`);
+  const displayIndex = S.progress?.displayIndex
+    || (S.status === 'COMPLETED' ? total : Math.min(total, (S.completedNodeCount || 0) + 1));
+  setText('lws-node-progress', `节点 ${displayIndex}/${total}`);
 }
 
 function hideSkeleton() {
@@ -678,19 +901,30 @@ function renderAgentStatus() {
   showEl('lws-agent-status-bar');
 
   const phaseLabels = {
-    [PHASE.PREPARING]: '正在准备学习上下文',
-    [PHASE.REQUESTING]: '正在连接教学 Agent',
-    [PHASE.HTTP_CONNECTED]: 'Agent 已响应',
-    [PHASE.STREAMING]: '正在接收教学内容',
+    [PHASE.PREPARING]: '正在读取学习节点',
+    [PHASE.REQUESTING]: '正在匹配课程资料',
+    [PHASE.HTTP_CONNECTED]: '已找到相关资料',
+    [PHASE.STREAMING]: fa.executionStatus === 'WAITING_INPUT' ? '等待学生作答' : '正在生成教学内容',
     [PHASE.COMPLETED]: '内容生成完成',
     [PHASE.FAILED]: 'Agent 执行失败',
   };
+
+  // Additional stage messages based on elapsed time
+  let stageNote = '';
+  if (fa.phase !== PHASE.IDLE && fa.phase !== PHASE.COMPLETED && fa.phase !== PHASE.FAILED && fa.startedAtMs) {
+    const elapsed = fa.elapsedMs || (Date.now() - fa.startedAtMs);
+    if (elapsed > 30000) stageNote = '模型正在进行较复杂的分析，请稍候';
+    else if (elapsed > 10000) stageNote = '正在生成内容';
+    else if (elapsed > 3000) stageNote = '正在校验内容格式';
+  }
 
   const phaseLabel = phaseLabels[fa.phase] || fa.phase;
   let elapsedHtml = '';
 
   // Use state machine: if timer is active, elapsedMs is updated by interval
-  if (fa.phase === PHASE.COMPLETED && fa.completedAtMs && fa.startedAtMs) {
+  if (fa.executionStatus === 'WAITING_INPUT') {
+    elapsedHtml = `<span class="lws-agent-elapsed">生成耗时 ${(fa.elapsedMs / 1000).toFixed(1)} 秒</span>`;
+  } else if (fa.phase === PHASE.COMPLETED && fa.completedAtMs && fa.startedAtMs) {
     const elapsed = ((fa.completedAtMs - fa.startedAtMs) / 1000).toFixed(1);
     elapsedHtml = `<span class="lws-agent-elapsed">生成耗时 ${elapsed} 秒</span>`;
   } else if (fa.phase === PHASE.FAILED && fa.startedAtMs) {
@@ -708,6 +942,7 @@ function renderAgentStatus() {
     <span class="lws-agent-name">${escHtml(fa.agentName || '教学 Agent')}</span>
     <span class="lws-agent-state-label">${phaseLabel}</span>
     ${elapsedHtml}
+    ${stageNote ? `<span class="lws-agent-stage-note">${escHtml(stageNote)}</span>` : ''}
     ${fa.requestId ? `<span class="lws-agent-reqid">${escHtml(String(fa.requestId).slice(-8))}</span>` : ''}
   </div>`;
 }
@@ -742,15 +977,21 @@ function updateActionButtons() {
   const fa = state.formalAgent;
   const submitting = state.action.submitting;
 
-  // Next button
+  // Next button — hidden when input composer is active; submit is in-composer
   if (nextBtn) {
     nextBtn.disabled = submitting;
     if (fa.phase === PHASE.FAILED) {
       nextBtn.disabled = true;
       nextBtn.textContent = '请先处理错误';
+    } else if (isInputComposerVisible()) {
+      nextBtn.disabled = true;
+      nextBtn.textContent = '请先提交答案';
+    } else if (fa.executionStatus === 'WAITING_INPUT') {
+      nextBtn.disabled = true;
+      nextBtn.textContent = '请先提交答案';
     } else if (fa.phase === PHASE.COMPLETED) {
       nextBtn.disabled = submitting;
-      nextBtn.textContent = '继续下一步';
+      nextBtn.textContent = S?.progress?.displayIndex === S?.progress?.total ? '完成学习' : '继续下一步';
     } else if (submitting) {
       nextBtn.textContent = '处理中…';
     } else {
@@ -799,7 +1040,7 @@ async function execCurrentNode(sessionId) {
   );
 
   // If completed with valid output, just restore display
-  if (existingRun) {
+  if (existingRun && S.agentMode !== 'langgraph') {
     const output = existingRun.output_summary_json || {};
     const rawResult = output.result || existingRun.output_content;
 
@@ -846,6 +1087,19 @@ async function execCurrentNode(sessionId) {
 
   // Node is not completed — start execution
   showEl('lws-content-area');
+
+  // LangGraph only exposes attachments together with the active answer composer.
+  // Remove the old standalone uploader and any composer left by the prior node.
+  removeComposerInputComposer();
+  const legacyMultimodal = document.getElementById('lws-multimodal-container');
+  if (legacyMultimodal) {
+    legacyMultimodal.innerHTML = '';
+    legacyMultimodal.style.display = 'none';
+  }
+
+  // Reset draft state for new node
+  resetCurrentDraft();
+
   const info = getNodeType(node.type);
   const agentName = info?.agent || 'Agent';
   const agentType = info?.agent || '';
@@ -872,7 +1126,7 @@ async function execCurrentNode(sessionId) {
     });
   }
 
-  // Parallel: DeepSeek Guide + Dify Formal Agent
+  // Parallel: Bailian Guide + Formal Agent
   const guidePromise = startGuideAgent(node, 'enter', null, execution);
   const formalPromise = startFormalAgent(node, sessionId, execution);
 
@@ -883,13 +1137,20 @@ async function execCurrentNode(sessionId) {
     if (!isExecutionCurrent(execution)) return;
     const r = await learningWorkflowApi.getSession(sessionId);
     applySessionSnapshot(r);
+    // Re-render from the canonical session snapshot. This closes the small
+    // response/guide race where the execute response can finish while the
+    // refreshed checkpoint content is still being folded into the page.
+    if (S.currentContent?.data && String(S.current_node_id) === String(node.id)) {
+      renderUnifiedAgentContent(S.currentContent, node, S.execution || {});
+      state.formalAgent.result = S.currentContent.data;
+    }
   } catch {}
   updateTopbar();
   renderProgressNav();
 }
 
 // ========================
-// DeepSeek 学习引导 (多阶段)
+// 百炼学习引导 (多阶段)
 // ========================
 
 // Guide phase triggers for Trainer flow:
@@ -1013,6 +1274,10 @@ async function startFormalAgent(node, sessionId, execution = state?.execution) {
   const controller = new AbortController();
   formalAbortCtrl = controller;
 
+  if (S?.agentMode === 'langgraph') {
+    return runLangGraphNode(node, sessionId, execution, controller);
+  }
+
   const isExplainer = ['concept_explanation', 'analogy_explanation', 'worked_example_analysis', 'socratic_questioning'].includes(node.type);
   const isTrainer = ['basic_practice', 'adaptive_practice'].includes(node.type);
 
@@ -1027,6 +1292,288 @@ async function startFormalAgent(node, sessionId, execution = state?.execution) {
   if (isTrainer) {
     return runTrainerNode(node, sessionId, execution, controller);
   }
+}
+
+async function runLangGraphNode(node, sessionId, execution, controller) {
+  const el = document.getElementById('lws-teaching-result');
+  if (el) el.innerHTML = `<div class="lws-stream-loading"><p>正在生成 ${escHtml(node.title || NODE_LABELS[node.type] || '学习内容')}…</p></div>`;
+  try {
+    formalActive = true;
+    setFormalPhase(PHASE.REQUESTING, {
+      agentName: getNodeType(node.type)?.agent || 'Agent',
+      requestId: currentRequestId,
+      executionStatus: 'GENERATING',
+    });
+    const response = await fetch(apiUrl(`/learning-workflows/sessions/${sessionId}/execute-current`), {
+      ...authFetchOptions('POST', {
+        executionId: S.activeExecution?.executionId || null,
+        expectedNodeExecutionId: execution?.nodeRunId || null,
+      }),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw Object.assign(new Error(payload.message || '学习内容生成失败'), {
+        code: payload.code, httpStatus: response.status,
+      });
+    }
+    if (!isExecutionCurrent(execution)) return;
+    const data = payload.data || payload;
+    if (data.session) applySessionSnapshot(data.session);
+    if (data.nodeRunId) state.execution.nodeRunId = data.nodeRunId;
+    state.execution.executionId = data.execution?.executionId || null;
+
+    if (data.execution?.status === 'FAILED' || data.success === false) {
+      throw Object.assign(new Error(data.error?.message || '学习内容暂时生成失败，请重新尝试或跳过当前节点。'), {
+        code: data.error?.code || 'AGENT_EXECUTION_FAILED', httpStatus: 200,
+      });
+    }
+    if (!data.content?.data) {
+      throw Object.assign(new Error('学习内容格式暂时无法识别，请重新尝试。'), { code: 'AGENT_CONTENT_EMPTY' });
+    }
+
+    renderUnifiedAgentContent(data.content, node, data.execution || {});
+    state.formalAgent.result = data.content.data;
+    state.formalAgent.serverAdvanced = false;
+    const waitingInput = data.execution?.status === 'WAITING_INPUT';
+    const interaction = data.content?.interaction || null;
+    if (interaction) state.formalAgent.interaction = interaction;
+
+    const runMeta = data.session?.currentNodeRun?.output_summary_json || {};
+    const generatedAt = runMeta.generatedAt || data.session?.currentNodeRun?.started_at;
+    const completedAtMs = generatedAt ? new Date(generatedAt).getTime() : Date.now();
+    const generationElapsedMs = Number(runMeta.generationElapsedMs);
+    const startedAtMs = Number.isFinite(generationElapsedMs)
+      ? completedAtMs - Math.max(0, generationElapsedMs)
+      : completedAtMs;
+    setFormalPhase(waitingInput ? PHASE.STREAMING : PHASE.COMPLETED, {
+      agentName: agentDisplayName(data.content.agentType),
+      executionStatus: data.execution?.status,
+      startedAtMs,
+      completedAtMs,
+      workflowConnected: true,
+      error: null,
+      interaction,
+    });
+    updateTopbar();
+    renderProgressNav();
+    renderKnowledgePointOverview();
+  } catch (error) {
+    if (error.name === 'AbortError' || !isExecutionCurrent(execution)) return;
+    handleFormalAgentError({
+      ...error,
+      message: '学习内容暂时生成失败，请重新尝试或跳过当前节点。',
+      retryable: true,
+    }, node, sessionId);
+  } finally {
+    if (formalAbortCtrl === controller) formalAbortCtrl = null;
+    if (isExecutionCurrent(execution)) formalActive = false;
+  }
+}
+
+function agentDisplayName(agentType) {
+  const names = { explainer: 'Explainer', trainer: 'Trainer', diagnostician: 'Diagnostician' };
+  return names[String(agentType || '').toLowerCase()] || '教学 Agent';
+}
+
+function renderUnifiedAgentContent(content, node, execution) {
+  if (content.contentType === 'practice') {
+    renderGraphPractice(content.data, node, execution);
+  } else if (content.contentType === 'diagnosis') {
+    renderDiagnosticContent(content.data, node);
+  } else if (content.contentType === 'summary') {
+    renderSummaryContent(content.data, node);
+  } else {
+    renderExplainerContent(content.data, node);
+  }
+  const latestAnswer = content?.data?.answerHistory?.at?.(-1);
+  if (latestAnswer) renderSubmittedEvaluation(latestAnswer);
+  syncLearningInputComposer(content, execution);
+  queueMicrotask(() => maybeStartNarration(node).catch(() => {}));
+}
+
+function syncLearningInputComposer(content, execution) {
+  const interaction = content?.interaction;
+  if (execution?.status === 'WAITING_INPUT' && interaction && interaction.type !== 'none') {
+    renderLearningInputComposer(interaction);
+  } else {
+    removeComposerInputComposer();
+  }
+}
+
+function renderInfoCards(title, cards, sources = []) {
+  const el = document.getElementById('lws-teaching-result');
+  if (!el) return;
+  const hasContent = (value) => Array.isArray(value)
+    ? value.some((item) => String(typeof item === 'string' ? item : item?.content || item?.explanation || item?.mapping || '').trim())
+    : String(value ?? '').trim().length > 0;
+  const body = cards.filter((card) => hasContent(card?.content)).map((card) => {
+    const content = Array.isArray(card.content)
+      ? card.content.map((item) => `- ${typeof item === 'string' ? item : item?.content || item?.explanation || item?.mapping || ''}`).join('\n')
+      : String(card.content);
+    return `<section class="lws-section-card"><div class="lws-section-header"><span class="lws-section-title">${escHtml(card.title || '学习内容')}</span></div><div class="lws-section-body message-markdown">${renderMarkdownToHtml(content)}</div></section>`;
+  }).join('');
+  const sourceHtml = sources.length ? `<details class="lws-sources-details"><summary class="lws-sources-summary">📚 知识库来源 (${sources.length})</summary><div class="lws-sources-list">${sources.map((source) => `<div class="lws-source-item"><span class="lws-source-name">${escHtml(source.document_name || source.documentName || source.name || '课程资料')}</span></div>`).join('')}</div></details>` : '';
+  el.innerHTML = `<div class="lws-teaching-header"><h3>${escHtml(title || '学习内容')}</h3></div><div class="lws-sections-container">${body || '<p class="lws-fallback-text">该条内容格式较旧，暂时无法展示。</p>'}</div>${sourceHtml}`;
+  setTimeout(() => renderMathInMarkdownElements?.(el), 50);
+}
+
+function renderExplainerContent(data, node) {
+  const cards = [];
+  if (Array.isArray(data.sections)) {
+    for (const section of data.sections) {
+      const keyPoints = Array.isArray(section.key_points) && section.key_points.length
+        ? `\n\n${section.key_points.map((point) => `- ${point}`).join('\n')}` : '';
+      cards.push({ title: section.heading || section.title || '核心概念', content: `${section.content || section.text || ''}${keyPoints}` });
+    }
+  }
+  if (data.concept) cards.push({ title: '核心概念', content: data.concept });
+  for (const analogy of data.analogies || []) cards.push({ title: `类比：${analogy.domain || ''}`, content: `${analogy.mapping || ''}${analogy.limitation ? `\n\n类比边界：${analogy.limitation}` : ''}` });
+  if (data.bridge_back) cards.push({ title: '回到原概念', content: data.bridge_back });
+  if (data.problem_statement) cards.push({ title: '例题', content: data.problem_statement });
+  for (const step of data.solution_steps || []) cards.push({ title: `步骤 ${step.step_number || ''}`, content: `${step.description || ''}${step.rationale ? `\n\n理由：${step.rationale}` : ''}` });
+  if (data.final_answer) cards.push({ title: '结论', content: data.final_answer });
+  if (data.key_insights) cards.push({ title: '关键洞察', content: data.key_insights });
+  if (data.common_mistakes) cards.push({ title: '易错点', content: data.common_mistakes });
+  if (data.starting_question) cards.push({ title: '引导问题', content: data.starting_question });
+  if (data.guidance_hints) cards.push({ title: '思考提示', content: data.guidance_hints });
+  if (data.identified_misconception) cards.push({ title: '识别到的误区', content: data.identified_misconception });
+  if (data.why_it_is_wrong) cards.push({ title: '为什么不正确', content: data.why_it_is_wrong });
+  if (data.correct_understanding) cards.push({ title: '正确理解', content: data.correct_understanding });
+  if (data.key_concepts) cards.push({ title: '核心概念', content: data.key_concepts.map((item) => `${item.name}：${item.explanation}`) });
+  if (data.summary) cards.push({ title: '小结', content: data.summary });
+  if (data.content) cards.push({ title: '讲解', content: data.content });
+  renderInfoCards(data.title || data.topic || node.title, cards, data.knowledge_sources || []);
+}
+
+function renderDiagnosticContent(data, node) {
+  if (data.mode === 'diagnostic_decision') {
+    const mastery = Number(data.mastery_estimate);
+    const target = Number(data.target_mastery);
+    const answered = Number(data.answered_count || 0);
+    const accuracy = data.accuracy == null ? '暂无可计分题目' : `${Number(data.accuracy)}%`;
+    renderInfoCards(node.title || '掌握度判断', [
+      { title: data.passed ? '已达到目标' : '建议继续巩固', content: data.overall_assessment },
+      { title: '掌握度进度', content: Number.isFinite(mastery) && Number.isFinite(target) ? `当前 ${mastery}% · 目标 ${target}% · ${data.passed ? '已达标' : `还差 ${Math.max(0, target - mastery)} 个百分点`}` : '' },
+      { title: '本轮表现', content: answered ? `已计分 ${answered} 题，答对 ${Number(data.correct_count || 0)} 题，答错 ${Number(data.wrong_count || 0)} 题，正确率 ${accuracy}` : accuracy },
+      { title: '下一步', content: data.recommended_next_step || data.decisions?.map((item) => item.reason) || [] },
+    ], data.knowledge_sources || []);
+    return;
+  }
+  const cards = [
+    { title: '诊断结论', content: data.diagnosis_conclusion || data.overall_assessment || data.overall_pattern || data.conservative_recommendation },
+    { title: '错误类型', content: data.error_types || (data.primary_error_type ? [data.primary_error_type] : []) },
+    { title: '误区说明', content: data.misconception || (data.identified_misconceptions || []).map((item) => item.description) },
+    { title: '合理部分', content: data.reasonable_parts || [] },
+    { title: '错误原因', content: data.root_cause || data.root_cause_analysis || data.evidence },
+    { title: '修复建议', content: data.repair_suggestions || (data.suggested_remediation ? [data.suggested_remediation] : []) },
+    { title: '推荐下一步', content: data.recommended_next_step || data.recommended_action },
+    { title: '是否需要补救讲解', content: data.needs_remedial_explanation == null ? '' : (data.needs_remedial_explanation ? '需要' : '暂不需要') },
+  ];
+  renderInfoCards(node.title || '学习诊断', cards, data.knowledge_sources || []);
+}
+
+function renderSubmittedEvaluation(evaluation) {
+  if (!evaluation) return;
+  const el = document.getElementById('lws-teaching-result');
+  if (!el || el.querySelector('.lws-answer-evaluation')) return;
+  const score = evaluation.score == null ? Number.NaN : Number(evaluation.score);
+  const level = Number.isFinite(score) && score >= 80 ? 'strong' : Number.isFinite(score) && score >= 60 ? 'developing' : 'review';
+  const title = level === 'strong' ? '理解得很到位' : level === 'developing' ? '思路基本正确' : '还可以再完善一步';
+  const feedback = evaluation.feedback || evaluation.analysis || '回答已记录。';
+  const suggestion = evaluation.remediationHint || evaluation.errorAnalysis || '';
+  el.insertAdjacentHTML('beforeend', `<section class="lws-answer-evaluation ${level}">
+    <div class="lws-answer-evaluation-icon">${level === 'strong' ? '✓' : '✦'}</div>
+    <div><div class="lws-answer-evaluation-head"><b>学习引导老师评价</b>${Number.isFinite(score) ? `<span>${score} 分</span>` : ''}</div>
+      <h4>${escHtml(title)}</h4><p>${escHtml(feedback)}</p>${suggestion ? `<p class="lws-answer-evaluation-tip">建议：${escHtml(suggestion)}</p>` : ''}</div>
+  </section>`);
+}
+
+function renderSummaryContent(data, node) {
+  renderInfoCards(node.title || '学习总结', [
+    { title: '本轮完成情况', content: data.completion_summary || data.overall_assessment },
+    { title: '已掌握内容', content: data.mastered_content || [] },
+    { title: '薄弱内容', content: data.weak_content || [] },
+    { title: '错题情况', content: data.wrong_answer_summary },
+    { title: '掌握度变化', content: data.mastery_change ? `${data.mastery_change.before ?? '—'} → ${data.mastery_change.after ?? '—'}` : '' },
+    { title: '后续建议', content: data.next_steps || [] },
+  ], data.knowledge_sources || []);
+}
+
+function toTimelineQuestion(question, index = 0) {
+  return {
+    id: question.id || question.questionId,
+    questionKey: question.questionId || question.id,
+    type: question.questionType || question.type || 'short_answer',
+    stem: question.stem || '',
+    options: (question.options || []).map((option) => ({ key: option.key, text: option.content || option.text })),
+    difficulty: question.difficulty || 'medium',
+    knowledgePoint: question.knowledgePoint || '',
+    sequence: index + 1,
+    hints: question.hints || [],
+  };
+}
+
+function renderGraphPractice(data, node, execution) {
+  const el = document.getElementById('lws-teaching-result');
+  if (!el) return;
+  el.innerHTML = '';
+  ensureTimelineContainer(el);
+  const questions = Array.isArray(data.questions) ? data.questions : [];
+  const answers = Array.isArray(data.answers) ? data.answers : [];
+  trainerState = {
+    ...trainerState,
+    session: { sessionId: `langgraph_${S.session_id}_${state.execution?.nodeRunId || ''}` },
+    currentNode: node,
+    currentQuestion: null,
+    answeredQuestions: answers,
+    submitting: false,
+    loadingNext: false,
+    nodeRunId: state.execution?.nodeRunId,
+    practiceConfig: {
+      targetQuestionCount: questions.length,
+      minQuestionCount: questions.length,
+      maxQuestionCount: questions.length,
+      targetMastery: S.target_mastery,
+    },
+    progress: {
+      completedCount: answers.length,
+      correctCount: answers.filter((answer) => answer.isCorrect).length,
+      totalCount: questions.length,
+    },
+    currentMastery: S.mastery_current,
+    hintLevel: 0,
+  };
+  renderTrainerProgress();
+  for (const answer of answers) {
+    const index = questions.findIndex((question) => String(question.questionId || question.id) === String(answer.questionId));
+    const question = toTimelineQuestion(index >= 0 ? questions[index] : { id: answer.questionId, stem: answer.questionStem }, Math.max(0, index));
+    appendToTimeline('question_card', { question });
+    appendToTimeline('student_answer', { answer: Array.isArray(answer.studentAnswer) ? answer.studentAnswer.join(', ') : answer.studentAnswer, submittedAt: answer.submittedAt });
+    appendToTimeline('evaluation', { isCorrect: answer.isCorrect, correctAnswer: Array.isArray(answer.correctAnswer) ? answer.correctAnswer.join(', ') : answer.correctAnswer, analysis: answer.analysis || answer.feedback, errorType: answer.errorType });
+  }
+  if (execution.status === 'WAITING_INPUT' && data.currentQuestion) {
+    const currentIndex = Number(data.currentQuestionIndex || answers.length || 0);
+    appendGraphPracticeQuestion(toTimelineQuestion(data.currentQuestion, currentIndex), node);
+  } else if (execution.status === 'COMPLETED') {
+    appendToTimeline('info', { text: '本节点练习已完成，可继续进入下一节点。' });
+  }
+}
+
+function appendGraphPracticeQuestion(question, node) {
+  trainerState.currentQuestion = question;
+  trainerState.currentNode = node;
+  appendToTimeline('question_card', { question });
+  triggerGuideForPhase('before_question', {
+    question: {
+      sequence: question.sequence,
+      type: question.type,
+      stem: question.stem,
+      options: question.options,
+      difficulty: question.difficulty,
+    },
+    progress: trainerState.progress || {},
+  });
 }
 
 async function runExplainerNode(node, sessionId, execution, controller) {
@@ -1333,7 +1880,7 @@ async function saveNodeResult(sessionId, nodeId, clientActionId, execution = sta
         result: result || {},
         guide: guide && guide.blocks.length > 0 ? {
           agent: 'learning_guide',
-          model: import.meta.env.VITE_DEEPSEEK_MODEL || 'deepseek-v4-pro',
+          model: import.meta.env.VITE_BAILIAN_MODEL || 'qwen3.7-plus',
           requestId: guide.requestId,
           phase: 'enter',
           blocks: guide.blocks.map((b, i) => ({ index: i + 1, text: b.text })),
@@ -1420,6 +1967,387 @@ let trainerState = {
   currentMastery: null,
   hintLevel: 0,
 };
+
+// ========================
+// 统一回答组件 — 状态管理
+// ========================
+
+let currentDraft = {
+  text: '',
+  selectedOptions: [],
+  uploadedFiles: [],
+  nodeRunId: null,
+  questionId: null,
+};
+
+function resetCurrentDraft() {
+  currentDraft = {
+    text: '',
+    selectedOptions: [],
+    uploadedFiles: [],
+    nodeRunId: state?.execution?.nodeRunId || null,
+    questionId: null,
+  };
+}
+
+function isInputComposerVisible() {
+  if (!state) return false;
+  const exec = S?.execution || state.execution || {};
+  if (exec.status !== 'WAITING_INPUT') return false;
+
+  // Check if interaction data exists
+  const interaction = S?.currentContent?.interaction
+    || state.formalAgent?.interaction
+    || exec.interrupt;
+  if (!interaction) return false;
+
+  const itype = interaction.type || interaction.interactionType;
+  return itype && itype !== 'none';
+}
+
+function getCurrentInteraction() {
+  return S?.currentContent?.interaction
+    || state.formalAgent?.interaction
+    || S?.execution?.interrupt
+    || null;
+}
+
+// ========================
+// 统一回答组件 — 渲染
+// ========================
+
+function renderLearningInputComposer(interaction, afterElId = 'lws-teaching-result') {
+  if (!interaction) return;
+  const itype = interaction.type || interaction.interactionType || 'free_text';
+
+  // Find or create the composer container
+  let composer = document.getElementById('lws-input-composer');
+  if (!composer) {
+    composer = document.createElement('div');
+    composer.id = 'lws-input-composer';
+    composer.className = 'lws-input-composer';
+    const afterEl = document.getElementById(afterElId);
+    if (afterEl) {
+      afterEl.insertAdjacentElement('afterend', composer);
+    } else {
+      const contentArea = document.getElementById('lws-content-area');
+      if (contentArea) contentArea.appendChild(composer);
+    }
+  }
+
+  const isChoice = ['single_choice', 'multiple_choice', 'true_false'].includes(itype);
+  const isFreeText = ['free_text', 'short_answer', 'fill_blank'].includes(itype);
+  const placeholder = interaction.placeholder || '请输入你的回答……';
+  const submitLabel = interaction.submitLabel || '提交回答';
+  const options = interaction.options || [];
+  const maxImages = interaction.maxImages || 3;
+
+  // Sync draft
+  if (interaction.nodeRunId && currentDraft.nodeRunId !== interaction.nodeRunId) {
+    resetCurrentDraft();
+    currentDraft.nodeRunId = interaction.nodeRunId;
+  }
+  if (interaction.questionId) currentDraft.questionId = interaction.questionId;
+
+  const html = buildComposerHtml(itype, isChoice, isFreeText, placeholder, submitLabel, options, maxImages);
+  composer.innerHTML = html;
+
+  // Bind events
+  setTimeout(() => mountLearningInputComposer(interaction), 30);
+
+  // Scroll composer into view
+  setTimeout(() => composer.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+}
+
+function buildComposerHtml(itype, isChoice, isFreeText, placeholder, submitLabel, options, maxImages) {
+  let inputHtml = '';
+
+  if (isChoice && options.length) {
+    const inputType = itype === 'multiple_choice' ? 'checkbox' : 'radio';
+    const name = `lws-composer-choice-${Date.now()}`;
+    inputHtml = `<div class="lws-composer-options">${options.map((option) => `
+      <label class="lws-composer-option">
+        <input type="${inputType}" name="${escAttr(name)}" value="${escAttr(option.key)}">
+        <span class="lws-composer-option-key">${escHtml(option.key)}</span>
+        <span class="lws-composer-option-content">${escHtml(option.content)}</span>
+      </label>`).join('')}</div>`;
+    // For free_text after choices
+    if (itype === 'single_choice' || itype === 'true_false') {
+      inputHtml += `<textarea class="lws-composer-textarea" id="lws-composer-text" rows="2" placeholder="补充说明（可选）..." style="margin-top:8px;"></textarea>`;
+    }
+  } else if (isFreeText) {
+    const rows = itype === 'free_text' ? 4 : 2;
+    inputHtml = `<textarea class="lws-composer-textarea" id="lws-composer-text" rows="${rows}" placeholder="${escAttr(placeholder)}">${escHtml(currentDraft.text || '')}</textarea>`;
+  }
+
+  const uploadedCount = currentDraft.uploadedFiles.length;
+  const previewsHtml = currentDraft.uploadedFiles.map((f, i) => `
+    <div class="lws-composer-file-preview">
+      <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
+      <button class="lws-composer-file-remove" data-file-index="${i}" title="删除">&times;</button>
+    </div>`).join('');
+
+  const canSubmit = isChoice
+    ? currentDraft.selectedOptions.length > 0
+    : Boolean(currentDraft.text?.trim() || currentDraft.uploadedFiles.length);
+
+  return `
+    <div class="lws-composer-body">
+      ${inputHtml}
+      <div class="lws-composer-footer">
+        <div class="lws-composer-attachments">
+          <label class="lws-composer-attach-btn" id="lws-composer-attach-btn">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+            <span>添加图片</span>
+            <input type="file" id="lws-composer-file-input" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp" multiple hidden>
+          </label>
+          <span class="lws-composer-file-count">${uploadedCount}/${maxImages} 张</span>
+          <div class="lws-composer-file-previews" id="lws-composer-file-previews">${previewsHtml}</div>
+        </div>
+        <button class="lws-btn lws-btn-primary lws-composer-submit" id="lws-composer-submit" ${canSubmit ? '' : 'disabled'}>${escHtml(submitLabel)}</button>
+      </div>
+    </div>
+    <div class="lws-composer-status" id="lws-composer-status" style="display:none"></div>`;
+}
+
+function mountLearningInputComposer(interaction) {
+  const composer = document.getElementById('lws-input-composer');
+  if (!composer) return;
+
+  // File input
+  const fileInput = document.getElementById('lws-composer-file-input');
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => handleComposerFileSelect(e.target.files));
+  }
+
+  // Drag-and-drop on composer
+  composer.addEventListener('dragover', (e) => { e.preventDefault(); composer.classList.add('lws-composer-dragover'); });
+  composer.addEventListener('dragleave', () => { composer.classList.remove('lws-composer-dragover'); });
+  composer.addEventListener('drop', (e) => {
+    e.preventDefault();
+    composer.classList.remove('lws-composer-dragover');
+    handleComposerFileSelect(e.dataTransfer.files);
+  });
+
+  // Remove file buttons
+  composer.addEventListener('click', (e) => {
+    const delBtn = e.target.closest('.lws-composer-file-remove');
+    if (delBtn) {
+      const idx = parseInt(delBtn.dataset.fileIndex, 10);
+      removeComposerFile(idx);
+    }
+  });
+
+  // Submit button
+  const submitBtn = document.getElementById('lws-composer-submit');
+  if (submitBtn) {
+    submitBtn.onclick = () => submitLearningInput(interaction);
+  }
+
+  // Textarea change — enable submit
+  const textarea = document.getElementById('lws-composer-text');
+  if (textarea) {
+    textarea.addEventListener('input', () => {
+      currentDraft.text = textarea.value.trim();
+      if (submitBtn) {
+        submitBtn.disabled = !currentDraft.text && !currentDraft.uploadedFiles.length;
+      }
+    });
+  }
+
+  // Choice input change — enable submit
+  const choiceInputs = composer.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+  for (const input of choiceInputs) {
+    input.addEventListener('change', () => {
+      const checked = [...composer.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')];
+      currentDraft.selectedOptions = checked.map((item) => item.value);
+      if (submitBtn) submitBtn.disabled = false;
+    });
+  }
+}
+
+function removeComposerInputComposer() {
+  const composer = document.getElementById('lws-input-composer');
+  if (composer) composer.remove();
+  resetCurrentDraft();
+}
+
+async function handleComposerFileSelect(fileList) {
+  const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
+  if (!files.length) { showToast('请选择图片文件', 'warning'); return; }
+
+  const remaining = 3 - currentDraft.uploadedFiles.length;
+  if (files.length > remaining) {
+    showToast(`最多上传 3 张图片（还可添加 ${remaining} 张）`, 'warning');
+    files.splice(remaining);
+  }
+
+  const formData = new FormData();
+  files.forEach((f) => formData.append('files', f));
+
+  try {
+    const statusEl = document.getElementById('lws-composer-status');
+    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = '上传中…'; }
+    const result = await learningWorkflowApi.uploadSessionFiles(state.sessionId, formData);
+    if (result.code === 200 && result.data?.files) {
+      currentDraft.uploadedFiles.push(...result.data.files);
+      if (statusEl) { statusEl.textContent = `已上传 ${currentDraft.uploadedFiles.length} 张`; }
+      // Refresh previews
+      const previewsEl = document.getElementById('lws-composer-file-previews');
+      const countEl = document.querySelector('.lws-composer-file-count');
+      if (previewsEl) {
+        previewsEl.innerHTML = currentDraft.uploadedFiles.map((f, i) => `
+          <div class="lws-composer-file-preview">
+            <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
+            <button class="lws-composer-file-remove" data-file-index="${i}" title="删除">&times;</button>
+          </div>`).join('');
+      }
+      if (countEl) countEl.textContent = `${currentDraft.uploadedFiles.length}/3 张`;
+
+      // 自由回答允许图片作为回答内容；选择题仍必须先选择选项。
+      const submitBtn = document.getElementById('lws-composer-submit');
+      const choiceInput = document.querySelector('#lws-input-composer input[type="radio"], #lws-input-composer input[type="checkbox"]');
+      if (submitBtn && !choiceInput) submitBtn.disabled = false;
+    } else {
+      if (statusEl) { statusEl.textContent = '上传失败'; }
+      showToast(result.message || '上传失败', 'error');
+    }
+  } catch (err) {
+    const statusEl = document.getElementById('lws-composer-status');
+    if (statusEl) { statusEl.style.display = ''; statusEl.textContent = '上传失败'; }
+    showToast('上传失败: ' + (err.message || ''), 'error');
+  }
+}
+
+function removeComposerFile(index) {
+  if (index >= 0 && index < currentDraft.uploadedFiles.length) {
+    currentDraft.uploadedFiles.splice(index, 1);
+    const previewsEl = document.getElementById('lws-composer-file-previews');
+    const countEl = document.querySelector('.lws-composer-file-count');
+    if (previewsEl) {
+      previewsEl.innerHTML = currentDraft.uploadedFiles.map((f, i) => `
+        <div class="lws-composer-file-preview">
+          <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
+          <button class="lws-composer-file-remove" data-file-index="${i}" title="删除">&times;</button>
+        </div>`).join('');
+    }
+    if (countEl) countEl.textContent = `${currentDraft.uploadedFiles.length}/3 张`;
+    // 没有文字、图片或已选选项时禁用提交。
+    const submitBtn = document.getElementById('lws-composer-submit');
+    const hasChoice = currentDraft.selectedOptions.length > 0;
+    if (submitBtn && !currentDraft.text && !currentDraft.uploadedFiles.length && !hasChoice) {
+      submitBtn.disabled = true;
+    }
+  }
+}
+
+async function submitLearningInput(interaction) {
+  if (!S || !state) return;
+  if (state.action.submitting) return;
+
+  const itype = interaction.type || interaction.interactionType || 'free_text';
+
+  // Collect answer
+  let answer = '';
+  let selectedOptions = [];
+  if (['single_choice', 'multiple_choice', 'true_false'].includes(itype)) {
+    const composer = document.getElementById('lws-input-composer');
+    if (composer) {
+      const checked = [...composer.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')];
+      selectedOptions = checked.map((item) => item.value);
+      answer = selectedOptions.join(', ');
+    }
+    // Also check supplement textarea
+    const suppText = document.getElementById('lws-composer-text');
+    if (suppText?.value?.trim()) {
+      currentDraft.text = suppText.value.trim();
+    }
+    if (!selectedOptions.length) {
+      showToast('请先选择一个答案', 'warning');
+      return;
+    }
+  } else {
+    const textarea = document.getElementById('lws-composer-text');
+    if (textarea) currentDraft.text = textarea.value.trim();
+    answer = currentDraft.text;
+  }
+
+  if (!answer && !currentDraft.uploadedFiles.length) {
+    showToast('请输入你的回答或上传图片', 'warning');
+    return;
+  }
+
+  await narrationClient?.stop({ cancel: true });
+  setAction('submit-answer', true);
+  const submitBtn = document.getElementById('lws-composer-submit');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '提交中…'; }
+  const statusEl = document.getElementById('lws-composer-status');
+  if (statusEl) { statusEl.style.display = ''; statusEl.textContent = '正在提交…'; }
+
+  try {
+    const operationId = `answer_${S.session_id}_${interaction.nodeRunId || state.execution?.nodeRunId}_${Date.now()}`;
+    const resp = await learningWorkflowApi.submitAnswer(state.sessionId, {
+      questionKey: interaction.questionId || 'free_response',
+      operationId,
+      expectedNodeExecutionId: state.execution?.nodeRunId || interaction.nodeRunId,
+      studentInput: {
+        text: currentDraft.text || answer,
+        answer,
+        selectedOptions,
+        fileRefs: currentDraft.uploadedFiles,
+        questionId: interaction.questionId,
+      },
+      answer: selectedOptions.length === 1 ? selectedOptions[0] : answer,
+      selectedOption: selectedOptions.length === 1 ? selectedOptions[0] : undefined,
+      timeSpentSeconds: Math.round((Date.now() - (state.formalAgent?.startedAtMs || Date.now())) / 1000),
+      requestId: `lw_a_${state.sessionId}_${interaction.questionId || 'fr'}_${Date.now()}`,
+    });
+
+    const data = resp.data || resp;
+    if (!isExecutionCurrent(state.execution)) return;
+
+    if (S.agentMode === 'langgraph') {
+      if (data.session) applySessionSnapshot(data.session);
+      const currentNode = (S.runtime_graph_json?.nodes || []).find(
+        (item) => String(item.id) === String(state.nodeId),
+      );
+      if (data.content?.data && currentNode) {
+        // Rebuild the active workspace from the canonical response. This keeps
+        // text, choices, images, answer history and the next question in one UI.
+        renderUnifiedAgentContent(data.content, currentNode, data.execution || {});
+      } else {
+        removeComposerInputComposer();
+      }
+
+      if (data.execution?.status === 'WAITING_INPUT') {
+        setFormalPhase(PHASE.STREAMING, {
+          agentName: agentDisplayName(data.content?.agentType),
+          executionStatus: 'WAITING_INPUT',
+          workflowConnected: true,
+          interaction: data.content?.interaction || null,
+        });
+      } else {
+        setFormalPhase(PHASE.COMPLETED, {
+          agentName: agentDisplayName(data.content?.agentType),
+          executionStatus: 'COMPLETED',
+          completedAtMs: Date.now(),
+        });
+        state.formalAgent.result = data.content?.data || buildTrainerResultPayload(
+          (S.runtime_graph_json?.nodes || []).find(n => String(n.id) === String(state.nodeId)));
+      }
+      updateTopbar();
+      renderProgressNav();
+      await maybeStartNarration(currentNode, 'feedback', true);
+    }
+  } catch (e) {
+    if (!isExecutionCurrent(state.execution)) return;
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '重新提交'; }
+    if (statusEl) { statusEl.style.display = 'none'; }
+    showToast('提交失败: ' + (e.message || ''), 'error');
+  } finally {
+    setAction(null, false);
+  }
+}
 
 async function runTrainerNode(node, sessionId, execution, controller) {
   const el = document.getElementById('lws-teaching-result');
@@ -1574,12 +2502,13 @@ function appendTrainerQuestionToTimeline(question, trainerSession, sessionId, no
 
   const opts = question.options || [];
   const isChoice = (question.type || '').includes('choice');
+  const isMultipleChoice = question.type === 'multiple_choice';
 
   const answerCard = document.createElement('div');
   answerCard.className = 'lws-timeline-card lws-timeline-answer';
   answerCard.id = 'lws-answer-' + qId;
   answerCard.innerHTML = `<div class="lws-timeline-card-body">
-    ${isChoice ? `<div class="lws-question-options">${opts.map(o => `<label class="lws-option-label"><input type="radio" name="lws-ans-${qId}" value="${escAttr(o.key || '')}"><span class="lws-option-key">${escHtml(o.key || '')}</span><span>${escHtml(o.text || o.content || '')}</span></label>`).join('')}</div>`
+    ${isChoice ? `<div class="lws-question-options">${opts.map(o => `<label class="lws-option-label"><input type="${isMultipleChoice ? 'checkbox' : 'radio'}" name="lws-ans-${qId}" value="${escAttr(o.key || '')}"><span class="lws-option-key">${escHtml(o.key || '')}</span><span>${escHtml(o.text || o.content || '')}</span></label>`).join('')}</div>`
       : `<textarea id="lws-trainer-answer-${qId}" class="lws-textarea" rows="3" placeholder="输入你的答案..."></textarea>`}
     <div class="lws-answer-actions"><button class="lws-btn lws-btn-primary lws-submit-btn" id="lws-submit-${qId}" ${trainerState.submitting ? 'disabled' : ''}>提交答案</button><button class="lws-btn lws-btn-ghost" id="lws-hint-${qId}" type="button">获取提示</button></div>
     <span class="lws-submit-status" id="lws-submit-status-${qId}" style="display:none"></span>
@@ -1643,16 +2572,17 @@ async function handleTrainerSubmit(qId, question, trainerSession, sessionId, nod
   if (trainerState.submitting || trainerState.loadingNext || !isExecutionCurrent(execution)) return;
 
   let answer;
-  const sel = document.querySelector(`input[name="lws-ans-${qId}"]:checked`);
-  if (sel) answer = sel.value;
+  const selected = [...document.querySelectorAll(`input[name="lws-ans-${qId}"]:checked`)];
+  if (selected.length) answer = question.type === 'multiple_choice' ? selected.map((item) => item.value) : selected[0].value;
   else {
     const textarea = document.getElementById('lws-trainer-answer-' + qId);
     if (textarea) answer = textarea.value.trim();
   }
-  if (!answer) { showToast('请选择或输入你的答案', 'warning'); return; }
+  if (!answer || (Array.isArray(answer) && !answer.length)) { showToast('请选择或输入你的答案', 'warning'); return; }
 
   // Lock submission
   trainerState.submitting = true;
+  await narrationClient?.stop({ cancel: true });
   setAction('submit-answer', true);
   const submitBtn = document.getElementById('lws-submit-' + qId);
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '提交中…'; }
@@ -1671,6 +2601,11 @@ async function handleTrainerSubmit(qId, question, trainerSession, sessionId, nod
     });
     const data = resp.data || resp;
     if (!isExecutionCurrent(execution)) return;
+
+    if (S.agentMode === 'langgraph') {
+      applyLangGraphSubmitResult(data, { qId, answer, question, trainerSession, sessionId, node, execution });
+      return;
+    }
 
     // Append student answer to timeline
     appendToTimeline('student_answer', { id: qId, answer, submittedAt: new Date().toISOString() });
@@ -1769,6 +2704,54 @@ async function handleTrainerSubmit(qId, question, trainerSession, sessionId, nod
   }
 }
 
+function applyLangGraphSubmitResult(data, context) {
+  const { qId, answer, trainerSession, sessionId, node, execution } = context;
+  if (data.execution?.status === 'FAILED' || data.success === false) {
+    throw Object.assign(new Error(data.error?.message || '答案提交失败'), { code: data.error?.code });
+  }
+  appendToTimeline('student_answer', {
+    id: qId,
+    answer: Array.isArray(answer) ? answer.join(', ') : answer,
+    submittedAt: new Date().toISOString(),
+  });
+  if (data.evaluation) {
+    appendToTimeline('evaluation', {
+      id: qId,
+      isCorrect: data.evaluation.isCorrect,
+      correctAnswer: Array.isArray(data.evaluation.correctAnswer) ? data.evaluation.correctAnswer.join(', ') : data.evaluation.correctAnswer,
+      studentAnswer: answer,
+      analysis: data.evaluation.analysis || data.evaluation.feedback || data.evaluation.errorAnalysis || '',
+      errorType: data.evaluation.errorType || null,
+    });
+  }
+  document.getElementById('lws-answer-' + qId)?.remove();
+  if (data.session) applySessionSnapshot(data.session);
+  trainerState.answeredQuestions = data.content?.data?.answers || trainerState.answeredQuestions;
+  trainerState.progress = {
+    completedCount: trainerState.answeredQuestions.length,
+    correctCount: trainerState.answeredQuestions.filter((item) => item.isCorrect).length,
+    totalCount: data.content?.data?.questions?.length || trainerState.progress?.totalCount || 0,
+  };
+  renderTrainerProgress();
+
+  if (data.execution?.status === 'WAITING_INPUT' && data.content?.data?.currentQuestion) {
+    const next = toTimelineQuestion(data.content.data.currentQuestion, data.content.data.currentQuestionIndex || trainerState.answeredQuestions.length);
+    trainerState.currentQuestion = next;
+    setFormalPhase(PHASE.STREAMING, { agentName: 'Trainer', executionStatus: 'WAITING_INPUT', workflowConnected: true });
+    setTimeout(() => {
+      if (isExecutionCurrent(execution)) appendTrainerQuestionToTimeline(next, trainerSession, sessionId, node);
+    }, 250);
+    return;
+  }
+
+  state.formalAgent.result = data.content?.data || buildTrainerResultPayload(node);
+  state.formalAgent.serverAdvanced = false;
+  setFormalPhase(PHASE.COMPLETED, { agentName: 'Trainer', executionStatus: 'COMPLETED', completedAtMs: Date.now() });
+  appendToTimeline('info', { text: '本节点练习已完成，可继续进入下一节点。' });
+  updateTopbar();
+  renderProgressNav();
+}
+
 function buildTrainerResultPayload(node) {
   return {
     strategy: { code: 'practice', name: '练习完成' },
@@ -1788,7 +2771,12 @@ function buildTrainerResultPayload(node) {
 // ========================
 
 function ensureTimelineContainer(parentEl) {
-  let timeline = document.getElementById('lws-timeline');
+  // Old in-memory history cards may still contain this id from a node that was
+  // archived before the current render. Demote those copies first.
+  document.querySelectorAll('#lws-timeline').forEach((element) => {
+    if (!parentEl.contains(element)) element.removeAttribute('id');
+  });
+  let timeline = parentEl.querySelector('#lws-timeline');
   if (!timeline) {
     parentEl.innerHTML = '';
     timeline = document.createElement('div');
@@ -1839,7 +2827,7 @@ function appendToTimeline(type, data) {
         <span class="lws-timeline-badge ${isCorrect ? 'correct' : 'incorrect'}">${isCorrect ? '✓ 正确' : '✗ 错误'}</span>
       </div>
       <div class="lws-timeline-card-body">
-        ${!isCorrect ? `<div class="lws-eval-row"><span class="lws-eval-label">正确答案:</span> <b>${escHtml(data.correctAnswer || '')}</b></div>` : ''}
+        ${data.correctAnswer !== undefined && data.correctAnswer !== null && data.correctAnswer !== '' ? `<div class="lws-eval-row"><span class="lws-eval-label">正确答案:</span> <b>${escHtml(data.correctAnswer)}</b></div>` : ''}
         <div class="lws-eval-analysis">${escHtml(data.analysis || '')}</div>
         ${data.errorType ? `<div class="lws-eval-error-type">错误类型: ${escHtml(data.errorType)}</div>` : ''}
       </div>`;
@@ -1859,7 +2847,7 @@ function appendToTimeline(type, data) {
       break;
     }
     default: {
-      card.innerHTML = `<div class="lws-timeline-card-body">${escHtml(JSON.stringify(data))}</div>`;
+      card.innerHTML = '<div class="lws-timeline-card-body">该条历史内容格式较旧，暂时无法展示。</div>';
     }
   }
 
@@ -2047,6 +3035,38 @@ async function handleNext() {
   console.log('[Next][clientActionId=' + clientActionId + '] click_received');
 
   try {
+    if (S.agentMode === 'langgraph') {
+      const response = await fetch(apiUrl(`/learning-workflows/sessions/${S.session_id}/complete-node`), {
+        ...authFetchOptions('POST', {
+          nodeId: previousNodeId,
+          expectedNodeExecutionId: state.execution?.nodeRunId || S.currentNodeRun?.node_run_id || null,
+          clientActionId,
+          operationId: clientActionId,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.code !== 0) throw new Error(payload.message || '进入下一节点失败');
+      const outcome = payload.data || payload;
+      if (outcome.execution?.status === 'FAILED') throw new Error(outcome.error?.message || '进入下一节点失败');
+      archiveCurrentWorkspace(previousNode, '已完成');
+      abortBoth();
+      if (outcome.session) applySessionSnapshot(outcome.session);
+      if (S.status === 'COMPLETED' || outcome.execution?.flowCompleted || !S.current_node_id) {
+        await showFlowCompleted();
+        return;
+      }
+      state.nodeId = String(S.current_node_id);
+      state.guide = { phase: PHASE.IDLE, requestId: '', blocks: [], error: null };
+      const guideEl = document.getElementById('lws-guide-blocks');
+      if (guideEl) guideEl.innerHTML = '';
+      resetCurrentNodeState();
+      updateTopbar();
+      renderProgressNav();
+      renderKnowledgePointOverview();
+      await execCurrentNode(S.session_id);
+      return;
+    }
+
     // Trainer 完成由后端 submit 接口原子推进；此处只切换工作区，不能再保存旧节点一次。
     if (state.formalAgent.serverAdvanced) {
       const nextNodeId = String(S.current_node_id || '');
@@ -2165,19 +3185,34 @@ async function handleNext() {
     renderProgressNav();
   } finally {
     setAction(null, false);
-    // Restore button state
-    if (nextBtn) { nextBtn.disabled = false; nextBtn.textContent = '继续下一步'; }
+    updateActionButtons();
   }
 }
 
 // Show flow completion on current page instead of navigating away
 async function showFlowCompleted() {
+  showEl('lws-content-area');
+  showEl('lws-guide-panel');
+  const guideBlocks = document.getElementById('lws-guide-blocks');
+  if (guideBlocks && !guideBlocks.querySelector('[data-completion-guide]')) {
+    guideBlocks.insertAdjacentHTML('beforeend', '<div class="lws-guide-bubble" data-completion-guide>本轮学习已经完成。还有什么需要问的吗？我会结合刚才的学习节点、你的作答评价和掌握度继续陪你深入讨论。</div>');
+  }
+  setGuidePhase(PHASE.COMPLETED);
   const el = document.getElementById('lws-teaching-result');
   if (el) {
     el.innerHTML = `<div class="lws-completed-card">
-      <div class="lws-completed-icon">🎉</div>
-      <h3>学习流已完成</h3>
-      <p>恭喜你完成了本轮学习！</p>
+      <div class="lws-completed-hero"><div class="lws-completed-icon">🎉</div><div><h3>学习流已完成</h3>
+      <p>总结已保存。你可以继续追问，AI 会带着本轮学习上下文回答。</p></div></div>
+      <div class="lws-completion-chat">
+        <div class="lws-completion-chat-head"><b>继续和学习引导老师聊聊</b><span>真实流式回答 · 已关联本轮学习记录</span></div>
+        <div class="lws-completion-messages" id="lws-completion-messages"></div>
+        <div class="lws-completion-suggestions">
+          <button type="button" data-completion-question="请根据我刚才的作答，指出最需要继续巩固的一个概念。">我最薄弱的地方</button>
+          <button type="button" data-completion-question="请把本轮最关键的概念用一个新例子再讲一遍。">换个例子讲解</button>
+          <button type="button" data-completion-question="请根据本轮学习结果给我一道针对性的思考题，不要立即给答案。">再出一道思考题</button>
+        </div>
+        <form class="lws-completion-form" id="lws-completion-form"><textarea id="lws-completion-input" rows="2" maxlength="800" placeholder="继续追问本轮内容，Enter 发送，Shift+Enter 换行"></textarea><button class="lws-btn lws-btn-primary" type="submit">发送</button></form>
+      </div>
       <div class="lws-completed-actions" style="margin-top:16px;display:flex;gap:12px;">
         <button class="lws-btn lws-btn-primary" id="lws-btn-view-summary">查看学习总结</button>
         <button class="lws-btn lws-btn-outline" id="lws-btn-back-to-flows">返回学习流中心</button>
@@ -2189,12 +3224,70 @@ async function showFlowCompleted() {
     document.getElementById('lws-btn-back-to-flows').onclick = () => {
       navigateTo('#/student/learning-flows');
     };
+    bindCompletionChat();
   }
   setFormalPhase(PHASE.COMPLETED, { agentName: '学习流完成' });
   const nextBtn = document.getElementById('lws-btn-next');
   if (nextBtn) { nextBtn.style.display = 'none'; }
   const skipBtn = document.getElementById('lws-btn-skip');
   if (skipBtn) { skipBtn.style.display = 'none'; }
+}
+
+function renderCompletionMessages() {
+  const host = document.getElementById('lws-completion-messages');
+  if (!host) return;
+  if (!completionChat.messages.length) {
+    host.innerHTML = '<div class="lws-completion-empty">你可以从上面的快捷问题开始，或直接输入自己的问题。</div>';
+    return;
+  }
+  host.innerHTML = completionChat.messages.map((message) => `<div class="lws-completion-message ${message.role}"><div class="message-markdown">${message.content ? renderMarkdownToHtml(message.content) : '<span class="lws-chat-thinking">正在组织回答…</span>'}</div></div>`).join('');
+  renderMathInMarkdownElements(host);
+  host.scrollTop = host.scrollHeight;
+}
+
+function bindCompletionChat() {
+  if (!completionChat.messages.length) completionChat = { messages: [], sending: false, abortController: null };
+  renderCompletionMessages();
+  const form = document.getElementById('lws-completion-form');
+  const input = document.getElementById('lws-completion-input');
+  form?.addEventListener('submit', (event) => { event.preventDefault(); sendCompletionQuestion(input?.value); });
+  input?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendCompletionQuestion(input.value); }
+  });
+  document.querySelectorAll('[data-completion-question]').forEach((button) => {
+    button.addEventListener('click', () => sendCompletionQuestion(button.dataset.completionQuestion));
+  });
+}
+
+async function sendCompletionQuestion(rawMessage) {
+  const message = String(rawMessage || '').trim();
+  if (!message || completionChat.sending || !S) return;
+  const input = document.getElementById('lws-completion-input');
+  if (input) input.value = '';
+  const history = completionChat.messages.filter((item) => item.content).slice(-6).map(({ role, content }) => ({ role, content }));
+  const assistant = { role: 'assistant', content: '' };
+  completionChat.messages.push({ role: 'user', content: message }, assistant);
+  completionChat.sending = true;
+  completionChat.abortController = new AbortController();
+  renderCompletionMessages();
+  const submit = document.querySelector('#lws-completion-form button');
+  if (submit) { submit.disabled = true; submit.textContent = '回答中…'; }
+  try {
+    await streamLearningSessionAssistant(S.session_id, { message, history }, {
+      onEvent: (eventName, data) => {
+        if (eventName === 'delta') { assistant.content += data.text || ''; renderCompletionMessages(); }
+        if (eventName === 'error') throw new Error(data.message || 'AI 对话失败');
+      },
+    }, completionChat.abortController.signal);
+    if (!assistant.content) assistant.content = '暂时没有生成有效回答，请重新提问。';
+  } catch (error) {
+    assistant.content = error.name === 'AbortError' ? '本次回答已停止。' : (error.message || 'AI 对话暂时不可用。');
+  } finally {
+    completionChat.sending = false;
+    completionChat.abortController = null;
+    if (submit) { submit.disabled = false; submit.textContent = '发送'; }
+    renderCompletionMessages();
+  }
 }
 
 async function handleSkip() {
@@ -2266,15 +3359,25 @@ async function handleRetry() {
   setAction('retry', true);
 
   try {
+    const failedNodeId = String(state.nodeId);
     abortBoth();
-    await fetch(apiUrl(`/learning-workflows/sessions/${S.session_id}/retry`), {
-      ...authFetchOptions('POST', { nodeId: state.nodeId }),
+    const response = await fetch(apiUrl(`/learning-workflows/sessions/${S.session_id}/retry`), {
+      ...authFetchOptions('POST', {
+        nodeId: failedNodeId,
+        operationId: `retry_${S.session_id}_${failedNodeId}_${Date.now()}`,
+      }),
     });
-
-    const r = await learningWorkflowApi.getSession(S.session_id);
-    S = r.data || r;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.code !== 0) throw new Error(payload.message || '重试失败');
+    const outcome = payload.data || payload;
+    if (outcome.session) applySessionSnapshot(outcome.session);
+    else {
+      const r = await learningWorkflowApi.getSession(S.session_id);
+      applySessionSnapshot(r);
+    }
     state.nodeRuns = S.node_runs || [];
-    state.formalAgent = { phase: PHASE.IDLE, requestId: '', agentName: '', agentType: '', workflowConnected: false, result: null, resultAnswer: null, error: null, startedAt: null, completedAt: null };
+    state.nodeId = String(S.current_node_id || failedNodeId);
+    state.formalAgent = { phase: PHASE.IDLE, requestId: '', agentName: '', agentType: '', workflowConnected: false, result: null, resultAnswer: null, error: null, startedAtMs: null, completedAtMs: null, elapsedMs: 0, timerId: null };
 
     updateTopbar();
     renderProgressNav();
@@ -2466,6 +3569,130 @@ function showModal({ title, content, confirmText, cancelText, onConfirm, onCance
 function closeModal() {
   const overlay = document.getElementById('lws-modal-overlay');
   if (overlay) overlay.style.display = 'none';
+}
+
+// ========================
+// 多模态文件上传
+// ========================
+
+let uploadedFiles = [];
+
+function resetUploadedFiles() {
+  uploadedFiles = [];
+}
+
+function initMultimodalUpload() {
+  const area = document.getElementById('lws-multimodal-area');
+  if (!area) return;
+
+  // 文件选择按钮
+  const fileInput = area.querySelector('#lws-file-input');
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files));
+  }
+
+  // 拖拽上传
+  const dropZone = area.querySelector('.lws-drop-zone');
+  if (dropZone) {
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('lws-dragover'); });
+    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('lws-dragover'); });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('lws-dragover');
+      handleFileSelect(e.dataTransfer.files);
+    });
+  }
+
+  // 删除按钮委托
+  area.addEventListener('click', (e) => {
+    const delBtn = e.target.closest('.lws-file-remove');
+    if (delBtn) {
+      const idx = parseInt(delBtn.dataset.fileIndex, 10);
+      removeFile(idx);
+    }
+  });
+
+  renderFilePreviews();
+}
+
+async function handleFileSelect(fileList) {
+  const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
+  if (files.length === 0) {
+    showToast('请选择图片文件 (JPEG, PNG, GIF, WebP, BMP)', 'warning');
+    return;
+  }
+
+  const remaining = 3 - uploadedFiles.length;
+  if (files.length > remaining) {
+    showToast(`最多上传 3 张图片（当前已有 ${uploadedFiles.length} 张，还可添加 ${remaining} 张）`, 'warning');
+    files.splice(remaining);
+  }
+
+  // 上传文件
+  const formData = new FormData();
+  files.forEach((f) => formData.append('files', f));
+
+  try {
+    showToast('正在上传图片...', 'info');
+    const result = await learningWorkflowApi.uploadSessionFiles(state.sessionId, formData);
+    if (result.code === 200 && result.data?.files) {
+      uploadedFiles.push(...result.data.files);
+      renderFilePreviews();
+      showToast(`已上传 ${result.data.files.length} 张图片`, 'success');
+    } else {
+      showToast(result.message || '上传失败', 'error');
+    }
+  } catch (err) {
+    showToast('上传失败: ' + (err.message || '网络错误'), 'error');
+  }
+}
+
+function removeFile(index) {
+  if (index >= 0 && index < uploadedFiles.length) {
+    uploadedFiles.splice(index, 1);
+    renderFilePreviews();
+  }
+}
+
+function renderFilePreviews() {
+  const container = document.getElementById('lws-file-previews');
+  if (!container) return;
+
+  if (uploadedFiles.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = uploadedFiles
+    .map(
+      (f, i) => `
+      <div class="lws-file-preview-item">
+        <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName)}" class="lws-file-thumb">
+        <span class="lws-file-name">${escHtml(f.fileName)}</span>
+        <button class="lws-file-remove" data-file-index="${i}" title="删除">&times;</button>
+      </div>`,
+    )
+    .join('');
+}
+
+function renderMultimodalUpload() {
+  const remaining = 3 - uploadedFiles.length;
+  return `
+    <div class="lws-multimodal-area" id="lws-multimodal-area">
+      <div class="lws-multimodal-header">
+        <span class="lws-multimodal-title">📷 图片输入（可选，最多 3 张）</span>
+        ${remaining > 0
+          ? `<label class="lws-file-select-btn">选择图片<input type="file" id="lws-file-input" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp" multiple hidden></label>`
+          : '<span class="lws-file-limit-text">已达上限</span>'}
+      </div>
+      ${remaining > 0
+        ? `<div class="lws-drop-zone">
+            <span>拖拽图片到此处，或点击"选择图片"</span>
+            <span class="lws-drop-hint">支持 JPEG、PNG、GIF、WebP、BMP，单张不超过 10MB</span>
+          </div>`
+        : ''}
+      <div class="lws-file-previews" id="lws-file-previews"></div>
+    </div>`;
 }
 
 // ========================

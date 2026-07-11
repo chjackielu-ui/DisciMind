@@ -728,7 +728,7 @@ export function deleteChatConversation(conversationId) {
 }
 
 // ========================
-// 学科答疑小助手模块（DeepSeek 流式对话）
+// 学科答疑小助手模块（百炼 qwen3.7-plus 多模态流式对话）
 // ========================
 
 export function createAiChatConversation(data = {}) {

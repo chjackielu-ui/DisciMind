@@ -55,6 +55,21 @@ Thumbs.db
 
 # local AI coding rules
 CLAUDE.local.md
+.claude/settings.local.json
+
+# LangGraph checkpoints (runtime state)
+storage/langgraph/
+backend/storage/langgraph/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# AI interaction generated files (TTS audio cache)
+storage/learning-narration/
+backend/storage/learning-narration/
+
+# AI chat & learning session uploads (screenshots, attachments)
+backend/storage/uploads/
 
 docs/CLAUDE_CODE_DATABASE_PROMPT.md
 docs/DisciMind_database_design.md

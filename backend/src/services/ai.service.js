@@ -4,12 +4,12 @@
 //
 // 支持的 usageType: qa / grading / question_generation / recommendation / summary
 //
-// question_generation 已重写为直接使用 DeepSeek OpenAI SDK，
+// question_generation 统一使用百炼 qwen3.7-plus，
 // 不再依赖 ai_model_configs 表配置。
 
 const prisma = require('../config/prisma');
 const axios = require('axios');
-const OpenAI = require('openai');
+const { getBailianClient } = require('./bailian-openai.service');
 
 // ========================
 // 工具函数
@@ -411,24 +411,14 @@ ${correctAnswer ? `参考评分标准：${correctAnswer}` : ''}
 }
 
 // ========================
-// 题目生成（DeepSeek 直连，不依赖 ai_model_configs）
+// 题目生成（百炼直连，不依赖 ai_model_configs）
 // ========================
 
 /**
- * 获取 DeepSeek 客户端（与 practice.service.js / ai-chat.service.js 一致）
+ * 获取百炼客户端（与 practice.service.js / ai-chat.service.js 一致）
  */
-function getDeepSeekClient() {
-  const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey || apiKey.includes('请在这里')) {
-    return null;
-  }
-  return {
-    client: new OpenAI({
-      apiKey,
-      baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
-    }),
-    model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
-  };
+function getGenerationClient() {
+  try { return getBailianClient(); } catch { return null; }
 }
 
 /**
@@ -530,11 +520,11 @@ function validateAndCleanQuestion(raw, index) {
 }
 
 /**
- * 使用 DeepSeekV4Pro 生成题目（直连，不依赖 ai_model_configs）
+ * 使用 qwen3.7-plus 生成题目（直连，不依赖 ai_model_configs）
  */
 async function generateQuestions({ courseName, knowledgePoints, count, questionTypes, difficultyLevel, userId }) {
-  const ds = getDeepSeekClient();
-  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+  const ds = getGenerationClient();
+  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 BAILIAN_API_KEY'), { code: 50002 });
 
   const qCount = Math.max(1, Math.min(Number(count) || 5, 20));
   const types = (questionTypes || ['single_choice']).map(t => normalizeGenType(t) || 'single_choice');
@@ -552,12 +542,12 @@ async function generateQuestions({ courseName, knowledgePoints, count, questionT
     const completion = await ds.client.chat.completions.create({
       model: ds.model,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      temperature: 0.7, max_tokens: 4096,
+      temperature: 0.7, max_tokens: 4096, enable_thinking: false,
     });
     responseContent = completion.choices?.[0]?.message?.content || '';
   } catch (err) {
-    console.error('[ai.service] DeepSeek API failed:', err.message);
-    if (err.status === 401 || err.status === 403) throw Object.assign(new Error('AI 服务认证失败，请检查 DEEPSEEK_API_KEY'), { code: 50002 });
+    console.error('[ai.service] Bailian API failed:', err.message);
+    if (err.status === 401 || err.status === 403) throw Object.assign(new Error('AI 服务认证失败，请检查 BAILIAN_API_KEY'), { code: 50002 });
     if (err.status === 429) throw Object.assign(new Error('AI 服务请求过于频繁，请稍后重试'), { code: 50002 });
     throw Object.assign(new Error('AI 题目生成失败: ' + (err.message || '未知错误')), { code: 50002 });
   }
@@ -585,8 +575,8 @@ async function generateQuestions({ courseName, knowledgePoints, count, questionT
  * 变式题：核心知识点一致、题型一致、修改场景/条件/参数/选项
  */
 async function generateWrongQuestionVariants({ sourceQuestions, difficulty, count, userId }) {
-  const ds = getDeepSeekClient();
-  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+  const ds = getGenerationClient();
+  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 BAILIAN_API_KEY'), { code: 50002 });
 
   const qCount = Math.max(1, Math.min(Number(count) || sourceQuestions.length, 10));
   const diff = normalizeGenDifficulty(difficulty);
@@ -635,11 +625,11 @@ ${sourceDescriptions}`;
     const completion = await ds.client.chat.completions.create({
       model: ds.model,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      temperature: 0.8, max_tokens: 4096,
+      temperature: 0.8, max_tokens: 4096, enable_thinking: false,
     });
     responseContent = completion.choices?.[0]?.message?.content || '';
   } catch (err) {
-    console.error('[ai.service] DeepSeek variant generation failed:', err.message);
+    console.error('[ai.service] Bailian variant generation failed:', err.message);
     throw Object.assign(new Error('AI 变式题生成失败: ' + (err.message || '未知错误')), { code: 50002 });
   }
 
@@ -671,8 +661,8 @@ ${sourceDescriptions}`;
  * 相似题：全新同类题目，每次调用AI生成新内容
  */
 async function generateWrongQuestionSimilar({ sourceQuestion, count, userId }) {
-  const ds = getDeepSeekClient();
-  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+  const ds = getGenerationClient();
+  if (!ds) throw Object.assign(new Error('AI 题目生成服务未配置，请联系管理员设置 BAILIAN_API_KEY'), { code: 50002 });
 
   const qCount = Math.max(1, Math.min(Number(count) || 1, 20));
   const sq = sourceQuestion.question || sourceQuestion;
@@ -715,11 +705,11 @@ ${options ? '选项: ' + options : ''}
     const completion = await ds.client.chat.completions.create({
       model: ds.model,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      temperature: 0.85, max_tokens: 4096,
+      temperature: 0.85, max_tokens: 4096, enable_thinking: false,
     });
     responseContent = completion.choices?.[0]?.message?.content || '';
   } catch (err) {
-    console.error('[ai.service] DeepSeek similar generation failed:', err.message);
+    console.error('[ai.service] Bailian similar generation failed:', err.message);
     throw Object.assign(new Error('AI 相似题生成失败: ' + (err.message || '未知错误')), { code: 50002 });
   }
 
@@ -750,7 +740,7 @@ ${options ? '选项: ' + options : ''}
  * AI 分析错题的错误原因
  */
 async function analyzeWrongReason({ question, studentAnswer, correctAnswer, userId }) {
-  const ds = getDeepSeekClient();
+  const ds = getGenerationClient();
   if (!ds) return null; // 无AI时不分析，返回null
 
   const q = question || {};
@@ -787,7 +777,7 @@ ${options ? '选项：\n' + options + '\n' : ''}
     const completion = await ds.client.chat.completions.create({
       model: ds.model,
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-      temperature: 0.3, max_tokens: 512,
+      temperature: 0.3, max_tokens: 512, enable_thinking: false,
     });
     const content = completion.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);

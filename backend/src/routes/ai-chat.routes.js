@@ -23,6 +23,9 @@ router.get('/starter-questions', controller.getStarterQuestions);
 // 获取某个会话消息
 router.get('/conversations/:conversationId/messages', controller.getMessages);
 
+// 会话图片需要身份和归属校验，不通过静态目录公开。
+router.get('/conversations/:conversationId/messages/:messageId/attachments/:attachmentId', controller.getAttachment);
+
 // 普通非流式发送消息
 router.post('/conversations/:conversationId/messages', controller.sendMessage);
 

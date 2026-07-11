@@ -1,4 +1,4 @@
-// 学习引导老师 — DeepSeek SSE API 客户端
+// 学习引导老师 — 百炼 SSE API 客户端
 // 职责：发起引导请求、接收语句块、管理 SSE 连接生命周期
 
 import { BASE_URL } from './request.js';

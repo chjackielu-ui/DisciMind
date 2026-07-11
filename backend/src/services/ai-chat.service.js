@@ -1,11 +1,28 @@
-// 学科答疑小助手服务
-// 独立于原有课程知识库问答，负责 DeepSeek 多轮会话与流式生成
+// 学科答疑小助手服务：百炼 qwen3.7-plus 多轮、多模态与流式生成。
 
-const OpenAI = require('openai');
+const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 const prisma = require('../config/prisma');
+const {
+  MISSING_API_KEY_MESSAGE,
+  getBailianConfig,
+  getBailianClient,
+  buildChatCompletionParams,
+  mapBailianError,
+} = require('./bailian-openai.service');
 
-const MISSING_API_KEY_MESSAGE = 'DeepSeek API Key 未配置，请先在 backend/.env 中填写 DEEPSEEK_API_KEY。';
 const REFUSAL_REPLY = '我当前还没有掌握这个方面的知识哦，换个学习相关的问题试试吧。';
+const MAX_IMAGE_COUNT = 4;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024;
+const CHAT_UPLOAD_DIR = path.resolve(__dirname, '../../storage/uploads/ai-chat');
+const IMAGE_TYPES = Object.freeze({
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+});
 
 const SUBJECT_PROMPTS = {
   machine_learning: {
@@ -186,6 +203,13 @@ function toApiMessage(message, preview = false) {
     role: toLower(message.role),
     content: preview ? content.slice(0, 100) + (content.length > 100 ? '...' : '') : content,
     content_preview: content.slice(0, 100) + (content.length > 100 ? '...' : ''),
+    attachments: (Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      url: `/api/ai-chat/conversations/${message.conversationId}/messages/${message.id}/attachments/${attachment.id}`,
+    })),
     created_at: message.createdAt ? message.createdAt.toISOString() : null,
   };
 }
@@ -219,15 +243,75 @@ function normalizePayload(body = {}) {
   return { mode, modeLower, subject, agentType, title };
 }
 
-function validateContent(content) {
+function validateContent(content, { allowEmpty = false } = {}) {
   const text = String(content || '').trim();
-  if (!text) {
+  if (!text && !allowEmpty) {
     throw Object.assign(new Error('消息内容不能为空'), { code: 40001 });
   }
   if (text.length > 2000) {
     throw Object.assign(new Error('单次输入不能超过 2000 字'), { code: 40001 });
   }
   return text;
+}
+
+function normalizeImageInputs(images) {
+  if (images == null) return [];
+  if (!Array.isArray(images)) throw Object.assign(new Error('图片参数格式不合法'), { code: 40001 });
+  if (images.length > MAX_IMAGE_COUNT) throw Object.assign(new Error(`单次最多上传 ${MAX_IMAGE_COUNT} 张图片`), { code: 40001 });
+
+  let totalBytes = 0;
+  return images.map((image, index) => {
+    const dataUrl = String(image?.dataUrl || image?.data_url || '');
+    const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i);
+    if (!match) throw Object.assign(new Error(`第 ${index + 1} 张图片格式不支持`), { code: 40001 });
+    const mimeType = match[1].toLowerCase();
+    if (!IMAGE_TYPES[mimeType]) throw Object.assign(new Error(`第 ${index + 1} 张图片格式不支持`), { code: 40001 });
+    const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+    if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) {
+      throw Object.assign(new Error(`每张图片不能超过 ${MAX_IMAGE_BYTES / 1024 / 1024}MB`), { code: 40001 });
+    }
+    totalBytes += buffer.length;
+    if (totalBytes > MAX_TOTAL_IMAGE_BYTES) throw Object.assign(new Error('图片总大小不能超过 12MB'), { code: 40001 });
+    return {
+      id: crypto.randomUUID(),
+      name: String(image?.name || `image-${index + 1}.${IMAGE_TYPES[mimeType]}`).slice(0, 180),
+      mimeType,
+      extension: IMAGE_TYPES[mimeType],
+      size: buffer.length,
+      buffer,
+    };
+  });
+}
+
+async function persistImageInputs(images) {
+  const normalized = normalizeImageInputs(images);
+  if (!normalized.length) return [];
+  await fs.mkdir(CHAT_UPLOAD_DIR, { recursive: true });
+  const saved = [];
+  try {
+    for (const image of normalized) {
+      const fileName = `${Date.now()}_${crypto.randomBytes(12).toString('hex')}.${image.extension}`;
+      await fs.writeFile(path.join(CHAT_UPLOAD_DIR, fileName), image.buffer, { flag: 'wx' });
+      saved.push({ id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, fileName });
+    }
+    return saved;
+  } catch (error) {
+    await Promise.all(saved.map((item) => fs.unlink(path.join(CHAT_UPLOAD_DIR, item.fileName)).catch(() => null)));
+    throw error;
+  }
+}
+
+async function removePersistedAttachments(attachments) {
+  await Promise.all((attachments || []).map((item) => fs.unlink(path.join(CHAT_UPLOAD_DIR, item.fileName)).catch(() => null)));
+}
+
+async function attachmentToDataUrl(attachment) {
+  try {
+    const data = await fs.readFile(path.join(CHAT_UPLOAD_DIR, path.basename(String(attachment.fileName || ''))));
+    return `data:${attachment.mimeType};base64,${data.toString('base64')}`;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeStarterQuestions(list, fallback = GENERAL_STARTER_QUESTIONS) {
@@ -303,27 +387,6 @@ function buildTitle(content) {
   return Array.from(text).slice(0, 15).join('') || '新对话';
 }
 
-function getDeepSeekConfig() {
-  const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey || apiKey.includes('请在这里')) {
-    throw Object.assign(new Error(MISSING_API_KEY_MESSAGE), { code: 50002 });
-  }
-  return {
-    apiKey,
-    baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
-    model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
-  };
-}
-
-function getDeepSeekClient() {
-  const config = getDeepSeekConfig();
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: config.baseURL,
-  });
-  return { client, model: config.model };
-}
-
 function buildSystemPrompt(conversation) {
   const basePrompt = `你是“学科答疑小助手”，是学研智擎平台中的学习型 AI Agent。你的任务是帮助高校学生解决学习过程中的问题，包括课程知识讲解、错题分析、学习路径规划、复习建议、编程学习、考试复习和学科能力提升。
 
@@ -371,12 +434,36 @@ async function buildModelMessages(conversation) {
   const recent = await prisma.aiMessage.findMany({
     where: { conversationId: conversation.id },
     orderBy: { id: 'desc' },
-    take: 20,
+    take: 16,
   });
 
-  const history = recent.reverse().map((message) => ({
-    role: toLower(message.role),
-    content: message.content,
+  // 只重复加载最近四张图片，控制视觉 token 和首字延迟；文本历史仍完整保留。
+  let imageBudget = 4;
+  const includedAttachmentIds = new Set();
+  for (const message of recent) {
+    for (const attachment of (Array.isArray(message.attachments) ? message.attachments : [])) {
+      if (imageBudget <= 0) break;
+      includedAttachmentIds.add(attachment.id);
+      imageBudget -= 1;
+    }
+  }
+  const history = await Promise.all(recent.reverse().map(async (message) => {
+    const attachments = (Array.isArray(message.attachments) ? message.attachments : [])
+      .filter((attachment) => includedAttachmentIds.has(attachment.id));
+    if (toLower(message.role) !== 'user' || !attachments.length) {
+      return { role: toLower(message.role), content: message.content };
+    }
+    const imageParts = (await Promise.all(attachments.map(async (attachment) => {
+      const url = await attachmentToDataUrl(attachment);
+      return url ? { type: 'image_url', image_url: { url } } : null;
+    }))).filter(Boolean);
+    return {
+      role: 'user',
+      content: [
+        { type: 'text', text: message.content || '请分析这些图片。' },
+        ...imageParts,
+      ],
+    };
   }));
 
   return [
@@ -412,48 +499,14 @@ async function generateStarterQuestions(userId, query = {}) {
   });
   const fallback = getStarterFallback(payload);
 
-  try {
-    const { client, model } = getDeepSeekClient();
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0.45,
-      stream: false,
-      messages: [
-        {
-          role: 'system',
-          content: '你是“学科答疑小助手”的建议问题生成器。只输出 JSON 数组，不要解释，不要使用 Markdown 代码块。',
-        },
-        {
-          role: 'user',
-          content: `${getStarterContextText(payload)}
-
-请生成 4 个中文建议提问，供学生直接点击发送。
-要求：
-1. 每个问题聚焦当前模式或学科内容。
-2. 覆盖概念理解、易错点、练习方法、复习或应用。
-3. 句子自然，长度不超过 32 个中文字符。
-4. 只返回 JSON 数组，例如 ["问题1","问题2","问题3","问题4"]。`,
-        },
-      ],
-    });
-    const content = completion.choices?.[0]?.message?.content || '';
-    return {
-      questions: parseStarterQuestions(content, fallback),
-      mode: payload.modeLower,
-      subject: payload.subject,
-      agent_type: payload.agentType,
-      generated_by: 'ai',
-    };
-  } catch (err) {
-    console.warn('[ai-chat.service] 建议问题生成失败，使用兜底问题:', err.message);
-    return {
-      questions: normalizeStarterQuestions([], fallback),
-      mode: payload.modeLower,
-      subject: payload.subject,
-      agent_type: payload.agentType,
-      generated_by: 'fallback',
-    };
-  }
+  // 建议问题是固定教学入口，直接返回经过策划的本地内容，避免页面加载时额外等待一次模型调用。
+  return {
+    questions: normalizeStarterQuestions([], fallback),
+    mode: payload.modeLower,
+    subject: payload.subject,
+    agent_type: payload.agentType,
+    generated_by: 'curated',
+  };
 }
 
 async function listConversations(userId, query = {}) {
@@ -538,20 +591,24 @@ async function prepareTurn(userId, conversationId, body = {}) {
       },
     });
   } else {
-    const content = validateContent(body.content);
+    const images = Array.isArray(body.images) ? body.images : [];
+    const content = validateContent(body.content, { allowEmpty: images.length > 0 });
+    if (!content && !images.length) throw Object.assign(new Error('请输入文字或添加图片'), { code: 40001 });
     const previousUserCount = await prisma.aiMessage.count({
       where: { conversationId, role: 'USER' },
     });
-    userMessage = await prisma.aiMessage.create({
-      data: {
-        conversationId,
-        role: 'USER',
-        content,
-      },
-    });
+    const attachments = await persistImageInputs(images);
+    try {
+      userMessage = await prisma.aiMessage.create({
+        data: { conversationId, role: 'USER', content, attachments: attachments.length ? attachments : undefined },
+      });
+    } catch (error) {
+      await removePersistedAttachments(attachments);
+      throw error;
+    }
     const updateData = { updatedAt: new Date() };
     if (previousUserCount === 0 && (!conversation.title || conversation.title === '新对话')) {
-      updateData.title = buildTitle(content);
+      updateData.title = buildTitle(content || '图片问答');
     }
     conversation = await prisma.aiConversation.update({
       where: { id: conversationId },
@@ -568,37 +625,43 @@ async function prepareTurn(userId, conversationId, body = {}) {
 }
 
 async function callCompletion(messages) {
-  const { client, model } = getDeepSeekClient();
+  const { client } = getBailianClient();
   try {
-    const completion = await client.chat.completions.create({
-      model,
-      messages,
-      stream: false,
-      temperature: 0.7,
-    });
+    const completion = await client.chat.completions.create(buildChatCompletionParams({
+      messages, stream: false, temperature: 0.55, maxTokens: 2048,
+    }));
     return completion.choices?.[0]?.message?.content || '';
   } catch (err) {
-    console.error('[ai-chat.service] DeepSeek 非流式调用失败:', err.message);
-    throw Object.assign(new Error('AI 服务调用失败，请稍后再试'), { code: 50002 });
+    console.error('[ai-chat.service] 百炼非流式调用失败:', err.message);
+    throw mapBailianError(err);
   }
 }
 
 async function createCompletionStream(messages, signal) {
-  const { client, model } = getDeepSeekClient();
+  const { client } = getBailianClient();
   try {
     return await client.chat.completions.create(
-      {
-        model,
-        messages,
-        stream: true,
-        temperature: 0.7,
-      },
+      buildChatCompletionParams({ messages, stream: true, temperature: 0.55, maxTokens: 2048 }),
       { signal },
     );
   } catch (err) {
-    console.error('[ai-chat.service] DeepSeek 流式调用失败:', err.message);
-    throw Object.assign(new Error('AI 服务调用失败，请稍后再试'), { code: 50002 });
+    console.error('[ai-chat.service] 百炼流式调用失败:', err.message);
+    throw mapBailianError(err);
   }
+}
+
+async function getAttachment(userId, conversationId, messageId, attachmentId) {
+  await ensureConversation(userId, conversationId);
+  const message = await prisma.aiMessage.findFirst({
+    where: { id: Number(messageId), conversationId: Number(conversationId) },
+  });
+  if (!message) throw Object.assign(new Error('消息不存在'), { code: 40002 });
+  const attachment = (Array.isArray(message.attachments) ? message.attachments : [])
+    .find((item) => item.id === String(attachmentId));
+  if (!attachment) throw Object.assign(new Error('图片不存在'), { code: 40002 });
+  const filePath = path.join(CHAT_UPLOAD_DIR, path.basename(String(attachment.fileName || '')));
+  await fs.access(filePath).catch(() => { throw Object.assign(new Error('图片文件不存在'), { code: 40002 }); });
+  return { filePath, mimeType: attachment.mimeType, name: attachment.name };
 }
 
 async function finalizeAssistantMessage(conversationId, content) {
@@ -622,7 +685,7 @@ async function finalizeAssistantMessage(conversationId, content) {
 }
 
 async function sendMessage(userId, conversationId, body = {}) {
-  getDeepSeekConfig();
+  getBailianConfig();
   const turn = await prepareTurn(userId, conversationId, body);
   const content = await callCompletion(turn.messages);
   const result = await finalizeAssistantMessage(conversationId, content);
@@ -636,7 +699,11 @@ async function sendMessage(userId, conversationId, body = {}) {
 
 async function clearMessages(userId, conversationId) {
   await ensureConversation(userId, conversationId);
+  const messageAttachments = await prisma.aiMessage.findMany({
+    where: { conversationId }, select: { attachments: true },
+  });
   await prisma.aiMessage.deleteMany({ where: { conversationId } });
+  await removePersistedAttachments(messageAttachments.flatMap((item) => Array.isArray(item.attachments) ? item.attachments : []));
   const conversation = await prisma.aiConversation.update({
     where: { id: conversationId },
     data: {
@@ -649,7 +716,11 @@ async function clearMessages(userId, conversationId) {
 
 async function deleteConversation(userId, conversationId) {
   await ensureConversation(userId, conversationId);
+  const messageAttachments = await prisma.aiMessage.findMany({
+    where: { conversationId }, select: { attachments: true },
+  });
   await prisma.aiConversation.delete({ where: { id: conversationId } });
+  await removePersistedAttachments(messageAttachments.flatMap((item) => Array.isArray(item.attachments) ? item.attachments : []));
   return { deleted: true, conversation_id: conversationId, id: conversationId };
 }
 
@@ -660,7 +731,7 @@ module.exports = {
   REFUSAL_REPLY,
   toApiConversation,
   toApiMessage,
-  getDeepSeekConfig,
+  getBailianConfig,
   createConversation,
   generateStarterQuestions,
   listConversations,
@@ -668,6 +739,10 @@ module.exports = {
   prepareTurn,
   createCompletionStream,
   finalizeAssistantMessage,
+  getAttachment,
+  normalizeImageInputs,
+  MAX_IMAGE_COUNT,
+  MAX_IMAGE_BYTES,
   sendMessage,
   clearMessages,
   deleteConversation,

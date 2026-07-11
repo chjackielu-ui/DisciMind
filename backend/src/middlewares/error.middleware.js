@@ -29,6 +29,14 @@ function errorHandler(err, req, res, _next) {
     });
   }
 
+  if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+    return res.status(err.status).json({
+      code: err.status === 403 ? 40301 : err.status === 404 ? 40401 : 40001,
+      message: err.message || '请求无法处理',
+      data: null,
+    });
+  }
+
   // 数据库连接错误：给出明确提示
   const msg = String(err.message || '');
   const isPoolError = msg.includes('pool timeout') || msg.includes('connect ECONNREFUSED');

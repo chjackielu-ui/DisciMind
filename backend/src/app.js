@@ -7,6 +7,16 @@ const errorHandler = require('./middlewares/error.middleware');
 
 loadEnv();
 
+if ((process.env.AGENT_MODE || 'dify') === 'langgraph' && process.env.LANGGRAPH_ENABLED === 'true') {
+  try {
+    const loaded = require('./modules/learning-agent').assertLearningAgentModules();
+    console.log(`[Startup] Learning Agent smoke check passed: ${loaded.join(', ')}`);
+  } catch (error) {
+    console.error('[Startup] Learning Agent smoke check failed:', error);
+    throw error;
+  }
+}
+
 const app = express();
 
 // ---------- 全局中间件 ----------
@@ -27,8 +37,8 @@ app.use(cors({
   credentials: true,
 }));
 
-// 解析 JSON 请求体
-app.use(express.json());
+// 多模态对话使用 data URL 传输图片；后端随后落盘，数据库只保存附件元数据。
+app.use(express.json({ limit: '18mb' }));
 
 // 解析 URL 编码的请求体（表单提交场景）
 app.use(express.urlencoded({ extended: true }));
@@ -121,7 +131,7 @@ app.use('/api/admin', adminRoutes);
 const studentChatRoutes = require('./routes/student-chat.routes');
 app.use('/api/student', studentChatRoutes);
 
-// 学科答疑小助手（DeepSeek 流式对话）
+// 学科答疑小助手（百炼 qwen3.7-plus 多模态流式对话）
 const aiChatRoutes = require('./routes/ai-chat.routes');
 app.use('/api/ai-chat', aiChatRoutes);
 
@@ -152,6 +162,18 @@ app.use('/api/student', studentVideoRoutes);
 // 学习流系统
 const learningWorkflowRoutes = require('./modules/learning-workflow/learning-workflow.routes');
 app.use('/api/learning-workflows', learningWorkflowRoutes);
+
+// 自然语言学习目标仅作为现有学习流之前的解析与绑定层。
+const learningGoalRoutes = require('./modules/learning-goal').routes;
+app.use('/api/learning-goals', learningGoalRoutes);
+
+// LangGraph 学习流运行接口（复用 /api/learning-flows 前缀）
+const learningAgentRoutes = require('./modules/learning-agent/routes/learning-agent.routes');
+app.use('/api/learning-flows/:workflowId/runs', learningAgentRoutes);
+
+// 实时语音导学是学习流之外的可选增强层；禁用或缺少 TTS 配置时路由仍可安全返回降级状态。
+const { getLearningNarrationModule } = require('./modules/learning-narration');
+app.use('/api/learning-narration', getLearningNarrationModule().routes);
 
 // ---------- 根路径 ----------
 

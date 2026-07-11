@@ -1,6 +1,6 @@
 // 统一 Agent 结果解析器
 // 职责: 将 Dify/Agent 各种格式的原始返回标准化为统一业务结构
-// 支持: 普通对象、JSON字符串、双重编码、Markdown代码块、Dify包装、DeepSeek Repair
+// 支持: 普通对象、JSON字符串、双重编码、Markdown代码块、Dify包装、百炼 Repair
 
 const crypto = require('crypto');
 
@@ -32,6 +32,43 @@ const WRAPPER_FIELD_PRIORITY = [
   'teaching_result',
 ];
 
+/**
+ * Compatibility reader for historic node_run payloads.
+ * New writes stay as objects in JSON columns; this is only for old TEXT or
+ * wrapper-heavy records at the response boundary.
+ */
+function normalizeStoredAgentOutput(value) {
+  let current = value;
+  for (let depth = 0; depth <= MAX_PARSE_DEPTH; depth += 1) {
+    if (current == null || current === '') return null;
+    if (typeof current === 'string') {
+      const cleaned = preprocessText(current).trim();
+      try {
+        current = JSON.parse(cleaned);
+        continue;
+      } catch {
+        return cleaned || null;
+      }
+    }
+    if (Array.isArray(current)) return current;
+    if (typeof current !== 'object') return current;
+
+    const isBusinessPayload = Boolean(
+      current.protocolVersion || current.mode || current.strategy || current.sections
+      || current.questions || current.question || current.diagnosis || current.recommendations,
+    );
+    if (isBusinessPayload) return current;
+
+    const nested = current.branch_result ?? current.result ?? current.output ?? current.content ?? current.data;
+    if (nested !== undefined && nested !== current) {
+      current = nested;
+      continue;
+    }
+    return current;
+  }
+  return current;
+}
+
 // ========================
 // 主入口
 // ========================
@@ -43,7 +80,7 @@ const WRAPPER_FIELD_PRIORITY = [
  * @param {string} options.agent - Agent 类型: explainer | trainer | diagnostician | guide
  * @param {string} options.requestId - 请求 ID
  * @param {object} options.schema - JSON Schema 用于校验
- * @param {boolean} options.allowRepair - 是否允许 DeepSeek JSON Repair (默认 false)
+ * @param {boolean} options.allowRepair - 是否允许百炼 JSON Repair (默认 false)
  * @returns {object} 标准化结果
  */
 async function parseAgentResult(raw, options = {}) {
@@ -144,7 +181,7 @@ function parseFromString(text, options) {
     }
   }
 
-  // Step 2.5: 看起来像 JSON 但无法解析 — 尝试 DeepSeek Repair (如果允许)
+  // Step 2.5: 看起来像 JSON 但无法解析 — 尝试百炼 Repair (如果允许)
   if (options.allowRepair && looksLikeJson(work)) {
     return {
       success: false,
@@ -749,17 +786,17 @@ function buildParseFailed(meta, message) {
 }
 
 // ========================
-// DeepSeek JSON Repair
+// 百炼 JSON Repair
 // ========================
 
 /**
- * 调用 DeepSeek 修复 JSON
+ * 调用百炼模型修复 JSON
  * @param {string} rawText - 原始文本
  * @param {object} schema - 目标 Schema
  * @param {object} options
  * @returns {Promise<object>} 修复后的标准化结果
  */
-async function deepSeekJsonRepair(rawText, schema, options = {}) {
+async function bailianJsonRepair(rawText, schema, options = {}) {
   const { agent, requestId } = options;
 
   // 构建 Repair 提示词
@@ -779,30 +816,17 @@ Agent 类型: ${agent || 'unknown'}
 请输出修复后的合法 JSON，不要添加任何解释文字，只输出 JSON。`;
 
   try {
-    // 调用 DeepSeek API
-    const deepseekKey = process.env.DEEPSEEK_API_KEY;
-    if (!deepseekKey) {
+    if (!process.env.BAILIAN_API_KEY) {
       return null; // 没有 API Key，跳过 repair
     }
-
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${deepseekKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.DEEPSEEK_REPAIR_MODEL || 'deepseek-chat',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 16000,
-      }),
+    const { bailianModelCall } = require('../learning-agent/adapters/bailian-model.adapter');
+    const response = await bailianModelCall([{ role: 'user', content: prompt }], {
+      jsonMode: true,
+      enableThinking: false,
+      temperature: 0.1,
+      timeout: 30_000,
     });
-
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    const repairedText = data.choices?.[0]?.message?.content || '';
+    const repairedText = response.content || '';
 
     // 提取 JSON
     const extracted = balancedBracketExtract(repairedText.trim()) || repairedText.trim();
@@ -811,7 +835,7 @@ Agent 类型: ${agent || 'unknown'}
     // 再次标准化
     return normalizeByAgent(parsed, { ...options, requestId });
   } catch (err) {
-    console.warn('[AgentResultParser] DeepSeek JSON repair failed:', err.message);
+    console.warn('[AgentResultParser] Bailian JSON repair failed:', err.message);
     return null;
   }
 }
@@ -825,7 +849,7 @@ async function parseWithRepair(raw, options = {}) {
 
   // 如果需要 repair 且有原始文本
   if (result._rawForRepair && options.allowRepair) {
-    const repaired = await deepSeekJsonRepair(result._rawForRepair, options.schema, options);
+    const repaired = await bailianJsonRepair(result._rawForRepair, options.schema, options);
     if (repaired && repaired.success) {
       repaired._wasRepaired = true;
       return repaired;
@@ -871,10 +895,11 @@ module.exports = {
   normalizeTrainerResult,
   normalizeDiagnosticianResult,
   normalizeGuideResult,
-  deepSeekJsonRepair,
+  bailianJsonRepair,
   balancedBracketExtract,
   preprocessText,
   safeJsonRepair,
+  normalizeStoredAgentOutput,
   EMPTY_RESULT,
   MAX_PARSE_DEPTH,
   MAX_RESULT_LENGTH,

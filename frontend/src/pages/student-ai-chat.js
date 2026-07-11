@@ -17,6 +17,9 @@ import { showToast } from '../utils/toast.js'
 import { disposeAllCharts } from '../utils/echarts.js'
 
 const MAX_INPUT_LENGTH = 2000
+const MAX_IMAGE_COUNT = 4
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const AI_GENERAL_OPEN_FLAG = 'discimind.openGeneralAiChat'
 
 const MODES = [
@@ -306,10 +309,12 @@ function buildMessages(state) {
     const isUser = role === 'user'
     const isStreaming = Boolean(message.streaming)
     const content = String(message.content || '')
+    const attachments = Array.isArray(message.attachments) ? message.attachments : []
     return `<div class="message-row ${isUser ? 'user' : 'assistant'}${isStreaming ? ' streaming' : ''}" data-message-id="${escapeHtml(message.id || message.message_id || '')}">
       <div class="message-bubble ai-message-bubble">
-        ${!isUser ? '<div class="message-meta">学科答疑小助手</div>' : ''}
-        <div class="message-markdown">${content ? renderMarkdownToHtml(content) : (isStreaming ? '<p class="thinking-text">正在思考中...</p>' : '<p></p>')}</div>
+        ${!isUser ? `<div class="message-meta"><span>千问 3.7 Plus</span>${content && !isStreaming ? `<span class="ai-message-tools"><button type="button" data-copy-message="${escapeHtml(message.id || message.message_id || '')}">复制</button><button type="button" data-speak-message="${escapeHtml(message.id || message.message_id || '')}">朗读</button></span>` : ''}</div>` : ''}
+        ${attachments.length ? `<div class="ai-message-images">${attachments.map(attachment => `<button type="button" class="ai-message-image" data-open-image="${escapeHtml(attachment.displayUrl || attachment.dataUrl || attachment.url || '')}" title="查看 ${escapeHtml(attachment.name || '图片')}"><img src="${escapeHtml(attachment.displayUrl || attachment.dataUrl || attachment.url || '')}" alt="${escapeHtml(attachment.name || '对话图片')}"></button>`).join('')}</div>` : ''}
+        <div class="message-markdown">${content ? renderMarkdownToHtml(content) : (isStreaming ? '<p class="thinking-text">正在理解并组织回答...</p>' : '<p></p>')}</div>
       </div>
     </div>`
   }).join('')
@@ -332,7 +337,7 @@ function buildShell(state) {
         </div>
         <div class="ai-hero-meta">
           <span>${escapeHtml(currentMode)}</span>
-          <span>DeepSeek 流式答疑</span>
+          <span>千问 3.7 Plus · 图文理解</span>
         </div>
       </section>
 
@@ -362,13 +367,19 @@ function buildShell(state) {
 
           <div class="chat-input-area ai-chat-input-area">
             ${buildStarterQuestionRow(state)}
+            ${state.pendingImages.length ? `<div class="ai-pending-images">${state.pendingImages.map(image => `<div class="ai-pending-image"><img src="${escapeHtml(image.dataUrl)}" alt="${escapeHtml(image.name)}"><button type="button" data-remove-image="${escapeHtml(image.id)}" aria-label="移除图片">×</button></div>`).join('')}</div>` : ''}
             <div class="chat-input-row ai-chat-input-row">
-              <textarea class="complex-textarea" id="chat-input" maxlength="${MAX_INPUT_LENGTH}" placeholder="输入学习相关问题，Enter 发送，Shift + Enter 换行" ${state.generating ? 'disabled' : ''}>${escapeHtml(state.inputDraft || '')}</textarea>
-              <button class="complex-btn" id="btn-send-message" ${state.generating || !String(state.inputDraft || '').trim() ? 'disabled' : ''}>${state.generating ? '生成中' : '发送'}</button>
+              <div class="ai-composer-tools">
+                <input type="file" id="ai-image-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+                <button type="button" class="ai-composer-tool" id="btn-add-image" title="添加图片（也可直接粘贴）" ${state.generating || state.pendingImages.length >= MAX_IMAGE_COUNT ? 'disabled' : ''}>图片</button>
+                <button type="button" class="ai-composer-tool${state.listening ? ' active' : ''}" id="btn-voice-input" title="语音输入" ${state.generating ? 'disabled' : ''}>${state.listening ? '停止' : '语音'}</button>
+              </div>
+              <textarea class="complex-textarea" id="chat-input" maxlength="${MAX_INPUT_LENGTH}" placeholder="输入问题，或粘贴题目截图；Enter 发送，Shift + Enter 换行" ${state.generating ? 'disabled' : ''}>${escapeHtml(state.inputDraft || '')}</textarea>
+              <button class="complex-btn" id="btn-send-message" ${state.generating || (!String(state.inputDraft || '').trim() && !state.pendingImages.length) ? 'disabled' : ''}>${state.generating ? '生成中' : '发送'}</button>
             </div>
             <div class="ai-input-foot">
               <span id="input-count">${String(state.inputDraft || '').length}/${MAX_INPUT_LENGTH}</span>
-              <span>AI 生成内容仅供学习参考，请结合课程资料核对。</span>
+              <span>支持粘贴或上传最多 ${MAX_IMAGE_COUNT} 张图片；AI 内容请结合课程资料核对。</span>
             </div>
           </div>
         </main>
@@ -392,6 +403,9 @@ export async function renderStudentAiChat(app) {
     agentType: 'knowledge_explain',
     keyword: '',
     inputDraft: '',
+    pendingImages: [],
+    listening: false,
+    speechRecognition: null,
     starterQuestions: fallbackStarterQuestions({ mode: 'general', subject: 'machine_learning', agentType: 'knowledge_explain' }),
     starterQuestionKey: 'general',
     loadingStarterQuestions: false,
@@ -468,6 +482,54 @@ export async function renderStudentAiChat(app) {
         }
       })
     })
+    root.querySelectorAll?.('[data-copy-message]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const message = state.messages.find(item => String(item.id || item.message_id) === button.dataset.copyMessage)
+        if (!message) return
+        try {
+          await navigator.clipboard.writeText(String(message.content || ''))
+          showToast('回答已复制', 'success')
+        } catch { showToast('复制失败', 'error') }
+      })
+    })
+    root.querySelectorAll?.('[data-speak-message]').forEach(button => {
+      button.addEventListener('click', () => {
+        const message = state.messages.find(item => String(item.id || item.message_id) === button.dataset.speakMessage)
+        if (!message || !('speechSynthesis' in window)) { showToast('当前浏览器不支持朗读', 'warning'); return }
+        window.speechSynthesis.cancel()
+        const utterance = new SpeechSynthesisUtterance(String(message.content || '').replace(/[`#*_>\[\]()]/g, ' '))
+        utterance.lang = 'zh-CN'
+        utterance.rate = 1
+        window.speechSynthesis.speak(utterance)
+      })
+    })
+    root.querySelectorAll?.('[data-open-image]').forEach(button => {
+      button.addEventListener('click', () => {
+        if (button.dataset.openImage) window.open(button.dataset.openImage, '_blank', 'noopener,noreferrer')
+      })
+    })
+  }
+
+  async function hydrateMessageAttachments(message) {
+    if (!message || !Array.isArray(message.attachments)) return message
+    await Promise.all(message.attachments.map(async attachment => {
+      if (attachment.displayUrl || attachment.dataUrl || !attachment.url) return
+      try {
+        const response = await fetch(attachment.url, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+          credentials: 'include',
+        })
+        if (response.ok) attachment.displayUrl = URL.createObjectURL(await response.blob())
+      } catch {
+        // 附件显示失败不影响文本对话。
+      }
+    }))
+    return message
+  }
+
+  async function hydrateMessages(messages) {
+    await Promise.all((messages || []).map(hydrateMessageAttachments))
+    return messages
   }
 
   function hydrateMessageContent(root = document) {
@@ -557,8 +619,58 @@ export async function renderStudentAiChat(app) {
     autoResizeInput(input)
     const sendButton = document.getElementById('btn-send-message')
     const count = document.getElementById('input-count')
-    if (sendButton) sendButton.disabled = state.generating || !state.inputDraft.trim()
+    if (sendButton) sendButton.disabled = state.generating || (!state.inputDraft.trim() && !state.pendingImages.length)
     if (count) count.textContent = `${state.inputDraft.length}/${MAX_INPUT_LENGTH}`
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('图片读取失败'))
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function addImageFiles(fileList) {
+    const files = Array.from(fileList || []).filter(file => file?.type?.startsWith('image/'))
+    if (!files.length) return
+    const remaining = MAX_IMAGE_COUNT - state.pendingImages.length
+    if (remaining <= 0) { showToast(`单次最多添加 ${MAX_IMAGE_COUNT} 张图片`, 'warning'); return }
+    if (files.length > remaining) showToast(`本次仅添加前 ${remaining} 张图片`, 'warning')
+    for (const file of files.slice(0, remaining)) {
+      if (!SUPPORTED_IMAGE_TYPES.has(file.type)) { showToast(`${file.name} 的格式不支持`, 'warning'); continue }
+      if (file.size > MAX_IMAGE_BYTES) { showToast(`${file.name} 超过 5MB`, 'warning'); continue }
+      const dataUrl = await fileToDataUrl(file)
+      state.pendingImages.push({
+        id: globalThis.crypto?.randomUUID?.() || `img_${Date.now()}_${Math.random()}`,
+        name: file.name || '粘贴图片', mimeType: file.type, size: file.size, dataUrl,
+      })
+    }
+    rerender()
+    document.getElementById('chat-input')?.focus()
+  }
+
+  function toggleVoiceInput() {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!Recognition) { showToast('当前浏览器不支持语音输入', 'warning'); return }
+    if (state.speechRecognition) { state.speechRecognition.stop(); return }
+    const recognition = new Recognition()
+    const original = state.inputDraft
+    recognition.lang = 'zh-CN'
+    recognition.interimResults = true
+    recognition.continuous = false
+    recognition.onresult = event => {
+      const transcript = Array.from(event.results).map(result => result[0]?.transcript || '').join('')
+      const input = document.getElementById('chat-input')
+      if (input) { input.value = `${original}${original && transcript ? ' ' : ''}${transcript}`; updateInputState(input) }
+    }
+    recognition.onerror = event => { if (event.error !== 'aborted') showToast('语音识别未成功，请重试', 'warning') }
+    recognition.onend = () => { state.listening = false; state.speechRecognition = null; rerender() }
+    state.speechRecognition = recognition
+    state.listening = true
+    recognition.start()
+    rerender()
   }
 
   function rerender() {
@@ -605,7 +717,7 @@ export async function renderStudentAiChat(app) {
       const res = await getAiChatMessages(state.currentId)
       state.currentConversation = normalizeConversation(res.data?.conversation || state.currentConversation)
       syncModeFromConversation(state.currentConversation)
-      state.messages = res.data?.messages || []
+      state.messages = await hydrateMessages(res.data?.messages || [])
     } catch (err) {
       state.messageError = err.message || '消息加载失败'
       showToast(state.messageError, 'error')
@@ -651,7 +763,10 @@ export async function renderStudentAiChat(app) {
     state.messages = []
     state.loadingMessages = false
     state.messageError = ''
-    if (clearInput) state.inputDraft = ''
+    if (clearInput) {
+      state.inputDraft = ''
+      state.pendingImages = []
+    }
     applyStarterContext()
     rerender()
     void loadStarterQuestions()
@@ -716,8 +831,9 @@ export async function renderStudentAiChat(app) {
     if (state.generating) return
 
     const text = String(state.inputDraft || '').trim()
-    if (!regenerate && !text) {
-      showToast('请输入问题后再发送', 'warning')
+    const images = regenerate ? [] : [...state.pendingImages]
+    if (!regenerate && !text && !images.length) {
+      showToast('请输入问题或添加图片后再发送', 'warning')
       return
     }
     if (!regenerate && text.length > MAX_INPUT_LENGTH) {
@@ -746,9 +862,11 @@ export async function renderStudentAiChat(app) {
         id: localUserId,
         role: 'user',
         content: text,
+        attachments: images.map(image => ({ ...image, displayUrl: image.dataUrl })),
         created_at: new Date().toISOString(),
       })
       state.inputDraft = ''
+      state.pendingImages = []
     }
 
     const assistantMessage = {
@@ -764,12 +882,20 @@ export async function renderStudentAiChat(app) {
     rerender()
 
     try {
-      await streamAiChatMessage(conversationId, regenerate ? { regenerate: true } : { content: text }, {
+      await streamAiChatMessage(conversationId, regenerate ? { regenerate: true } : {
+        content: text,
+        images: images.map(({ name, mimeType, dataUrl }) => ({ name, mimeType, dataUrl })),
+      }, {
         signal: state.abortController.signal,
         onEvent: (eventName, payload) => {
           if (eventName === 'meta') {
             state.currentConversation = normalizeConversation(payload.conversation || state.currentConversation)
-            if (payload.user_message) replaceLocalMessage(localUserId, payload.user_message)
+            if (payload.user_message) {
+              void hydrateMessageAttachments(payload.user_message).then(() => {
+                replaceLocalMessage(localUserId, payload.user_message)
+                refreshMessages()
+              })
+            }
             refreshConversationList()
           }
           if (eventName === 'delta') {
@@ -804,6 +930,7 @@ export async function renderStudentAiChat(app) {
       } else {
         state.messages = state.messages.filter(item => item.id !== localAssistantId && item.id !== localUserId)
         if (!regenerate) state.inputDraft = text
+        if (!regenerate) state.pendingImages = images
         showToast(err.message || '消息发送失败，请稍后重试', 'error')
       }
     } finally {
@@ -894,6 +1021,27 @@ export async function renderStudentAiChat(app) {
         sendCurrentMessage()
       }
     })
+    input?.addEventListener('paste', event => {
+      const imageFiles = Array.from(event.clipboardData?.items || [])
+        .filter(item => item.type?.startsWith('image/'))
+        .map(item => item.getAsFile())
+        .filter(Boolean)
+      if (imageFiles.length) { event.preventDefault(); void addImageFiles(imageFiles) }
+    })
+    input?.addEventListener('dragover', event => { event.preventDefault(); input.classList.add('drag-active') })
+    input?.addEventListener('dragleave', () => input.classList.remove('drag-active'))
+    input?.addEventListener('drop', event => {
+      event.preventDefault()
+      input.classList.remove('drag-active')
+      void addImageFiles(event.dataTransfer?.files)
+    })
+    document.getElementById('btn-add-image')?.addEventListener('click', () => document.getElementById('ai-image-input')?.click())
+    document.getElementById('ai-image-input')?.addEventListener('change', event => { void addImageFiles(event.target.files) })
+    document.getElementById('btn-voice-input')?.addEventListener('click', toggleVoiceInput)
+    document.querySelectorAll('[data-remove-image]').forEach(button => button.addEventListener('click', () => {
+      state.pendingImages = state.pendingImages.filter(image => image.id !== button.dataset.removeImage)
+      rerender()
+    }))
     document.getElementById('btn-send-message')?.addEventListener('click', () => sendCurrentMessage())
 
     bindStarterQuestionEvents()

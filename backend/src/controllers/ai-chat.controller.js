@@ -98,7 +98,7 @@ async function streamMessage(req, res) {
   let turn;
   try {
     conversationId = parseConversationId(req);
-    aiChatService.getDeepSeekConfig();
+    aiChatService.getBailianConfig();
     turn = await aiChatService.prepareTurn(userId, conversationId, req.body);
   } catch (err) {
     return handleError(res, err, 'streamMessage.prepare');
@@ -193,6 +193,26 @@ async function deleteConversation(req, res) {
   }
 }
 
+async function getAttachment(req, res) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+    const conversationId = parseConversationId(req);
+    const attachment = await aiChatService.getAttachment(
+      userId,
+      conversationId,
+      req.params.messageId,
+      req.params.attachmentId,
+    );
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(attachment.name || 'image')}`);
+    return res.sendFile(attachment.filePath);
+  } catch (err) {
+    return handleError(res, err, 'getAttachment');
+  }
+}
+
 module.exports = {
   createConversation,
   listConversations,
@@ -202,4 +222,5 @@ module.exports = {
   streamMessage,
   clearMessages,
   deleteConversation,
+  getAttachment,
 };

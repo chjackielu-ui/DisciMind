@@ -350,6 +350,7 @@ model User {
   owned_workflow_templates    LearningWorkflowTemplate[]
   created_workflow_versions   LearningWorkflowVersion[]
   learning_sessions           LearningSession[]
+  learning_goals              LearningGoal[]
   ai_flow_generation_jobs     AiFlowGenerationJob[]
 
   @@index([role])
@@ -482,6 +483,7 @@ model Course {
   agent_diagnostic_reports    AgentDiagnosticReport[]
   workflow_templates          LearningWorkflowTemplate[]
   learning_sessions           LearningSession[]
+  learning_goals              LearningGoal[]
   ai_flow_generation_jobs     AiFlowGenerationJob[]
 
   @@index([status])
@@ -599,6 +601,7 @@ model KnowledgePoint {
   learning_sessions        LearningSession[]
   ai_flow_generation_jobs  AiFlowGenerationJob[]
   workflow_templates       LearningWorkflowTemplate[]
+  learning_goals           LearningGoal[]
 
   @@unique([course_id, knowledge_point_code])
   @@index([chapter_id])
@@ -756,6 +759,7 @@ model AiMessage {
   conversationId Int         @map("conversation_id")
   role           MessageRole
   content        String      @db.Text
+  attachments    Json?
   createdAt      DateTime    @default(now()) @map("created_at")
 
   conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -1231,19 +1235,19 @@ model PracticeSession {
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
 
-  student                  User                      @relation("PracticeSessionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
-  course                   Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  knowledge_point          KnowledgePoint?           @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  teaching_class           TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
-  questions                PracticeSessionQuestion[]
-  answer_records           AnswerRecord[]
-  trainer_detail           TrainerSessionDetail?
-  trainer_questions        TrainerSessionQuestion[]
-  agent_run_records        AgentRunRecord[]
-  agent_conversations      AgentConversation[]
-  agent_interventions      AgentIntervention[]
-  agent_diagnostic_reports AgentDiagnosticReport[]
-  learning_workflow_node_runs LearningSessionNodeRun[] @relation("LearningWorkflowTrainerNodeRuns")
+  student                     User                      @relation("PracticeSessionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course                      Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  knowledge_point             KnowledgePoint?           @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  teaching_class              TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  questions                   PracticeSessionQuestion[]
+  answer_records              AnswerRecord[]
+  trainer_detail              TrainerSessionDetail?
+  trainer_questions           TrainerSessionQuestion[]
+  agent_run_records           AgentRunRecord[]
+  agent_conversations         AgentConversation[]
+  agent_interventions         AgentIntervention[]
+  agent_diagnostic_reports    AgentDiagnosticReport[]
+  learning_workflow_node_runs LearningSessionNodeRun[]  @relation("LearningWorkflowTrainerNodeRuns")
 
   @@index([student_user_id])
   @@index([student_user_id, status])
@@ -1924,12 +1928,12 @@ model AgentRunRecord {
   output_summary       Json?
   created_at           DateTime  @default(now())
 
-  agent_config           AiAgentConfig?          @relation(fields: [agent_config_id], references: [agent_config_id], onDelete: SetNull)
-  user                   User?                   @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
-  practice_session       PracticeSession?        @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: SetNull)
+  agent_config           AiAgentConfig?           @relation(fields: [agent_config_id], references: [agent_config_id], onDelete: SetNull)
+  user                   User?                    @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
+  practice_session       PracticeSession?         @relation(fields: [practice_session_id], references: [practice_session_id], onDelete: SetNull)
   recommendation_records RecommendationRecord[]
-  source_interventions   AgentIntervention[]     @relation("AgentInterventionSourceRun")
-  applied_interventions  AgentIntervention[]     @relation("AgentInterventionAppliedRun")
+  source_interventions   AgentIntervention[]      @relation("AgentInterventionSourceRun")
+  applied_interventions  AgentIntervention[]      @relation("AgentInterventionAppliedRun")
   diagnostic_reports     AgentDiagnosticReport[]
   session_node_runs      LearningSessionNodeRun[]
 
@@ -2192,39 +2196,45 @@ enum WorkflowSourceType {
 }
 
 enum WorkflowNodeType {
-  CONCEPT_EXPLANATION    @map("concept_explanation")
-  ANALOGY_EXPLANATION    @map("analogy_explanation")
-  WORKED_EXAMPLE_ANALYSIS  @map("worked_example_analysis")
-  SOCRATIC_QUESTIONING   @map("socratic_questioning")
-  BASIC_PRACTICE         @map("basic_practice")
-  ADAPTIVE_PRACTICE      @map("adaptive_practice")
-  WRONG_QUESTION_REPAIR  @map("wrong_question_repair")
-  MASTERY_GATE           @map("mastery_gate")
-  LEARNING_SUMMARY       @map("learning_summary")
+  CONCEPT_EXPLANATION     @map("concept_explanation")
+  ANALOGY_EXPLANATION     @map("analogy_explanation")
+  WORKED_EXAMPLE_ANALYSIS @map("worked_example_analysis")
+  SOCRATIC_QUESTIONING    @map("socratic_questioning")
+  BASIC_PRACTICE          @map("basic_practice")
+  ADAPTIVE_PRACTICE       @map("adaptive_practice")
+  WRONG_QUESTION_REPAIR   @map("wrong_question_repair")
+  MASTERY_GATE            @map("mastery_gate")
+  LEARNING_SUMMARY        @map("learning_summary")
+  MULTIMODAL_INTERACTION  @map("multimodal_interaction")
+  DIAGNOSTIC_PRE_TEST     @map("diagnostic_pre_test")
+  DEEP_EVALUATION         @map("deep_evaluation")
+  VARIANT_QUESTION        @map("variant_question")
+  MISCONCEPTION_REPAIR    @map("misconception_repair")
+  SUMMARY                 @map("summary")
 }
 
 enum WorkflowConditionType {
-  ALWAYS               @map("always")
-  ANSWER_CORRECT       @map("answer_correct")
-  ANSWER_INCORRECT     @map("answer_incorrect")
-  MASTERY_GTE          @map("mastery_gte")
-  MASTERY_LT           @map("mastery_lt")
+  ALWAYS                @map("always")
+  ANSWER_CORRECT        @map("answer_correct")
+  ANSWER_INCORRECT      @map("answer_incorrect")
+  MASTERY_GTE           @map("mastery_gte")
+  MASTERY_LT            @map("mastery_lt")
   CONSECUTIVE_WRONG_GTE @map("consecutive_wrong_gte")
-  ACCURACY_GTE         @map("accuracy_gte")
-  ACCURACY_LT          @map("accuracy_lt")
-  STUDENT_CONFIRMED    @map("student_confirmed")
-  STUDENT_REJECTED     @map("student_rejected")
+  ACCURACY_GTE          @map("accuracy_gte")
+  ACCURACY_LT           @map("accuracy_lt")
+  STUDENT_CONFIRMED     @map("student_confirmed")
+  STUDENT_REJECTED      @map("student_rejected")
 }
 
 enum WorkflowCompletionMode {
-  FLOW_COMPLETE @map("flow_complete")
+  FLOW_COMPLETE  @map("flow_complete")
   MASTERY_TARGET @map("mastery_target")
 }
 
 enum WorkflowAdjustmentMode {
-  AUTO_ADJUST      @map("auto_adjust")
+  AUTO_ADJUST       @map("auto_adjust")
   ASK_BEFORE_ADJUST @map("ask_before_adjust")
-  STRICT_ORIGINAL  @map("strict_original")
+  STRICT_ORIGINAL   @map("strict_original")
 }
 
 enum LearningSessionStatus {
@@ -2237,30 +2247,30 @@ enum LearningSessionStatus {
 }
 
 enum LearningNodeRunStatus {
-  PENDING             @map("pending")
-  RUNNING             @map("running")
-  COMPLETED           @map("completed")
-  SKIPPED             @map("skipped")
-  INSERTED            @map("inserted")
-  FAILED              @map("failed")
+  PENDING              @map("pending")
+  RUNNING              @map("running")
+  COMPLETED            @map("completed")
+  SKIPPED              @map("skipped")
+  INSERTED             @map("inserted")
+  FAILED               @map("failed")
   WAITING_CONFIRMATION @map("waiting_confirmation")
 }
 
 enum LearningSessionEventType {
-  NODE_STARTED         @map("node_started")
-  NODE_COMPLETED       @map("node_completed")
-  NODE_SKIPPED         @map("node_skipped")
-  NODE_INSERTED        @map("node_inserted")
-  NODE_FAILED          @map("node_failed")
-  DIAG_ADJUSTMENT      @map("diag_adjustment")
+  NODE_STARTED             @map("node_started")
+  NODE_COMPLETED           @map("node_completed")
+  NODE_SKIPPED             @map("node_skipped")
+  NODE_INSERTED            @map("node_inserted")
+  NODE_FAILED              @map("node_failed")
+  DIAG_ADJUSTMENT          @map("diag_adjustment")
   DIAG_ADJUSTMENT_APPLIED  @map("diag_adjustment_applied")
   DIAG_ADJUSTMENT_REJECTED @map("diag_adjustment_rejected")
-  SESSION_PAUSED       @map("session_paused")
-  SESSION_RESUMED      @map("session_resumed")
-  SESSION_COMPLETED    @map("session_completed")
-  SESSION_ABANDONED    @map("session_abandoned")
-  SESSION_FAILED       @map("session_failed")
-  AGENT_ERROR          @map("agent_error")
+  SESSION_PAUSED           @map("session_paused")
+  SESSION_RESUMED          @map("session_resumed")
+  SESSION_COMPLETED        @map("session_completed")
+  SESSION_ABANDONED        @map("session_abandoned")
+  SESSION_FAILED           @map("session_failed")
+  AGENT_ERROR              @map("agent_error")
 }
 
 enum AiFlowGenerationStatus {
@@ -2271,26 +2281,27 @@ enum AiFlowGenerationStatus {
 }
 
 model LearningWorkflowTemplate {
-  template_id  Int                @id @default(autoincrement())
-  template_key String             @unique @db.VarChar(100)
-  title        String             @db.VarChar(200)
-  description  String?            @db.Text
-  owner_type   WorkflowOwnerType  @default(STUDENT)
-  owner_user_id Int?
-  course_id    Int?
+  template_id        Int                @id @default(autoincrement())
+  template_key       String             @unique @db.VarChar(100)
+  title              String             @db.VarChar(200)
+  description        String?            @db.Text
+  owner_type         WorkflowOwnerType  @default(STUDENT)
+  owner_user_id      Int?
+  course_id          Int?
   knowledge_point_id Int?
-  source_type  WorkflowSourceType @default(STUDENT)
-  is_published Boolean            @default(false)
-  is_default   Boolean            @default(false)
-  status       String             @default("active") @db.VarChar(20)
-  created_at   DateTime           @default(now())
-  updated_at   DateTime           @updatedAt
+  source_type        WorkflowSourceType @default(STUDENT)
+  is_published       Boolean            @default(false)
+  is_default         Boolean            @default(false)
+  status             String             @default("active") @db.VarChar(20)
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
 
-  owner     User?                    @relation(fields: [owner_user_id], references: [user_id], onDelete: SetNull)
-  course    Course?                  @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  knowledge_point KnowledgePoint?    @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  versions  LearningWorkflowVersion[]
-  sessions  LearningSession[]
+  owner           User?                     @relation(fields: [owner_user_id], references: [user_id], onDelete: SetNull)
+  course          Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point KnowledgePoint?           @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  versions        LearningWorkflowVersion[]
+  sessions        LearningSession[]
+  learning_goals  LearningGoal[]
 
   @@index([owner_type])
   @@index([owner_user_id])
@@ -2313,98 +2324,156 @@ model LearningWorkflowVersion {
   change_summary String?  @db.VarChar(500)
   created_at     DateTime @default(now())
 
-  template    LearningWorkflowTemplate @relation(fields: [template_id], references: [template_id], onDelete: Cascade)
-  creator     User?                    @relation(fields: [created_by], references: [user_id], onDelete: SetNull)
-  sessions    LearningSession[]
+  template       LearningWorkflowTemplate @relation(fields: [template_id], references: [template_id], onDelete: Cascade)
+  creator        User?                    @relation(fields: [created_by], references: [user_id], onDelete: SetNull)
+  sessions       LearningSession[]
+  learning_goals LearningGoal[]
 
   @@index([template_id])
   @@index([template_id, version_number])
   @@map("learning_workflow_versions")
 }
 
-model LearningSession {
-  session_id            Int                     @id @default(autoincrement())
-  student_user_id       Int
-  course_id             Int?
-  knowledge_point_id    Int?
-  workflow_template_id  Int?
-  workflow_version_id   Int?
-  workflow_snapshot_json Json?
-  runtime_graph_json    Json?
-  status                LearningSessionStatus   @default(CREATED)
-  current_node_id       String?                 @db.VarChar(100)
-  current_node_run_id   Int?                    @unique
-  execution_version     Int                     @default(0)
-  completion_mode       WorkflowCompletionMode  @default(FLOW_COMPLETE)
-  target_mastery        Int                     @default(80)
-  adjustment_mode       WorkflowAdjustmentMode  @default(AUTO_ADJUST)
-  mastery_before        Float?
-  mastery_after         Float?
-  mastery_current       Float?
-  consecutive_correct   Int                     @default(0)
-  consecutive_wrong     Int                     @default(0)
-  total_correct         Int                     @default(0)
-  total_wrong           Int                     @default(0)
-  started_at            DateTime?
-  paused_at             DateTime?
-  completed_at          DateTime?
-  actual_duration_seconds Int?
-  estimated_minutes      Int?
-  error_message         String?                 @db.Text
-  created_at            DateTime                @default(now())
-  updated_at            DateTime                @updatedAt
+model LearningGoal {
+  goal_id                    Int       @id @default(autoincrement())
+  student_user_id            Int
+  course_id                  Int
+  raw_goal                   String    @db.Text
+  normalized_goal_hash       String    @db.VarChar(64)
+  normalized_title           String    @db.VarChar(255)
+  focus_question             String?   @db.Text
+  goal_type                  String    @db.VarChar(50)
+  status                     String    @db.VarChar(50)
+  operation_id               String?   @db.VarChar(128)
+  primary_knowledge_point_id Int?
+  related_knowledge_points   Json?
+  sub_goals                  Json?
+  prerequisite_goals         Json?
+  clarification_options      Json?
+  target_depth               String?   @db.VarChar(50)
+  target_mastery             Int?
+  estimated_minutes          Int?
+  coverage_status            String?   @db.VarChar(50)
+  coverage_score             Float?
+  coverage_details           Json?
+  resolver_snapshot          Json?
+  planner_snapshot           Json?
+  goal_snapshot              Json?
+  workflow_template_id       Int?
+  workflow_version_id        Int?
+  result_snapshot            Json?
+  completed_sub_goals        Json?
+  unresolved_sub_goals       Json?
+  error_code                 String?   @db.VarChar(100)
+  error_message              String?   @db.VarChar(500)
+  created_at                 DateTime  @default(now())
+  updated_at                 DateTime  @updatedAt
+  confirmed_at               DateTime?
+  started_at                 DateTime?
+  completed_at               DateTime?
 
-  student          User                        @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
-  course           Course?                     @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  knowledge_point  KnowledgePoint?             @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  workflow_template LearningWorkflowTemplate?  @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
-  workflow_version LearningWorkflowVersion?    @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
-  node_runs        LearningSessionNodeRun[]
-  current_node_run LearningSessionNodeRun?      @relation("LearningSessionCurrentRun", fields: [current_node_run_id], references: [node_run_id], onDelete: SetNull)
-  events           LearningSessionEvent[]
+  student                 User                      @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course                  Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  primary_knowledge_point KnowledgePoint?           @relation(fields: [primary_knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  workflow_template       LearningWorkflowTemplate? @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
+  workflow_version        LearningWorkflowVersion?  @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
+  learning_session        LearningSession?
+
+  @@unique([student_user_id, operation_id], map: "lg_student_operation_key")
+  @@index([student_user_id, created_at], map: "lg_student_created_idx")
+  @@index([student_user_id, course_id, normalized_goal_hash, status], map: "lg_idempotency_lookup_idx")
+  @@index([course_id, status], map: "lg_course_status_idx")
+  @@index([primary_knowledge_point_id], map: "lg_primary_kp_idx")
+  @@map("learning_goals")
+}
+
+model LearningSession {
+  session_id              Int                    @id @default(autoincrement())
+  student_user_id         Int
+  course_id               Int?
+  knowledge_point_id      Int?
+  workflow_template_id    Int?
+  workflow_version_id     Int?
+  workflow_snapshot_json  Json?
+  runtime_graph_json      Json?
+  status                  LearningSessionStatus  @default(CREATED)
+  current_node_id         String?                @db.VarChar(100)
+  current_node_run_id     Int?                   @unique
+  execution_version       Int                    @default(0)
+  completion_mode         WorkflowCompletionMode @default(FLOW_COMPLETE)
+  target_mastery          Int                    @default(80)
+  adjustment_mode         WorkflowAdjustmentMode @default(AUTO_ADJUST)
+  mastery_before          Float?
+  mastery_after           Float?
+  mastery_current         Float?
+  consecutive_correct     Int                    @default(0)
+  consecutive_wrong       Int                    @default(0)
+  total_correct           Int                    @default(0)
+  total_wrong             Int                    @default(0)
+  started_at              DateTime?
+  paused_at               DateTime?
+  completed_at            DateTime?
+  actual_duration_seconds Int?
+  estimated_minutes       Int?
+  learning_goal_id        Int?                   @unique
+  goal_snapshot           Json?
+  error_message           String?                @db.Text
+  created_at              DateTime               @default(now())
+  updated_at              DateTime               @updatedAt
+
+  student           User                      @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course            Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point   KnowledgePoint?           @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  workflow_template LearningWorkflowTemplate? @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
+  workflow_version  LearningWorkflowVersion?  @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
+  node_runs         LearningSessionNodeRun[]
+  current_node_run  LearningSessionNodeRun?   @relation("LearningSessionCurrentRun", fields: [current_node_run_id], references: [node_run_id], onDelete: SetNull)
+  events            LearningSessionEvent[]
+  learning_goal     LearningGoal?             @relation(fields: [learning_goal_id], references: [goal_id], onDelete: SetNull)
 
   @@index([student_user_id])
   @@index([student_user_id, status])
   @@index([course_id])
   @@index([knowledge_point_id])
   @@index([workflow_template_id])
+  @@index([learning_goal_id])
   @@index([status])
   @@map("learning_sessions")
 }
 
 model LearningSessionNodeRun {
-  node_run_id        Int                    @id @default(autoincrement())
-  session_id         Int
-  node_id            String                 @db.VarChar(100)
-  node_type          WorkflowNodeType
-  status             LearningNodeRunStatus  @default(PENDING)
-  sequence_index     Int                    @default(0)
-  agent_type         AgentType?
-  agent_run_id       Int?
-  trainer_session_id Int?
-  operation_id       String?                @db.VarChar(128)
-  execution_version  Int                    @default(1)
-  input_summary_json  Json?
-  output_summary_json Json?
+  node_run_id           Int                   @id @default(autoincrement())
+  session_id            Int
+  node_id               String                @db.VarChar(100)
+  node_type             WorkflowNodeType
+  status                LearningNodeRunStatus @default(PENDING)
+  sequence_index        Int                   @default(0)
+  agent_type            AgentType?
+  agent_run_id          Int?
+  trainer_session_id    Int?
+  operation_id          String?               @db.VarChar(128)
+  execution_version     Int                   @default(1)
+  input_summary_json    Json?
+  output_summary_json   Json?
   agent_conversation_id Int?
-  started_at         DateTime?
-  completed_at       DateTime?
-  ended_at           DateTime?
-  skipped_at         DateTime?
-  skip_reason        String?                @db.Text
-  error_code         String?                @db.VarChar(100)
-  error_message      String?                @db.Text
-  retry_count        Int                    @default(0)
-  output_content     String?                @db.LongText
-  inserted_by        String?                @db.VarChar(50)
-  insert_reason      String?                @db.Text
-  created_at         DateTime               @default(now())
-  updated_at         DateTime               @updatedAt
+  started_at            DateTime?
+  completed_at          DateTime?
+  ended_at              DateTime?
+  skipped_at            DateTime?
+  skip_reason           String?               @db.Text
+  error_code            String?               @db.VarChar(100)
+  error_message         String?               @db.Text
+  retry_count           Int                   @default(0)
+  output_content        String?               @db.LongText
+  inserted_by           String?               @db.VarChar(50)
+  insert_reason         String?               @db.Text
+  created_at            DateTime              @default(now())
+  updated_at            DateTime              @updatedAt
 
-  session            LearningSession    @relation(fields: [session_id], references: [session_id], onDelete: Cascade)
-  current_for_session LearningSession?  @relation("LearningSessionCurrentRun")
-  agent_run          AgentRunRecord?    @relation(fields: [agent_run_id], references: [agent_run_id], onDelete: SetNull)
-  trainer_session    PracticeSession?   @relation("LearningWorkflowTrainerNodeRuns", fields: [trainer_session_id], references: [practice_session_id], onDelete: SetNull)
+  session             LearningSession  @relation(fields: [session_id], references: [session_id], onDelete: Cascade)
+  current_for_session LearningSession? @relation("LearningSessionCurrentRun")
+  agent_run           AgentRunRecord?  @relation(fields: [agent_run_id], references: [agent_run_id], onDelete: SetNull)
+  trainer_session     PracticeSession? @relation("LearningWorkflowTrainerNodeRuns", fields: [trainer_session_id], references: [practice_session_id], onDelete: SetNull)
 
   @@index([session_id])
   @@index([session_id, node_id])
@@ -2416,13 +2485,13 @@ model LearningSessionNodeRun {
 }
 
 model LearningSessionEvent {
-  event_id    Int                       @id @default(autoincrement())
-  session_id  Int
-  event_type  LearningSessionEventType
-  node_id     String?                   @db.VarChar(100)
-  title       String                    @db.VarChar(200)
-  data_json   Json?
-  created_at  DateTime                  @default(now())
+  event_id   Int                      @id @default(autoincrement())
+  session_id Int
+  event_type LearningSessionEventType
+  node_id    String?                  @db.VarChar(100)
+  title      String                   @db.VarChar(200)
+  data_json  Json?
+  created_at DateTime                 @default(now())
 
   session LearningSession @relation(fields: [session_id], references: [session_id], onDelete: Cascade)
 
@@ -2432,18 +2501,47 @@ model LearningSessionEvent {
   @@map("learning_session_events")
 }
 
+// 可选语音增强资源；与学习流状态完全隔离，只记录脱敏缓存与费用元数据。
+model LearningNarrationAsset {
+  job_id           String    @id @db.VarChar(36)
+  student_user_id  Int
+  session_id       Int
+  node_run_id      Int
+  content_block_id String    @db.VarChar(100)
+  script_hash      String    @db.VarChar(64)
+  model            String    @db.VarChar(100)
+  voice            String    @db.VarChar(100)
+  format           String    @db.VarChar(20)
+  sample_rate      Int
+  speech_rate      Float
+  status           String    @db.VarChar(30)
+  audio_path       String?   @db.VarChar(255)
+  duration_ms      Int?
+  character_count  Int       @default(0)
+  error_code       String?   @db.VarChar(100)
+  created_at       DateTime  @default(now())
+  completed_at     DateTime?
+  expires_at       DateTime?
+
+  @@index([student_user_id, created_at], map: "ln_asset_student_created_idx")
+  @@index([session_id, node_run_id], map: "ln_asset_session_node_idx")
+  @@index([script_hash, voice, format, sample_rate], map: "ln_asset_cache_key_idx")
+  @@index([status], map: "ln_asset_status_idx")
+  @@map("learning_narration_assets")
+}
+
 model AiFlowGenerationJob {
-  job_id      Int                      @id @default(autoincrement())
-  user_id     Int
-  input_text  String                   @db.Text
-  course_id   Int?
+  job_id             Int                    @id @default(autoincrement())
+  user_id            Int
+  input_text         String                 @db.Text
+  course_id          Int?
   knowledge_point_id Int?
-  draft_json  Json?
-  optimized_json Json?
-  status      AiFlowGenerationStatus   @default(PENDING)
-  error_message String?                @db.Text
-  created_at  DateTime                 @default(now())
-  updated_at  DateTime                 @updatedAt
+  draft_json         Json?
+  optimized_json     Json?
+  status             AiFlowGenerationStatus @default(PENDING)
+  error_message      String?                @db.Text
+  created_at         DateTime               @default(now())
+  updated_at         DateTime               @updatedAt
 
   user            User            @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
   course          Course?         @relation(fields: [course_id], references: [course_id], onDelete: SetNull)

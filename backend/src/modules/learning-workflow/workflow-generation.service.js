@@ -10,6 +10,7 @@ const {
   MAX_NODES,
 } = require('./workflow-schema');
 const workflowTemplateService = require('./workflow-template.service');
+const { bailianModelCall } = require('../learning-agent/adapters/bailian-model.adapter');
 
 // 五套系统模板的 graph 结构（用于草稿生成）
 const TEMPLATE_GRAPHS = {
@@ -73,8 +74,9 @@ const TEMPLATE_GRAPHS = {
       { id: 'e3', source: 'node_3', target: 'node_4', condition: { type: 'always', params: {} } },
       { id: 'e4', source: 'node_4', target: 'node_5', condition: { type: 'always', params: {} } },
       { id: 'e5', source: 'node_5', target: 'node_6', condition: { type: 'always', params: {} } },
-      { id: 'e6', source: 'node_6', target: 'node_7', condition: { type: 'mastery_gte', params: { threshold: 75 } }, label: '掌握度 >= 75' },
-      { id: 'e7', source: 'node_6', target: 'node_3', condition: { type: 'mastery_lt', params: { threshold: 75 } }, label: '掌握度 < 75' },
+      // 练习节点内部已经有有界的自适应出题策略。拓扑层必须保持 DAG，
+      // 否则目标学习流会在持久化前被安全校验器拒绝。
+      { id: 'e6', source: 'node_6', target: 'node_7', condition: { type: 'always', params: {} } },
     ],
   },
   socratic_inquiry: {
@@ -92,8 +94,8 @@ const TEMPLATE_GRAPHS = {
       { id: 'e2', source: 'node_2', target: 'node_3', condition: { type: 'always', params: {} } },
       { id: 'e3', source: 'node_3', target: 'node_4', condition: { type: 'always', params: {} } },
       { id: 'e4', source: 'node_4', target: 'node_5', condition: { type: 'always', params: {} } },
-      { id: 'e5', source: 'node_5', target: 'node_6', condition: { type: 'mastery_gte', params: { threshold: 80 } }, label: '掌握度 >= 80' },
-      { id: 'e6', source: 'node_5', target: 'node_2', condition: { type: 'mastery_lt', params: { threshold: 80 } }, label: '掌握度 < 80' },
+      // 对话和练习节点分别负责多轮追问与自适应重试；流程图只负责有界推进。
+      { id: 'e5', source: 'node_5', target: 'node_6', condition: { type: 'always', params: {} } },
     ],
   },
   exam_sprint: {
@@ -201,6 +203,18 @@ async function generateDraft(inputText, userId, courseId, knowledgePointId) {
   const templateKey = matchTemplateByKeywords(inputText);
   const params = parseInputParams(inputText);
 
+  return generateDraftFromTemplate(templateKey, params);
+}
+
+/**
+ * 供受信任的后端规划层按白名单模板键复用现有生成器。
+ * 外部请求不能直接调用此函数，且输出仍经过既有 sanitizer。
+ */
+function generateDraftFromTemplate(templateKey, params = {}) {
+  if (!Object.prototype.hasOwnProperty.call(TEMPLATE_GRAPHS, templateKey)) {
+    throw createAgentError('INVALID_TEMPLATE_KEY', '学习流模板不在允许白名单中', 400);
+  }
+
   const baseGraph = JSON.parse(JSON.stringify(TEMPLATE_GRAPHS[templateKey]));
   const baseSettings = { ...TEMPLATE_SETTINGS[templateKey] };
 
@@ -221,6 +235,122 @@ async function generateDraft(inputText, userId, courseId, knowledgePointId) {
     settings: sanitizedSettings,
     matchedReason: getTemplateReason(templateKey),
     stage: 'draft',
+  };
+}
+
+async function generateDraftWithAI(inputText, userId, courseId, knowledgePointId) {
+  const [course, knowledgePoint] = await Promise.all([
+    courseId ? prisma.course.findUnique({
+      where: { course_id: Number(courseId) }, select: { course_id: true, course_name: true },
+    }) : null,
+    knowledgePointId ? prisma.knowledgePoint.findUnique({
+      where: { knowledge_point_id: Number(knowledgePointId) },
+      select: { knowledge_point_id: true, knowledge_point_name: true, course_id: true },
+    }) : null,
+  ]);
+  if (courseId && !course) throw createAgentError('COURSE_NOT_FOUND', '所选课程不存在', 404);
+  if (knowledgePointId && (!knowledgePoint || (courseId && Number(knowledgePoint.course_id) !== Number(courseId)))) {
+    throw createAgentError('KNOWLEDGE_POINT_NOT_FOUND', '所选知识点不属于当前课程', 400);
+  }
+
+  const systemPrompt = `你是 DisciMind 的学习流规划器。根据学生自然语言目标选择学习节点和达成条件，后端会把你的紧凑计划编译成安全 DAG。
+只允许节点类型：${ALLOWED_NODE_TYPES.join(', ')}。
+只允许条件类型：${ALLOWED_CONDITION_TYPES.join(', ')}。
+要求：
+1. 生成 3-7 个节点，每个节点必须服务于学生目标，不要机械套模板；
+2. nodes 按实际执行先后排序，最后通常是 learning_summary；禁止设计回跳；
+3. 练习节点 questionCount 为 1-6；estimatedMinutes 为 1-20；
+4. 如用户要求掌握度、正确率、连续错误或答题结果条件，在 branches 中表达；from/to 使用从 1 开始的节点序号，to 必须大于 from；
+5. 输出必须简洁，少于 900 个 token，只输出纯 JSON，不要 Markdown。格式：
+{"rationale":"一句生成理由","nodes":[{"type":"concept_explanation","title":"几何直觉讲解","estimatedMinutes":4,"questionCount":null}],"branches":[{"from":3,"to":5,"condition":"accuracy_gte","threshold":70,"label":"正确率 ≥ 70%"}],"targetMastery":85,"estimatedMinutes":25,"completionMode":"mastery_target"}`;
+  const userPrompt = `课程：${course?.course_name || '未指定'}\n知识点：${knowledgePoint?.knowledge_point_name || '未指定'}\n学生需求：${String(inputText).trim().slice(0, 1500)}\n请根据需求选择最合适的节点、顺序、分支条件和目标。`;
+  const response = await bailianModelCall([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ], { jsonMode: true, enableThinking: false, temperature: 0.2, timeout: 30_000 });
+  let parsed;
+  try { parsed = JSON.parse(response.content); } catch {
+    throw createAgentError('AI_FLOW_INVALID_JSON', 'AI 返回的学习流不是有效 JSON', 502);
+  }
+  const planNodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
+  if (planNodes.length < 3) throw createAgentError('AI_FLOW_INVALID_PLAN', 'AI 返回的节点计划过短', 502);
+  let nodes = planNodes.slice(0, 7).filter((item) => ALLOWED_NODE_TYPES.includes(item?.type)).map((item, index) => ({
+    id: `node_${index + 1}`,
+    type: item.type,
+    title: String(item.title || `学习节点 ${index + 1}`).slice(0, 80),
+    description: '',
+    config: {
+      estimatedMinutes: Math.max(1, Math.min(20, Number(item.estimatedMinutes) || 4)),
+      ...(/practice|evaluation|variant/.test(item.type)
+        ? { questionCount: Math.max(1, Math.min(6, Number(item.questionCount) || 3)) }
+        : {}),
+    },
+    position: { x: 120 + (index % 4) * 240, y: 80 + Math.floor(index / 4) * 150 },
+  }));
+  if (nodes.length < 3) throw createAgentError('AI_FLOW_INVALID_PLAN', 'AI 未返回足够的受支持节点', 502);
+  if (nodes.at(-1)?.type !== 'learning_summary') {
+    nodes = nodes.filter((node) => node.type !== 'learning_summary').map((node, index) => ({
+      ...node, id: `node_${index + 1}`,
+      position: { x: 120 + (index % 4) * 240, y: 80 + Math.floor(index / 4) * 150 },
+    }));
+    nodes.push({
+      id: `node_${nodes.length + 1}`, type: 'learning_summary', title: '学习总结', description: '',
+      config: { estimatedMinutes: 3 }, position: { x: 120 + (nodes.length % 4) * 240, y: 80 + Math.floor(nodes.length / 4) * 150 },
+    });
+  }
+  const thresholdConditions = new Set(['mastery_gte', 'mastery_lt', 'consecutive_wrong_gte', 'accuracy_gte', 'accuracy_lt']);
+  const branches = (Array.isArray(parsed.branches) ? parsed.branches : []).filter((branch) => {
+    const from = Number(branch.from); const to = Number(branch.to);
+    return Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to > from && to <= nodes.length
+      && ALLOWED_CONDITION_TYPES.includes(branch.condition) && branch.condition !== 'always'
+      && (!thresholdConditions.has(branch.condition) || Number.isFinite(Number(branch.threshold)));
+  });
+  const edges = [];
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    const sourceIndex = index + 1;
+    const sourceBranches = branches.filter((branch) => Number(branch.from) === sourceIndex);
+    const usedTargets = new Set();
+    for (const branch of sourceBranches) {
+      const target = nodes[Number(branch.to) - 1]?.id;
+      if (!target || usedTargets.has(target)) continue;
+      usedTargets.add(target);
+      edges.push({
+        id: `edge_${edges.length + 1}`, source: nodes[index].id, target,
+        label: String(branch.label || branch.condition).slice(0, 100),
+        condition: {
+          type: branch.condition,
+          params: thresholdConditions.has(branch.condition) ? { threshold: Number(branch.threshold) } : {},
+        },
+      });
+    }
+    const sequentialTarget = nodes[index + 1].id;
+    if (!usedTargets.has(sequentialTarget)) {
+      edges.push({
+        id: `edge_${edges.length + 1}`, source: nodes[index].id, target: sequentialTarget,
+        label: '', condition: { type: 'always', params: {} },
+      });
+    }
+  }
+  const graph = sanitizeGraphJson({ entryNodeId: nodes[0].id, nodes, edges });
+  const settings = sanitizeSettingsJson({
+    completion_mode: parsed.completionMode || 'mastery_target',
+    target_mastery: Number(parsed.targetMastery) || 80,
+    adjustment_mode: 'ask_before_adjust',
+    estimated_minutes: Number(parsed.estimatedMinutes) || 25,
+  });
+  const validation = validateGraphJson(graph);
+  if (!validation.valid) {
+    throw createAgentError('AI_FLOW_INVALID_GRAPH', `AI 学习流校验失败：${validation.errors?.join('；') || validation.message || '结构无效'}`, 502);
+  }
+  return {
+    templateKey: 'ai_custom',
+    graph,
+    settings,
+    matchedReason: String(parsed.rationale || 'AI 已根据你的学习目标匹配节点与达成条件。').slice(0, 500),
+    stage: 'ai_generated',
+    aiGenerated: true,
+    modelTiming: response.timing || null,
+    modelUsage: response.usage || null,
   };
 }
 
@@ -324,31 +454,39 @@ async function createAiGeneration(inputText, userId, courseId, knowledgePointId)
     throw createAgentError('INVALID_INPUT', '请输入学习需求描述', 400);
   }
 
-  // 阶段一：立即生成草稿
-  const draft = await generateDraft(inputText, userId, courseId, knowledgePointId);
-
-  // 创建数据库记录
   const job = await prisma.aiFlowGenerationJob.create({
     data: {
       user_id: Number(userId),
       input_text: String(inputText).trim(),
       course_id: courseId ? Number(courseId) : null,
       knowledge_point_id: knowledgePointId ? Number(knowledgePointId) : null,
-      draft_json: { graph: draft.graph, settings: draft.settings },
-      status: 'PENDING',
+      status: 'GENERATING',
     },
   });
-
-  // 阶段二：后台异步 AI 优化
-  setImmediate(() => {
-    optimizeWithAI(job.job_id, inputText, draft, userId, courseId);
-  });
-
-  return {
-    jobId: job.job_id,
-    draft,
-    status: 'draft_ready',
-  };
+  let draft;
+  try {
+    draft = await generateDraftWithAI(inputText, userId, courseId, knowledgePointId);
+    await prisma.aiFlowGenerationJob.update({
+      where: { job_id: job.job_id },
+      data: { status: 'COMPLETED', draft_json: { graph: draft.graph, settings: draft.settings, rationale: draft.matchedReason } },
+    });
+  } catch (error) {
+    console.warn(`[ai-flow-gen] real AI generation failed job=${job.job_id}: ${error.code || error.message}`);
+    // 保底草稿保证入口可用，同时明确告诉前端本次是降级结果。
+    draft = await generateDraft(inputText, userId, courseId, knowledgePointId);
+    draft.aiGenerated = false;
+    draft.stage = 'fallback_draft';
+    draft.matchedReason = `AI 生成暂时不可用，已按你的关键词生成安全草稿：${draft.matchedReason}`;
+    await prisma.aiFlowGenerationJob.update({
+      where: { job_id: job.job_id },
+      data: {
+        status: 'COMPLETED',
+        draft_json: { graph: draft.graph, settings: draft.settings, rationale: draft.matchedReason },
+        error_message: String(error.message || error).slice(0, 500),
+      },
+    });
+  }
+  return { jobId: job.job_id, draft, matchedReason: draft.matchedReason, status: 'completed' };
 }
 
 /**
@@ -382,4 +520,6 @@ module.exports = {
   createAiGeneration,
   getGenerationStatus,
   generateDraft,
+  generateDraftFromTemplate,
+  generateDraftWithAI,
 };

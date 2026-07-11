@@ -3,8 +3,10 @@
 
 const { loadEnv } = require('./config/env');
 const { describeDatabaseError } = require('./config/database');
+const http = require('http');
 const app = require('./app');
 const prisma = require('./config/prisma');
+const { getLearningNarrationModule } = require('./modules/learning-narration');
 
 loadEnv();
 
@@ -12,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 
 // 定时扫描器引用
 let expirationInterval = null;
+let httpServer = null;
 
 function startExpirationScanner() {
   const { scanAndSubmitExpiredAttempts } = require('./services/attempt-expiration.service');
@@ -53,6 +56,8 @@ function setupGracefulShutdown() {
   const shutdown = (signal) => {
     console.log(`[server] 收到 ${signal} 信号，正在关闭...`);
     stopExpirationScanner();
+    getLearningNarrationModule().close();
+    httpServer?.close();
     // 给正在处理的请求一点时间完成
     setTimeout(() => process.exit(0), 2000);
   };
@@ -63,6 +68,9 @@ function setupGracefulShutdown() {
 
 // 启动前测试数据库连接，避免启动后出现连接池超时
 async function start() {
+  // 学习目标功能开关诊断日志（只记录布尔值）
+  console.log(`[LearningGoal] enabled=${process.env.LEARNING_GOAL_ENABLED === 'true'}`);
+
   try {
     await prisma.$queryRaw`SELECT 1`;
     console.log('[db] 数据库连接成功');
@@ -74,7 +82,9 @@ async function start() {
   startExpirationScanner();
   setupGracefulShutdown();
 
-  app.listen(PORT, () => {
+  httpServer = http.createServer(app);
+  getLearningNarrationModule().attach(httpServer);
+  httpServer.listen(PORT, () => {
     console.log(`DisciMind backend server is running at http://localhost:${PORT}`);
   });
 }

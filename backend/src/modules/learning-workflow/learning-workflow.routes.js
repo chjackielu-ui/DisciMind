@@ -53,7 +53,7 @@ router.get('/sessions/:id/node/:nodeId/status', controller.getNodeStatus);
 // Global assistant (SSE)
 router.post('/sessions/:id/assistant/chat', controller.assistantChat);
 
-// Learning guide (DeepSeek SSE)
+// Learning guide (Bailian SSE)
 router.post('/sessions/:id/guide/stream', controller.streamLearningGuide);
 
 // Save node result (called by frontend after Dify completes)
@@ -61,5 +61,49 @@ router.post('/sessions/:id/complete-node', controller.completeNodeResult);
 
 // Save guide data without overwriting formal agent result
 router.post('/sessions/:id/save-guide', controller.saveGuideOnly);
+
+// Multimodal file upload (for learning session images)
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const uploadDir = path.resolve(__dirname, '../../../storage/uploads/learning');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const sessionFileUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+      const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      cb(null, `learning_${unique}${path.extname(file.originalname)}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error(`不支持的文件类型: ${file.mimetype}`));
+  },
+});
+
+router.post('/sessions/:id/files',
+  (req, res, next) => {
+    sessionFileUpload.array('files', 3)(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ code: 400, message: '文件超过 10MB 限制', data: null });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+          return res.status(400).json({ code: 400, message: '最多上传 3 张图片', data: null });
+        }
+        return res.status(400).json({ code: 400, message: err.message, data: null });
+      }
+      next();
+    });
+  },
+  controller.uploadSessionFiles,
+);
 
 module.exports = router;

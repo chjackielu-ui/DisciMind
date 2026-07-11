@@ -17,15 +17,15 @@ function sendError(res, err) {
   const status = err.status || 500;
   const code = err.code || 'INTERNAL_ERROR';
   const rawMessage = err.message || '服务器内部错误';
-  const isPrismaInternal = /Invalid `prisma\.|PrismaClient|Expected WorkflowNodeType/i.test(rawMessage);
-  const message = isPrismaInternal ? '学习节点初始化失败，请重新尝试' : rawMessage;
-  const safeCode = isPrismaInternal ? 'NODE_RUN_INITIALIZATION_FAILED' : code;
+  const isInternal = status >= 500 || /Invalid `prisma\.|PrismaClient|Expected WorkflowNodeType|Cannot find module|Require stack|MODULE_NOT_FOUND|[A-Z]:\\|\/Users\//i.test(rawMessage);
+  const message = isInternal ? '学习内容暂时生成失败，请重新尝试或跳过当前节点。' : rawMessage;
+  const safeCode = isInternal && code === 'INTERNAL_ERROR' ? 'AGENT_EXECUTION_FAILED' : code;
   console.error(`[learning-workflow] ${safeCode}:`, rawMessage);
   if (res.headersSent) return;
-  res.status(isPrismaInternal ? 500 : status).json({
+  res.status(status).json({
     code: safeCode,
     message,
-    data: err.data || null,
+    data: isInternal ? null : (err.data || null),
   });
 }
 
@@ -160,7 +160,7 @@ async function createSession(req, res) {
 async function getSession(req, res) {
   try {
     const userId = getUserId(req);
-    const session = await runtimeService.getSession(req.params.id, userId);
+    const session = await runtimeService.getPublicSession(req.params.id, userId);
     sendSuccess(res, session);
   } catch (err) { sendError(res, err); }
 }
@@ -168,8 +168,8 @@ async function getSession(req, res) {
 async function startSession(req, res) {
   try {
     const userId = getUserId(req);
-    const session = await runtimeService.startSession(req.params.id, userId);
-    sendSuccess(res, session, '学习会话已启动');
+    await runtimeService.startSession(req.params.id, userId);
+    sendSuccess(res, await runtimeService.getPublicSession(req.params.id, userId), '学习会话已启动');
   } catch (err) { sendError(res, err); }
 }
 
@@ -313,52 +313,8 @@ async function quickStartCheck(req, res) {
 async function retryNode(req, res) {
   try {
     const userId = getUserId(req);
-    const sessionId = req.params.id;
-    const { nodeId } = req.body;
-
-    const session = await runtimeService.getSession(sessionId, userId);
-
-    if (session.status !== 'RUNNING') {
-      throw createAgentError('INVALID_SESSION_STATUS', '只有运行中的会话可以重试节点', 400);
-    }
-
-    const failedRun = (session.node_runs || []).find(
-      (r) => r.node_id === (nodeId || session.current_node_id) && r.status === 'FAILED'
-    );
-
-    if (!failedRun) {
-      throw createAgentError('NO_FAILED_NODE', '没有可重试的失败节点', 400);
-    }
-
-    // Increment retry count
-    const prisma = require('../../config/prisma');
-    const retryCount = (failedRun.retry_count || 0) + 1;
-    await prisma.learningSessionNodeRun.update({
-      where: { node_run_id: failedRun.node_run_id },
-      data: {
-        status: 'RUNNING',
-        error_code: null,
-        error_message: null,
-        retry_count: retryCount,
-        started_at: new Date(),
-        completed_at: null,
-      },
-    });
-
-    // Reset current node to this failed node
-    await prisma.learningSession.update({
-      where: { session_id: Number(sessionId) },
-      data: { current_node_id: failedRun.node_id },
-    });
-
-    await runtimeService.addSessionEvent(sessionId, 'NODE_RETRY', failedRun.node_id,
-      `重试节点 (第 ${retryCount} 次)`);
-
-    // Execute the node
-    const result = await runtimeService.executeCurrentNode(sessionId, userId, req, res);
-    if (result && !res.headersSent) {
-      sendSuccess(res, result, '节点重试已启动');
-    }
+    const result = await runtimeService.retryNode(req.params.id, userId, req.body || {});
+    sendSuccess(res, result, '节点重试已启动');
   } catch (err) {
     if (!res.headersSent) sendError(res, err);
   }
@@ -374,7 +330,7 @@ async function getNodeStatus(req, res) {
     const sessionId = req.params.id;
     const nodeId = req.params.nodeId;
 
-    const session = await runtimeService.getSession(sessionId, userId);
+    const session = await runtimeService.getPublicSession(sessionId, userId);
     const nodeRun = (session.node_runs || []).find((r) => r.node_id === nodeId);
 
     if (!nodeRun) {
@@ -401,7 +357,7 @@ async function getNodeStatus(req, res) {
 }
 
 // ========================
-// 学习引导老师 (DeepSeek SSE)
+// 学习引导老师 (Bailian SSE)
 // ========================
 
 async function streamLearningGuide(req, res) {
@@ -524,7 +480,7 @@ async function streamLearningGuide(req, res) {
           ...existingOutput,
           guide: {
             agent: 'learning_guide',
-            model: result.model || (process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro'),
+            model: result.model || (process.env.BAILIAN_MODEL || 'qwen3.7-plus'),
              requestId: result.requestId,
              clientRequestId: clientRequestId || null,
              nodeExecutionId: nodeRun.node_run_id,
@@ -576,20 +532,42 @@ function getAgentLabel(nodeType) {
 async function assistantChat(req, res) {
   try {
     const userId = getUserId(req);
-    const { message, sessionId } = req.body;
+    const { message } = req.body;
+    const sessionId = Number(req.params.id || req.body.sessionId);
 
     const explainerService = require('../agent/explainer/explainer.service');
 
     // 获取会话上下文
     let contextNote = '';
+    let knowledgePointId = req.body.knowledgePointId || null;
     if (sessionId) {
       try {
         const session = await runtimeService.getSession(sessionId, userId);
-        contextNote = `当前正在学习: ${session.knowledge_point?.knowledge_point_name || '未知知识点'}。`
-          + `当前节点: ${session.current_node_id || '无'}。`
-          + `掌握度: ${session.mastery_current != null ? Math.round(session.mastery_current) + '%' : '未知'}。`;
+        knowledgePointId = knowledgePointId || session.knowledge_point_id;
+        const learningTrace = (session.node_runs || []).slice(-12).map((run) => {
+          const output = run.output_summary_json || {};
+          const data = output.data || {};
+          const answers = (output.answers || []).slice(-4).map((answer) => (
+            `${answer.questionStem || answer.questionId}: 学生回答=${String(answer.studentAnswer ?? '').slice(0, 180)}`
+            + `${answer.feedback ? `；评价=${String(answer.feedback).slice(0, 180)}` : ''}`
+          )).join('；');
+          const result = data.completion_summary || data.overall_assessment || data.summary
+            || data.starting_question || data.title || data.mode || '';
+          return `${run.node_id}/${run.node_type}/${run.status}: ${String(result).slice(0, 260)}${answers ? `；${answers}` : ''}`;
+        }).join('\n');
+        contextNote = `【本轮学习流上下文】\n课程：${session.course?.course_name || '未知课程'}\n`
+          + `知识点：${session.knowledge_point?.knowledge_point_name || '未知知识点'}\n`
+          + `会话状态：${session.status}；掌握度：${session.mastery_current != null ? Math.round(session.mastery_current) + '%' : '未知'}\n`
+          + `已完成节点与作答：\n${learningTrace}`;
       } catch { /* 忽略 */ }
     }
+
+    const historyText = (Array.isArray(req.body.history) ? req.body.history : [])
+      .slice(-4)
+      .map((item) => `${item.role === 'assistant' ? '学习助手' : '学生'}：${String(item.content || '').slice(0, 200)}`)
+      .join('\n');
+    const fusedMessage = `${contextNote.slice(0, 2100)}\n\n${historyText ? `【最近对话】\n${historyText}\n\n` : ''}`
+      + `【学生当前问题】\n${String(message || '').slice(0, 800)}`;
 
     // 使用 Explainer 流式服务
     await explainerService.streamExplainerChat({
@@ -597,8 +575,8 @@ async function assistantChat(req, res) {
       res,
       userId: Number(userId),
       body: {
-        knowledgePointId: req.body.knowledgePointId || null,
-        message: `${contextNote}\n\n学生问题: ${message}`,
+        knowledgePointId,
+        message: fusedMessage,
         strategyHint: 'auto',
         depth: 'moderate',
         newConversation: false,
@@ -676,6 +654,15 @@ async function completeNodeResult(req, res) {
     const userId = getUserId(req);
     const sessionId = req.params.id;
     const { nodeId, result, guide, clientActionId, expectedNodeExecutionId } = req.body;
+
+    if (runtimeService.isLangGraphMode()) {
+      const continued = await runtimeService.continueNode(sessionId, userId, {
+        nodeId,
+        expectedNodeExecutionId,
+        operationId: clientActionId || req.body.operationId,
+      });
+      return sendSuccess(res, continued, continued.execution?.flowCompleted ? '学习流已完成' : '已进入下一节点');
+    }
 
     if (!nodeId) {
       throw createAgentError('INVALID_INPUT', '缺少 nodeId 参数', 400);
@@ -1114,4 +1101,56 @@ module.exports = {
   streamLearningGuide,
   completeNodeResult,
   saveGuideOnly,
+  uploadSessionFiles,
 };
+
+// ========================
+// 文件上传
+// ========================
+
+async function uploadSessionFiles(req, res, next) {
+  const prisma = require('../../config/prisma');
+  try {
+    const sessionId = parseInt(req.params.id, 10);
+    const userId = req.user.user_id;
+
+    const session = await runtimeService.getSession(sessionId, userId);
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ code: 400, message: '请上传至少一个文件', data: null });
+    }
+
+    const fileRefs = req.files.map((f) => ({
+      fileUrl: `/uploads/learning/${f.filename}`,
+      mimeType: f.mimetype,
+      fileName: f.originalname,
+      fileSize: f.size,
+      uploadedAt: new Date().toISOString(),
+    }));
+
+    // 持久化到当前 node_run
+    const currentNodeRun = session.currentNodeRun
+      || (session.node_runs || []).find((r) => r.status === 'RUNNING' || r.status === 'PENDING');
+
+    if (currentNodeRun) {
+      const existingInput = currentNodeRun.input_summary_json || {};
+      await prisma.learningSessionNodeRun.update({
+        where: { node_run_id: currentNodeRun.node_run_id },
+        data: {
+          input_summary_json: {
+            ...existingInput,
+            uploadedFiles: [...(existingInput.uploadedFiles || []), ...fileRefs],
+          },
+        },
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: 'ok',
+      data: { files: fileRefs, count: fileRefs.length },
+    });
+  } catch (err) {
+    next(err);
+  }
+}

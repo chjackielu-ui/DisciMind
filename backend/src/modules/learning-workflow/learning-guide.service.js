@@ -1,39 +1,23 @@
-// 学习引导老师 — DeepSeek 语句块流式 SSE 服务
+// 学习引导老师 — 百炼 qwen3.7-plus 语句块流式 SSE 服务
 // 职责：Dify 执行期间提供教师式陪伴引导，不替代正式教学
-// DeepSeek 和 Dify 使用完全独立的 HTTP Client
+// 百炼和 Dify 使用完全独立的 HTTP Client
 
-const OpenAI = require('openai');
-const { loadEnv } = require('../../config/env');
+const {
+  getBailianClient,
+  buildChatCompletionParams,
+} = require('../../services/bailian-openai.service');
 const { GUIDE_SYSTEM_PROMPT, buildGuideUserMessage } = require('./learning-guide.prompt');
 
 const BLOCK_DELIMITER = '<<<BLOCK>>>';
 const MAX_BLOCK_CHARS = 120; // 单个语句块中文字符上限
-const GUIDE_TIMEOUT_MS = 15000; // DeepSeek API 超时
+const GUIDE_TIMEOUT_MS = 15000;
 const FIRST_BLOCK_TIMEOUT_MS = 8000; // 首个语句块超时
 
 // ========================
-// DeepSeek Client (懒加载)
+// 百炼 Client (共享惰性单例)
 // ========================
 
-let _deepseekClient = null;
-let _deepseekModel = null;
-
-function getDeepSeekClient() {
-  if (_deepseekClient) return { client: _deepseekClient, model: _deepseekModel };
-
-  loadEnv();
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  const baseURL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
-  const model = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
-
-  if (!apiKey || apiKey.startsWith('请')) {
-    throw Object.assign(new Error('DeepSeek API Key 未配置'), { code: 'GUIDE_AGENT_CONFIG_ERROR', retryable: false });
-  }
-
-  _deepseekClient = new OpenAI({ apiKey, baseURL });
-  _deepseekModel = model;
-  return { client: _deepseekClient, model: _deepseekModel };
-}
+function getGuideClient() { return getBailianClient(); }
 
 // ========================
 // 语句块拆分
@@ -119,7 +103,7 @@ async function streamGuideBlocks({ req, res, sessionId, nodeId, phase, context }
   res.setHeader('X-Accel-Buffering', 'no');
   if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
-  const { client, model } = getDeepSeekClient();
+  const { client, model } = getGuideClient();
   const userMessage = buildGuideUserMessage({ phase, ...context });
 
   // 发送 guide_start
@@ -167,17 +151,15 @@ async function streamGuideBlocks({ req, res, sessionId, nodeId, phase, context }
   res.on('close', onDisconnect);
 
   try {
-    const stream = await client.chat.completions.create({
-      model,
+    const stream = await client.chat.completions.create(buildChatCompletionParams({
       messages: [
         { role: 'system', content: GUIDE_SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
       ],
       temperature: 0.7,
-      max_tokens: 600,
+      maxTokens: 600,
       stream: true,
-      stream_options: { include_usage: true },
-    }, {
+    }), {
       timeout: GUIDE_TIMEOUT_MS,
       signal: req.signal,
     });
@@ -295,8 +277,8 @@ async function streamGuideBlocks({ req, res, sessionId, nodeId, phase, context }
     // 记录错误但不影响用户
     const isAuthError = err?.status === 401 || err?.status === 403;
     const isModelError = String(err?.message || '').includes('model');
-    const errorCode = isAuthError ? 'GUIDE_DEEPSEEK_AUTH_FAILED'
-      : isModelError ? 'GUIDE_DEEPSEEK_MODEL_ERROR'
+    const errorCode = isAuthError ? 'GUIDE_BAILIAN_AUTH_FAILED'
+      : isModelError ? 'GUIDE_BAILIAN_MODEL_ERROR'
       : err?.code || 'GUIDE_AGENT_FAILED';
 
     console.error(`[LearningGuide][${requestId}] error:`, errorCode, err?.message || err);
@@ -320,19 +302,18 @@ async function streamGuideBlocks({ req, res, sessionId, nodeId, phase, context }
 // ========================
 
 async function generateGuideBlocksSync(phase, context) {
-  const { client, model } = getDeepSeekClient();
+  const { client, model } = getGuideClient();
   const userMessage = buildGuideUserMessage({ phase, ...context });
 
   try {
-    const response = await client.chat.completions.create({
-      model,
+    const response = await client.chat.completions.create(buildChatCompletionParams({
       messages: [
         { role: 'system', content: GUIDE_SYSTEM_PROMPT },
         { role: 'user', content: userMessage },
       ],
       temperature: 0.7,
-      max_tokens: 600,
-    }, { timeout: GUIDE_TIMEOUT_MS });
+      maxTokens: 600,
+    }), { timeout: GUIDE_TIMEOUT_MS });
 
     const content = response.choices?.[0]?.message?.content || '';
     const rawBlocks = extractBlocksFromText(content);

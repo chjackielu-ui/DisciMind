@@ -6,7 +6,7 @@ const gradingService = require('./grading.service');
 const wrongQuestionService = require('./wrong-question.service');
 const masteryService = require('./mastery.service');
 const aiService = require('./ai.service');
-const OpenAI = require('openai');
+const { getBailianClient } = require('./bailian-openai.service');
 const { checkAndExpireIfNeeded } = require('./attempt-expiration.service');
 
 const QUESTION_TYPE_TO_PRISMA = {
@@ -2159,20 +2159,12 @@ async function startTaskAttempt(userId, taskId) {
   };
 }
 
-// DeepSeek client — 与 ai-chat.service.js 使用完全相同的模式
-function getDeepSeekClient() {
-  const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey || apiKey.includes('请在这里')) {
-    console.error('[practice.service] DEEPSEEK_API_KEY 未配置或为占位符，无法调用 DeepSeek');
+// 练习追问、解析与对话统一使用百炼模型。
+function getChatModelClient() {
+  try { return getBailianClient(); } catch {
+    console.error('[practice.service] BAILIAN_API_KEY 未配置，无法调用百炼');
     return null;
   }
-  return {
-    client: new OpenAI({
-      apiKey,
-      baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
-    }),
-    model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro',
-  };
 }
 
 // 构建 AI 提问的 messages 数组（流式和非流式共用）
@@ -2270,11 +2262,11 @@ ${analysis}`;
   };
 }
 
-// 创建 DeepSeek 流式 completion（复用 ai-chat.service.js 的模式）
+// 创建百炼流式 completion。
 async function createPracticeAiCompletionStream(messages, signal) {
-  const ds = getDeepSeekClient();
+  const ds = getChatModelClient();
   if (!ds) {
-    throw Object.assign(new Error('AI 服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+    throw Object.assign(new Error('AI 服务未配置，请联系管理员设置 BAILIAN_API_KEY'), { code: 50002 });
   }
   console.log('[practice.service] createPracticeAiCompletionStream, model=', ds.model);
   try {
@@ -2285,11 +2277,12 @@ async function createPracticeAiCompletionStream(messages, signal) {
         stream: true,
         temperature: 0.5,
         max_tokens: 2048,
+        enable_thinking: false,
       },
       { signal },
     );
   } catch (err) {
-    console.error('[practice.service] DeepSeek 流式调用失败:', err.message);
+    console.error('[practice.service] 百炼流式调用失败:', err.message);
     if (err.status === 401 || err.status === 403) {
       throw Object.assign(new Error('AI 服务认证失败，请检查 API Key 配置'), { code: 50002 });
     }
@@ -2314,13 +2307,13 @@ async function askAiForQuestion(userId, questionId, params) {
   // 将学生的追问作为新的 user 消息追加
   messages.push({ role: 'user', content: followUp });
 
-  // 调用 DeepSeek V4 Pro
-  const ds = getDeepSeekClient();
+  // 调用百炼 qwen3.7-plus。
+  const ds = getChatModelClient();
   if (!ds) {
-    throw Object.assign(new Error('AI 服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+    throw Object.assign(new Error('AI 服务未配置，请联系管理员设置 BAILIAN_API_KEY'), { code: 50002 });
   }
 
-  console.log('[practice.service] 正在调用 DeepSeek, model=', ds.model);
+  console.log('[practice.service] 正在调用百炼, model=', ds.model);
 
   let aiContent;
   try {
@@ -2329,11 +2322,12 @@ async function askAiForQuestion(userId, questionId, params) {
       messages,
       temperature: 0.5,
       max_tokens: 2048,
+      enable_thinking: false,
     });
     aiContent = completion.choices?.[0]?.message?.content || '';
-    console.log('[practice.service] DeepSeek 返回成功, 内容长度=', aiContent.length);
+    console.log('[practice.service] 百炼返回成功, 内容长度=', aiContent.length);
   } catch (dsErr) {
-    console.error('[practice.service] DeepSeek API 调用失败:', dsErr.message);
+    console.error('[practice.service] 百炼 API 调用失败:', dsErr.message);
     if (dsErr.status === 401 || dsErr.status === 403) {
       throw Object.assign(new Error('AI 服务认证失败，请检查 API Key 配置'), { code: 50002 });
     }
@@ -2344,7 +2338,7 @@ async function askAiForQuestion(userId, questionId, params) {
   }
 
   if (!aiContent || aiContent.trim().length < 10) {
-    console.error('[practice.service] DeepSeek 返回内容为空或过短:', aiContent);
+    console.error('[practice.service] 百炼返回内容为空或过短:', aiContent);
     throw Object.assign(new Error('AI 未返回有效回答，请稍后重试'), { code: 50002 });
   }
 
@@ -2352,7 +2346,7 @@ async function askAiForQuestion(userId, questionId, params) {
     practice_session_id: sessionId,
     question_id: questionId,
     explanation: aiContent,
-    ai_provider: 'deepseek',
+    ai_provider: 'bailian',
     model_name: ds.model,
   };
 }
@@ -2446,12 +2440,12 @@ ${analysis}
 
 请根据以上信息，生成一份详细的题目解析。`;
 
-  const ds = getDeepSeekClient();
+  const ds = getChatModelClient();
   if (!ds) {
-    throw Object.assign(new Error('AI 服务未配置，请联系管理员设置 DEEPSEEK_API_KEY'), { code: 50002 });
+    throw Object.assign(new Error('AI 服务未配置，请联系管理员设置 BAILIAN_API_KEY'), { code: 50002 });
   }
 
-  console.log('[practice.service] generateAnalysis 正在调用 DeepSeek, model=', ds.model);
+  console.log('[practice.service] generateAnalysis 正在调用百炼, model=', ds.model);
 
   let aiContent;
   try {
@@ -2463,10 +2457,11 @@ ${analysis}
       ],
       temperature: 0.3,
       max_tokens: 2048,
+      enable_thinking: false,
     });
     aiContent = completion.choices?.[0]?.message?.content || '';
   } catch (dsErr) {
-    console.error('[practice.service] DeepSeek API 调用失败:', dsErr.message);
+    console.error('[practice.service] 百炼 API 调用失败:', dsErr.message);
     if (dsErr.status === 401 || dsErr.status === 403) {
       throw Object.assign(new Error('AI 服务认证失败，请检查 API Key 配置'), { code: 50002 });
     }
@@ -2484,7 +2479,7 @@ ${analysis}
     practice_session_id: sessionId,
     question_id: questionId,
     analysis: aiContent,
-    ai_provider: 'deepseek',
+    ai_provider: 'bailian',
     model_name: ds.model,
   };
 }

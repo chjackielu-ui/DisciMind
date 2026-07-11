@@ -12,6 +12,13 @@ const {
 } = require('../common/intervention.service');
 const { DIFY_STRATEGY, validateExplainerChatBody } = require('./explainer.validator');
 
+// ---- LangGraph 模式支持 ----
+const AGENT_MODE = process.env.AGENT_MODE || 'dify';
+
+function isLangGraphMode() {
+  return AGENT_MODE === 'langgraph' && process.env.LANGGRAPH_ENABLED === 'true';
+}
+
 const CANONICAL_BY_DIFY = {
   direct: 'direct_instruction',
   socratic: 'socratic_dialogue',
@@ -697,6 +704,12 @@ async function prepareExplainerChat(userId, rawBody, options = {}) {
 }
 
 async function streamExplainerChat({ req, res, userId, body, options = {} }) {
+  // ---- LangGraph 模式 ----
+  if (isLangGraphMode()) {
+    return streamExplainerChatLangGraph({ req, res, userId, body, options });
+  }
+
+  // ---- Dify 模式 (legacy) ----
   let prepared;
   try {
     prepared = await prepareExplainerChat(userId, body, options);
@@ -884,6 +897,157 @@ async function streamExplainerChat({ req, res, userId, body, options = {} }) {
       if (!res.writableEnded) res.end();
     }
   });
+}
+
+// ========================
+// LangGraph 模式 Explainer 流式讲解
+// ========================
+
+async function streamExplainerChatLangGraph({ req, res, userId, body, options = {} }) {
+  const params = validateExplainerChatBody(body);
+
+  // 设置 SSE headers
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const startedAt = Date.now();
+  let finished = false;
+  const abortController = new AbortController();
+  const requestId = params.requestId || `explainer_${Date.now()}`;
+  const strategy = params.strategyHint || 'direct';
+  const knowledgePointId = params.knowledgePointId;
+
+  writeSse(res, 'start', { requestId, strategy, mode: 'langgraph' });
+
+  try {
+    // 获取知识点信息
+    let knowledgePointName = '';
+    let courseId = null;
+    if (knowledgePointId) {
+      const kp = await prisma.knowledgePoint.findUnique({
+        where: { knowledge_point_id: knowledgePointId },
+        select: { knowledge_point_id: true, knowledge_point_name: true, course_id: true },
+      });
+      if (kp) {
+        knowledgePointName = kp.knowledge_point_name;
+        courseId = kp.course_id;
+      }
+    }
+
+    // 知识库检索
+    let retrievalContext = null;
+    let retrievalRefs = [];
+    try {
+      const router = require('../../learning-agent/services/knowledge-router.service');
+      const kbResult = await router.buildRetrievalRequest({
+        courseId,
+        knowledgePointId,
+        nodeType: params.strategyHint === 'socratic' ? 'socratic_questioning' : 'concept_explanation',
+        query: params.message,
+        knowledgePointName,
+        topK: 5,
+      });
+      retrievalRefs = kbResult.records || [];
+      if (retrievalRefs.length > 0) {
+        retrievalContext = retrievalRefs
+          .map((r, i) => `[${i + 1}] (${r.documentName || '未知文档'})\n${r.content}`)
+          .join('\n\n');
+      }
+    } catch (err) {
+      console.warn('[LangGraph Explainer] Knowledge retrieval failed:', err.message);
+    }
+
+    // 直接使用百炼流式接口。旧实现等完整 JSON 生成后再切块，视觉上像流式，
+    // 实际首字延迟仍等于整次模型耗时；这里让 token 到达即转发。
+    const { createBailianModel } = require('../../learning-agent/adapters/bailian-model.adapter');
+    const model = createBailianModel({
+      enableThinking: false,
+      maxTokens: 900,
+      temperature: 0.35,
+      maxRetries: 1,
+    });
+    const systemMessage = `你是 DisciMind 的学习引导老师。请结合学生刚完成的学习流、作答评价和知识库内容继续深入答疑。
+要求：先直接回应学生当前问题；必要时指出它与本轮学习节点、薄弱点或掌握度的关系；使用清晰 Markdown；不要输出 JSON；不要重复整份学习总结；结尾给出一个可继续追问的方向。`;
+    const userMessage = `${retrievalContext ? `【知识库参考】\n${retrievalContext.slice(0, 5000)}\n\n` : ''}${params.message}`;
+    const stream = await model.stream([
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: userMessage },
+    ], { signal: abortController.signal });
+    let outputText = '';
+    let firstTokenMs = 0;
+    for await (const chunk of stream) {
+      if (res.destroyed || finished) break;
+      const content = chunk?.content;
+      const text = typeof content === 'string'
+        ? content
+        : (Array.isArray(content) ? content.map((part) => part?.text || '').join('') : '');
+      if (!text) continue;
+      if (!firstTokenMs) firstTokenMs = Date.now() - startedAt;
+      outputText += text;
+      writeSse(res, 'delta', { text, requestId, strategy });
+    }
+
+    // 发送元数据
+    writeSse(res, 'metadata', {
+      requestId,
+      strategy,
+      mode: 'langgraph',
+      knowledgeBased: !!retrievalContext,
+      retrievalCount: retrievalRefs.length,
+      validationError: null,
+      elapsedMs: Date.now() - startedAt,
+      firstTokenMs,
+    });
+
+    // 发送完成事件
+    writeSse(res, 'done', { requestId, strategy, mode: 'langgraph' });
+
+    // 持久化运行记录
+    try {
+      await prisma.agentRunRecord.create({
+        data: {
+          user_id: userId,
+          student_user_id: userId,
+          course_id: courseId,
+          agent_type: 'EXPLAINER',
+          request_id: requestId,
+          mode: 'langgraph',
+          status: 'SUCCESS',
+          response_time_ms: Date.now() - startedAt,
+          output_summary: {
+            strategy,
+            knowledgeBased: !!retrievalContext,
+            retrievalCount: retrievalRefs.length,
+            contentLength: outputText.length,
+          },
+          output_json: { content: outputText },
+        },
+      });
+    } catch (dbErr) {
+      console.warn('[LangGraph Explainer] Failed to persist run record:', dbErr.message);
+    }
+
+    finished = true;
+    if (!res.writableEnded) res.end();
+  } catch (err) {
+    if (finished) return;
+    finished = true;
+    console.error(`[LangGraph Explainer] request failed code=${err.code || 'EXPLAINER_LANGGRAPH_ERROR'}`, err);
+    writeSse(res, 'error', {
+      code: err.code || 'EXPLAINER_LANGGRAPH_ERROR',
+      message: '学习内容暂时生成失败，请重新尝试或跳过当前节点。',
+      requestId,
+    });
+    if (!res.writableEnded) res.end();
+  }
+
+  // 处理客户端断开
+  const cleanup = () => { finished = true; abortController.abort(); };
+  req.on('close', cleanup);
+  res.on('close', cleanup);
 }
 
 module.exports = {

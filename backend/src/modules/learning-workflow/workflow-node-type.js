@@ -12,6 +12,12 @@ const WORKFLOW_NODE_TYPE_MAP = Object.freeze({
   wrong_question_repair: WorkflowNodeType.WRONG_QUESTION_REPAIR,
   mastery_gate: WorkflowNodeType.MASTERY_GATE,
   learning_summary: WorkflowNodeType.LEARNING_SUMMARY,
+  multimodal_interaction: WorkflowNodeType.MULTIMODAL_INTERACTION,
+  diagnostic_pre_test: WorkflowNodeType.DIAGNOSTIC_PRE_TEST,
+  deep_evaluation: WorkflowNodeType.DEEP_EVALUATION,
+  variant_question: WorkflowNodeType.VARIANT_QUESTION,
+  misconception_repair: WorkflowNodeType.MISCONCEPTION_REPAIR,
+  summary: WorkflowNodeType.SUMMARY,
 });
 
 const WORKFLOW_NODE_TYPE_ALIASES = Object.freeze({

@@ -7,6 +7,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "node --test \"test/*.test.js\"",
+    "test:tts:live": "node scripts/test-learning-narration-live.js",
+    "test:narration:api": "node scripts/test-learning-narration-api.js",
     "diagnose:dify": "node scripts/diagnose-dify-agents.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
@@ -16,6 +18,10 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@langchain/core": "^1.2.2",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/langgraph-checkpoint-sqlite": "^1.0.3",
+    "@langchain/openai": "^1.5.5",
     "@prisma/adapter-mariadb": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "axios": "^1.18.1",
@@ -29,7 +35,11 @@
     "mysql2": "^3.22.5",
     "openai": "^6.45.0",
     "pdf-parse": "^2.4.5",
-    "prisma": "^7.8.0"
+    "prisma": "^7.8.0",
+    "sql.js": "^1.14.1",
+    "uuid": "^14.0.1",
+    "ws": "^8.18.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

@@ -5,6 +5,5 @@ export const STUDENT_MENU_ITEMS = [
   { id: 'student-learning-flows', label: '学习流', icon: 'workflow', hash: '#/student/learning-flows', matchHash: (h) => h === '/student/learning-flows' || /^\/student\/learning-flow\/editor\//.test(h) || /^\/student\/learning\/session\//.test(h) },
   { id: 'student-ai-chat', label: 'AI对话', icon: 'message', hash: '#/student/ai-chat' },
   { id: 'student-portrait', label: '学习分析', icon: 'chart', hash: '#/student/portrait' },
-  { id: 'student-diagnostician', label: '诊断报告', icon: 'scan', hash: '#/student/diagnostician' },
   { id: 'student-profile', label: '个人主页', icon: 'user', hash: '#/student/profile' },
 ]
