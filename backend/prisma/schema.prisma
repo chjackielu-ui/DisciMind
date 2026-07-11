@@ -132,6 +132,29 @@ enum TaskStatus {
   CLOSED    @map("closed")
 }
 
+enum AsyncTaskType {
+  KNOWLEDGE_INDEXING
+  FILE_GENERATION
+  DOCUMENT_EXPORT
+  LEARNING_FLOW_PRELOAD
+  VOICE_PRELOAD
+}
+
+enum AsyncTaskStatus {
+  QUEUED
+  RUNNING
+  WAITING_EXTERNAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum AsyncTaskProgressMode {
+  DETERMINATE
+  INDETERMINATE
+  STAGE_ONLY
+}
+
 enum SubmissionStatus {
   IN_PROGRESS @map("in_progress")
   SUBMITTED   @map("submitted")
@@ -299,63 +322,118 @@ model User {
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
 
-  profile                     UserProfile?
-  teacher_course_relations    CourseTeacherRelation[]     @relation("TeacherCourseRelations")
-  student_course_enrollments  StudentCourseEnrollment[]   @relation("StudentEnrollments")
-  owned_knowledge_bases       KnowledgeBase[]             @relation("KnowledgeBaseOwner")
-  owned_documents             KnowledgeDocument[]         @relation("DocumentOwner")
-  reviewed_documents          KnowledgeDocument[]         @relation("DocumentReviewer")
-  document_reviews            KnowledgeDocumentReview[]   @relation("DocumentReviewUser")
-  ai_conversations            AiConversation[]            @relation("AiConversationUser")
-  chat_conversations          ChatConversation[]
-  chat_messages               ChatMessage[]
-  student_question_records    StudentQuestionRecord[]     @relation("StudentQuestions")
-  reviewed_question_analysis  QuestionAnalysisRecord[]    @relation("QuestionAnalysisReviewer")
-  created_question_banks      QuestionBank[]              @relation("QuestionBankCreator")
-  created_questions           Question[]                  @relation("QuestionCreator")
-  generated_questions         Question[]                  @relation("QuestionGenerator")
-  ai_question_generation_logs AiQuestionGenerationLog[]   @relation("AiQuestionGenerationCreator")
-  created_tasks               LearningTask[]              @relation("TaskCreator")
-  task_submissions            TaskSubmission[]            @relation("TaskSubmissionStudent")
-  answer_records              AnswerRecord[]              @relation("AnswerRecordStudent")
-  practice_sessions           PracticeSession[]           @relation("PracticeSessionStudent")
-  programming_submissions     ProgrammingSubmission[]     @relation("ProgrammingSubmissionStudent")
-  wrong_questions             WrongQuestion[]             @relation("WrongQuestionStudent")
-  wrong_question_tags         WrongQuestionTag[]
-  wrong_question_collections  WrongQuestionCollection[]
-  ai_generation_jobs          AiGenerationJob[]
-  study_records               StudyRecord[]               @relation("StudyRecordStudent")
-  mastery_records             StudentMasteryRecord[]      @relation("MasteryRecordStudent")
-  portraits                   StudentPortrait[]           @relation("StudentPortraitUser")
-  portrait_snapshots          StudentPortraitSnapshot[]   @relation("StudentPortraitSnapshotUser")
-  research_profiles           StudentResearchProfile[]    @relation("StudentResearchProfileUser")
-  competition_profiles        StudentCompetitionProfile[] @relation("StudentCompetitionProfileUser")
-  recommendation_records      RecommendationRecord[]      @relation("RecommendationStudent")
-  learning_paths              LearningPath[]              @relation("LearningPathStudent")
-  review_plans                ReviewPlan[]                @relation("ReviewPlanStudent")
-  video_resources             VideoResource[]             @relation("VideoCreator")
-  video_generation_tasks      VideoGenerationTask[]       @relation("VideoGenerationCreator")
-  ai_call_logs                AiCallLog[]
-  agent_run_records           AgentRunRecord[]
-  agent_conversations         AgentConversation[]         @relation("AgentConversationStudent")
-  agent_interventions         AgentIntervention[]         @relation("AgentInterventionStudent")
-  agent_diagnostic_reports    AgentDiagnosticReport[]     @relation("AgentDiagnosticReportStudent")
-  notifications_received      Notification[]              @relation("NotificationReceiver")
-  notifications_sent          Notification[]              @relation("NotificationSender")
-  operation_logs              OperationLog[]
-  feedback_records            FeedbackRecord[]
-  safety_check_records        SafetyCheckRecord[]
-  refresh_tokens              RefreshToken[]
-  auth_sessions               AuthSession[]
-  owned_workflow_templates    LearningWorkflowTemplate[]
-  created_workflow_versions   LearningWorkflowVersion[]
-  learning_sessions           LearningSession[]
-  learning_goals              LearningGoal[]
-  ai_flow_generation_jobs     AiFlowGenerationJob[]
+  profile                      UserProfile?
+  teacher_course_relations     CourseTeacherRelation[]        @relation("TeacherCourseRelations")
+  student_course_enrollments   StudentCourseEnrollment[]      @relation("StudentEnrollments")
+  owned_knowledge_bases        KnowledgeBase[]                @relation("KnowledgeBaseOwner")
+  owned_documents              KnowledgeDocument[]            @relation("DocumentOwner")
+  reviewed_documents           KnowledgeDocument[]            @relation("DocumentReviewer")
+  document_reviews             KnowledgeDocumentReview[]      @relation("DocumentReviewUser")
+  ai_conversations             AiConversation[]               @relation("AiConversationUser")
+  chat_conversations           ChatConversation[]
+  chat_messages                ChatMessage[]
+  student_question_records     StudentQuestionRecord[]        @relation("StudentQuestions")
+  reviewed_question_analysis   QuestionAnalysisRecord[]       @relation("QuestionAnalysisReviewer")
+  created_question_banks       QuestionBank[]                 @relation("QuestionBankCreator")
+  created_questions            Question[]                     @relation("QuestionCreator")
+  generated_questions          Question[]                     @relation("QuestionGenerator")
+  ai_question_generation_logs  AiQuestionGenerationLog[]      @relation("AiQuestionGenerationCreator")
+  created_tasks                LearningTask[]                 @relation("TaskCreator")
+  task_submissions             TaskSubmission[]               @relation("TaskSubmissionStudent")
+  answer_records               AnswerRecord[]                 @relation("AnswerRecordStudent")
+  practice_sessions            PracticeSession[]              @relation("PracticeSessionStudent")
+  programming_submissions      ProgrammingSubmission[]        @relation("ProgrammingSubmissionStudent")
+  wrong_questions              WrongQuestion[]                @relation("WrongQuestionStudent")
+  wrong_question_tags          WrongQuestionTag[]
+  wrong_question_collections   WrongQuestionCollection[]
+  ai_generation_jobs           AiGenerationJob[]
+  study_records                StudyRecord[]                  @relation("StudyRecordStudent")
+  mastery_records              StudentMasteryRecord[]         @relation("MasteryRecordStudent")
+  portraits                    StudentPortrait[]              @relation("StudentPortraitUser")
+  portrait_snapshots           StudentPortraitSnapshot[]      @relation("StudentPortraitSnapshotUser")
+  research_profiles            StudentResearchProfile[]       @relation("StudentResearchProfileUser")
+  competition_profiles         StudentCompetitionProfile[]    @relation("StudentCompetitionProfileUser")
+  recommendation_records       RecommendationRecord[]         @relation("RecommendationStudent")
+  learning_paths               LearningPath[]                 @relation("LearningPathStudent")
+  review_plans                 ReviewPlan[]                   @relation("ReviewPlanStudent")
+  video_resources              VideoResource[]                @relation("VideoCreator")
+  video_generation_tasks       VideoGenerationTask[]          @relation("VideoGenerationCreator")
+  ai_call_logs                 AiCallLog[]
+  agent_run_records            AgentRunRecord[]
+  agent_conversations          AgentConversation[]            @relation("AgentConversationStudent")
+  agent_interventions          AgentIntervention[]            @relation("AgentInterventionStudent")
+  agent_diagnostic_reports     AgentDiagnosticReport[]        @relation("AgentDiagnosticReportStudent")
+  notifications_received       Notification[]                 @relation("NotificationReceiver")
+  notifications_sent           Notification[]                 @relation("NotificationSender")
+  operation_logs               OperationLog[]
+  feedback_records             FeedbackRecord[]
+  safety_check_records         SafetyCheckRecord[]
+  refresh_tokens               RefreshToken[]
+  auth_sessions                AuthSession[]
+  owned_workflow_templates     LearningWorkflowTemplate[]
+  created_workflow_versions    LearningWorkflowVersion[]
+  learning_sessions            LearningSession[]
+  learning_goals               LearningGoal[]
+  ai_flow_generation_jobs      AiFlowGenerationJob[]
+  marketplace_agents_created   UserAgent[]                    @relation("MarketplaceAgentCreator")
+  marketplace_conversations    MarketplaceAgentConversation[] @relation("MarketplaceConversationUser")
+  marketplace_memories         AgentMemory[]                  @relation("MarketplaceMemoryUser")
+  marketplace_favorites        AgentFavorite[]
+  marketplace_ratings          AgentRating[]
+  marketplace_reports          AgentReport[]                  @relation("MarketplaceReportUser")
+  marketplace_reports_resolved AgentReport[]                  @relation("MarketplaceReportResolver")
+  marketplace_agent_reviews    AgentReviewRecord[]            @relation("MarketplaceAgentReviewer")
+  marketplace_kb_reviews       KnowledgeBaseReviewRecord[]    @relation("MarketplaceKnowledgeReviewer")
+  async_tasks                  AsyncTask[]
+  generated_artifacts          GeneratedArtifact[]            @relation("GeneratedArtifactOwner")
 
   @@index([role])
   @@index([status])
   @@map("users")
+}
+
+model AsyncTask {
+  id                  Int                   @id @default(autoincrement())
+  userId              Int                   @map("user_id")
+  operationId         String                @map("operation_id") @db.VarChar(128)
+  taskType            AsyncTaskType         @map("task_type")
+  title               String                @db.VarChar(200)
+  description         String?               @db.Text
+  status              AsyncTaskStatus       @default(QUEUED)
+  stage               String?               @db.VarChar(100)
+  progress            Int?
+  progressMode        AsyncTaskProgressMode @default(STAGE_ONLY) @map("progress_mode")
+  relatedResourceType String?               @map("related_resource_type") @db.VarChar(80)
+  relatedResourceId   String?               @map("related_resource_id") @db.VarChar(100)
+  resultType          String?               @map("result_type") @db.VarChar(80)
+  resultId            String?               @map("result_id") @db.VarChar(100)
+  resultUrl           String?               @map("result_url") @db.VarChar(500)
+  errorCode           String?               @map("error_code") @db.VarChar(100)
+  errorMessage        String?               @map("error_message") @db.Text
+  cancellable         Boolean               @default(false)
+  requiresUserAction  Boolean               @default(false) @map("requires_user_action")
+  attemptCount        Int                   @default(0) @map("attempt_count")
+  maxAttempts         Int                   @default(3) @map("max_attempts")
+  metadataJson        Json?                 @map("metadata_json")
+  lockedBy            String?               @map("locked_by") @db.VarChar(128)
+  lockedAt            DateTime?             @map("locked_at")
+  nextRunAt           DateTime              @default(now()) @map("next_run_at")
+  dismissedAt         DateTime?             @map("dismissed_at")
+  startedAt           DateTime?             @map("started_at")
+  completedAt         DateTime?             @map("completed_at")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+
+  user              User               @relation(fields: [userId], references: [user_id], onDelete: Cascade)
+  generatedArtifact GeneratedArtifact? @relation("GeneratedArtifactTask")
+
+  @@unique([userId, operationId], map: "async_tasks_user_operation_key")
+  @@index([userId, status, updatedAt], map: "async_tasks_user_status_updated_idx")
+  @@index([relatedResourceType, relatedResourceId], map: "async_tasks_related_resource_idx")
+  @@index([status, updatedAt], map: "async_tasks_status_updated_idx")
+  @@index([status, nextRunAt], map: "async_tasks_status_next_run_idx")
+  @@index([lockedAt], map: "async_tasks_locked_at_idx")
+  @@map("async_tasks")
 }
 
 model RefreshToken {
@@ -485,6 +563,7 @@ model Course {
   learning_sessions           LearningSession[]
   learning_goals              LearningGoal[]
   ai_flow_generation_jobs     AiFlowGenerationJob[]
+  generated_artifacts         GeneratedArtifact[]
 
   @@index([status])
   @@map("courses")
@@ -627,71 +706,94 @@ model KnowledgePointAlias {
 // ========================
 
 model KnowledgeBase {
-  knowledge_base_id Int       @id @default(autoincrement())
-  name              String    @db.VarChar(100)
-  scope_type        ScopeType
-  course_id         Int?
-  teaching_class_id Int?
-  owner_user_id     Int?
-  description       String?   @db.Text
-  status            String    @default("active") @db.VarChar(20)
-  dify_dataset_id   String?   @db.VarChar(255)
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  knowledge_base_id      Int       @id @default(autoincrement())
+  name                   String    @db.VarChar(100)
+  scope_type             ScopeType
+  course_id              Int?
+  teaching_class_id      Int?
+  owner_user_id          Int?
+  description            String?   @db.Text
+  status                 String    @default("active") @db.VarChar(20)
+  dify_dataset_id        String?   @db.VarChar(255)
+  marketplace_visibility String    @default("PRIVATE") @db.VarChar(24)
+  marketplace_status     String    @default("DRAFT") @db.VarChar(32)
+  document_count         Int       @default(0)
+  total_size_bytes       BigInt    @default(0)
+  category_id            Int?
+  operation_id           String?   @unique @db.VarChar(64)
+  deleted_at             DateTime?
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
 
-  course         Course?             @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  teaching_class TeachingClass?      @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
-  owner          User?               @relation("KnowledgeBaseOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
-  documents      KnowledgeDocument[]
+  course              Course?                     @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class      TeachingClass?              @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+  owner               User?                       @relation("KnowledgeBaseOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  documents           KnowledgeDocument[]
+  category            AgentCategory?              @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  agent_bindings      AgentKnowledgeBase[]
+  marketplace_sources AgentMessageSource[]
+  marketplace_reviews KnowledgeBaseReviewRecord[]
 
   @@index([scope_type])
   @@index([course_id])
   @@index([teaching_class_id])
   @@index([owner_user_id])
+  @@index([marketplace_visibility, marketplace_status])
+  @@index([category_id])
+  @@index([deleted_at])
   @@map("knowledge_bases")
 }
 
 model KnowledgeDocument {
-  document_id       Int          @id @default(autoincrement())
-  knowledge_base_id Int?
-  title             String       @db.VarChar(200)
-  original_filename String       @db.VarChar(255)
-  file_ext          String       @db.VarChar(20)
-  file_size_bytes   Int?
-  mime_type         String?      @db.VarChar(100)
-  storage_type      StorageType  @default(LOCAL)
-  file_url          String       @db.VarChar(500)
-  scope_type        ScopeType
-  visibility        Visibility   @default(PRIVATE)
-  course_id         Int?
-  teaching_class_id Int?
-  owner_user_id     Int
-  parse_status      ParseStatus  @default(UPLOADED)
-  review_status     ReviewStatus @default(PENDING)
-  reviewer_user_id  Int?
-  review_comment    String?      @db.Text
-  dify_dataset_id   String?      @db.VarChar(255)
-  dify_document_id  String?      @db.VarChar(255)
-  error_message     String?      @db.Text
-  created_at        DateTime     @default(now())
-  updated_at        DateTime     @updatedAt
+  document_id        Int          @id @default(autoincrement())
+  knowledge_base_id  Int?
+  title              String       @db.VarChar(200)
+  original_filename  String       @db.VarChar(255)
+  file_ext           String       @db.VarChar(20)
+  file_size_bytes    Int?
+  mime_type          String?      @db.VarChar(100)
+  storage_type       StorageType  @default(LOCAL)
+  file_url           String       @db.VarChar(500)
+  scope_type         ScopeType
+  visibility         Visibility   @default(PRIVATE)
+  course_id          Int?
+  teaching_class_id  Int?
+  owner_user_id      Int
+  parse_status       ParseStatus  @default(UPLOADED)
+  review_status      ReviewStatus @default(PENDING)
+  reviewer_user_id   Int?
+  review_comment     String?      @db.Text
+  dify_dataset_id    String?      @db.VarChar(255)
+  dify_document_id   String?      @db.VarChar(255)
+  dify_batch_id      String?      @db.VarChar(255)
+  file_checksum      String?      @db.VarChar(64)
+  marketplace_status String       @default("UPLOADING") @db.VarChar(32)
+  operation_id       String?      @unique @db.VarChar(64)
+  deleted_at         DateTime?
+  error_message      String?      @db.Text
+  created_at         DateTime     @default(now())
+  updated_at         DateTime     @updatedAt
 
-  knowledge_base  KnowledgeBase?            @relation(fields: [knowledge_base_id], references: [knowledge_base_id], onDelete: SetNull)
-  course          Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  teaching_class  TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
-  owner           User                      @relation("DocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
-  reviewer        User?                     @relation("DocumentReviewer", fields: [reviewer_user_id], references: [user_id], onDelete: SetNull)
-  chunks          KnowledgeDocumentChunk[]
-  reviews         KnowledgeDocumentReview[]
-  message_sources MessageSource[]
-  summaries       DocumentSummaryRecord[]
+  knowledge_base      KnowledgeBase?            @relation(fields: [knowledge_base_id], references: [knowledge_base_id], onDelete: SetNull)
+  course              Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class      TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  owner               User                      @relation("DocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  reviewer            User?                     @relation("DocumentReviewer", fields: [reviewer_user_id], references: [user_id], onDelete: SetNull)
+  chunks              KnowledgeDocumentChunk[]
+  reviews             KnowledgeDocumentReview[]
+  message_sources     MessageSource[]
+  summaries           DocumentSummaryRecord[]
+  marketplace_sources AgentMessageSource[]
 
+  @@unique([knowledge_base_id, file_checksum])
   @@index([knowledge_base_id])
   @@index([owner_user_id])
   @@index([course_id])
   @@index([teaching_class_id])
   @@index([parse_status])
   @@index([review_status])
+  @@index([marketplace_status])
+  @@index([deleted_at])
   @@map("knowledge_documents")
 }
 
@@ -2175,6 +2277,389 @@ model SystemConfig {
   updated_at   DateTime @updatedAt
 
   @@map("system_configs")
+}
+
+// ========================
+// Agent Marketplace (independent from learning workflow)
+// ========================
+
+enum MarketplaceAgentType {
+  CHAT
+  FILE_GENERATOR
+}
+
+model AgentCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50)
+  slug      String   @unique @db.VarChar(64)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  agents         UserAgent[]
+  knowledgeBases KnowledgeBase[]
+
+  @@index([sortOrder])
+  @@map("agent_categories")
+}
+
+model AgentTag {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(30)
+  groupName String   @map("group_name") @db.VarChar(30)
+  isCustom  Boolean  @default(false) @map("is_custom")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  versions AgentVersionTag[]
+
+  @@unique([name, groupName])
+  @@index([groupName])
+  @@map("agent_tags")
+}
+
+model UserAgent {
+  id                     Int                  @id @default(autoincrement())
+  creatorUserId          Int                  @map("creator_user_id")
+  currentPublicVersionId Int?                 @unique @map("current_public_version_id")
+  currentDraftVersionId  Int?                 @unique @map("current_draft_version_id")
+  status                 String               @default("PRIVATE") @db.VarChar(24)
+  agentType              MarketplaceAgentType @default(CHAT) @map("agent_type")
+  visibility             String               @default("PRIVATE") @db.VarChar(24)
+  categoryId             Int?                 @map("category_id")
+  usageCount             Int                  @default(0) @map("usage_count")
+  favoriteCount          Int                  @default(0) @map("favorite_count")
+  ratingAverage          Float                @default(0) @map("rating_average")
+  ratingCount            Int                  @default(0) @map("rating_count")
+  copiedFromAgentId      Int?                 @map("copied_from_agent_id")
+  operationId            String?              @unique @map("operation_id") @db.VarChar(64)
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+  deletedAt              DateTime?            @map("deleted_at")
+
+  creator              User                           @relation("MarketplaceAgentCreator", fields: [creatorUserId], references: [user_id], onDelete: Cascade)
+  category             AgentCategory?                 @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  copiedFrom           UserAgent?                     @relation("MarketplaceAgentCopies", fields: [copiedFromAgentId], references: [id], onDelete: SetNull)
+  copies               UserAgent[]                    @relation("MarketplaceAgentCopies")
+  versions             UserAgentVersion[]             @relation("MarketplaceAgentVersions")
+  currentPublicVersion UserAgentVersion?              @relation("MarketplaceCurrentPublicVersion", fields: [currentPublicVersionId], references: [id], onDelete: SetNull)
+  currentDraftVersion  UserAgentVersion?              @relation("MarketplaceCurrentDraftVersion", fields: [currentDraftVersionId], references: [id], onDelete: SetNull)
+  conversations        MarketplaceAgentConversation[]
+  memories             AgentMemory[]
+  favorites            AgentFavorite[]
+  ratings              AgentRating[]
+  reports              AgentReport[]
+  reviews              AgentReviewRecord[]
+  generatedArtifacts   GeneratedArtifact[]
+
+  @@index([creatorUserId, status])
+  @@index([status, visibility, deletedAt])
+  @@index([agentType, status, visibility, deletedAt])
+  @@index([categoryId])
+  @@index([copiedFromAgentId])
+  @@map("user_agents")
+}
+
+model UserAgentVersion {
+  id                      Int       @id @default(autoincrement())
+  agentId                 Int       @map("agent_id")
+  versionNumber           Int       @map("version_number")
+  name                    String    @db.VarChar(100)
+  shortDescription        String    @map("short_description") @db.VarChar(300)
+  avatarUrl               String?   @map("avatar_url") @db.VarChar(500)
+  systemPrompt            String    @map("system_prompt") @db.Text
+  welcomeMessage          String    @map("welcome_message") @db.VarChar(500)
+  suggestedQuestionsJson  Json?     @map("suggested_questions_json")
+  capabilitiesJson        Json?     @map("capabilities_json")
+  limitationsJson         Json?     @map("limitations_json")
+  responseMode            String    @default("DEFAULT") @map("response_mode") @db.VarChar(32)
+  topK                    Int       @default(5) @map("top_k")
+  scoreThreshold          Float     @default(0.55) @map("score_threshold")
+  maxOutputTokens         Int       @default(1200) @map("max_output_tokens")
+  memoryEnabledByDefault  Boolean   @default(false) @map("memory_enabled_by_default")
+  fileGeneratorConfigJson Json?     @map("file_generator_config_json")
+  reviewStatus            String    @default("DRAFT") @map("review_status") @db.VarChar(24)
+  reviewReason            String?   @map("review_reason") @db.Text
+  changeSummary           String?   @map("change_summary") @db.VarChar(500)
+  operationId             String?   @unique @map("operation_id") @db.VarChar(64)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  publishedAt             DateTime? @map("published_at")
+
+  agent          UserAgent                      @relation("MarketplaceAgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
+  publicForAgent UserAgent?                     @relation("MarketplaceCurrentPublicVersion")
+  draftForAgent  UserAgent?                     @relation("MarketplaceCurrentDraftVersion")
+  tags           AgentVersionTag[]
+  knowledgeBases AgentKnowledgeBase[]
+  conversations  MarketplaceAgentConversation[]
+  reviews        AgentReviewRecord[]
+
+  @@unique([agentId, versionNumber])
+  @@index([reviewStatus, createdAt])
+  @@map("user_agent_versions")
+}
+
+model AgentVersionTag {
+  id             Int      @id @default(autoincrement())
+  agentVersionId Int      @map("agent_version_id")
+  tagId          Int      @map("tag_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  agentVersion UserAgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+  tag          AgentTag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([agentVersionId, tagId])
+  @@index([tagId])
+  @@map("agent_version_tags")
+}
+
+model AgentKnowledgeBase {
+  id              Int      @id @default(autoincrement())
+  agentVersionId  Int      @map("agent_version_id")
+  knowledgeBaseId Int      @map("knowledge_base_id")
+  priority        Int      @default(0)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  agentVersion  UserAgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+  knowledgeBase KnowledgeBase    @relation(fields: [knowledgeBaseId], references: [knowledge_base_id], onDelete: Restrict)
+
+  @@unique([agentVersionId, knowledgeBaseId])
+  @@index([knowledgeBaseId])
+  @@map("agent_knowledge_bases")
+}
+
+model MarketplaceAgentConversation {
+  id                   Int       @id @default(autoincrement())
+  userId               Int       @map("user_id")
+  agentId              Int       @map("agent_id")
+  agentVersionId       Int       @map("agent_version_id")
+  title                String    @default("新对话") @db.VarChar(200)
+  memoryEnabled        Boolean   @default(false) @map("memory_enabled")
+  operationId          String?   @unique @map("operation_id") @db.VarChar(64)
+  activeGenerationId   String?   @map("active_generation_id") @db.VarChar(64)
+  requirementDraftJson Json?     @map("requirement_draft_json")
+  requirementStatus    String    @default("COLLECTING") @map("requirement_status") @db.VarChar(24)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  user               User                      @relation("MarketplaceConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  agent              UserAgent                 @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentVersion       UserAgentVersion          @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  messages           MarketplaceAgentMessage[]
+  generatedArtifacts GeneratedArtifact[]
+
+  @@index([userId, updatedAt])
+  @@index([agentId])
+  @@map("agent_market_conversations")
+}
+
+enum GeneratedArtifactStatus {
+  DRAFT
+  GENERATING
+  CONTENT_READY
+  EXPORTING
+  READY
+  FAILED
+  EXPIRED
+  DELETING
+  DELETED
+}
+
+model GeneratedArtifact {
+  id                    Int                     @id @default(autoincrement())
+  ownerUserId           Int                     @map("owner_user_id")
+  agentId               Int                     @map("agent_id")
+  conversationId        Int                     @map("conversation_id")
+  taskId                Int?                    @unique @map("task_id")
+  operationId           String                  @map("operation_id") @db.VarChar(64)
+  artifactType          String                  @map("artifact_type") @db.VarChar(32)
+  title                 String                  @db.VarChar(200)
+  description           String?                 @db.Text
+  courseId              Int?                    @map("course_id")
+  knowledgePointIdsJson Json?                   @map("knowledge_point_ids_json")
+  requirementsJson      Json                    @map("requirements_json")
+  contentSchemaJson     Json?                   @map("content_schema_json")
+  previewHtml           String?                 @map("preview_html") @db.LongText
+  fileFormat            String                  @default("DOCX") @map("file_format") @db.VarChar(16)
+  storagePath           String?                 @map("storage_path") @db.VarChar(1000)
+  fileSizeBytes         BigInt?                 @map("file_size_bytes")
+  status                GeneratedArtifactStatus @default(DRAFT)
+  errorCode             String?                 @map("error_code") @db.VarChar(100)
+  lastAccessedAt        DateTime?               @map("last_accessed_at")
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  deletedAt             DateTime?               @map("deleted_at")
+
+  owner        User                         @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
+  agent        UserAgent                    @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  conversation MarketplaceAgentConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  task         AsyncTask?                   @relation("GeneratedArtifactTask", fields: [taskId], references: [id], onDelete: SetNull)
+  course       Course?                      @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
+
+  @@unique([ownerUserId, conversationId, operationId], map: "generated_artifacts_owner_conversation_operation_key")
+  @@index([ownerUserId, status, updatedAt])
+  @@index([agentId])
+  @@index([conversationId])
+  @@index([courseId])
+  @@map("generated_artifacts")
+}
+
+model MarketplaceAgentMessage {
+  id                    Int      @id @default(autoincrement())
+  conversationId        Int      @map("conversation_id")
+  role                  String   @db.VarChar(16)
+  content               String   @db.LongText
+  answerSource          String?  @map("answer_source") @db.VarChar(24)
+  knowledgeFallbackUsed Boolean  @default(false) @map("knowledge_fallback_used")
+  tokenUsageJson        Json?    @map("token_usage_json")
+  operationId           String?  @unique @map("operation_id") @db.VarChar(64)
+  generationStatus      String   @default("COMPLETED") @map("generation_status") @db.VarChar(24)
+  generationId          String?  @unique @map("generation_id") @db.VarChar(64)
+  metadataJson          Json?    @map("metadata_json")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  conversation MarketplaceAgentConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sources      AgentMessageSource[]
+  memories     AgentMemory[]                @relation("MarketplaceMemorySource")
+
+  @@index([conversationId, createdAt])
+  @@index([conversationId, role, generationStatus, createdAt])
+  @@map("agent_market_messages")
+}
+
+model AgentMessageSource {
+  id              Int      @id @default(autoincrement())
+  messageId       Int      @map("message_id")
+  knowledgeBaseId Int      @map("knowledge_base_id")
+  documentId      Int?     @map("document_id")
+  documentName    String   @map("document_name") @db.VarChar(255)
+  segmentId       String?  @map("segment_id") @db.VarChar(255)
+  pageNumber      Int?     @map("page_number")
+  quote           String   @db.Text
+  score           Float?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  message       MarketplaceAgentMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  knowledgeBase KnowledgeBase           @relation(fields: [knowledgeBaseId], references: [knowledge_base_id], onDelete: Restrict)
+  document      KnowledgeDocument?      @relation(fields: [documentId], references: [document_id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@map("agent_message_sources")
+}
+
+model AgentMemory {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  agentId         Int       @map("agent_id")
+  type            String    @db.VarChar(32)
+  title           String    @db.VarChar(100)
+  content         String    @db.Text
+  sourceMessageId Int?      @map("source_message_id")
+  confirmed       Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  user          User                     @relation("MarketplaceMemoryUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  agent         UserAgent                @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  sourceMessage MarketplaceAgentMessage? @relation("MarketplaceMemorySource", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, agentId, deletedAt])
+  @@map("agent_memories")
+}
+
+model AgentFavorite {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  agentId   Int      @map("agent_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User      @relation(fields: [userId], references: [user_id], onDelete: Cascade)
+  agent UserAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+  @@index([agentId])
+  @@map("agent_favorites")
+}
+
+model AgentRating {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  agentId   Int      @map("agent_id")
+  rating    Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User      @relation(fields: [userId], references: [user_id], onDelete: Cascade)
+  agent UserAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+  @@index([agentId])
+  @@map("agent_ratings")
+}
+
+model AgentReport {
+  id             Int       @id @default(autoincrement())
+  userId         Int       @map("user_id")
+  agentId        Int       @map("agent_id")
+  reason         String    @db.VarChar(50)
+  detail         String?   @db.Text
+  status         String    @default("PENDING") @db.VarChar(24)
+  resolverUserId Int?      @map("resolver_user_id")
+  resolution     String?   @db.Text
+  operationId    String?   @unique @map("operation_id") @db.VarChar(64)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  user     User      @relation("MarketplaceReportUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  agent    UserAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  resolver User?     @relation("MarketplaceReportResolver", fields: [resolverUserId], references: [user_id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([agentId])
+  @@map("agent_reports")
+}
+
+model AgentReviewRecord {
+  id             Int      @id @default(autoincrement())
+  agentId        Int      @map("agent_id")
+  agentVersionId Int      @map("agent_version_id")
+  reviewerUserId Int?     @map("reviewer_user_id")
+  action         String   @db.VarChar(24)
+  reason         String?  @db.Text
+  operationId    String?  @unique @map("operation_id") @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  reviewer     User?            @relation("MarketplaceAgentReviewer", fields: [reviewerUserId], references: [user_id], onDelete: SetNull)
+  targetAgent  UserAgent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentVersion UserAgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Cascade)
+
+  @@index([agentVersionId, createdAt])
+  @@index([reviewerUserId])
+  @@map("agent_review_records")
+}
+
+model KnowledgeBaseReviewRecord {
+  id              Int      @id @default(autoincrement())
+  knowledgeBaseId Int      @map("knowledge_base_id")
+  reviewerUserId  Int?     @map("reviewer_user_id")
+  action          String   @db.VarChar(24)
+  reason          String?  @db.Text
+  operationId     String?  @unique @map("operation_id") @db.VarChar(64)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [knowledge_base_id], onDelete: Cascade)
+  reviewer      User?         @relation("MarketplaceKnowledgeReviewer", fields: [reviewerUserId], references: [user_id], onDelete: SetNull)
+
+  @@index([knowledgeBaseId, createdAt])
+  @@index([reviewerUserId])
+  @@map("knowledge_base_review_records")
 }
 
 // ========================

@@ -21,6 +21,11 @@ import { renderStudentSubmissionResult } from '../pages/student-submission-resul
 import { renderStudentDocuments } from '../pages/student-documents.js'
 import { renderStudentVideos } from '../pages/student-videos.js'
 import { renderStudentAgentDetail } from '../pages/agent/AgentDetailPage.js'
+import { renderAgentMarket, renderMyAgents, renderFavoriteAgents, renderAgentDetail as renderMarketplaceAgentDetail } from '../pages/agent/AgentMarketPage.js'
+import { renderAgentCreate, renderAgentEdit } from '../pages/agent/AgentCreatePage.js'
+import { renderKnowledgeBases } from '../pages/agent/KnowledgeBasesPage.js'
+import { renderAgentChat } from '../pages/agent/AgentChatPage.js'
+import { renderGeneratedArtifacts, renderGeneratedArtifactDetail } from '../pages/agent/GeneratedArtifactsPage.js'
 import { renderStudentLearningFlows } from '../pages/student-learning-flows.js'
 import { renderStudentLearningFlowEditor } from '../pages/student-learning-flow-editor.js'
 import { renderStudentLearningSession } from '../pages/student-learning-session.js'
@@ -49,6 +54,7 @@ import { renderAdminLogs } from '../pages/admin-logs.js'
 import { renderAdminNotifications } from '../pages/admin-notifications.js'
 import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
 import { renderAdminProfile } from '../pages/admin-profile.js'
+import { renderAdminAgentReviews } from '../pages/admin-agent-reviews.js'
 
 // ============================================================
 // 教师端页面导入区域（教师端开发者在此添加 import）
@@ -79,6 +85,12 @@ const staticRoutes = {
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
   '/student/agents/trainer': { render: renderStudentAgentDetail, auth: true, roles: ['student'] },
+  '/student/agents': { render: renderAgentMarket, auth: true, roles: ['student'] },
+  '/student/agents/mine': { render: renderMyAgents, auth: true, roles: ['student'] },
+  '/student/agents/knowledge': { render: renderKnowledgeBases, auth: true, roles: ['student'] },
+  '/student/agents/favorites': { render: renderFavoriteAgents, auth: true, roles: ['student'] },
+  '/student/agents/create': { render: renderAgentCreate, auth: true, roles: ['student'] },
+  '/student/generated-artifacts': { render: renderGeneratedArtifacts, auth: true, roles: ['student'] },
   '/student/learning-flows': { render: renderStudentLearningFlows, auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/courses': { render: renderTeacherCourses, auth: true, roles: ['teacher', 'admin'] },
@@ -102,12 +114,48 @@ const staticRoutes = {
   '/admin/notifications': { render: renderAdminNotifications, auth: true, roles: ['admin'] },
   '/admin/ai-config': { render: renderAdminAiConfig, auth: true, roles: ['admin'] },
   '/admin/profile': { render: renderAdminProfile, auth: true, roles: ['admin'] },
+  '/admin/agent-reviews': { render: renderAdminAgentReviews, auth: true, roles: ['admin'] },
 
   // ========== 管理端路由（管理端开发者在此区域添加）==========
 }
 
 // 动态路由（正则匹配）
 const dynamicRoutes = [
+  {
+    pattern: /^\/student\/generated-artifacts\/(\d+)$/,
+    render: renderGeneratedArtifactDetail,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/student\/agents\/(\d+)\/detail$/,
+    render: renderMarketplaceAgentDetail,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/student\/agents\/(\d+)\/edit$/,
+    render: renderAgentEdit,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/student\/agents\/(\d+)\/chat\/(\d+)$/,
+    render: renderAgentChat,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['id', 'conversationId'],
+  },
+  {
+    pattern: /^\/student\/agents\/(\d+)\/chat$/,
+    render: renderAgentChat,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['id'],
+  },
   {
     // #/student/practice/sessions/:practice_session_id
     pattern: /^\/student\/practice\/sessions\/(\d+)$/,

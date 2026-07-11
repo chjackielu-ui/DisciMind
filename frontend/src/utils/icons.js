@@ -162,6 +162,16 @@ export function iconSort() {
   `)
 }
 
+// 工作流/学习流 — 节点连线
+export function iconWorkflow() {
+  return svgWrap(`
+    <circle cx="6" cy="6" r="2.5"/>
+    <circle cx="18" cy="18" r="2.5"/>
+    <circle cx="18" cy="6" r="2.5"/>
+    <path d="M8.5 6h6.5l-6.5 12h6.5"/>
+  `)
+}
+
 // ========================
 // 导航图标映射
 // ========================
@@ -177,6 +187,7 @@ export const NAV_ICONS = {
   analytics: iconChart,
   edit: iconEdit,
   settings: iconSettings,
+  workflow: iconWorkflow,
   pin: iconPin,
   pinFilled: iconPinFilled,
   logout: iconLogout,

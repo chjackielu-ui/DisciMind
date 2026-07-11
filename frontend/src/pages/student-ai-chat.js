@@ -15,6 +15,7 @@ import { escapeHtml, formatRelativeTime, truncate } from '../utils/format.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js'
 import { showToast } from '../utils/toast.js'
 import { disposeAllCharts } from '../utils/echarts.js'
+import { listAvailableChatAgents } from '../api/marketplace.js'
 
 const MAX_INPUT_LENGTH = 2000
 const MAX_IMAGE_COUNT = 4
@@ -38,13 +39,7 @@ const SUBJECTS = [
   { value: 'software_engineering', label: '软件工程' },
 ]
 
-const AGENTS = [
-  { value: 'knowledge_explain', label: '知识点讲解 Agent' },
-  { value: 'wrong_question_analysis', label: '错题解析 Agent' },
-  { value: 'study_path_planning', label: '学习路径规划 Agent' },
-  { value: 'review_plan', label: '复习计划 Agent' },
-  { value: 'coding_learning', label: '编程学习 Agent' },
-]
+const AGENTS = []
 
 const STARTER_FALLBACKS = {
   general: [
@@ -156,13 +151,13 @@ function subjectLabel(subject) {
 }
 
 function agentLabel(agentType) {
-  return AGENTS.find(item => item.value === agentType)?.label || '未选择 Agent'
+  return AGENTS.find(item => String(item.value) === String(agentType))?.label || '历史 Agent 对话'
 }
 
 function starterContextKey(context) {
   const mode = context?.mode || 'general'
   if (mode === 'subject') return `subject:${context.subject || 'machine_learning'}`
-  if (mode === 'agent') return `agent:${context.agentType || context.agent_type || 'knowledge_explain'}`
+  if (mode === 'agent') return `agent:${context.agentType || context.agent_type || AGENTS[0]?.value || 'unavailable'}`
   return 'general'
 }
 
@@ -391,6 +386,15 @@ export async function renderStudentAiChat(app) {
   disposeAllCharts()
   const user = await getAuthedUser()
   if (!user) return
+  let available = null
+  for (let attempt = 0; attempt < 2 && !available; attempt += 1) {
+    try { available = await listAvailableChatAgents() } catch { /* transient route/auth refresh; retry once */ }
+  }
+  if (available) {
+    AGENTS.splice(0, AGENTS.length, ...(available.data?.list || []).map(item => ({
+      value: String(item.id), label: item.version?.name || `智能体 ${item.id}`, description: item.version?.shortDescription || '',
+    })))
+  }
   const openGeneralDraftOnLoad = consumeGeneralAiOpenFlag()
 
   const state = {
@@ -400,13 +404,13 @@ export async function renderStudentAiChat(app) {
     currentConversation: null,
     mode: 'general',
     subject: 'machine_learning',
-    agentType: 'knowledge_explain',
+    agentType: AGENTS[0]?.value || '',
     keyword: '',
     inputDraft: '',
     pendingImages: [],
     listening: false,
     speechRecognition: null,
-    starterQuestions: fallbackStarterQuestions({ mode: 'general', subject: 'machine_learning', agentType: 'knowledge_explain' }),
+    starterQuestions: fallbackStarterQuestions({ mode: 'general', subject: 'machine_learning', agentType: AGENTS[0]?.value || '' }),
     starterQuestionKey: 'general',
     loadingStarterQuestions: false,
     loadingConversations: true,
@@ -424,7 +428,7 @@ export async function renderStudentAiChat(app) {
     if (!conversation) return
     state.mode = conversation.mode || 'general'
     state.subject = conversation.subject || 'machine_learning'
-    state.agentType = conversation.agent_type || conversation.agentType || 'knowledge_explain'
+    state.agentType = conversation.agent_type || conversation.agentType || AGENTS[0]?.value || ''
   }
 
   function starterStorageKey(key = starterContextKey(state)) {
@@ -781,7 +785,7 @@ export async function renderStudentAiChat(app) {
     if (state.generating) return
     state.mode = 'general'
     state.subject = 'machine_learning'
-    state.agentType = 'knowledge_explain'
+    state.agentType = AGENTS[0]?.value || ''
     resetForModeChange({ clearInput: true })
     if (focus) {
       window.setTimeout(() => document.getElementById('chat-input')?.focus(), 80)
@@ -789,10 +793,15 @@ export async function renderStudentAiChat(app) {
   }
 
   function changeMode(nextMode) {
-    if (state.generating || state.mode === nextMode) return
+    if (state.generating) return
+    if (nextMode === 'agent') {
+      if (AGENTS[0]) window.location.hash = `#/student/agents/${AGENTS[0].value}/chat`
+      else showToast('当前没有可用的 CHAT 智能体', 'warning')
+      return
+    }
+    if (state.mode === nextMode) return
     state.mode = nextMode
     if (nextMode === 'subject' && !state.subject) state.subject = 'machine_learning'
-    if (nextMode === 'agent' && !state.agentType) state.agentType = 'knowledge_explain'
     resetForModeChange()
   }
 
@@ -804,10 +813,10 @@ export async function renderStudentAiChat(app) {
   }
 
   function changeAgent(nextAgent) {
-    if (state.generating || state.agentType === nextAgent) return
-    state.mode = 'agent'
-    state.agentType = nextAgent
-    resetForModeChange()
+    if (state.generating) return
+    const agent = AGENTS.find(item => String(item.value) === String(nextAgent))
+    if (!agent) return
+    window.location.hash = `#/student/agents/${agent.value}/chat`
   }
 
   async function loadConversationsAfterSend() {

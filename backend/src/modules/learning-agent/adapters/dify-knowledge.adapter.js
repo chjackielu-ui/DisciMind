@@ -10,6 +10,7 @@
  */
 
 const axios = require('axios');
+const fs = require('fs/promises');
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -318,6 +319,101 @@ async function getDataset(datasetId) {
   }
 }
 
+async function withLimitedRetry(operation, context, retries = 1) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.response?.status || error?.status || 0);
+      const retryable = !status || status === 429 || status >= 500;
+      if (!retryable || attempt >= retries) break;
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    }
+  }
+  throw wrapAxiosError(lastError, context);
+}
+
+/** Create an empty Dify dataset. Embedding and vector storage remain Dify-managed. */
+async function createDataset({ name, description = '' }) {
+  if (!name || !String(name).trim()) {
+    throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', '知识库名称不能为空', 400);
+  }
+  const client = getClient();
+  return withLimitedRetry(async () => {
+    const response = await client.post('/datasets', {
+      name: String(name).trim(),
+      description: String(description || '').trim(),
+      permission: 'only_me',
+      provider: 'vendor',
+      indexing_technique: 'high_quality',
+    }, { timeout: DEFAULTS.generalTimeout });
+    return { id: response.data?.id, name: response.data?.name || String(name).trim() };
+  }, '(createDataset)');
+}
+
+/** Upload one document and start Dify's asynchronous indexing pipeline. */
+async function uploadDocumentFile(datasetId, { filePath, fileName, mimeType }) {
+  if (!datasetId || !filePath) {
+    throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', 'datasetId 和 filePath 不能为空', 400);
+  }
+  const { baseURL, apiKey } = getConfig();
+  return withLimitedRetry(async () => {
+    const buffer = await fs.readFile(filePath);
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: mimeType || 'application/octet-stream' }), fileName || 'document');
+    form.append('data', JSON.stringify({
+      indexing_technique: 'high_quality',
+      doc_form: 'text_model',
+      process_rule: { mode: 'automatic' },
+    }));
+    const response = await axios.post(
+      `${baseURL}/datasets/${encodeURIComponent(datasetId)}/document/create-by-file`,
+      form,
+      { timeout: 60_000, headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+    return {
+      documentId: response.data?.document?.id || null,
+      batchId: response.data?.batch || null,
+      indexingStatus: response.data?.document?.indexing_status || 'indexing',
+    };
+  }, '(uploadDocumentFile)', 1);
+}
+
+async function getDocumentIndexingStatus(datasetId, batchId) {
+  if (!datasetId || !batchId) {
+    throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', 'datasetId 和 batchId 不能为空', 400);
+  }
+  const client = getClient();
+  return withLimitedRetry(async () => {
+    const response = await client.get(
+      `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(batchId)}/indexing-status`,
+      { timeout: DEFAULTS.generalTimeout },
+    );
+    const items = response.data?.data || response.data?.documents || [];
+    return Array.isArray(items) ? items : [];
+  }, '(getDocumentIndexingStatus)');
+}
+
+async function deleteDatasetDocument(datasetId, documentId) {
+  if (!datasetId || !documentId) return;
+  const client = getClient();
+  await withLimitedRetry(
+    () => client.delete(`/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`, { timeout: DEFAULTS.generalTimeout }),
+    '(deleteDatasetDocument)',
+  );
+}
+
+async function deleteDataset(datasetId) {
+  if (!datasetId) return;
+  const client = getClient();
+  await withLimitedRetry(
+    () => client.delete(`/datasets/${encodeURIComponent(datasetId)}`, { timeout: DEFAULTS.generalTimeout }),
+    '(deleteDataset)',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 检索方法
 // ---------------------------------------------------------------------------
@@ -485,7 +581,7 @@ async function retrieveFromMultipleDatasets(datasetIds, query, options = {}) {
     const result = results[i];
     if (result.status === 'fulfilled') {
       const count = result.value.records.length;
-      allRecords.push(...result.value.records);
+      allRecords.push(...result.value.records.map((record) => ({ ...record, datasetId })));
       perDatasetTiming.push({
         datasetId: String(datasetId).slice(-8),
         elapsedMs,
@@ -526,9 +622,10 @@ async function retrieveFromMultipleDatasets(datasetIds, query, options = {}) {
       dedupMap.set(`__no_seg_id_${dedupMap.size}`, record);
       continue;
     }
-    const existing = dedupMap.get(record.segmentId);
+    const dedupKey = `${record.datasetId || ''}:${record.segmentId}`;
+    const existing = dedupMap.get(dedupKey);
     if (!existing || record.score > existing.score) {
-      dedupMap.set(record.segmentId, record);
+      dedupMap.set(dedupKey, record);
     }
   }
 
@@ -663,6 +760,11 @@ module.exports = {
   // 核心 API
   listDatasets,
   getDataset,
+  createDataset,
+  uploadDocumentFile,
+  getDocumentIndexingStatus,
+  deleteDatasetDocument,
+  deleteDataset,
   retrieveFromDataset,
   retrieveFromMultipleDatasets,
   checkAvailability,
