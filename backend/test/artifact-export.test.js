@@ -1,0 +1,2 @@
+const test=require('node:test');const assert=require('node:assert/strict');const schemas=require('../src/modules/file-generator/generated-artifact.schemas');
+test('artifact export accepts DOCX, PDF or both and rejects other formats',()=>{assert.deepEqual(schemas.exportSchema.parse({operationId:'operation-123',formats:['DOCX','PDF']}).formats,['DOCX','PDF']);assert.throws(()=>schemas.exportSchema.parse({operationId:'operation-123',formats:['HTML']}));});

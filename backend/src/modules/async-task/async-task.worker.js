@@ -47,8 +47,8 @@ class AsyncTaskWorker {
           userMessage: '文件生成失败，任务关联的文件不存在。',
         });
       }
-      const generation = require('../file-generator/file-generation.service');
-      await generation.generateArtifact(artifactId, { taskId: task.id });
+      const generationGraph = require('../file-generator/graph/file-generator.graph');
+      await generationGraph.runFileGeneratorGraph(artifactId, { taskId: task.id });
       return { terminal: true };
     });
     this.register('DOCUMENT_EXPORT', async (task) => {
@@ -59,8 +59,23 @@ class AsyncTaskWorker {
           userMessage: '文件导出失败，任务关联的文件不存在。',
         });
       }
-      const exporter = require('../file-generator/document-export.service');
-      await exporter.exportArtifact(artifactId, { taskId: task.id });
+      const exporter = require('../file-generator/artifact-export.service');
+      await exporter.exportFormat(artifactId, task.metadataJson?.format || 'DOCX', { taskId: task.id });
+      return { terminal: true };
+    });
+    this.register('ARTIFACT_CLEANUP', async (task) => {
+      const cleanup = require('../file-generator/artifact-cleanup.service');
+      await cleanup.runCleanup({ taskId: task.id });
+      return { terminal: true };
+    });
+    this.register('LEARNING_FLOW_PRELOAD', async (task, { signal }) => {
+      const processor = require('../learning-flow-preload/learning-flow-preload.processor');
+      await processor.processPreload(Number(task.relatedResourceId || task.metadataJson?.preloadId), { taskId: task.id, signal });
+      return { terminal: true };
+    });
+    this.register('VOICE_PRELOAD', async (task, { signal }) => {
+      const voice = require('../learning-flow-preload/voice-prewarm.service');
+      await voice.processVoiceTask(task, signal);
       return { terminal: true };
     });
     this.register('KNOWLEDGE_INDEXING', async (task) => {

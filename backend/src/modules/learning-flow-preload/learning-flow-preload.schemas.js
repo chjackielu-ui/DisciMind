@@ -1,0 +1,24 @@
+const { z } = require('zod');
+
+const createSchema = z.object({
+  workflowTemplateId: z.coerce.number().int().positive().optional(),
+  learningGoalId: z.coerce.number().int().positive().optional(),
+  learningSessionId: z.coerce.number().int().positive().optional().nullable(),
+  operationId: z.string().trim().min(8).max(128).optional(),
+}).strict();
+
+const listSchema = z.object({
+  workflowTemplateId: z.coerce.number().int().positive().optional(),
+  learningGoalId: z.coerce.number().int().positive().optional(),
+  status: z.enum(['NOT_STARTED', 'QUEUED', 'PRELOADING', 'PARTIAL', 'READY', 'FAILED', 'EXPIRED']).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+}).strict();
+
+function parse(schema, value) {
+  const result = schema.safeParse(value);
+  if (result.success) return result.data;
+  throw Object.assign(new Error(result.error.issues[0]?.message || '参数不合法'), { code: 40001, status: 400 });
+}
+
+module.exports = { createSchema, listSchema, parse };

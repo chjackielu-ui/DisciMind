@@ -343,6 +343,21 @@ async function getCourseAbilityProfile(req, res) {
   }
 }
 
+/**
+ * GET /api/student/portrait/report
+ */
+async function getPortraitReport(req, res) {
+  try {
+    const userId = getUserId(req);
+    const data = await studentService.getStudentPortraitReport(userId);
+    return success(res, data, '获取学生画像报告数据成功');
+  } catch (err) {
+    console.error('[student.controller] getPortraitReport 异常:', err.message);
+    if (err.code === 40401) return fail(res, 40401, '用户不存在');
+    return fail(res, 50001, '服务器错误');
+  }
+}
+
 // ========================
 // 导出
 // ========================
@@ -362,6 +377,7 @@ module.exports = {
   getStudyRecords,
   createStudyRecord,
   getPortrait,
+  getPortraitReport,
   getCourseMasteryDistribution,
   getCourseAbilityProfile,
 };

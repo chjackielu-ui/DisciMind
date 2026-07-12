@@ -231,11 +231,21 @@ async function getGoal(goalId, studentId) {
 async function listGoals(studentId, query = {}) {
   featureGuard();
   const page = Math.max(1, Number(query.page) || 1); const pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20));
-  const where = { student_user_id: Number(studentId), ...(query.courseId ? { course_id: Number(query.courseId) } : {}) };
-  const [items, total] = await Promise.all([
-    prisma.learningGoal.findMany({ where, include: GOAL_INCLUDE, orderBy: { updated_at: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
-    prisma.learningGoal.count({ where }),
-  ]);
+  const availableOnly = String(query.availableOnly || '').toLowerCase() === 'true';
+  const pointId = query.knowledgePointId ? Number(query.knowledgePointId) : null;
+  const where = {
+    student_user_id: Number(studentId),
+    ...(query.courseId ? { course_id: Number(query.courseId) } : {}),
+    ...(availableOnly ? { status: { in: ['RESOLVED', 'CONFIRMED', 'WORKFLOW_READY'] } } : {}),
+  };
+  const rows = await prisma.learningGoal.findMany({ where, include: GOAL_INCLUDE, orderBy: { updated_at: 'desc' } });
+  const compatible = pointId ? rows.filter((goal) => {
+    if (Number(goal.primary_knowledge_point_id) === pointId) return true;
+    return Array.isArray(goal.related_knowledge_points)
+      && goal.related_knowledge_points.some(item => Number(item?.knowledgePointId) === pointId);
+  }) : rows;
+  const total = compatible.length;
+  const items = compatible.slice((page - 1) * pageSize, page * pageSize);
   return { items: items.map((item) => publicGoal(item)), pagination: { page, pageSize, total } };
 }
 

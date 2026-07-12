@@ -4,6 +4,10 @@ import {
 } from '../../api/marketplace.js'
 import { escapeHtml } from '../../utils/format.js'
 import { renderMarketplaceLayout, loadingHTML, errorHTML, statusLabel, operationId, setButtonBusy, notify } from './marketplace-shared.js'
+import { openAgentCardMenu } from './agent-card-menu.js'
+
+const CAPABILITIES = ['知识库问答','学科答疑','概念讲解','题目解析','试卷生成','学习讲义生成','DOCX 导出','PDF 导出','学习规划','科研辅助','编程学习','写作表达','自定义标签']
+const CATEGORIES = ['课程学习','学科答疑','概念讲解','题目解析','考试复习','学习规划','科研辅助','论文阅读','写作表达','编程学习','职业与生涯规划','校园服务','综合工具','其他']
 
 function avatar(agent) {
   const name = agent.version?.name || 'AI'
@@ -12,22 +16,23 @@ function avatar(agent) {
 
 function agentCard(agent, mode) {
   const v = agent.version || {}
-  const tags = [...(v.tags?.purpose || []), ...(v.tags?.style || [])].slice(0, 3)
-  const own = mode === 'mine'
+  const allTags = [...(v.capabilities || []), ...(v.tags?.purpose || []), ...(v.tags?.style || [])]
+  const tags = [...new Set(allTags)].slice(0, 4)
+  const own = mode === 'mine' || Boolean(agent.isOwner)
+  const isFileGenerator = agent.agentType === 'FILE_GENERATOR'
+  const knowledgeEnabled = (v.knowledgeBases || []).length > 0 || v.responseMode === 'KNOWLEDGE_FIRST'
   return `<article class="agent-market-card" data-agent-id="${agent.id}">
-    <div class="agent-card-head">${avatar(agent)}<div><h3>${escapeHtml(v.name || '未命名智能体')}</h3><p>${escapeHtml(agent.creator?.name || '未知创建者')} · ${escapeHtml(agent.category || '综合工具')}</p></div>
-      <button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="收藏">${agent.isFavorite ? '★' : '☆'}</button>
+    <div class="agent-card-head">${avatar(agent)}<div><h3>${escapeHtml(v.name || '未命名智能体')}</h3><p>${escapeHtml(agent.creator?.name || '未知创建者')} · ${escapeHtml(agent.category || '综合工具')}</p><div class="agent-card-identity">${agent.isSystem ? '<span>系统内置</span>' : ''}<span>${isFileGenerator ? '文件生成' : '对话助手'}</span></div></div>
+      <button class="agent-more-trigger" type="button" data-action="more" aria-label="更多操作" aria-haspopup="menu">•••</button>
     </div>
     <p class="agent-card-description">${escapeHtml(v.shortDescription || '')}</p>
-    <div class="agent-card-tags">${tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}${v.responseMode === 'KNOWLEDGE_FIRST' ? '<span>知识库增强</span>' : ''}</div>
-    <div class="agent-card-stats"><span>使用 ${agent.usageCount || 0}</span><span>评分 ${Number(agent.ratingAverage || 0).toFixed(1)} (${agent.ratingCount || 0})</span>${own ? `<span class="agent-status status-${String(agent.status).toLowerCase()}">${statusLabel(agent.status)}</span>` : ''}</div>
+    <div class="agent-card-tags">${tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}${allTags.length > tags.length ? `<span>+${allTags.length - tags.length}</span>` : ''}</div>
+    <div class="agent-card-capability-state"><span>${knowledgeEnabled ? '知识库增强' : '通用模型'}</span>${isFileGenerator ? '<span>DOCX</span><span>PDF</span>' : '<span>连续对话</span>'}</div>
+    <div class="agent-card-stats"><span>使用 ${agent.usageCount || 0}</span><span>评分 ${Number(agent.ratingAverage || 0).toFixed(1)} (${agent.ratingCount || 0})</span><span>${agent.updatedAt ? new Date(agent.updatedAt).toLocaleDateString('zh-CN') : '最近更新'}</span>${own ? `<span class="agent-status status-${String(agent.status).toLowerCase()}">${statusLabel(agent.status)}</span>` : ''}</div>
     <div class="agent-card-actions">
-      <button class="complex-btn" type="button" data-action="use">立即使用</button>
-      ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : ''}
-      <details class="agent-more"><summary>更多</summary><div>
-        <button type="button" data-action="detail">查看详情</button>
-        ${own ? `<button type="button" data-action="apply" ${['PUBLIC_PENDING', 'PUBLIC'].includes(agent.status) || v.reviewStatus === 'PENDING' ? 'disabled' : ''}>申请公开</button><button type="button" data-action="delete">删除</button>` : '<button type="button" data-action="copy">复制智能体</button><button type="button" data-action="report">举报</button>'}
-      </div></details>
+      <button class="complex-btn" type="button" data-action="use">${isFileGenerator ? '生成文件' : '立即对话'}</button>
+      <button class="complex-btn-secondary" type="button" data-action="detail">详情</button>
+      ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="收藏">${agent.isFavorite ? '★ 已收藏' : '☆ 收藏'}</button>`}
     </div>
   </article>`
 }
@@ -44,11 +49,16 @@ function bindCards(root, agents, mode, reload) {
   root.querySelectorAll('.agent-market-card').forEach(card => {
     const id = Number(card.dataset.agentId)
     const agent = agents.find(item => item.id === id)
+    const own = mode === 'mine' || Boolean(agent?.isOwner)
     card.addEventListener('click', async event => {
       const button = event.target.closest('[data-action]')
       if (!button) return
       const action = button.dataset.action
       try {
+        if (action === 'more') {
+          const items = [{ action: 'detail', label: '查看详情' }, ...(own ? [{ action: 'apply', label: '申请公开', disabled: ['PUBLIC_PENDING','PUBLIC'].includes(agent.status) || agent.version?.reviewStatus === 'PENDING' }, { action: 'delete', label: '删除' }] : [{ action: 'copy', label: '复制智能体' }, { action: 'report', label: '举报' }])]
+          return openAgentCardMenu(button, items, menuAction => button.closest('.agent-market-card').dispatchEvent(new CustomEvent('agent-menu-action', { bubbles: true, detail: { action: menuAction } })))
+        }
         if (action === 'use') return startConversation(id, button)
         if (action === 'detail') window.location.hash = `#/student/agents/${id}/detail`
         if (action === 'edit') window.location.hash = `#/student/agents/${id}/edit`
@@ -59,6 +69,7 @@ function bindCards(root, agents, mode, reload) {
         if (action === 'report') { const detail = prompt('请简要说明举报问题（可取消）'); if (detail === null) return; await reportAgent(id, '其他', detail, operationId()); notify('举报已提交') }
       } catch (error) { notify(error.message, true); setButtonBusy(button, false) }
     })
+    card.addEventListener('agent-menu-action', event => { const proxy = document.createElement('button'); proxy.dataset.action = event.detail.action; card.appendChild(proxy); proxy.click(); proxy.remove() })
   })
 }
 
@@ -66,11 +77,13 @@ async function renderList(app, mode) {
   const active = mode === 'mine' ? '#/student/agents/mine' : mode === 'favorites' ? '#/student/agents/favorites' : '#/student/agents'
   renderMarketplaceLayout(app, `<section class="agent-market-hero"><div><h1>${mode === 'public' ? '发现更多好用的学习伙伴' : mode === 'mine' ? '我的智能体' : '我的收藏'}</h1><p>${mode === 'public' ? '直接使用公开智能体，或复制一份打造自己的版本。' : '管理你的学习助手、审核状态和使用入口。'}</p></div>${mode === 'public' ? '<a class="complex-btn" href="#/student/agents/create">创建智能体</a>' : ''}</section><div id="agent-list-root">${loadingHTML()}</div>`, active)
   const root = document.getElementById('agent-list-root')
-  let search = ''
+  const url = new URLSearchParams((location.hash.split('?')[1] || ''))
+  let state = Object.fromEntries(url.entries()); let draft = { ...state }
+  const persist = () => { const q = new URLSearchParams(); Object.entries(state).forEach(([k,v]) => v && q.set(k,v)); history.replaceState(null,'',`${active}${q.toString()?`?${q}`:''}`) }
   const load = async () => {
     root.innerHTML = loadingHTML()
     try {
-      const params = mode === 'public' ? { search } : {}
+      const params = mode === 'public' ? { ...state, pageSize: 60 } : { ...state, pageSize: 60 }
       const [result, rankingResult] = await Promise.all([
         mode === 'mine' ? listMyAgents(params) : mode === 'favorites' ? listFavoriteAgents(params) : listAgents(params),
         mode === 'public' ? getHotAgentRankings(10).catch(() => ({ data: { list: [] } })) : Promise.resolve({ data: { list: [] } }),
@@ -78,17 +91,22 @@ async function renderList(app, mode) {
       const agents = result.data.list || []
       const rankings = rankingResult.data?.list || []
       const cards = agents.length ? `<div class="agent-card-grid">${agents.map(item => agentCard(item, mode)).join('')}</div>` : '<div class="agent-market-empty"><p>这里还没有智能体。</p></div>'
-      const filters = '<aside class="agent-market-filters"><h3>筛选智能体</h3><label>关键词<input id="agent-search" placeholder="名称、简介或能力"></label><button id="agent-search-btn" class="agent-search-btn" type="button">应用筛选</button><button id="agent-filter-reset" class="complex-btn-ghost" type="button">重置</button></aside>'
+      const chipEntries = Object.entries(state).filter(([key,value]) => value && key !== 'q' && key !== 'source')
+      const filters = `<section class="agent-market-toolbar"><form id="agent-search-form"><input id="agent-search" value="${escapeHtml(state.q||'')}" placeholder="搜索名称、简介、创建者、标签、能力或推荐问题"><button class="agent-search-clear" id="agent-search-clear" type="button" ${state.q ? '' : 'hidden'}>清空</button><button class="agent-search-btn" type="submit">搜索</button><button class="complex-btn-secondary" id="agent-filter-open" type="button">筛选${chipEntries.length ? ` (${chipEntries.length})` : ''}</button></form><div class="agent-filter-summary"><span>找到 <b>${result.data.total || 0}</b> 个智能体</span>${state.agentType==='FILE_GENERATOR'?'<em>文件生成智能体</em>':''}<div>${chipEntries.map(([k,v])=>`<button data-remove-filter="${k}">${escapeHtml(v)}</button>`).join('')}</div>${chipEntries.length?'<button id="agent-clear-filters" type="button">清除筛选</button>':''}<label class="agent-inline-sort">排序<select id="agent-sort-inline"><option value="recommended">综合推荐</option><option value="hot">热度</option><option value="latest">最新</option><option value="usage">使用次数</option><option value="rating">评分</option></select></label></div></section>`
       const ranking = `<aside class="agent-hot-ranking"><h3>本周热门</h3><ol>${rankings.map((item, index) => `<li class="${index > 2 ? 'ranking-extra' : ''}"><a href="#/student/agents/${item.agentId}/detail"><b>${item.rank}</b><span><strong>${escapeHtml(item.name)}</strong><small>${item.successfulAnswers7d} 次成功回答 · ${item.score} 分</small></span></a></li>`).join('')}</ol>${rankings.length > 3 ? '<button id="ranking-toggle" class="complex-btn-ghost" type="button">展开前十</button>' : ''}</aside>`
-      root.innerHTML = mode === 'public' ? `<div class="agent-market-workbench">${filters}<section class="agent-market-results">${cards}</section>${ranking}</div>` : cards
+      root.innerHTML = mode === 'public' ? `${filters}<div class="agent-market-workbench"><section class="agent-market-results">${cards}</section>${ranking}</div>` : cards
       const searchInput = document.getElementById('agent-search')
-      if (searchInput) searchInput.value = search
-      document.getElementById('agent-search-btn')?.addEventListener('click', () => { search = searchInput.value.trim(); load() })
-      document.getElementById('agent-filter-reset')?.addEventListener('click', () => { search = ''; load() })
+      document.getElementById('agent-search-form')?.addEventListener('submit', event => { event.preventDefault(); state.q=searchInput.value.trim(); persist(); load() })
+      document.getElementById('agent-search-clear')?.addEventListener('click', () => { state.q = ''; persist(); load() })
+      document.getElementById('agent-filter-open')?.addEventListener('click', () => openFilters())
+      const inlineSort = document.getElementById('agent-sort-inline'); if (inlineSort) { inlineSort.value = state.sort || 'recommended'; inlineSort.onchange = () => { state.sort = inlineSort.value; persist(); load() } }
+      root.querySelectorAll('[data-remove-filter]').forEach(btn=>btn.onclick=()=>{delete state[btn.dataset.removeFilter];persist();load()})
+      document.getElementById('agent-clear-filters')?.addEventListener('click',()=>{const q=state.q;state=q?{q}:{};draft={...state};persist();load()})
       document.getElementById('ranking-toggle')?.addEventListener('click', event => { root.querySelector('.agent-hot-ranking').classList.toggle('is-expanded'); event.currentTarget.textContent = event.currentTarget.textContent.includes('展开') ? '收起' : '展开前十' })
       bindCards(root, agents, mode, load)
     } catch (error) { root.innerHTML = errorHTML(error.message); root.querySelector('[data-retry]')?.addEventListener('click', load) }
   }
+  function openFilters(){ draft={...state}; const overlay=document.createElement('div');overlay.className='agent-filter-overlay';overlay.innerHTML=`<section class="agent-filter-drawer"><header><h2>筛选智能体</h2><button data-filter-close>×</button></header><div class="agent-filter-fields"><label>智能体类型<select data-filter="agentType"><option value="">全部</option><option>CHAT</option><option>FILE_GENERATOR</option></select></label><label>分类<select data-filter="category"><option value="">全部分类</option>${CATEGORIES.map(x=>`<option>${x}</option>`).join('')}</select></label><fieldset><legend>能力标签</legend>${CAPABILITIES.map(x=>`<label><input type="checkbox" data-capability="${x}">${x}</label>`).join('')}</fieldset><label>回答模式<select data-filter="answerMode"><option value="">全部</option><option value="DEFAULT">默认模式</option><option value="KNOWLEDGE_FIRST">知识库优先</option></select></label><label>知识库<select data-filter="knowledgeEnabled"><option value="">全部</option><option value="true">使用知识库</option><option value="false">不使用知识库</option></select></label><label>来源<select data-filter="source"><option value="">平台公开</option><option value="mine">我的智能体</option><option value="favorites">我的收藏</option><option value="system">系统内置</option></select></label><label>最低评分<select data-filter="rating"><option value="">不限</option><option value="4">4 分以上</option><option value="4.5">4.5 分以上</option></select></label><label>排序<select data-filter="sort"><option value="recommended">综合推荐</option><option value="hot">热度</option><option value="latest">最新</option><option value="usage">使用次数</option><option value="rating">评分</option></select></label></div><footer><button data-filter-reset>重置</button><button class="complex-btn" data-filter-apply>应用筛选</button></footer></section>`;document.body.appendChild(overlay); const close=()=>overlay.remove();overlay.onclick=e=>{if(e.target===overlay)close()};overlay.querySelector('[data-filter-close]').onclick=close;overlay.querySelectorAll('[data-filter]').forEach(el=>el.value=draft[el.dataset.filter]||'');const selected=new Set(String(draft.capabilities||'').split(',').filter(Boolean));overlay.querySelectorAll('[data-capability]').forEach(el=>el.checked=selected.has(el.dataset.capability));overlay.querySelector('[data-filter-reset]').onclick=()=>{draft={q:state.q||''};close();state={...draft};persist();load()};overlay.querySelector('[data-filter-apply]').onclick=()=>{overlay.querySelectorAll('[data-filter]').forEach(el=>{if(el.value)draft[el.dataset.filter]=el.value;else delete draft[el.dataset.filter]});draft.capabilities=[...overlay.querySelectorAll('[data-capability]:checked')].map(x=>x.dataset.capability).join(',');if(!draft.capabilities)delete draft.capabilities;state={...draft};persist();close();load()}}
   await load()
 }
 

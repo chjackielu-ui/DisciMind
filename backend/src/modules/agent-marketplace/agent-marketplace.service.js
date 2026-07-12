@@ -74,6 +74,8 @@ function serializeAgent(agent, userId, { detail = false } = {}) {
     ratingAverage: agent.ratingAverage,
     ratingCount: agent.ratingCount,
     copiedFromAgentId: agent.copiedFromAgentId,
+    isSystem: Boolean(agent.isSystem),
+    systemKey: agent.systemKey || null,
     creator: publicUser(agent.creator),
     isOwner: own,
     isFavorite: Boolean(agent.favorites?.length),
@@ -150,26 +152,48 @@ async function createAgent(userId, input) {
 
 async function listAgents(userId, query = {}, mode = 'public') {
   const page = Math.max(1, Number(query.page || 1));
-  const pageSize = Math.min(30, Math.max(1, Number(query.pageSize || 12)));
+  const pageSize = Math.min(60, Math.max(1, Number(query.pageSize || 12)));
   const where = { deletedAt: null };
-  if (mode === 'mine') where.creatorUserId = userId;
-  else if (mode === 'favorites') where.favorites = { some: { userId } };
-  else Object.assign(where, { status: 'PUBLIC', visibility: 'PUBLIC', currentPublicVersionId: { not: null } });
-  if (query.category) where.category = { name: query.category };
-  if (query.search) {
-    const versionField = mode === 'public' ? 'currentPublicVersion' : 'currentDraftVersion';
-    where[versionField] = { OR: [{ name: { contains: String(query.search) } }, { shortDescription: { contains: String(query.search) } }] };
+  const source = String(query.source || '').toLowerCase();
+  if (mode === 'mine' || source === 'mine') where.creatorUserId = userId;
+  else if (mode === 'favorites' || source === 'favorites') where.favorites = { some: { userId } };
+  else {
+    Object.assign(where, { status: 'PUBLIC', visibility: 'PUBLIC', currentPublicVersionId: { not: null } });
+    if (source === 'system') where.isSystem = true;
   }
   const include = {
     creator: { include: { profile: true } }, category: true,
     currentPublicVersion: { include: versionInclude }, currentDraftVersion: { include: versionInclude },
     favorites: { where: { userId }, take: 1 }, ratings: { where: { userId }, take: 1 },
   };
-  const [items, total] = await Promise.all([
-    prisma.userAgent.findMany({ where, include, orderBy: mode === 'public' ? [{ usageCount: 'desc' }, { updatedAt: 'desc' }] : { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
-    prisma.userAgent.count({ where }),
-  ]);
-  return { list: items.map((item) => serializeAgent(item, userId)), total, page, pageSize };
+  let items = await prisma.userAgent.findMany({ where, include });
+  let serialized = items.map((item) => ({ ...serializeAgent(item, userId), isSystem: item.isSystem, systemKey: item.systemKey }));
+  const q = String(query.q || query.search || '').trim().toLowerCase();
+  const capabilities = String(query.capabilities || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  serialized = serialized.filter((agent) => {
+    const version = agent.version || {};
+    const tags = Object.values(version.tags || {}).flat();
+    const haystack = [version.name, version.shortDescription, agent.creator?.name, agent.creator?.username, agent.category,
+      ...tags, ...(version.capabilities || []), ...(version.suggestedQuestions || [])].filter(Boolean).join(' ').toLowerCase();
+    if (q && !haystack.includes(q)) return false;
+    if (query.agentType && query.agentType !== 'ALL' && agent.agentType !== query.agentType) return false;
+    if (query.category && agent.category !== query.category) return false;
+    if (query.answerMode && version.responseMode !== query.answerMode) return false;
+    if (query.knowledgeEnabled === 'true' && !(version.knowledgeBases || []).length) return false;
+    if (query.knowledgeEnabled === 'false' && (version.knowledgeBases || []).length) return false;
+    if (Number(query.rating || 0) && Number(agent.ratingAverage || 0) < Number(query.rating)) return false;
+    const defaultTags = new Set(Object.values(TAG_GROUPS).flat().map(item => item.toLowerCase()));
+    if (capabilities.length && !capabilities.every((cap) => cap === '自定义标签' ? tags.some(tag => !defaultTags.has(String(tag).toLowerCase())) : (haystack.includes(cap.replaceAll('_', ' ')) || haystack.includes(cap)))) return false;
+    return true;
+  });
+  const sort = String(query.sort || 'recommended');
+  serialized.sort((a, b) => sort === 'latest' ? new Date(b.updatedAt) - new Date(a.updatedAt)
+    : sort === 'rating' ? b.ratingAverage - a.ratingAverage
+      : sort === 'usage' ? b.usageCount - a.usageCount
+        : sort === 'hot' ? (b.usageCount + b.favoriteCount * 2) - (a.usageCount + a.favoriteCount * 2)
+          : (Number(b.isSystem) - Number(a.isSystem)) || (b.ratingAverage - a.ratingAverage) || (b.usageCount - a.usageCount));
+  const total = serialized.length;
+  return { list: serialized.slice((page - 1) * pageSize, page * pageSize), total, page, pageSize };
 }
 
 async function listAvailableChatAgents(userId) {

@@ -3,7 +3,8 @@
 
 function errorHandler(err, req, res, _next) {
   // 记录完整错误信息，方便后端排查
-  console.error('[ErrorMiddleware]', err.message || err);
+  const requestId = req.get?.('x-request-id') || req.id || `req_${Date.now().toString(36)}`;
+  console.error(`[ErrorMiddleware][${requestId}]`, err.message || err);
 
   if (err instanceof SyntaxError && 'body' in err) {
     return res.status(400).json({
@@ -31,7 +32,7 @@ function errorHandler(err, req, res, _next) {
 
   if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
     return res.status(err.status).json({
-      code: err.status === 403 ? 40301 : err.status === 404 ? 40401 : 40001,
+      code: Number.isInteger(err.code) ? err.code : err.status === 403 ? 40301 : err.status === 404 ? 40401 : err.status === 409 ? 40901 : 40001,
       message: err.message || '请求无法处理',
       data: null,
     });

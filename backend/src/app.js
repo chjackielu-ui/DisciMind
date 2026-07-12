@@ -152,6 +152,13 @@ app.use('/api/tasks', asyncTaskRoutes);
 // FILE_GENERATOR 生成物（结构化预览、独立 DOCX 导出与鉴权下载）
 const generatedArtifactRoutes = require('./modules/file-generator/generated-artifact.routes');
 app.use('/api/generated-artifacts', generatedArtifactRoutes);
+const learningFlowResourceRoutes = require('./modules/learning-flow-resource/learning-flow-resource.routes');
+app.use('/api/learning-flow-resources', learningFlowResourceRoutes.resourceRoutes);
+app.use('/api/learning-flow-resource-links', learningFlowResourceRoutes.linkRoutes);
+const learningFlowPreloadRoutes = require('./modules/learning-flow-preload/learning-flow-preload.routes');
+app.use('/api/learning-flow-preloads', learningFlowPreloadRoutes);
+const studentLearningContextRoutes = require('./modules/student-learning-context/student-learning-context.routes');
+app.use('/api/student-learning-context', studentLearningContextRoutes);
 
 // Dify 训练师 Workflow
 const trainerRoutes = require('./modules/dify/trainer.routes');

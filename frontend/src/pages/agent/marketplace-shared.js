@@ -6,7 +6,7 @@ import { escapeHtml } from '../../utils/format.js'
 export const MARKET_TABS = [
   ['发现智能体', '#/student/agents'], ['我的智能体', '#/student/agents/mine'],
   ['我的知识库', '#/student/agents/knowledge'], ['我的收藏', '#/student/agents/favorites'],
-  ['生成文件', '#/student/generated-artifacts'], ['创建智能体', '#/student/agents/create'],
+  ['产物', '#/student/artifacts'], ['创建智能体', '#/student/agents/create'],
 ]
 
 export function operationId() {

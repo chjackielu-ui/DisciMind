@@ -231,7 +231,6 @@ async function exportArtifact(artifactId, { taskId } = {}) {
   const target = safeArtifactPath(artifact.ownerUserId, artifact.id, fileName);
   const temporary = safeArtifactPath(artifact.ownerUserId, artifact.id, `.${fileName}.tmp`);
   try {
-    await prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { status: 'EXPORTING', errorCode: null } });
     if (effectiveTaskId) await tasks.updateTask(effectiveTaskId, { status: 'RUNNING', progress: 10, stage: '正在排版 DOCX' });
     const document = buildDocument(artifact);
     const buffer = await Packer.toBuffer(document);
@@ -244,20 +243,16 @@ async function exportArtifact(artifactId, { taskId } = {}) {
     const relative = path.relative(STORAGE_ROOT, target.absolute).replace(/\\/g, '/');
     const updated = await prisma.generatedArtifact.update({
       where: { id: artifact.id },
-      data: { status: 'READY', storagePath: relative, fileSizeBytes: BigInt(stat.size), errorCode: null },
+      data: { storagePath: relative, fileSizeBytes: BigInt(stat.size) },
     });
     if (previousPath && previousPath !== target.absolute) await fs.unlink(previousPath).catch(() => null);
     if (effectiveTaskId) await tasks.updateTask(effectiveTaskId, {
       status: 'SUCCEEDED', progress: 100, stage: 'DOCX 已就绪', resultType: 'ARTIFACT',
-      resultId: artifact.id, resultUrl: `#/student/generated-artifacts/${artifact.id}`,
+      resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=DOCX`,
     });
     return updated;
   } catch (error) {
     await fs.unlink(temporary.absolute).catch(() => null);
-    await prisma.generatedArtifact.updateMany({
-      where: { id: artifact.id, deletedAt: null },
-      data: { status: 'CONTENT_READY', errorCode: String(error.code || 'DOCUMENT_EXPORT_FAILED').slice(0, 100) },
-    });
     throw error;
   }
 }

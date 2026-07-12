@@ -134,6 +134,13 @@ export function getStudentPortrait() {
   return get('/student/portrait')
 }
 
+/**
+ * 获取学生画像 PDF 报告聚合数据
+ */
+export function getStudentPortraitReport() {
+  return get('/student/portrait/report')
+}
+
 // ========================
 // 在线答题模块
 // ========================

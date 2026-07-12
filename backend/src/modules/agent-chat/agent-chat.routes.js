@@ -15,6 +15,7 @@ router.put('/agent-conversations/:conversationId', controller.updateConversation
 router.delete('/agent-conversations/:conversationId', controller.deleteConversation);
 router.get('/agent-conversations/:conversationId/file-requirements', fileRequirements.get);
 router.patch('/agent-conversations/:conversationId/file-requirements', fileRequirements.patch);
+router.post('/agent-conversations/:conversationId/file-prefill', fileRequirements.prefill);
 router.post('/agent-conversations/:conversationId/file-plan', rateLimit({ max: 20, keyPrefix: 'file-plan' }), fileRequirements.plan);
 router.post('/agent-conversations/:conversationId/file-confirm', fileRequirements.confirm);
 router.post('/agent-conversations/:conversationId/messages', rateLimit({ max: 20, keyPrefix: 'agent-chat' }), controller.sendMessage);

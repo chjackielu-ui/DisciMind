@@ -90,8 +90,10 @@ const staticRoutes = {
   '/student/agents/knowledge': { render: renderKnowledgeBases, auth: true, roles: ['student'] },
   '/student/agents/favorites': { render: renderFavoriteAgents, auth: true, roles: ['student'] },
   '/student/agents/create': { render: renderAgentCreate, auth: true, roles: ['student'] },
-  '/student/generated-artifacts': { render: renderGeneratedArtifacts, auth: true, roles: ['student'] },
+  '/student/artifacts': { render: renderGeneratedArtifacts, auth: true, roles: ['student'] },
+  '/student/generated-artifacts': { render: () => navigateTo('#/student/artifacts'), auth: true, roles: ['student'] },
   '/student/learning-flows': { render: renderStudentLearningFlows, auth: true, roles: ['student'] },
+  '/student/learning-context': { render: () => navigateTo('#/student/learning-flows?panel=learning-plan'), auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/courses': { render: renderTeacherCourses, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/students': { render: renderTeacherStudents, auth: true, roles: ['teacher', 'admin'] },
@@ -122,8 +124,15 @@ const staticRoutes = {
 // 动态路由（正则匹配）
 const dynamicRoutes = [
   {
-    pattern: /^\/student\/generated-artifacts\/(\d+)$/,
+    pattern: /^\/student\/artifacts\/(\d+)$/,
     render: renderGeneratedArtifactDetail,
+    auth: true,
+    roles: ['student'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/student\/generated-artifacts\/(\d+)$/,
+    render: (_app, params) => navigateTo(`#/student/artifacts/${params.id}`),
     auth: true,
     roles: ['student'],
     paramNames: ['id'],

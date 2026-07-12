@@ -136,8 +136,26 @@ enum AsyncTaskType {
   KNOWLEDGE_INDEXING
   FILE_GENERATION
   DOCUMENT_EXPORT
+  ARTIFACT_CLEANUP
   LEARNING_FLOW_PRELOAD
   VOICE_PRELOAD
+}
+
+enum LearningFlowResourceRole {
+  PRE_CLASS_HANDOUT
+  REFERENCE_MATERIAL
+  PRACTICE_PAPER
+  REVIEW_MATERIAL
+}
+
+enum LearningFlowPreloadStatus {
+  NOT_STARTED
+  QUEUED
+  PRELOADING
+  PARTIAL
+  READY
+  FAILED
+  EXPIRED
 }
 
 enum AsyncTaskStatus {
@@ -386,6 +404,11 @@ model User {
   marketplace_kb_reviews       KnowledgeBaseReviewRecord[]    @relation("MarketplaceKnowledgeReviewer")
   async_tasks                  AsyncTask[]
   generated_artifacts          GeneratedArtifact[]            @relation("GeneratedArtifactOwner")
+  learning_flow_resource_links LearningFlowResourceLink[]     @relation("LearningFlowResourceOwner")
+  created_flow_resource_links  LearningFlowResourceLink[]     @relation("LearningFlowResourceCreator")
+  learning_flow_preloads       LearningFlowPreload[]
+  generated_artifact_exports   GeneratedArtifactExport[]
+  active_learning_context      StudentLearningContext?
 
   @@index([role])
   @@index([status])
@@ -530,40 +553,42 @@ model Course {
   created_at       DateTime     @default(now())
   updated_at       DateTime     @updatedAt
 
-  teacher_relations           CourseTeacherRelation[]
-  teaching_classes            TeachingClass[]
-  enrollments                 StudentCourseEnrollment[]
-  chapters                    Chapter[]
-  knowledge_points            KnowledgePoint[]
-  knowledge_bases             KnowledgeBase[]
-  knowledge_documents         KnowledgeDocument[]
-  chat_conversations          ChatConversation[]
-  student_question_records    StudentQuestionRecord[]
-  question_banks              QuestionBank[]
-  questions                   Question[]
-  ai_question_generation_logs AiQuestionGenerationLog[]
-  learning_tasks              LearningTask[]
-  practice_sessions           PracticeSession[]
-  study_records               StudyRecord[]
-  mastery_records             StudentMasteryRecord[]
-  portraits                   StudentPortrait[]
-  portrait_snapshots          StudentPortraitSnapshot[]
-  research_profiles           StudentResearchProfile[]
-  competition_profiles        StudentCompetitionProfile[]
-  recommendation_records      RecommendationRecord[]
-  learning_paths              LearningPath[]
-  review_plans                ReviewPlan[]
-  video_resources             VideoResource[]
-  video_generation_tasks      VideoGenerationTask[]
-  wrong_questions             WrongQuestion[]
-  agent_conversations         AgentConversation[]
-  agent_interventions         AgentIntervention[]
-  agent_diagnostic_reports    AgentDiagnosticReport[]
-  workflow_templates          LearningWorkflowTemplate[]
-  learning_sessions           LearningSession[]
-  learning_goals              LearningGoal[]
-  ai_flow_generation_jobs     AiFlowGenerationJob[]
-  generated_artifacts         GeneratedArtifact[]
+  teacher_relations            CourseTeacherRelation[]
+  teaching_classes             TeachingClass[]
+  enrollments                  StudentCourseEnrollment[]
+  chapters                     Chapter[]
+  knowledge_points             KnowledgePoint[]
+  knowledge_bases              KnowledgeBase[]
+  knowledge_documents          KnowledgeDocument[]
+  chat_conversations           ChatConversation[]
+  student_question_records     StudentQuestionRecord[]
+  question_banks               QuestionBank[]
+  questions                    Question[]
+  ai_question_generation_logs  AiQuestionGenerationLog[]
+  learning_tasks               LearningTask[]
+  practice_sessions            PracticeSession[]
+  study_records                StudyRecord[]
+  mastery_records              StudentMasteryRecord[]
+  portraits                    StudentPortrait[]
+  portrait_snapshots           StudentPortraitSnapshot[]
+  research_profiles            StudentResearchProfile[]
+  competition_profiles         StudentCompetitionProfile[]
+  recommendation_records       RecommendationRecord[]
+  learning_paths               LearningPath[]
+  review_plans                 ReviewPlan[]
+  video_resources              VideoResource[]
+  video_generation_tasks       VideoGenerationTask[]
+  wrong_questions              WrongQuestion[]
+  agent_conversations          AgentConversation[]
+  agent_interventions          AgentIntervention[]
+  agent_diagnostic_reports     AgentDiagnosticReport[]
+  workflow_templates           LearningWorkflowTemplate[]
+  learning_sessions            LearningSession[]
+  learning_goals               LearningGoal[]
+  ai_flow_generation_jobs      AiFlowGenerationJob[]
+  generated_artifacts          GeneratedArtifact[]
+  learning_flow_resource_links LearningFlowResourceLink[]
+  student_learning_contexts    StudentLearningContext[]
 
   @@index([status])
   @@map("courses")
@@ -656,31 +681,33 @@ model KnowledgePoint {
   created_at           DateTime        @default(now())
   updated_at           DateTime        @updatedAt
 
-  course                   Course                          @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  chapter                  Chapter?                        @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
-  parent                   KnowledgePoint?                 @relation("KnowledgePointTree", fields: [parent_id], references: [knowledge_point_id])
-  children                 KnowledgePoint[]                @relation("KnowledgePointTree")
-  aliases                  KnowledgePointAlias[]
-  question_bank_links      QuestionBankKnowledgePoint[]
-  questions                Question[]
-  ai_generation_logs       AiQuestionGenerationLog[]
-  task_links               TaskKnowledgePoint[]
-  question_mappings        QuestionKnowledgePointMapping[]
-  analysis_records         QuestionAnalysisRecord[]
-  study_records            StudyRecord[]
-  mastery_records          StudentMasteryRecord[]
-  wrong_questions          WrongQuestion[]
-  video_resources          VideoResource[]
-  video_generation_tasks   VideoGenerationTask[]
-  learning_path_steps      LearningPathStep[]
-  practice_sessions        PracticeSession[]
-  agent_conversations      AgentConversation[]
-  agent_interventions      AgentIntervention[]
-  agent_diagnostic_reports AgentDiagnosticReport[]
-  learning_sessions        LearningSession[]
-  ai_flow_generation_jobs  AiFlowGenerationJob[]
-  workflow_templates       LearningWorkflowTemplate[]
-  learning_goals           LearningGoal[]
+  course                       Course                          @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  chapter                      Chapter?                        @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
+  parent                       KnowledgePoint?                 @relation("KnowledgePointTree", fields: [parent_id], references: [knowledge_point_id])
+  children                     KnowledgePoint[]                @relation("KnowledgePointTree")
+  aliases                      KnowledgePointAlias[]
+  question_bank_links          QuestionBankKnowledgePoint[]
+  questions                    Question[]
+  ai_generation_logs           AiQuestionGenerationLog[]
+  task_links                   TaskKnowledgePoint[]
+  question_mappings            QuestionKnowledgePointMapping[]
+  analysis_records             QuestionAnalysisRecord[]
+  study_records                StudyRecord[]
+  mastery_records              StudentMasteryRecord[]
+  wrong_questions              WrongQuestion[]
+  video_resources              VideoResource[]
+  video_generation_tasks       VideoGenerationTask[]
+  learning_path_steps          LearningPathStep[]
+  practice_sessions            PracticeSession[]
+  agent_conversations          AgentConversation[]
+  agent_interventions          AgentIntervention[]
+  agent_diagnostic_reports     AgentDiagnosticReport[]
+  learning_sessions            LearningSession[]
+  ai_flow_generation_jobs      AiFlowGenerationJob[]
+  workflow_templates           LearningWorkflowTemplate[]
+  learning_goals               LearningGoal[]
+  learning_flow_resource_links LearningFlowResourceLink[]
+  student_learning_contexts    StudentLearningContext[]
 
   @@unique([course_id, knowledge_point_code])
   @@index([chapter_id])
@@ -2333,6 +2360,8 @@ model UserAgent {
   ratingCount            Int                  @default(0) @map("rating_count")
   copiedFromAgentId      Int?                 @map("copied_from_agent_id")
   operationId            String?              @unique @map("operation_id") @db.VarChar(64)
+  systemKey              String?              @unique @map("system_key") @db.VarChar(100)
+  isSystem               Boolean              @default(false) @map("is_system")
   createdAt              DateTime             @default(now()) @map("created_at")
   updatedAt              DateTime             @updatedAt @map("updated_at")
   deletedAt              DateTime?            @map("deleted_at")
@@ -2355,6 +2384,7 @@ model UserAgent {
   @@index([creatorUserId, status])
   @@index([status, visibility, deletedAt])
   @@index([agentType, status, visibility, deletedAt])
+  @@index([isSystem, agentType])
   @@index([categoryId])
   @@index([copiedFromAgentId])
   @@map("user_agents")
@@ -2466,6 +2496,19 @@ enum GeneratedArtifactStatus {
   DELETED
 }
 
+enum GeneratedArtifactExportFormat {
+  DOCX
+  PDF
+}
+
+enum GeneratedArtifactExportStatus {
+  QUEUED
+  EXPORTING
+  READY
+  FAILED
+  DELETED
+}
+
 model GeneratedArtifact {
   id                    Int                     @id @default(autoincrement())
   ownerUserId           Int                     @map("owner_user_id")
@@ -2491,11 +2534,13 @@ model GeneratedArtifact {
   updatedAt             DateTime                @updatedAt @map("updated_at")
   deletedAt             DateTime?               @map("deleted_at")
 
-  owner        User                         @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
-  agent        UserAgent                    @relation(fields: [agentId], references: [id], onDelete: Restrict)
-  conversation MarketplaceAgentConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
-  task         AsyncTask?                   @relation("GeneratedArtifactTask", fields: [taskId], references: [id], onDelete: SetNull)
-  course       Course?                      @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
+  owner         User                         @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
+  agent         UserAgent                    @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  conversation  MarketplaceAgentConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  task          AsyncTask?                   @relation("GeneratedArtifactTask", fields: [taskId], references: [id], onDelete: SetNull)
+  course        Course?                      @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
+  resourceLinks LearningFlowResourceLink[]
+  exports       GeneratedArtifactExport[]
 
   @@unique([ownerUserId, conversationId, operationId], map: "generated_artifacts_owner_conversation_operation_key")
   @@index([ownerUserId, status, updatedAt])
@@ -2503,6 +2548,136 @@ model GeneratedArtifact {
   @@index([conversationId])
   @@index([courseId])
   @@map("generated_artifacts")
+}
+
+model GeneratedArtifactExport {
+  id             Int                           @id @default(autoincrement())
+  artifactId     Int                           @map("artifact_id")
+  ownerUserId    Int                           @map("owner_user_id")
+  format         GeneratedArtifactExportFormat
+  status         GeneratedArtifactExportStatus @default(QUEUED)
+  storagePath    String?                       @map("storage_path") @db.VarChar(1000)
+  fileSizeBytes  BigInt?                       @map("file_size_bytes")
+  mimeType       String?                       @map("mime_type") @db.VarChar(120)
+  errorCode      String?                       @map("error_code") @db.VarChar(100)
+  errorMessage   String?                       @map("error_message") @db.VarChar(500)
+  lastAccessedAt DateTime?                     @map("last_accessed_at")
+  createdAt      DateTime                      @default(now()) @map("created_at")
+  updatedAt      DateTime                      @updatedAt @map("updated_at")
+  deletedAt      DateTime?                     @map("deleted_at")
+
+  artifact GeneratedArtifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  owner    User              @relation(fields: [ownerUserId], references: [user_id], onDelete: Cascade)
+
+  @@unique([artifactId, format])
+  @@index([ownerUserId, status, updatedAt])
+  @@map("generated_artifact_exports")
+}
+
+model LearningFlowResourceLink {
+  id                 Int                      @id @default(autoincrement())
+  ownerUserId        Int                      @map("owner_user_id")
+  artifactId         Int                      @map("artifact_id")
+  courseId           Int?                     @map("course_id")
+  knowledgePointId   Int?                     @map("knowledge_point_id")
+  learningGoalId     Int?                     @map("learning_goal_id")
+  workflowTemplateId Int?                     @map("workflow_template_id")
+  learningSessionId  Int?                     @map("learning_session_id")
+  resourceRole       LearningFlowResourceRole @map("resource_role")
+  linkKey            String                   @unique @map("link_key") @db.VarChar(64)
+  createdBy          Int                      @map("created_by")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  deletedAt          DateTime?                @map("deleted_at")
+
+  owner            User                      @relation("LearningFlowResourceOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade, map: "lf_resource_owner_fkey")
+  creator          User                      @relation("LearningFlowResourceCreator", fields: [createdBy], references: [user_id], onDelete: Restrict, map: "lf_resource_creator_fkey")
+  artifact         GeneratedArtifact         @relation(fields: [artifactId], references: [id], onDelete: Restrict, map: "lf_resource_artifact_fkey")
+  course           Course?                   @relation(fields: [courseId], references: [course_id], onDelete: Restrict, map: "lf_resource_course_fkey")
+  knowledgePoint   KnowledgePoint?           @relation(fields: [knowledgePointId], references: [knowledge_point_id], onDelete: Restrict, map: "lf_resource_kp_fkey")
+  learningGoal     LearningGoal?             @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict, map: "lf_resource_goal_fkey")
+  workflowTemplate LearningWorkflowTemplate? @relation(fields: [workflowTemplateId], references: [template_id], onDelete: Restrict, map: "lf_resource_template_fkey")
+  learningSession  LearningSession?          @relation(fields: [learningSessionId], references: [session_id], onDelete: Restrict, map: "lf_resource_session_fkey")
+
+  @@index([ownerUserId, createdAt], map: "learning_flow_resource_links_owner_created_idx")
+  @@index([artifactId, deletedAt], map: "learning_flow_resource_links_artifact_deleted_idx")
+  @@index([courseId, knowledgePointId, resourceRole], map: "learning_flow_resource_links_scope_role_idx")
+  @@index([learningGoalId], map: "learning_flow_resource_links_goal_idx")
+  @@index([workflowTemplateId], map: "learning_flow_resource_links_template_idx")
+  @@index([learningSessionId], map: "learning_flow_resource_links_session_idx")
+  @@map("learning_flow_resource_links")
+}
+
+model LearningFlowPreload {
+  id                   Int                       @id @default(autoincrement())
+  userId               Int                       @map("user_id")
+  workflowTemplateId   Int                       @map("workflow_template_id")
+  learningGoalId       Int                       @map("learning_goal_id")
+  learningSessionId    Int?                      @map("learning_session_id")
+  workflowVersion      Int                       @map("workflow_version")
+  goalSnapshotHash     String                    @map("goal_snapshot_hash") @db.VarChar(64)
+  studentContextHash   String                    @map("student_context_hash") @db.VarChar(64)
+  agentConfigHash      String                    @map("agent_config_hash") @db.VarChar(64)
+  systemPromptHash     String                    @map("system_prompt_hash") @db.VarChar(64)
+  voiceConfigHash      String                    @map("voice_config_hash") @db.VarChar(64)
+  preloadKey           String                    @map("preload_key") @db.VarChar(64)
+  activeKey            String?                   @unique @map("active_key") @db.VarChar(64)
+  status               LearningFlowPreloadStatus @default(NOT_STARTED)
+  progress             Int                       @default(0)
+  stage                String?                   @db.VarChar(100)
+  manifestJson         Json?                     @map("manifest_json")
+  preparedNodeIdsJson  Json?                     @map("prepared_node_ids_json")
+  preparedContentCount Int                       @default(0) @map("prepared_content_count")
+  preparedAudioCount   Int                       @default(0) @map("prepared_audio_count")
+  errorCode            String?                   @map("error_code") @db.VarChar(100)
+  errorMessage         String?                   @map("error_message") @db.VarChar(500)
+  expiresAt            DateTime                  @map("expires_at")
+  startedAt            DateTime?                 @map("started_at")
+  completedAt          DateTime?                 @map("completed_at")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  deletedAt            DateTime?                 @map("deleted_at")
+
+  user             User                     @relation(fields: [userId], references: [user_id], onDelete: Cascade, map: "lf_preload_user_fkey")
+  workflowTemplate LearningWorkflowTemplate @relation(fields: [workflowTemplateId], references: [template_id], onDelete: Restrict, map: "lf_preload_template_fkey")
+  learningGoal     LearningGoal             @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict, map: "lf_preload_goal_fkey")
+  learningSession  LearningSession?         @relation(fields: [learningSessionId], references: [session_id], onDelete: Restrict, map: "lf_preload_session_fkey")
+
+  @@index([userId, status, updatedAt], map: "learning_flow_preloads_user_status_updated_idx")
+  @@index([userId, preloadKey, expiresAt], map: "learning_flow_preloads_user_key_expires_idx")
+  @@index([workflowTemplateId, learningGoalId], map: "learning_flow_preloads_template_goal_idx")
+  @@index([learningSessionId], map: "learning_flow_preloads_session_idx")
+  @@index([expiresAt, status], map: "learning_flow_preloads_expires_status_idx")
+  @@map("learning_flow_preloads")
+}
+
+model StudentLearningContext {
+  id                     Int      @id @default(autoincrement())
+  userId                 Int      @unique @map("user_id")
+  courseId               Int      @map("course_id")
+  knowledgePointId       Int      @map("knowledge_point_id")
+  learningGoalId         Int      @map("learning_goal_id")
+  workflowTemplateId     Int      @map("workflow_template_id")
+  targetMastery          Int?     @map("target_mastery")
+  completionMode         String   @default("MASTERY_TARGET") @map("completion_mode") @db.VarChar(32)
+  learningPreferenceJson Json?    @map("learning_preference_json")
+  voiceConfigJson        Json?    @map("voice_config_json")
+  contextSnapshotJson    Json?    @map("context_snapshot_json")
+  contextHash            String   @map("context_hash") @db.VarChar(64)
+  isActive               Boolean  @default(true) @map("is_active")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  user             User                     @relation(fields: [userId], references: [user_id], onDelete: Cascade)
+  course           Course                   @relation(fields: [courseId], references: [course_id], onDelete: Restrict)
+  knowledgePoint   KnowledgePoint           @relation(fields: [knowledgePointId], references: [knowledge_point_id], onDelete: Restrict)
+  learningGoal     LearningGoal             @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict)
+  workflowTemplate LearningWorkflowTemplate @relation(fields: [workflowTemplateId], references: [template_id], onDelete: Restrict)
+
+  @@index([courseId, knowledgePointId])
+  @@index([learningGoalId])
+  @@index([workflowTemplateId])
+  @@map("student_learning_contexts")
 }
 
 model MarketplaceAgentMessage {
@@ -2781,12 +2956,15 @@ model LearningWorkflowTemplate {
   created_at         DateTime           @default(now())
   updated_at         DateTime           @updatedAt
 
-  owner           User?                     @relation(fields: [owner_user_id], references: [user_id], onDelete: SetNull)
-  course          Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  knowledge_point KnowledgePoint?           @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  versions        LearningWorkflowVersion[]
-  sessions        LearningSession[]
-  learning_goals  LearningGoal[]
+  owner                     User?                      @relation(fields: [owner_user_id], references: [user_id], onDelete: SetNull)
+  course                    Course?                    @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point           KnowledgePoint?            @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  versions                  LearningWorkflowVersion[]
+  sessions                  LearningSession[]
+  learning_goals            LearningGoal[]
+  resource_links            LearningFlowResourceLink[]
+  preloads                  LearningFlowPreload[]
+  student_learning_contexts StudentLearningContext[]
 
   @@index([owner_type])
   @@index([owner_user_id])
@@ -2857,12 +3035,15 @@ model LearningGoal {
   started_at                 DateTime?
   completed_at               DateTime?
 
-  student                 User                      @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
-  course                  Course                    @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  primary_knowledge_point KnowledgePoint?           @relation(fields: [primary_knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  workflow_template       LearningWorkflowTemplate? @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
-  workflow_version        LearningWorkflowVersion?  @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
-  learning_session        LearningSession?
+  student                   User                       @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course                    Course                     @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  primary_knowledge_point   KnowledgePoint?            @relation(fields: [primary_knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  workflow_template         LearningWorkflowTemplate?  @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
+  workflow_version          LearningWorkflowVersion?   @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
+  learning_session          LearningSession?
+  resource_links            LearningFlowResourceLink[]
+  preloads                  LearningFlowPreload[]
+  student_learning_contexts StudentLearningContext[]
 
   @@unique([student_user_id, operation_id], map: "lg_student_operation_key")
   @@index([student_user_id, created_at], map: "lg_student_created_idx")
@@ -2906,15 +3087,17 @@ model LearningSession {
   created_at              DateTime               @default(now())
   updated_at              DateTime               @updatedAt
 
-  student           User                      @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
-  course            Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  knowledge_point   KnowledgePoint?           @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
-  workflow_template LearningWorkflowTemplate? @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
-  workflow_version  LearningWorkflowVersion?  @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
+  student           User                       @relation(fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course            Course?                    @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  knowledge_point   KnowledgePoint?            @relation(fields: [knowledge_point_id], references: [knowledge_point_id], onDelete: SetNull)
+  workflow_template LearningWorkflowTemplate?  @relation(fields: [workflow_template_id], references: [template_id], onDelete: SetNull)
+  workflow_version  LearningWorkflowVersion?   @relation(fields: [workflow_version_id], references: [version_id], onDelete: SetNull)
   node_runs         LearningSessionNodeRun[]
-  current_node_run  LearningSessionNodeRun?   @relation("LearningSessionCurrentRun", fields: [current_node_run_id], references: [node_run_id], onDelete: SetNull)
+  current_node_run  LearningSessionNodeRun?    @relation("LearningSessionCurrentRun", fields: [current_node_run_id], references: [node_run_id], onDelete: SetNull)
   events            LearningSessionEvent[]
-  learning_goal     LearningGoal?             @relation(fields: [learning_goal_id], references: [goal_id], onDelete: SetNull)
+  learning_goal     LearningGoal?              @relation(fields: [learning_goal_id], references: [goal_id], onDelete: SetNull)
+  resource_links    LearningFlowResourceLink[]
+  preloads          LearningFlowPreload[]
 
   @@index([student_user_id])
   @@index([student_user_id, status])

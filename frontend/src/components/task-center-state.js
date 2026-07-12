@@ -4,6 +4,7 @@ export const TERMINAL_TASK_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED
 const RESULT_URL_PATTERNS = [
   /^#\/student\/agents(?:\/knowledge|\/\d+(?:\/.*)?)?$/,
   /^#\/student\/generated-artifacts(?:\/\d+)?(?:\?.*)?$/,
+  /^#\/student\/artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/learning-flows(?:\?.*)?$/,
   /^#\/student\/learning\/session\/\d+$/,
 ]

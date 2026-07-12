@@ -19,6 +19,7 @@ let sidebarPinned = false
 let isHoveringSidebar = false
 let collapseTimer = null
 let autoCollapseTimer = null
+const menuArrowSvg = () => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>'
 
 export function renderDashboardLayout(app, config) {
   const { menuItems, contentHTML, user } = config
@@ -63,7 +64,7 @@ const menuHTML = menuItems.map((item, index) => {
     if (!isActive && item.prefixMatch && currentHash.startsWith(item.prefixMatch)) {
       isActive = true
     }
-    const arrowHTML = hasChildren ? `<span class="sidebar-menu-arrow">></span>` : ''
+    const arrowHTML = `<span class="sidebar-menu-arrow${hasChildren && isActive ? ' expanded' : ''}">${menuArrowSvg()}</span>`
     return `
       <button
         type="button"
@@ -100,7 +101,7 @@ const menuHTML = menuItems.map((item, index) => {
         ${activeParent.children.map(child => {
           const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
           const isChildActive = typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
-          return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}">${child.label}</div>`
+          return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}"><span>${child.label}</span><span class="sub-nav-arrow">${menuArrowSvg()}</span></div>`
         }).join('')}
       </div>`
   }
@@ -242,7 +243,7 @@ const menuHTML = menuItems.map((item, index) => {
           const newPanelHTML = parent.children.map(child => {
             const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
             const isChildActive = window.location.hash.slice(1) === childHash
-            return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}">${child.label}</div>`
+            return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}"><span>${child.label}</span><span class="sub-nav-arrow">${menuArrowSvg()}</span></div>`
           }).join('')
           if (panel) {
             panel.innerHTML = newPanelHTML

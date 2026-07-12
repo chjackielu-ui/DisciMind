@@ -33,6 +33,14 @@ function sendSuccess(res, data, message = 'ok') {
   res.json({ code: 0, message, data });
 }
 
+function triggerPreparedNextNode(userId, sessionId, result) {
+  const nextNodeId = result?.nextNodeId || result?.next_node_id || result?.session?.current_node_id || result?.current_node_id;
+  if (!nextNodeId) return;
+  require('../learning-flow-preload/learning-flow-preload-trigger.service').fireAndRecord({
+    userId, learningSessionId: sessionId, nextNodeId,
+  });
+}
+
 // ========================
 // 模板 CRUD
 // ========================
@@ -40,9 +48,9 @@ function sendSuccess(res, data, message = 'ok') {
 async function listTemplates(req, res) {
   try {
     const userId = getUserId(req);
-    const { courseId, source, sourceType, search, page, pageSize } = req.query;
+    const { courseId, knowledgePointId, learningGoalId, source, sourceType, search, page, pageSize } = req.query;
     const templates = await templateService.listTemplates({
-      userId, courseId, source: source || sourceType, search, page, pageSize,
+      userId, courseId, knowledgePointId, learningGoalId, source: source || sourceType, search, page, pageSize,
     });
     sendSuccess(res, templates);
   } catch (err) { sendError(res, err); }
@@ -188,7 +196,8 @@ async function pauseSession(req, res) {
 async function executeCurrentNode(req, res) {
   try {
     const userId = getUserId(req);
-    const result = await runtimeService.executeCurrentNode(req.params.id, userId, req, res);
+    const preloadModel = require('../learning-flow-preload/learning-flow-preload-model.adapter');
+    const result = await preloadModel.runWithSession({ userId, sessionId: req.params.id }, () => runtimeService.executeCurrentNode(req.params.id, userId, req, res));
     // executeCurrentNode 可能直接通过 SSE 响应，也可能返回 JSON
     if (result && !res.headersSent) {
       sendSuccess(res, result);
@@ -202,6 +211,7 @@ async function submitNodeAnswer(req, res) {
   try {
     const userId = getUserId(req);
     const result = await runtimeService.submitNodeAnswer(req.params.id, userId, req.body);
+    triggerPreparedNextNode(userId, req.params.id, result);
     sendSuccess(res, result);
   } catch (err) { sendError(res, err); }
 }
@@ -214,6 +224,7 @@ async function skipNode(req, res) {
       expectedNodeExecutionId,
       operationId,
     });
+    triggerPreparedNextNode(userId, req.params.id, result);
     sendSuccess(res, result, '节点已跳过');
   } catch (err) { sendError(res, err); }
 }
@@ -595,7 +606,16 @@ async function assistantChat(req, res) {
 async function quickStart(req, res) {
   try {
     const userId = getUserId(req);
-    const { courseId, knowledgePointId, templateId, templateKey } = req.body;
+    let { courseId, knowledgePointId, templateId, templateKey, preloadId, learningGoalId } = req.body;
+    const context = await require('../../config/prisma').studentLearningContext.findFirst({ where: { userId: Number(userId), isActive: true } });
+    if (context) {
+      courseId ||= context.courseId; knowledgePointId ||= context.knowledgePointId; templateId ||= context.workflowTemplateId; learningGoalId ||= context.learningGoalId;
+      if (!preloadId) {
+        const prepared = await require('../../config/prisma').learningFlowPreload.findFirst({ where: { userId: Number(userId), workflowTemplateId: Number(templateId), learningGoalId: Number(learningGoalId), status: { in: ['PARTIAL', 'READY'] }, expiresAt: { gt: new Date() }, deletedAt: null }, orderBy: { updatedAt: 'desc' } });
+        preloadId = prepared?.id || null;
+      }
+    }
+    if (!courseId || !knowledgePointId) throw createAgentError('LEARNING_CONTEXT_REQUIRED', '请先设置当前学习上下文', 409);
 
     // 从系统模板中选择
     let template;
@@ -634,8 +654,33 @@ async function quickStart(req, res) {
       versionId: version?.version_id,
     });
 
+    // 学习准备是可选旁路：任何校验、过期或缓存读取失败都降级为原实时学习。
+    let preloadResult = null;
+    if (preloadId) {
+      try {
+        const preloadService = require('../learning-flow-preload/learning-flow-preload.service');
+        const preloadRuntime = require('../learning-flow-preload/learning-flow-preload-runtime.adapter');
+        const preload = await preloadService.validateForQuickStart(userId, preloadId, {
+          workflowTemplateId: template.template_id,
+          learningGoalId: learningGoalId || (await require('../../config/prisma').learningFlowPreload.findUnique({ where: { id: Number(preloadId) }, select: { learningGoalId: true } }))?.learningGoalId,
+        });
+        if (preload) {
+          await preloadRuntime.attachToSession(preload, session.session_id);
+          await require('../../config/prisma').learningSession.updateMany({
+            where: { session_id: session.session_id, student_user_id: Number(userId), learning_goal_id: null },
+            data: { learning_goal_id: preload.learningGoalId },
+          }).catch(() => {});
+          const cached = await preloadRuntime.cachedFirstNode(preload).catch(() => null);
+          preloadResult = { id: preload.id, status: preload.status, cacheHit: Boolean(cached), cachedFirstNode: cached };
+        }
+      } catch (error) {
+        console.warn('[learning-preload] quick-start fallback', { code: error.code || 'PRELOAD_UNAVAILABLE' });
+      }
+    }
+
     sendSuccess(res, {
       session,
+      preload: preloadResult,
       template: {
         id: template.template_id,
         title: template.title,
@@ -661,6 +706,7 @@ async function completeNodeResult(req, res) {
         expectedNodeExecutionId,
         operationId: clientActionId || req.body.operationId,
       });
+      triggerPreparedNextNode(userId, sessionId, continued);
       return sendSuccess(res, continued, continued.execution?.flowCompleted ? '学习流已完成' : '已进入下一节点');
     }
 
@@ -924,14 +970,16 @@ async function completeNodeResult(req, res) {
     const updatedSession = await runtimeService.getSession(sessionId, userId);
     console.log(`[Next][clientActionId=${clientActionId}] after currentNodeId=${updatedSession.current_node_id || 'flow_completed'}`);
 
-    sendSuccess(res, {
+    const responseData = {
       completedNodeId: requestedNodeId,
       nextNodeId: nextNodeId || String(updatedSession.current_node_id || ''),
       isFlowCompleted: isFlowCompleted || updatedSession.status === 'COMPLETED',
       idempotentReplay: false,
       reconciled: false,
       session: updatedSession,
-    }, isFlowCompleted ? '学习流已完成' : '节点已完成');
+    };
+    triggerPreparedNextNode(userId, sessionId, responseData);
+    sendSuccess(res, responseData, isFlowCompleted ? '学习流已完成' : '节点已完成');
   } catch (err) {
     console.error(`[completeNodeResult] error:`, err.message);
     sendError(res, err);

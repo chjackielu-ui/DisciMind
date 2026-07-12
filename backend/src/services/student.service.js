@@ -1282,6 +1282,7 @@ async function getStudentPortrait(userId) {
     masteryRecords,
     researchProfiles,
     competitionProfiles,
+    portraitSnapshots,
   ] = await Promise.all([
     prisma.studentPortrait.findMany({
       where: { student_user_id: userId, course_id: { in: courseIds } },
@@ -1295,6 +1296,10 @@ async function getStudentPortrait(userId) {
     }),
     prisma.studentCompetitionProfile.findMany({
       where: { student_user_id: userId },
+    }),
+    prisma.studentPortraitSnapshot.findMany({
+      where: { student_user_id: userId, course_id: { in: courseIds } },
+      orderBy: { snapshot_date: 'asc' },
     }),
   ]);
 
@@ -1357,6 +1362,23 @@ async function getStudentPortrait(userId) {
     };
   }
 
+  // 历史快照趋势数据（最近8条）
+  const trendSnapshots = portraitSnapshots
+    .filter(s => s.learning_scores && typeof s.learning_scores === 'object')
+    .map(s => ({
+      date: s.snapshot_date?.toISOString() || null,
+      learning_total_score: s.learning_scores?.learning_total_score ?? null,
+      research_total_score: s.learning_scores?.research_total_score ?? null,
+      competition_total_score: s.learning_scores?.competition_total_score ?? null,
+    }));
+
+  // 最近更新时间（取最新快照日期或画像更新时间）
+  const latestSnapshot = portraitSnapshots.length > 0
+    ? portraitSnapshots[portraitSnapshots.length - 1]
+    : null;
+  const lastUpdated = latestSnapshot?.snapshot_date?.toISOString()
+    || (portraits.length > 0 ? portraits[0].updated_at?.toISOString() : null);
+
   return {
     learning_ability_score: avg('learning_total_score'),
     research_ability_score: avg('research_total_score'),
@@ -1371,6 +1393,59 @@ async function getStudentPortrait(userId) {
     good_knowledge_points: goodPoints,
     research_profile: researchProfile,
     competition_profile: competitionProfile,
+    trend_data: trendSnapshots,
+    updated_at: lastUpdated,
+  };
+}
+
+/**
+ * 获取学生画像 PDF 报告聚合数据
+ * 复用 getStudentPortrait 并附加学生档案信息与报告元数据
+ */
+async function getStudentPortraitReport(userId) {
+  const [user, portraitData] = await Promise.all([
+    prisma.user.findUnique({
+      where: { user_id: userId },
+      include: { profile: { include: { admin_class: true } } },
+    }),
+    getStudentPortrait(userId),
+  ]);
+
+  if (!user) {
+    throw Object.assign(new Error('用户不存在'), { code: 40401 });
+  }
+
+  // 安全报告编号：DM-PORTRAIT-日期-用户ID哈希（不直接暴露原始ID）
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+  const userHash = String(userId).split('').reduce((s, d) => s + String.fromCharCode(65 + parseInt(d)), '');
+  const reportId = `DM-PORTRAIT-${dateStr}-${userHash}`;
+
+  // 数据时间范围（从趋势最早快照到最新更新时间）
+  const trendData = portraitData.trend_data || [];
+  const dataStartAt = trendData.length > 0 ? trendData[0].date : null;
+  const dataEndAt = portraitData.updated_at || null;
+
+  const profile = user.profile || {};
+  const adminClass = profile.admin_class || {};
+
+  return {
+    student: {
+      name: profile.real_name || user.username,
+      studentNo: profile.student_no || null,
+      className: adminClass.class_name || null,
+      major: profile.major || null,
+      college: profile.college || null,
+      grade: profile.grade || null,
+    },
+    report: {
+      reportId,
+      generatedAt: new Date().toISOString(),
+      dataStartAt,
+      dataEndAt,
+      dataVersion: 'v2.0',
+    },
+    portrait: portraitData,
   };
 }
 
@@ -1532,6 +1607,7 @@ module.exports = {
   getStudyRecords,
   createStudyRecord,
   getStudentPortrait,
+  getStudentPortraitReport,
   getCourseMasteryDistribution,
   getCourseAbilityProfile,
 };

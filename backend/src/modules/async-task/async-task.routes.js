@@ -7,6 +7,7 @@ const router = Router();
 router.use(auth, roles(['student', 'teacher', 'admin']));
 router.get('/active', controller.active);
 router.get('/', controller.list);
+router.post('/dismiss-terminal', controller.dismissTerminal);
 router.get('/:id', controller.detail);
 router.post('/:id/cancel', controller.cancel);
 router.post('/:id/dismiss', controller.dismiss);

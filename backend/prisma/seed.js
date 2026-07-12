@@ -1728,6 +1728,8 @@ async function main() {
   log(`学习流系统模板种子数据完成 (共 ${SYS_TEMPLATES.length} 套)`);
 
   await seedAgentMarketplace({ prisma, upsertUser, upsertProfile, adminUser, studentUser, log })
+  const systemFileAgents = await require('../src/modules/file-generator/system-file-agents.service').ensureSystemFileAgents({ prisma, creatorUserId: adminUser.user_id })
+  log(`系统文件智能体初始化完成 (${systemFileAgents.length} 个；真实知识库绑定数 ${systemFileAgents[0]?.boundKnowledgeBaseIds.length || 0})`)
 }
 
 main()

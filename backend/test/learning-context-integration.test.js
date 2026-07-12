@@ -1,0 +1,2 @@
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
+test('recommendation and learning page share backend learning context',()=>{const source=fs.readFileSync(path.resolve(__dirname,'../../frontend/src/pages/student-learning-flows.js'),'utf8');assert.match(source,/studentLearningContextApi\.get/);assert.match(source,/studentLearningContextApi\.update/);assert.match(source,/syncRecommendedContext/);assert.doesNotMatch(source,/localStorage\.setItem\([^\n]*learningContext/);});
