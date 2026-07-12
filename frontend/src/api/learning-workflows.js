@@ -52,6 +52,12 @@ export const learningWorkflowApi = {
     return post(BASE + '/quick-start-check', data);
   },
 
+  // 学习准备
+  createPreload(data) { return post('/learning-flow-preloads', data); },
+  listPreloads(params = {}) { return get('/learning-flow-preloads', { params }); },
+  getPreload(id) { return get('/learning-flow-preloads/' + id); },
+  retryPreload(id, operationId) { return post('/learning-flow-preloads/' + id + '/retry', { operationId }); },
+
   // 会话
   createSession(data) {
     return post(BASE + '/sessions', data);

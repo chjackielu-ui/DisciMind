@@ -7,7 +7,7 @@ const listSchema = z.object({
   artifactType: z.enum(['EXAM_PAPER', 'STUDY_HANDOUT']).optional(),
 }).strict();
 
-const exportSchema = z.object({ operationId: z.string().trim().min(8).max(128) }).strict();
+const exportSchema = z.object({ operationId: z.string().trim().min(8).max(128), formats: z.array(z.enum(['DOCX','PDF'])).min(1).max(2).default(['DOCX']) }).strict();
 
 function parse(schema, value) {
   const result = schema.safeParse(value);

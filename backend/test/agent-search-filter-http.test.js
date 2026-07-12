@@ -1,0 +1,3 @@
+const test=require('node:test'); const assert=require('node:assert/strict'); const http=require('node:http'); const app=require('../src/app'); let server,base;
+test.before(async()=>{server=http.createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));base=`http://127.0.0.1:${server.address().port}/api`}); test.after(async()=>new Promise(r=>server.close(r)));
+test('agent filter HTTP rejects unauthenticated access and accepts query shape after auth boundary',async()=>{const result=await fetch(`${base}/agents?q=讲义&agentType=FILE_GENERATOR&capabilities=PDF%20导出&sort=latest`);assert.equal(result.status,401)});

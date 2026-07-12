@@ -17,6 +17,7 @@ const fileGeneratorConfigSchema = z.object({
   outputTemplate: z.string().trim().max(3000).optional().default(''),
   maxQuestionCount: z.coerce.number().int().min(1).max(50).default(20),
   fileFormat: z.literal('DOCX').default('DOCX'),
+  outputFormats: z.array(z.enum(['DOCX', 'PDF'])).min(1).max(2).default(['DOCX', 'PDF']).transform(items => [...new Set(items)]),
 }).strict();
 
 const agentInputSchema = z.object({

@@ -40,11 +40,16 @@ export const deleteAgentConversation = id => del(`/agent-conversations/${id}`)
 export const getFileRequirements = id => get(`/agent-conversations/${id}/file-requirements`)
 export const planFileRequirements = (id, message) => post(`/agent-conversations/${id}/file-plan`, { message })
 export const patchFileRequirements = (id, data) => request(`/agent-conversations/${id}/file-requirements`, { method: 'PATCH', body: JSON.stringify(data) })
+export const prefillFileRequirements = (id, data) => post(`/agent-conversations/${id}/file-prefill`, data)
 export const confirmFileRequirements = (id, operationId) => post(`/agent-conversations/${id}/file-confirm`, { operationId })
 export const listGeneratedArtifacts = params => get('/generated-artifacts', { params })
 export const getGeneratedArtifact = id => get(`/generated-artifacts/${id}`)
-export const exportGeneratedArtifact = (id, operationId) => post(`/generated-artifacts/${id}/export`, { operationId })
+export const exportGeneratedArtifact = (id, operationId, formats = ['DOCX']) => post(`/generated-artifacts/${id}/export`, { operationId, formats })
 export const deleteGeneratedArtifact = id => del(`/generated-artifacts/${id}`)
+export const createLearningFlowResourceLink = (id, data) => post(`/generated-artifacts/${id}/learning-flow-links`, data)
+export const listLearningFlowResources = params => get('/learning-flow-resources', { params })
+export const getLearningFlowResource = id => get(`/learning-flow-resources/${id}`)
+export const unlinkLearningFlowResource = id => del(`/learning-flow-resource-links/${id}`)
 export async function downloadGeneratedArtifact(id, preferredName = '学习资料.docx') {
   const response = await fetch(`${BASE_URL}/generated-artifacts/${id}/download`, {
     headers: { Authorization: `Bearer ${getToken()}` },
@@ -63,6 +68,19 @@ export async function downloadGeneratedArtifact(id, preferredName = '学习资�
   anchor.click()
   anchor.remove()
   setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+}
+export async function downloadGeneratedArtifactExport(id, format, preferredName) {
+  const normalized = String(format || 'DOCX').toUpperCase()
+  const response = await fetch(`${BASE_URL}/generated-artifacts/${id}/exports/${normalized}/download`, {
+    headers: { Authorization: `Bearer ${getToken()}` }, credentials: 'include',
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw Object.assign(new Error(payload.message || `下载失败 (${response.status})`), { code: payload.code, status: response.status })
+  }
+  const blob = await response.blob(); const objectUrl = URL.createObjectURL(blob); const anchor = document.createElement('a')
+  anchor.href = objectUrl; anchor.download = String(preferredName || `学习资料.${normalized.toLowerCase()}`).replace(/[\\/:*?"<>|]/g, '_')
+  document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
 }
 export const sendAgentMessage = (id, data) => post(`/agent-conversations/${id}/messages`, data)
 export const cancelAgentGeneration = (id, generationId) => post(`/agent-conversations/${id}/generations/${generationId}/cancel`, {})

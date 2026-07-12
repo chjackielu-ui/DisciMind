@@ -1204,6 +1204,13 @@
 
 @media(max-width:720px){.artifact-grid{grid-template-columns:1fr}.artifact-detail>header{flex-direction:column}.artifact-actions{width:100%}.artifact-actions button{flex:1}.artifact-preview-card iframe{min-height:560px}}
 
+.artifact-link-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.artifact-link-form label{display:grid;gap:7px;color:#334155;font-weight:650}.artifact-link-form select{min-width:0;padding:10px 12px;border:1px solid #d8e1ec;border-radius:10px;background:#fff}.artifact-link-form #artifact-link-result{grid-column:1/-1}.artifact-link-success{padding:12px;border-radius:10px;background:#e8f8ef;color:#147a46}.artifact-link-success a{color:inherit;font-weight:750}
+@media(max-width:720px){.artifact-link-form{grid-template-columns:1fr}}
+
+/* Marketplace toolbar, fixed three-column cards and body-level menu portal. */
+.agent-market-toolbar{display:grid;gap:10px;margin-bottom:16px;padding:14px 16px;border-radius:16px;background:#fff;box-shadow:0 8px 28px rgba(15,23,42,.06)}.agent-market-toolbar form{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:10px}.agent-market-toolbar input{min-width:0;padding:12px 14px;border:1px solid #dbe3ee;border-radius:12px}.agent-filter-summary{display:flex;align-items:center;gap:9px;flex-wrap:wrap;color:#64748b;font-size:.82rem}.agent-filter-summary div{display:flex;gap:6px;flex-wrap:wrap}.agent-filter-summary button,.agent-filter-summary em{padding:5px 9px;border:0;border-radius:999px;background:#eef4ff;color:#315b74;font-style:normal}.agent-market-workbench{grid-template-columns:minmax(0,1fr) minmax(210px,250px)!important;grid-template-areas:"results ranking"!important}.agent-card-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}.agent-market-card{min-width:0;height:100%}.agent-more-trigger{padding:8px 10px;border:1px solid #dbe3ee;border-radius:9px;background:#fff;color:#475569}.agent-card-menu-portal{position:fixed;z-index:99999;display:grid;padding:7px;border:1px solid #dbe3ee;border-radius:12px;background:#fff;box-shadow:0 18px 50px rgba(15,23,42,.2)}.agent-card-menu-portal button{padding:10px 12px;border:0;border-radius:8px;background:transparent;text-align:left;color:#334155}.agent-card-menu-portal button:hover{background:#f1f5f9}.agent-filter-overlay{position:fixed;inset:0;z-index:99998;display:flex;justify-content:flex-end;background:rgba(15,23,42,.35)}.agent-filter-drawer{display:flex;flex-direction:column;width:min(440px,100%);height:100%;padding:20px;background:#fff;box-shadow:-20px 0 50px rgba(15,23,42,.18)}.agent-filter-drawer header,.agent-filter-drawer footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.agent-filter-fields{display:grid;gap:14px;overflow:auto;padding:16px 0}.agent-filter-fields label{display:grid;gap:6px}.agent-filter-fields select{padding:10px;border:1px solid #dbe3ee;border-radius:9px}.agent-filter-fields fieldset{display:flex;gap:8px;flex-wrap:wrap;border:0;padding:0}.agent-filter-fields fieldset legend{width:100%;margin-bottom:6px}.agent-filter-fields fieldset label{display:flex;padding:7px 9px;border-radius:999px;background:#f1f5f9}
+@media(max-width:1279px){.agent-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}@media(max-width:767px){.agent-market-toolbar form{grid-template-columns:1fr 1fr}.agent-market-toolbar input{grid-column:1/-1}.agent-market-workbench{grid-template-columns:1fr!important;grid-template-areas:"ranking" "results"!important}.agent-card-grid{grid-template-columns:1fr!important}}
+
 .agent-chat-layout {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr) 260px;
@@ -1747,3 +1754,53 @@
     transition: none;
   }
 }
+
+.artifact-export-panel {
+  margin: 20px 0;
+  padding: 20px;
+  border: 1px solid #dbe7ec;
+  border-radius: 16px;
+  background: #f8fbfc;
+}
+.agent-system-badge { display: inline-flex; vertical-align: middle; margin-left: 5px; padding: 2px 7px; border-radius: 999px; color: #27697f; background: #e4f3f7; font-size: .65rem; font-weight: 600; }
+.artifact-export-panel h2 { margin: 0 0 4px; font-size: 1.05rem; }
+.artifact-export-panel p { margin: 0 0 14px; color: #657781; }
+.artifact-export-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.artifact-export-options article { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 12px; padding: 14px; border: 1px solid #d6e3e8; border-radius: 12px; background: #fff; }
+.artifact-export-options label { display: flex; align-items: center; gap: 8px; }
+.artifact-export-options small { grid-column: 1 / -1; color: #71828b; }
+.artifact-export-options button { grid-column: 1 / -1; justify-self: start; }
+.artifact-export-state { justify-self: end; font-size: .78rem; color: #71828b; }
+.artifact-export-state.is-ready { color: #247a5a; }
+.artifact-export-state.is-failed { color: #b44949; }
+.artifact-export-state.is-exporting, .artifact-export-state.is-queued { color: #a3691d; }
+@media (max-width: 720px) { .artifact-export-options { grid-template-columns: 1fr; } }
+
+/* 统一产物中心 */
+.artifact-list-toolbar{display:flex;align-items:center;gap:12px;margin:18px 0;padding:12px;border:1px solid var(--am-line);border-radius:12px;background:#fff}
+.artifact-filter-tabs{display:flex;flex:1;gap:5px;overflow:auto}.artifact-filter-tabs button{flex:none;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:#64748b;font:inherit;font-size:.78rem;cursor:pointer}.artifact-filter-tabs button.active{background:#eaf2f6;color:#285c78;font-weight:750}
+.artifact-search{min-width:260px}.artifact-search input,.artifact-list-toolbar select{width:100%;min-height:38px;box-sizing:border-box;border:1px solid #d5e0e6;border-radius:8px;padding:0 11px;background:#fff;color:#273d4a;font:inherit;font-size:.8rem}.artifact-list-toolbar select{width:120px}
+.artifact-card-context{display:flex;flex-wrap:wrap;gap:6px}.artifact-card-context span{padding:4px 7px;border-radius:6px;background:#f1f5f7;color:#617583;font-size:.7rem}
+.artifact-card dl{grid-template-columns:repeat(2,minmax(0,1fr))}.artifact-card dd.is-ready{color:#217459}.artifact-card dd.is-failed{color:#b44949}.artifact-card dd.is-queued,.artifact-card dd.is-exporting{color:#9a671e}
+.artifact-card-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}.artifact-card-actions a,.artifact-card-actions button{display:inline-flex;align-items:center;min-height:31px;padding:0 9px;border:1px solid #d4e0e6;border-radius:7px;background:#fff;color:#315b74;text-decoration:none;font:inherit;font-size:.72rem;font-weight:650;cursor:pointer}.artifact-card-actions .danger{color:#a9433e}
+.artifact-requirements,.artifact-notices{padding:18px;border:1px solid var(--am-line);border-radius:var(--am-radius-lg);background:#fff}.artifact-requirements h2,.artifact-notices h3{margin:0 0 7px;font-size:.95rem}.artifact-requirements p,.artifact-notices p{margin:0;color:#64748b;line-height:1.65;font-size:.82rem}
+.artifact-notices{display:grid;grid-template-columns:1fr 1fr;gap:18px}.artifact-notices>div+div{border-left:1px solid var(--am-line);padding-left:18px}
+.artifact-export-options article.is-highlighted{border-color:#2f6d8c;box-shadow:0 0 0 3px rgba(47,109,140,.11)}
+@media(max-width:900px){.artifact-list-toolbar{align-items:stretch;flex-wrap:wrap}.artifact-filter-tabs{flex-basis:100%}.artifact-search{flex:1;min-width:180px}}
+@media(max-width:720px){.artifact-list-toolbar{flex-direction:column}.artifact-list-toolbar select{width:100%}.artifact-notices{grid-template-columns:1fr}.artifact-notices>div+div{border-left:0;border-top:1px solid var(--am-line);padding:14px 0 0}.artifact-card-actions>*{flex:1;justify-content:center;white-space:nowrap}}
+
+/* 智能体广场最终信息层级与响应式 */
+.agent-market-toolbar{border:1px solid #e3e9ef;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.04)}
+.agent-market-toolbar form{grid-template-columns:minmax(240px,1fr) auto auto auto}.agent-market-toolbar input{min-height:42px;border-radius:8px;box-sizing:border-box}.agent-market-toolbar .agent-search-btn,.agent-market-toolbar .complex-btn-secondary,.agent-search-clear{min-height:42px;padding:0 15px;border:1px solid #d4dee7;border-radius:8px;background:#fff;color:#315b74;font:inherit;font-size:.82rem;font-weight:700;cursor:pointer}.agent-market-toolbar .agent-search-btn{border-color:#315f7a;background:#315f7a;color:#fff}.agent-search-clear[hidden]{display:none}
+.agent-filter-summary{min-height:32px}.agent-filter-summary button,.agent-filter-summary em{border-radius:7px}.agent-inline-sort{display:flex;align-items:center;gap:6px;margin-left:auto;color:#64748b}.agent-inline-sort select{min-height:32px;border:1px solid #d9e2e9;border-radius:7px;background:#fff;color:#425767}
+.agent-market-workbench{align-items:start}.agent-hot-ranking{position:sticky;top:18px}
+.agent-market-card{min-height:345px;gap:11px;padding:19px;border-radius:13px;box-shadow:0 4px 16px rgba(15,23,42,.045)}.agent-market-card:hover{transform:translateY(-2px);box-shadow:0 11px 26px rgba(15,23,42,.09)}.agent-market-card::before{display:none}
+.agent-card-avatar{flex-basis:44px;width:44px;height:44px;border-radius:11px;background:#356b88;box-shadow:none}.agent-card-head{gap:11px}.agent-card-head h3{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.agent-card-head>.agent-more-trigger{flex:none;min-width:34px;padding:6px 7px;border-radius:7px;letter-spacing:.08em}
+.agent-card-identity{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.agent-card-identity span{padding:2px 6px;border-radius:5px;background:#edf3f6;color:#45697d;font-size:.64rem;font-weight:700}
+.agent-card-description{min-height:58px;-webkit-line-clamp:3}.agent-card-tags{min-height:48px;align-content:flex-start}.agent-card-tags span,.agent-card-tags span:nth-child(n){padding:3px 7px;border-radius:5px;background:#f0f4f6;color:#526c7b;font-size:.69rem}
+.agent-card-capability-state{display:flex;gap:6px;flex-wrap:wrap;padding:8px 0;border-top:1px solid #edf1f4;border-bottom:1px solid #edf1f4}.agent-card-capability-state span{padding:3px 7px;border-radius:5px;background:#f7f9fa;color:#5e7582;font-size:.68rem}.agent-card-capability-state span:first-child{color:#276c62;background:#edf7f4}
+.agent-card-stats{gap:9px;font-size:.7rem}.agent-card-actions{flex-wrap:nowrap;gap:6px}.agent-card-actions .complex-btn{flex:1;min-height:36px;padding:0 11px;background:#315f7a;border-color:#315f7a}.agent-card-actions .complex-btn-secondary{min-height:36px;padding:0 10px;white-space:nowrap}.agent-card-actions .agent-favorite-btn{min-height:36px;padding:0 9px;border:1px solid #d8e1e7;border-radius:8px;background:#fff;color:#64748b;font-size:.75rem;white-space:nowrap}.agent-card-actions .agent-favorite-btn:hover,.agent-card-actions .agent-favorite-btn.active{transform:none;color:#9b6a19;background:#fff9ec}
+.agent-card-menu-portal{max-width:calc(100vw - 24px);overflow:auto}.agent-card-menu-portal button{cursor:pointer}
+@media(max-width:1279px){.agent-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.agent-market-workbench{grid-template-columns:minmax(0,1fr) 220px!important}}
+@media(max-width:900px){.agent-market-workbench{grid-template-columns:1fr!important;grid-template-areas:"ranking" "results"!important}.agent-hot-ranking{position:static}.agent-market-toolbar form{grid-template-columns:1fr auto auto}.agent-market-toolbar input{grid-column:1/-1}.agent-inline-sort{width:100%;margin-left:0;justify-content:flex-end}}
+@media(max-width:767px){.agent-card-grid{grid-template-columns:1fr!important}.agent-market-toolbar form{grid-template-columns:1fr 1fr}.agent-search-clear{position:static;min-height:40px;margin:0}.agent-filter-summary{align-items:flex-start}.agent-inline-sort{justify-content:space-between}.agent-inline-sort select{flex:1}.agent-card-actions{flex-wrap:wrap}.agent-card-actions .complex-btn{flex-basis:100%}}

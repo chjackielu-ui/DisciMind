@@ -5,7 +5,7 @@ const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { operationKey } = require('../async-task/async-task.service');
 
 const FIELD_PRIORITY = ['artifactType', 'courseKey', 'knowledgePointKeys', 'difficulty', 'questionCount', 'includeAnswers', 'includeAnalysis'];
-const PUBLIC_FIELDS = ['artifactType', 'courseKey', 'knowledgePointKeys', 'title', 'difficulty', 'questionCount', 'includeAnswers', 'includeAnalysis', 'outputFormat', 'generationStyle', 'specialRequirements'];
+const PUBLIC_FIELDS = ['artifactType', 'courseKey', 'knowledgePointKeys', 'title', 'difficulty', 'questionCount', 'includeAnswers', 'includeAnalysis', 'outputFormat', 'outputFormats', 'generationStyle', 'specialRequirements'];
 
 function safeKey(prefix, ...parts) {
   return `${prefix}_${crypto.createHash('sha256').update(parts.join(':')).digest('hex').slice(0, 12)}`;
@@ -68,7 +68,11 @@ function normalizePatch(raw) {
   const patch = {};
   for (const field of PUBLIC_FIELDS) if (raw?.[field] !== undefined) patch[field] = raw[field];
   if (patch.questionCount !== undefined) assert(Number.isInteger(Number(patch.questionCount)) && Number(patch.questionCount) <= 50 && Number(patch.questionCount) > 0, '题目数量必须为 1～50');
-  if (patch.outputFormat !== undefined) assert(patch.outputFormat === 'DOCX', '当前仅支持 DOCX');
+  if (patch.outputFormat !== undefined) assert(['DOCX', 'PDF'].includes(patch.outputFormat), '不支持的输出格式');
+  if (patch.outputFormats !== undefined) {
+    assert(Array.isArray(patch.outputFormats) && patch.outputFormats.length > 0 && patch.outputFormats.every(item => ['DOCX', 'PDF'].includes(item)), '不支持的输出格式');
+    patch.outputFormats = [...new Set(patch.outputFormats)];
+  }
   return patch;
 }
 
@@ -82,7 +86,8 @@ async function resolveAndPersist(userId, conversation, patch, { explicit = false
     next[field] = value;
     if (explicit) confirmed.add(field);
   }
-  next.outputFormat ||= 'DOCX';
+  next.outputFormats ||= next.outputFormat ? [next.outputFormat] : ['DOCX'];
+  next.outputFormat = next.outputFormats[0];
   if (next.courseKey) {
     const course = candidates.courseMap.get(next.courseKey); assert(course, '非法或无权限的 courseKey', 40301, 403);
     next.courseId = course.course_id; next.courseName = course.course_name;
@@ -104,7 +109,49 @@ function serializeDraft(draft, status) {
   const safe = {}; for (const field of PUBLIC_FIELDS) if (draft[field] !== undefined) safe[field] = draft[field];
   safe.courseName = draft.courseName || null; safe.knowledgePointNames = draft.knowledgePointNames || [];
   safe.missingFields = draft.missingFields || missingFields(draft); safe.questions = buildQuestions(safe.missingFields);
+  if (draft.learningFlowPrefill) safe.learningFlowPrefill = draft.learningFlowPrefill;
   safe.readyForConfirmation = Boolean(draft.readyForConfirmation); safe.status = status; return safe;
+}
+
+async function prefillRequirements(userId, conversationId, input) {
+  const conversation = await loadConversation(userId, conversationId);
+  const active = await prisma.studentLearningContext.findFirst({ where: { userId: Number(userId), isActive: true } });
+  if (!input.courseId || !input.knowledgePointId) {
+    assert(active, '请先设置当前学习上下文', 40901, 409);
+    input = { ...input, courseId: input.courseId || active.courseId, knowledgePointId: input.knowledgePointId || active.knowledgePointId, learningGoalId: input.learningGoalId || active.learningGoalId, workflowTemplateId: input.workflowTemplateId || active.workflowTemplateId };
+  }
+  const matchingContext = active && active.courseId === Number(input.courseId) && active.knowledgePointId === Number(input.knowledgePointId)
+    && (!input.learningGoalId || active.learningGoalId === Number(input.learningGoalId))
+    && (!input.workflowTemplateId || active.workflowTemplateId === Number(input.workflowTemplateId)) ? active : null;
+  if (input.contextHash) assert(matchingContext?.contextHash === input.contextHash, '学习计划已变化，请刷新后重试', 40901, 409);
+  const candidates = await accessibleCandidates(userId);
+  const courseEntry = [...candidates.courseMap.entries()].find(([, course]) => Number(course.course_id) === Number(input.courseId));
+  const pointEntry = [...candidates.knowledgeMap.entries()].find(([, point]) => Number(point.knowledge_point_id) === Number(input.knowledgePointId));
+  assert(courseEntry, '所选课程不可用', 40301, 403);
+  assert(pointEntry && Number(pointEntry[1].course_id) === Number(input.courseId), '知识点不属于所选课程', 40001, 400);
+  const learningResources = require('../learning-flow-resource/learning-flow-resource.service');
+  await learningResources.validateTargets(Number(userId), input);
+  await resolveAndPersist(userId, conversation, {
+    artifactType: 'STUDY_HANDOUT', courseKey: courseEntry[0], knowledgePointKeys: [pointEntry[0]],
+    title: `${pointEntry[1].knowledge_point_name}课前讲义`, outputFormats: ['DOCX', 'PDF'],
+    difficulty: 'INTERMEDIATE', generationStyle: '结构清晰、适合课前预习',
+    specialRequirements: '围绕当前学习目标生成课前讲义，不泄露练习答案。',
+  }, { explicit: true });
+  const current = await prisma.marketplaceAgentConversation.findUnique({ where: { id: conversation.id } });
+  const learningFlowPrefill = {
+    courseId: Number(input.courseId), knowledgePointId: Number(input.knowledgePointId),
+    learningGoalId: input.learningGoalId || null, workflowTemplateId: input.workflowTemplateId || null,
+    learningSessionId: input.learningSessionId || null, resourceRole: 'PRE_CLASS_HANDOUT',
+    targetMastery: matchingContext?.targetMastery || input.targetMastery || null,
+    learningPreference: matchingContext?.learningPreferenceJson || input.learningPreference || {},
+    studentMastery: matchingContext?.contextSnapshotJson?.mastery || null,
+    weakKnowledgePoints: matchingContext?.contextSnapshotJson?.weakKnowledgePoints || [],
+    linkedResourceCount: matchingContext?.contextSnapshotJson?.linkedResourceCount || 0,
+    contextHash: matchingContext?.contextHash || null,
+  };
+  const draft = { ...(current.requirementDraftJson || {}), learningFlowPrefill };
+  await prisma.marketplaceAgentConversation.update({ where: { id: conversation.id }, data: { requirementDraftJson: draft } });
+  return serializeDraft(draft, current.requirementStatus);
 }
 
 async function patchRequirements(userId, conversationId, patch) {
@@ -151,7 +198,7 @@ async function confirmRequirements(userId, conversationId, operationId) {
   if (existing) return serializeConfirmation(existing, existing.task);
   const draft = conversation.requirementDraftJson || {};
   assert(conversation.requirementStatus === 'READY_TO_CONFIRM' && draft.readyForConfirmation, '需求尚未确认完整', 40901, 409);
-  assert(draft.outputFormat === 'DOCX', '当前仅支持 DOCX');
+  assert(Array.isArray(draft.outputFormats) && draft.outputFormats.length > 0, '请至少选择一种输出格式');
   const activeCount = await prisma.asyncTask.count({ where: { userId, taskType: 'FILE_GENERATION', status: { in: ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'] } } });
   assert(activeCount < Number(process.env.FILE_GENERATION_MAX_ACTIVE_PER_USER || 2), '当前文件生成任务已达并发上限', 40902, 409);
   try {
@@ -160,13 +207,13 @@ async function confirmRequirements(userId, conversationId, operationId) {
         ownerUserId: userId, agentId: conversation.agentId, conversationId: conversation.id, operationId,
         artifactType: draft.artifactType, title: draft.title || `${draft.courseName || '学习'}${draft.artifactType === 'EXAM_PAPER' ? '试卷' : '讲义'}`,
         courseId: draft.courseId || null, knowledgePointIdsJson: draft.knowledgePointIds || [], requirementsJson: draft,
-        fileFormat: 'DOCX', status: 'GENERATING',
+        fileFormat: draft.outputFormats[0], status: 'GENERATING',
       } });
       const task = await tx.asyncTask.create({ data: {
         userId, operationId: operationKey('FILE_GENERATION', operationId), taskType: 'FILE_GENERATION', title: artifact.title,
         description: '生成结构化教育文件内容', status: 'QUEUED', stage: '正在分析需求', progressMode: 'DETERMINATE', progress: 0,
         relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: String(artifact.id), resultType: 'ARTIFACT', resultId: String(artifact.id),
-        resultUrl: `#/student/generated-artifacts/${artifact.id}`, cancellable: false, maxAttempts: 3,
+        resultUrl: `#/student/artifacts/${artifact.id}`, cancellable: false, maxAttempts: 3,
         metadataJson: { conversationId: conversation.id, artifactId: artifact.id }, nextRunAt: new Date(),
       } });
       const linked = await tx.generatedArtifact.update({ where: { id: artifact.id }, data: { taskId: task.id } });
@@ -182,4 +229,4 @@ async function confirmRequirements(userId, conversationId, operationId) {
   }
 }
 
-module.exports = { FIELD_PRIORITY, safeKey, hasDatabaseIdInjection, missingFields, buildQuestions, accessibleCandidates, normalizePatch, patchRequirements, planRequirements, getRequirements, confirmRequirements, loadConversation };
+module.exports = { FIELD_PRIORITY, safeKey, hasDatabaseIdInjection, missingFields, buildQuestions, accessibleCandidates, normalizePatch, patchRequirements, prefillRequirements, planRequirements, getRequirements, confirmRequirements, loadConversation };

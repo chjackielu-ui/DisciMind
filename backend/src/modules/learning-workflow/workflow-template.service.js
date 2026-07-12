@@ -102,7 +102,7 @@ async function isKnowledgeBaseEnabled(courseId) {
   return Boolean(await prisma.knowledgeBase.findFirst({ where: { course_id: Number(courseId), status: 'active' } }));
 }
 
-async function listTemplates({ userId, source, search, page, pageSize } = {}) {
+async function listTemplates({ userId, courseId, knowledgePointId, learningGoalId, source, search, page, pageSize } = {}) {
   const sourceType = normaliseSource(source);
   const enrolled = await prisma.studentCourseEnrollment.findMany({
     where: { student_user_id: Number(userId), enrollment_status: 'active' },
@@ -127,6 +127,20 @@ async function listTemplates({ userId, source, search, page, pageSize } = {}) {
       ],
     }];
   }
+  const normalizedCourseId = asPositiveInt(courseId, '课程');
+  const normalizedPointId = asPositiveInt(knowledgePointId, '知识点');
+  if (normalizedPointId && !normalizedCourseId) throw createAgentError('INVALID_INPUT', '筛选知识点时必须同时提供课程', 400);
+  let goal = null;
+  if (learningGoalId) {
+    goal = await prisma.learningGoal.findUnique({ where: { goal_id: asPositiveInt(learningGoalId, '学习目标') } });
+    if (!goal || goal.student_user_id !== Number(userId)) throw createAgentError('GOAL_NOT_FOUND', '学习目标不存在', 404);
+    const relatedIds = Array.isArray(goal.related_knowledge_points) ? goal.related_knowledge_points.map(item => Number(item?.knowledgePointId)) : [];
+    if ((normalizedCourseId && goal.course_id !== normalizedCourseId) || (normalizedPointId && goal.primary_knowledge_point_id && goal.primary_knowledge_point_id !== normalizedPointId && !relatedIds.includes(normalizedPointId))) {
+      throw createAgentError('GOAL_SCOPE_CONFLICT', '学习目标与当前范围冲突', 409);
+    }
+  }
+  if (normalizedCourseId) where.AND = [...(where.AND || []), { OR: [{ course_id: null }, { course_id: normalizedCourseId }] }];
+  if (normalizedPointId) where.AND = [...(where.AND || []), { OR: [{ knowledge_point_id: null }, { knowledge_point_id: normalizedPointId }] }];
 
   const safePage = Math.max(1, Number(page) || 1);
   const safePageSize = Math.min(48, Math.max(1, Number(pageSize) || 24));
@@ -139,7 +153,7 @@ async function listTemplates({ userId, source, search, page, pageSize } = {}) {
         course: { select: { course_id: true, course_name: true } },
         knowledge_point: { select: { knowledge_point_id: true, knowledge_point_name: true } },
       },
-      orderBy: [{ updated_at: 'desc' }],
+      orderBy: [{ is_default: 'desc' }, { updated_at: 'desc' }],
       skip: (safePage - 1) * safePageSize,
       take: safePageSize,
     }),
@@ -163,6 +177,17 @@ async function listTemplates({ userId, source, search, page, pageSize } = {}) {
     if (row.status === 'COMPLETED') record.completion_count += row._count._all;
     usageByTemplate.set(row.workflow_template_id, record);
   });
+  const currentContext = prisma.studentLearningContext ? await prisma.studentLearningContext.findFirst({ where: { userId: Number(userId), isActive: true } }) : null;
+  const preloadRows = templateIds.length && prisma.learningFlowPreload
+    ? await prisma.learningFlowPreload.findMany({
+      where: { userId: Number(userId), workflowTemplateId: { in: templateIds }, deletedAt: null },
+      orderBy: { updatedAt: 'desc' },
+    }) : [];
+  const preloadByTemplate = new Map();
+  preloadRows.forEach((item) => {
+    if (currentContext && item.workflowTemplateId === currentContext.workflowTemplateId && item.learningGoalId !== currentContext.learningGoalId) return;
+    if (!preloadByTemplate.has(item.workflowTemplateId)) preloadByTemplate.set(item.workflowTemplateId, item);
+  });
   const counts = { all: allVisible.length, system: 0, mine: 0, teacher: 0 };
   allVisible.forEach((item) => {
     if (item.source_type === 'SYSTEM') counts.system += 1;
@@ -177,7 +202,29 @@ async function listTemplates({ userId, source, search, page, pageSize } = {}) {
       ...(usageByTemplate.get(template.template_id) || { usage_count: 0, completion_count: 0 }),
       can_edit: template.owner_user_id === Number(userId) && !['SYSTEM', 'TEACHER'].includes(template.source_type),
       can_delete: template.owner_user_id === Number(userId) && !['SYSTEM', 'TEACHER'].includes(template.source_type),
-    })),
+      recommendationRank: goal?.workflow_template_id === template.template_id ? 100
+        : template.is_default ? 90
+          : template.source_type === 'TEACHER' ? 80
+            : template.source_type === 'SYSTEM' ? 70
+              : template.owner_user_id === Number(userId) ? 60 : 0,
+      recommendationReason: goal?.workflow_template_id === template.template_id ? '学习目标已匹配'
+        : template.is_default ? '课程默认'
+          : template.source_type === 'TEACHER' ? '教师推荐'
+            : template.source_type === 'SYSTEM' ? '系统推荐' : '我的模板',
+      ...(() => {
+        const preload = preloadByTemplate.get(template.template_id);
+        const expired = preload && new Date(preload.expiresAt).getTime() <= Date.now();
+        return {
+          preloadId: preload?.id || null,
+          preloadStatus: expired ? 'EXPIRED' : (preload?.status || 'NOT_STARTED'),
+          preloadReady: Boolean(preload && !expired && ['PARTIAL', 'READY'].includes(preload.status)),
+          preloadProgress: expired ? 0 : (preload?.progress || 0),
+          preloadStage: expired ? '准备内容已过期' : (preload?.stage || null),
+          preloadExpiresAt: preload?.expiresAt || null,
+          preloadLearningGoalId: preload?.learningGoalId || null,
+        };
+      })(),
+    })).sort((a, b) => b.recommendationRank - a.recommendationRank || new Date(b.updated_at) - new Date(a.updated_at)),
     counts,
     pagination: { page: safePage, pageSize: safePageSize, total, totalPages: Math.ceil(total / safePageSize) },
   };

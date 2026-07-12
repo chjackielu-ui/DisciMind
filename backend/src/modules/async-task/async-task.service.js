@@ -4,7 +4,7 @@ const prisma = require('../../config/prisma');
 const ACTIVE_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
 const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
 const CANCELLABLE_STATUSES = ['RUNNING'];
-const TASK_TYPES = ['KNOWLEDGE_INDEXING', 'FILE_GENERATION', 'DOCUMENT_EXPORT', 'LEARNING_FLOW_PRELOAD', 'VOICE_PRELOAD'];
+const TASK_TYPES = ['KNOWLEDGE_INDEXING', 'FILE_GENERATION', 'DOCUMENT_EXPORT', 'ARTIFACT_CLEANUP', 'LEARNING_FLOW_PRELOAD', 'VOICE_PRELOAD'];
 const PROGRESS_MODES = ['DETERMINATE', 'INDETERMINATE', 'STAGE_ONLY'];
 
 function taskError(message, code = 40001, status = 400) {
@@ -27,6 +27,7 @@ function normalizeProgress(progressMode, progress) {
 const RESULT_URL_PATTERNS = [
   /^#\/student\/agents(?:\/knowledge|\/\d+(?:\/.*)?)?$/,
   /^#\/student\/generated-artifacts(?:\/\d+)?(?:\?.*)?$/,
+  /^#\/student\/artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/learning-flows(?:\?.*)?$/,
   /^#\/student\/learning\/session\/\d+$/,
 ];
@@ -92,6 +93,14 @@ async function assertResultAccess(userId, task) {
     if (!owned) throw taskError('任务结果不存在或无权访问', 40301, 403);
     return;
   }
+  if (task.resultType === 'LEARNING_FLOW_PRELOAD' && prisma.learningFlowPreload) {
+    const owned = await prisma.learningFlowPreload.findFirst({
+      where: { id: Number(task.resultId), userId: Number(userId), deletedAt: null },
+      select: { id: true },
+    });
+    if (!owned) throw taskError('任务结果不存在或无权访问', 40301, 403);
+    return;
+  }
   throw taskError('任务结果类型不受支持', 40001, 400);
 }
 
@@ -106,30 +115,37 @@ async function createTask(userId, input) {
   const now = new Date();
   const safeResultUrl = sanitizeResultUrl(input.resultUrl);
   if (safeResultUrl) await assertResultAccess(userId, { resultUrl: safeResultUrl, resultType: input.resultType, resultId: input.resultId });
-  const task = await prisma.asyncTask.create({ data: {
-    userId,
-    operationId: key,
-    taskType: input.taskType,
-    title: String(input.title || '后台任务').slice(0, 200),
-    description: input.description || null,
-    status,
-    stage: input.stage || null,
-    progressMode,
-    progress: normalizeProgress(progressMode, input.progress),
-    relatedResourceType: input.relatedResourceType || null,
-    relatedResourceId: input.relatedResourceId == null ? null : String(input.relatedResourceId),
-    resultType: input.resultType || null,
-    resultId: input.resultId == null ? null : String(input.resultId),
-    resultUrl: safeResultUrl,
-    cancellable: Boolean(input.cancellable),
-    requiresUserAction: Boolean(input.requiresUserAction),
-    maxAttempts: Math.max(1, Math.min(10, Number(input.maxAttempts || 3))),
-    metadataJson: input.metadataJson || null,
-    nextRunAt: input.nextRunAt ? new Date(input.nextRunAt) : now,
-    startedAt: ['RUNNING', 'WAITING_EXTERNAL'].includes(status) ? now : null,
-    completedAt: TERMINAL_STATUSES.includes(status) ? now : null,
-  } });
-  return serialize(task);
+  try {
+    const task = await prisma.asyncTask.create({ data: {
+      userId,
+      operationId: key,
+      taskType: input.taskType,
+      title: String(input.title || '后台任务').slice(0, 200),
+      description: input.description || null,
+      status,
+      stage: input.stage || null,
+      progressMode,
+      progress: normalizeProgress(progressMode, input.progress),
+      relatedResourceType: input.relatedResourceType || null,
+      relatedResourceId: input.relatedResourceId == null ? null : String(input.relatedResourceId),
+      resultType: input.resultType || null,
+      resultId: input.resultId == null ? null : String(input.resultId),
+      resultUrl: safeResultUrl,
+      cancellable: Boolean(input.cancellable),
+      requiresUserAction: Boolean(input.requiresUserAction),
+      maxAttempts: Math.max(1, Math.min(10, Number(input.maxAttempts || 3))),
+      metadataJson: input.metadataJson || null,
+      nextRunAt: input.nextRunAt ? new Date(input.nextRunAt) : now,
+      startedAt: ['RUNNING', 'WAITING_EXTERNAL'].includes(status) ? now : null,
+      completedAt: TERMINAL_STATUSES.includes(status) ? now : null,
+    } });
+    return serialize(task);
+  } catch (error) {
+    if (error.code !== 'P2002') throw error;
+    const raced = await prisma.asyncTask.findUnique({ where: { userId_operationId: { userId, operationId: key } } });
+    if (!raced) throw error;
+    return serialize(raced);
+  }
 }
 
 async function listTasks(userId, query = {}, activeOnly = false) {
@@ -209,8 +225,18 @@ async function dismissTask(userId, id) {
   return serialize(await prisma.asyncTask.update({ where: { id: task.id }, data: { dismissedAt: new Date() } }));
 }
 
+async function dismissTerminalTasks(userId, statuses = TERMINAL_STATUSES) {
+  const selected = [...new Set(statuses)].filter(status => TERMINAL_STATUSES.includes(status));
+  if (!selected.length) throw taskError('至少选择一种终态任务');
+  const result = await prisma.asyncTask.updateMany({
+    where: { userId: Number(userId), status: { in: selected }, dismissedAt: null },
+    data: { dismissedAt: new Date() },
+  });
+  return { dismissedCount: result.count };
+}
+
 module.exports = {
   ACTIVE_STATUSES, TERMINAL_STATUSES, CANCELLABLE_STATUSES, TASK_TYPES, PROGRESS_MODES,
   operationKey, sanitizeResultUrl, sanitizeErrorMessage, serialize,
-  createTask, listTasks, getTask, updateTask, updateRelatedTask, cancelTask, dismissTask,
+  createTask, listTasks, getTask, updateTask, updateRelatedTask, cancelTask, dismissTask, dismissTerminalTasks,
 };

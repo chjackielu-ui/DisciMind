@@ -154,4 +154,12 @@ router.get(
   studentController.getPortrait,
 );
 
+// 学生画像 PDF 报告数据聚合接口
+router.get(
+  '/portrait/report',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.getPortraitReport,
+);
+
 module.exports = router;

@@ -449,6 +449,7 @@
 .student-sidebar.collapsed .sidebar-menu-arrow {
   display: none;
 }
+.sidebar-menu-arrow svg,.sub-nav-arrow svg{width:15px;height:15px;display:block}.sub-nav-item{display:flex;align-items:center;justify-content:space-between;gap:12px}.sub-nav-arrow{opacity:.5;display:inline-flex}
 
 /* 二级导航面板 */
 .sub-nav-panel {

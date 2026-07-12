@@ -288,7 +288,7 @@ async function generateHandout(artifact, modelCall, taskId, retrieval = { record
   });
 }
 
-async function generateArtifact(artifactId, { modelCall = bailianModelCall, taskId } = {}) {
+async function generateArtifact(artifactId, { modelCall = bailianModelCall, taskId, queueDefaultExport = true } = {}) {
   const artifact = await prisma.generatedArtifact.findUnique({ where: { id: Number(artifactId) } });
   if (!artifact) throw contentError('Artifact 不存在', 'ARTIFACT_NOT_FOUND', { permanent: true });
   if (artifact.contentSchemaJson && ['CONTENT_READY', 'EXPORTING', 'READY'].includes(artifact.status)) return artifact;
@@ -320,7 +320,7 @@ async function generateArtifact(artifactId, { modelCall = bailianModelCall, task
       where: { id: artifact.id },
       data: { contentSchemaJson: content, previewHtml, status: 'CONTENT_READY', errorCode: null },
     });
-    await tasks.createTask(artifact.ownerUserId, {
+    if (queueDefaultExport) await tasks.createTask(artifact.ownerUserId, {
       operationId: `artifact-export-${artifact.id}`,
       taskType: 'DOCUMENT_EXPORT',
       title: `导出 ${artifact.title}`,
@@ -333,13 +333,13 @@ async function generateArtifact(artifactId, { modelCall = bailianModelCall, task
       relatedResourceId: artifact.id,
       resultType: 'ARTIFACT',
       resultId: artifact.id,
-      resultUrl: `#/student/generated-artifacts/${artifact.id}`,
+      resultUrl: `#/student/artifacts/${artifact.id}`,
       cancellable: false,
       metadataJson: { artifactId: artifact.id },
     });
     if (effectiveTaskId) await tasks.updateTask(effectiveTaskId, {
       status: 'SUCCEEDED', progress: 100, stage: '内容生成完成', resultType: 'ARTIFACT',
-      resultId: artifact.id, resultUrl: `#/student/generated-artifacts/${artifact.id}`,
+      resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}`,
     });
     return updated;
   } catch (error) {

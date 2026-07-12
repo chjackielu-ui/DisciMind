@@ -250,6 +250,13 @@ function getDefaultBailianModel(options = {}) {
  * @returns {Promise<{content: string, usage: Object}>}
  */
 async function bailianModelCall(messages, options = {}) {
+  // Optional learning-preload cache. Any lookup/validation error is a soft miss.
+  try {
+    const cached = await require('../../learning-flow-preload/learning-flow-preload-model.adapter').cachedModelResponse(messages, options);
+    if (cached) return cached;
+  } catch {
+    // Preserve the original model path exactly when preload is absent or unavailable.
+  }
   const {
     signal,
     timeout,

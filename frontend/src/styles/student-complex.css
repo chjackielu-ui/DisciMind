@@ -13,6 +13,11 @@
   --complex-radius: 8px;
 }
 
+/* Learning-flow resources and preparation are peripheral panels; they do not alter the workflow canvas. */
+.lf-resource-panel{margin:18px 0;padding:20px;border:1px solid #dce6ef;border-radius:18px;background:#fff;box-shadow:0 12px 30px rgba(15,23,42,.05)}
+.lf-resource-panel>header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:16px}.lf-resource-panel h2{margin:2px 0 4px;color:#172033}.lf-resource-panel p{margin:0;color:#64748b}.lf-resource-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.lf-resource-card{display:grid;gap:10px;padding:15px;border:1px solid #e3eaf2;border-radius:14px;background:#fbfdff}.lf-resource-card>div,.lf-resource-card footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.lf-resource-card h3,.lf-resource-card p{margin:0}.lf-resource-card h3{font-size:1rem;color:#1e293b}.lf-resource-card p{font-size:.83rem}.lf-preload-state{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding:9px 10px;border-radius:10px;background:#f5f7fa;color:#64748b;font-size:.76rem}.lf-preload-state b{color:#334155}.lf-preload-state .lf-button{margin-left:auto}.lf-preload-state.is-ready{background:#eaf8ef;color:#18794e}.lf-preload-state.is-partial{background:#fff7e6;color:#9a6700}.lf-preload-state.is-failed{background:#fff0f0;color:#b42318}
+@media(max-width:720px){.lf-resource-panel>header{align-items:stretch;flex-direction:column}.lf-resource-grid{grid-template-columns:1fr}.lf-preload-state .lf-button{width:100%;margin-left:0}.lf-card-actions{width:100%;flex-wrap:wrap}}
+
 .complex-shell {
   display: flex;
   flex-direction: column;

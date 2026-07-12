@@ -2,6 +2,69 @@
 
 > 本文件用于任务中断恢复。每完成一个阶段或出现阻塞时更新。
 
+## 2026-07-12 最后闭环阶段 1：学习目标与准备（完成）
+
+- 精确复现并修复 `StudentLearningContext` PUT 500：学情快照错误使用 `LearningFlowResourceLink.userId`，实际 Prisma 字段为 `ownerUserId`；空 GET 返回默认结构，首次保存继续使用 upsert，服务级保存/再读有效且 `contextHash` 为 64 位。
+- 上下文校验已细分为课程权限 403、非法知识点 400、目标不存在 404、目标/范围冲突 409、工作流不可见 403、工作流/范围冲突 409；JSON 写入先移除 `undefined`，统一错误日志保留 requestId，生产 500 响应不暴露 Prisma 堆栈或本机路径。
+- 学生导航已移除独立“当前学习上下文”；旧 `#/student/learning-context` 保留并重定向到 `#/student/learning-flows?panel=learning-plan`。
+- 学习流中心新增紧凑“学习目标与准备”摘要与三级向导：课程→课程内知识点、当前范围可用目标/自然语言创建、按范围/目标/可见性排序的工作流；课程或知识点变化会清空下游选择，高级配置默认折叠。
+- 学习准备、开始学习、课前讲义和智能推荐共享同一 `StudentLearningContext`；缺失时在当前页打开向导。讲义安全预填包含目标掌握度、学习偏好、学生掌握度、薄弱点、已绑定资料数与服务端 contextHash。
+- `StudentLearningContext.contextHash` 已纳入 preload 的学生上下文哈希；目标或偏好变化会让旧 preload 失效。学习流 LangGraph 核心、runtime、checkpoint、execution protocol、节点推进和会话状态机未修改。
+- 按要求只执行一次最小 HTTP smoke；该次成功验证 GET 空结构并暴露 PUT 的真实字段错误，修复后未重复整套 smoke，改用服务级 PUT→GET 确认保存、读取、快照和哈希均成功。
+
+## 2026-07-12 最后闭环阶段 2：DOCX/PDF 导出闭环（完成）
+
+- Artifact 内容状态与 DOCX/PDF Export 状态已解耦；每格式独立进入 `EXPORTING/READY/FAILED`，Artifact 仅按“内容存在且至少一个 READY Export”汇总为 READY，单格式失败不会覆盖另一格式 READY。
+- 导出请求按 Artifact+format 查找并复用 READY 文件或活跃任务；FAILED/CANCELLED/缺文件场景重置同一格式任务。任务创建补充唯一键并发冲突回读，双击不会创建重复任务，也不会重新调用内容生成模型。
+- Worker 成功后写入格式状态、受保护 storagePath、fileSizeBytes、MIME、lastAccessedAt，并将任务置为 SUCCEEDED；失败只写当前格式安全错误并将对应任务置为 FAILED，Artifact 内容与其他格式保留。
+- 所有新文件生成/导出任务 resultUrl 已改为统一产物详情，并携带 `?format=DOCX|PDF` 高亮；旧生成文件任务 URL 仍在白名单中保持兼容。
+- 下载严格校验 owner、Export 属于 Artifact、READY、受保护目录、文件存在、数据库 MIME 与 DOCX/PDF 文件签名一致；下载后更新 Export 与 Artifact 最近访问时间，API 序列化不暴露 storagePath。
+
+## 2026-07-12 最后闭环阶段 3～4：产物中心与任务批量清理（完成）
+
+- 学生侧新增独立“产物”导航和 `#/student/artifacts` 列表/详情；原 `#/student/generated-artifacts` 及详情路由兼容跳转，不创建第二套 Artifact 数据或页面。
+- “我的产物”支持讲义/试卷/生成中/可下载/失败/已加入学习流筛选，按标题、课程、知识点、来源智能体搜索，并支持最近生成、最近访问、文件大小和标题排序。
+- 卡片显示来源智能体、课程、知识点、内容状态、DOCX/PDF 独立状态和学习流关联；提供预览、双格式下载/单格式重导、加入学习流、来源对话和删除。
+- 详情每次进入均重新请求 Artifact，包含生成要求、安全 iframe HTML 预览、来源智能体/会话、课程/知识点/学习目标、双格式 Export、学习流关联、时间、AI 声明和知识库来源说明；任务格式参数会高亮并只默认勾选失败格式。
+- “使用生成助手”进入智能体广场并固定 `agentType=FILE_GENERATOR`，页面显示“文件生成智能体”筛选标签，仍可继续用能力标签筛选讲义、试卷、DOCX、PDF 和知识库增强。
+- 新增 `POST /api/tasks/dismiss-terminal`，默认仅批量设置当前用户 SUCCEEDED/FAILED/CANCELLED 的 dismissedAt，幂等跳过已清除记录，不影响运行中任务或其他用户。
+- 任务中心仅在存在终态任务时显示“清除已结束任务”，带指定二次确认；成功后同步清理本地隐藏快照并立即刷新。导出任务文案与操作已改为“正在导出/已生成/导出失败”“查看产物/重新导出”。
+
+## 2026-07-12 最后闭环阶段 5：系统助手核验与智能体广场（完成）
+
+- 数据库只读核验：`system_study_handout_generator`、`system_exam_paper_generator` 均为系统内置 FILE_GENERATOR，Agent 状态/可见性为 PUBLIC，当前公开版本为 APPROVED，各绑定 3 个真实公开知识库。
+- 本轮唯一一次 Dify retrieve 成功：所用知识库 `marketplace_visibility=PUBLIC`、`marketplace_status=PUBLIC`、`status=active`、真实 Dataset 已配置；返回 1 个含正文片段。未再次调用 Dify，也未伪造 Dataset、READY、引用或检索结果。
+- 智能体广场卡片重排为头像/名称/系统与类型标识/Portal 更多菜单、三行简介、限量能力标签与 `+N`、知识库和导出能力、使用/评分/更新时间、统一主操作；CHAT 显示“立即对话”，FILE_GENERATOR 显示“生成文件”。
+- 搜索输入、清空、独立搜索按钮、带数量筛选按钮、可删除筛选标签、行内排序和筛选抽屉完成；桌面 3 列、中等 2 列、移动 1 列，热门榜保持 sticky 且中窄屏回到正常文档流。
+- 卡片等高、轻微 hover、统一低饱和配色与按钮层级已完成；更多菜单继续使用 body Portal，支持外部点击/Esc/滚动/resize/路由关闭、底部翻转和移动端宽度约束。
+
+## 2026-07-12 产品体验优化与系统助手补全（功能开发完成，待统一验收）
+
+- 当前功能阶段：本轮第一至第四阶段代码已完成，进入第五阶段统一代码审计、migration、构建、专项/全量测试和浏览器验收。
+- 智能体广场：顶部全文搜索与独立筛选抽屉、URL 状态、类型/分类/能力/模式/知识库/来源/评分/排序组合筛选、桌面三列、Body Portal 更多菜单、所有导航项 SVG 箭头完成。
+- 双格式导出：新增 `GeneratedArtifactExport`，同一结构化内容支持 DOCX/PDF 独立任务、READY 复用、失败重试、鉴权下载、物理文件清理与生成文件页双格式状态；Chromium PDF 使用禁网 CSP、临时目录、超时、大小/签名校验和原子落盘。
+- 系统助手：新增幂等 `学习讲义生成助手`、`考试试卷生成助手`，稳定 `systemKey`、公开 APPROVED 版本、受控配置与真实公开知识库只读绑定；无真实可用知识库时不伪造状态并允许通用模型降级。
+- 文件生成图：新增独立 LangGraph，包含学习上下文解析、规划、真实知识检索、提纲、分段生成、Schema 校验、受控修复、质量检查、预览、持久化、DOCX/PDF 排队和 finalize；不使用学习流 checkpoint。
+- 学习上下文：新增 `StudentLearningContext`、权限/一致性校验、学情安全快照、独立页面、导航入口；学习准备、LearningFlowPreload、quick-start、FILE_GENERATOR 安全预填、推荐入口、讲义生成、卡片准备状态和课前资料查询已统一读取后端上下文。
+- 新增 migration：`20260712100000_add_artifact_exports_learning_context_system_agents`，仅 ADD COLUMN/CREATE TABLE/CREATE INDEX/FOREIGN KEY；尚未应用，待统一 Prisma 安全检查通过后应用。
+- 当前错误：尚未进入统一测试阶段；既有 TTS `TTS_UPSTREAM_ERROR` 与 in-app Browser 初始化阻塞仍按基线记录，不阻碍功能代码。
+- 下一步：新增专项测试，执行一次新增文件语法/模块检查、Prisma format/validate/diff/deploy、前端 build、专项测试、全量测试、Seed 两次、单次外部探针和浏览器验收。
+- 学习流保护：未修改学习流 LangGraph 核心图、runtime、checkpoint、execution protocol、interrupt/resume、submit/skip/retry/continue、节点推进、会话状态机、错题/掌握度/画像回写；仅修改 quick-start 外层以可选读取上下文和可失败 preload 旁路。
+
+## 2026-07-12 阶段 6～10 最新接手结论
+
+- 当前阶段：阶段 6 功能实现完成，完整浏览器验收延后阶段 10；阶段 7、8、9 功能代码完成；阶段 10 自动化、数据库与真实 HTTP 验收完成，浏览器运行时和真实 TTS 探针仍有阻塞。
+- 阶段 7：`LearningFlowResourceLink`、确定性 `linkKey` 幂等、权限/目标一致性校验、加入/查询/解除关联、Artifact 409 删除保护、课前资料区、直接生成课前讲义安全预填、90 天清理服务与 AsyncTask Worker/受控调度完成。
+- 阶段 8：`LearningFlowPreload`、24 小时缓存与失效、基础 manifest、安全首节点白名单、非安全节点 PARTIAL、学习准备 API/卡片 DTO、quick-start 可选 `preloadId`、缓存软降级完成。
+- 阶段 9：复用现有 narration/TTS/音频缓存的 voice prewarm、完整语音逻辑键、READY/PARTIAL 汇总、下一确定安全节点 fire-and-record 旁路触发完成。
+- 前端：Artifact 详情加入学习流选择器、二次 HTML 消毒、文件缺失提示；学习流课前资料、生成课前讲义、学习准备状态/进度、任务中心文案与移动端布局完成。生产 build 909 modules 通过。
+- 新 migration：`20260712050000_add_learning_flow_resources_preloads`，已应用；当前 29 migrations，status 最新，schema diff empty。前 28 个 migration 未修改。
+- 测试：新增九组专项 16/16；后端全量 317/317；Prisma validate 通过；Seed 连续两次通过；真实 HTTP 验证资源/preload 列表、Artifact 43 READY/文件存在、storagePath 不暴露、跨用户 403、无 preload quick-start 原行为通过。
+- 外部服务：Dify 单次探针成功；qwen3.7-plus 单次探针成功；TTS 单次探针失败 `TTS_UPSTREAM_ERROR`，未按规则重复调用，代码会降级为 PARTIAL。
+- 当前错误：Codex in-app Browser 插件两次在初始化阶段报 Windows 路径错误，未能执行 Console/Network/移动端可视化验收；不得以其他浏览器框架绕过技能约束。
+- 下一步：修复/恢复 Browser 插件后集中做 Artifact、资源关联、讲义生成入口、学习准备 READY/PARTIAL/FAILED、缓存命中和移动端浏览器验收；TTS 上游恢复后只复验一次。无需重跑阶段 6 真实生成。
+- 学习流保护：未修改 LangGraph 核心图、workflow runtime、checkpoint、execution protocol、interrupt/resume、submit/skip/retry/continue、节点推进规则或学习会话状态机。仅在外层 Controller 成功路径、模板 DTO 和百炼适配层增加可失败旁路；缓存不写 checkpoint。
+
 ## 1. 当前阶段
 
 阶段 5：FILE_GENERATOR Planner（完成）。阶段 6：GeneratedArtifact、内容生成、预览与 DOCX（开始）。阶段 1～5 已完成并封存。

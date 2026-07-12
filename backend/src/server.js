@@ -17,7 +17,22 @@ const PORT = process.env.PORT || 3000;
 
 // 定时扫描器引用
 let expirationInterval = null;
+let artifactCleanupTimer = null;
 let httpServer = null;
+
+function startArtifactCleanupScheduler() {
+  if (String(process.env.ARTIFACT_CLEANUP_ENABLED || 'true').toLowerCase() === 'false') return;
+  const intervalMs = Math.max(60_000, Number(process.env.ARTIFACT_CLEANUP_INTERVAL_MS || 24 * 60 * 60 * 1000));
+  const run = () => require('./modules/file-generator/artifact-cleanup.service').scheduleCleanup()
+    .catch((error) => console.error('[artifact-cleanup] 调度失败:', error.message));
+  artifactCleanupTimer = setTimeout(function tick() { void run(); artifactCleanupTimer = setTimeout(tick, intervalMs); artifactCleanupTimer.unref?.(); }, 60_000);
+  artifactCleanupTimer.unref?.();
+}
+
+function stopArtifactCleanupScheduler() {
+  if (artifactCleanupTimer) clearTimeout(artifactCleanupTimer);
+  artifactCleanupTimer = null;
+}
 
 function startExpirationScanner() {
   const { scanAndSubmitExpiredAttempts } = require('./services/attempt-expiration.service');
@@ -59,6 +74,7 @@ function setupGracefulShutdown() {
   const shutdown = async (signal) => {
     console.log(`[server] 收到 ${signal} 信号，正在关闭...`);
     stopExpirationScanner();
+    stopArtifactCleanupScheduler();
     generationRegistry.cancelAll();
     await getAsyncTaskWorker().stop().catch((error) => console.error('[tasks] Worker 停止失败:', error.message));
     getLearningNarrationModule().close();
@@ -84,7 +100,12 @@ async function start() {
     process.exit(1);
   }
 
+  await require('./modules/file-generator/system-file-agents.service').ensureSystemFileAgents()
+    .then((items) => console.log(`[system-agents] 已确保 ${items.length} 个系统文件智能体可用`))
+    .catch((error) => console.error('[system-agents] 初始化失败:', error.message));
+
   startExpirationScanner();
+  startArtifactCleanupScheduler();
   const recoveredGenerations = await recoverInterruptedGenerations();
   if (recoveredGenerations) console.log(`[agent-generation] 已将 ${recoveredGenerations} 个遗留生成标记为 INTERRUPTED`);
   await getAsyncTaskWorker().start();
