@@ -99,12 +99,47 @@ async function listStudents(user, query) {
     where.user_id = { in: finalIds };
   }
 
-  // 关键词搜索
+  // 多字段搜索：学号 / 姓名 / 用户名 / 班级
+  const orConditions = [];
   if (query.keyword) {
-    where.OR = [
+    orConditions.push(
       { username: { contains: query.keyword } },
       { profile: { real_name: { contains: query.keyword } } },
-    ];
+    );
+  }
+  if (query.student_no) {
+    orConditions.push({ profile: { student_no: { contains: query.student_no } } });
+  }
+  if (query.student_name) {
+    orConditions.push({ profile: { real_name: { contains: query.student_name } } });
+  }
+  if (query.class_name) {
+    // 按班级名称搜索：先查找匹配的班级 enrollment
+    const matchedClasses = await prisma.teachingClass.findMany({
+      where: { teaching_class_name: { contains: query.class_name } },
+      select: { teaching_class_id: true },
+    });
+    if (matchedClasses.length > 0) {
+      const matchedIds = matchedClasses.map((c) => c.teaching_class_id);
+      const enrollmentsInClass = await prisma.studentCourseEnrollment.findMany({
+        where: { teaching_class_id: { in: matchedIds }, enrollment_status: 'active' },
+        select: { student_user_id: true },
+      });
+      const userIds = [...new Set(enrollmentsInClass.map((e) => e.student_user_id))];
+      if (userIds.length > 0) {
+        where.user_id = { ...(where.user_id || {}), in: userIds };
+      } else {
+        return { list: [], total: 0, page, page_size: pageSize };
+      }
+    } else {
+      return { list: [], total: 0, page, page_size: pageSize };
+    }
+  }
+  if (query.grade) {
+    orConditions.push({ profile: { grade: { contains: query.grade } } });
+  }
+  if (orConditions.length > 0) {
+    where.OR = orConditions;
   }
 
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
@@ -520,6 +555,201 @@ async function createStudent(user, body) {
   };
 }
 
+// ---------- 教师编辑学生信息 ----------
+
+async function updateStudent(user, studentUserId, body) {
+  await ensureStudentAccess(user, studentUserId);
+
+  const { real_name, student_no, college, major, grade, gender, phone, email, status, teaching_class_id } = body;
+
+  // 检查学号唯一性（如果变更）
+  if (student_no) {
+    const dupNo = await prisma.userProfile.findFirst({
+      where: { student_no, user_id: { not: studentUserId } },
+    });
+    if (dupNo) {
+      throw Object.assign(new Error('学号已被其他学生占用'), { code: 40003 });
+    }
+  }
+
+  // 更新用户表字段
+  const userUpdateData = {};
+  if (phone !== undefined) userUpdateData.phone = phone || null;
+  if (email !== undefined) userUpdateData.email = email || null;
+
+  if (Object.keys(userUpdateData).length > 0) {
+    await prisma.user.update({
+      where: { user_id: studentUserId },
+      data: userUpdateData,
+    });
+  }
+
+  // 更新 profile 表字段
+  const profileData = {};
+  if (real_name !== undefined) profileData.real_name = real_name;
+  if (student_no !== undefined) profileData.student_no = student_no || null;
+  if (college !== undefined) profileData.college = college || null;
+  if (major !== undefined) profileData.major = major || null;
+  if (grade !== undefined) profileData.grade = grade || null;
+  if (gender !== undefined) profileData.gender = gender.toUpperCase();
+
+  if (Object.keys(profileData).length > 0) {
+    await prisma.userProfile.update({
+      where: { user_id: studentUserId },
+      data: profileData,
+    });
+  }
+
+  // 如果指定了教学班级，更新 enrollment
+  if (teaching_class_id) {
+    const tc = await prisma.teachingClass.findUnique({ where: { teaching_class_id } });
+    if (!tc) {
+      throw Object.assign(new Error('教学班级不存在'), { code: 40002 });
+    }
+    // 先检查是否有该课程的 enrollment
+    const existing = await prisma.studentCourseEnrollment.findFirst({
+      where: { student_user_id: studentUserId, course_id: tc.course_id },
+    });
+    if (existing) {
+      await prisma.studentCourseEnrollment.update({
+        where: { enrollment_id: existing.enrollment_id },
+        data: { teaching_class_id, enrollment_status: 'active' },
+      });
+    } else {
+      await prisma.studentCourseEnrollment.create({
+        data: {
+          student_user_id: studentUserId,
+          course_id: tc.course_id,
+          teaching_class_id,
+          enrollment_status: 'active',
+        },
+      });
+    }
+  }
+
+  return {
+    student_user_id: studentUserId,
+    updated: true,
+  };
+}
+
+// ---------- 教师删除学生 ----------
+
+async function deleteStudent(user, studentUserId) {
+  await ensureStudentAccess(user, studentUserId);
+
+  // 级联删除：先移除所有 enrollments，再删除用户
+  await prisma.studentCourseEnrollment.deleteMany({
+    where: { student_user_id: studentUserId },
+  });
+
+  await prisma.user.delete({
+    where: { user_id: studentUserId },
+  });
+
+  return { student_user_id: studentUserId, deleted: true };
+}
+
+// ---------- 批量导入学生 ----------
+
+async function batchImportStudents(user, studentsData) {
+  if (!Array.isArray(studentsData) || studentsData.length === 0) {
+    throw Object.assign(new Error('导入数据不能为空'), { code: 40001 });
+  }
+
+  const bcrypt = require('bcryptjs');
+  const results = [];
+  let successCount = 0;
+  let failCount = 0;
+
+  for (let i = 0; i < studentsData.length; i++) {
+    const row = studentsData[i];
+    const rowNum = i + 1;
+    try {
+      // 校验必填
+      if (!row.username || !row.real_name) {
+        throw new Error('用户名和真实姓名为必填项');
+      }
+
+      // 检查用户名唯一性
+      const existingUser = await prisma.user.findUnique({ where: { username: row.username } });
+      if (existingUser) {
+        throw new Error(`用户名 "${row.username}" 已存在`);
+      }
+
+      // 检查学号唯一性
+      if (row.student_no) {
+        const dupNo = await prisma.userProfile.findFirst({ where: { student_no: row.student_no } });
+        if (dupNo) {
+          throw new Error(`学号 "${row.student_no}" 已被占用`);
+        }
+      }
+
+      const password_hash = await bcrypt.hash(row.password || '123456', 10);
+
+      const u = await prisma.user.create({
+        data: {
+          username: row.username,
+          password_hash,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+          phone: row.phone || null,
+          email: row.email || null,
+        },
+      });
+
+      await prisma.userProfile.create({
+        data: {
+          user_id: u.user_id,
+          real_name: row.real_name,
+          gender: row.gender ? row.gender.toUpperCase() : 'UNKNOWN',
+          student_no: row.student_no || null,
+          college: row.college || null,
+          major: row.major || null,
+          grade: row.grade || null,
+        },
+      });
+
+      // 如果有班级信息，尝试加入班级
+      if (row.class_name || row.course_name) {
+        const classWhere = {};
+        if (row.class_name) classWhere.teaching_class_name = { contains: row.class_name };
+        if (row.course_name) {
+          const course = await prisma.course.findFirst({
+            where: { course_name: { contains: row.course_name } },
+          });
+          if (course) classWhere.course_id = course.course_id;
+        }
+
+        const tc = await prisma.teachingClass.findFirst({ where: classWhere });
+        if (tc) {
+          await prisma.studentCourseEnrollment.create({
+            data: {
+              student_user_id: newUser.user_id,
+              course_id: tc.course_id,
+              teaching_class_id: tc.teaching_class_id,
+              enrollment_status: 'active',
+            },
+          }).catch(() => {}); // 忽略重复
+        }
+      }
+
+      successCount++;
+      results.push({ row: rowNum, username: row.username, real_name: row.real_name, success: true });
+    } catch (err) {
+      failCount++;
+      results.push({ row: rowNum, username: row.username || '-', real_name: row.real_name || '-', success: false, reason: err.message });
+    }
+  }
+
+  return {
+    total: studentsData.length,
+    success_count: successCount,
+    fail_count: failCount,
+    results,
+  };
+}
+
 module.exports = {
   listStudents,
   getStudent,
@@ -528,4 +758,7 @@ module.exports = {
   getStudentPortrait,
   refreshPortrait,
   createStudent,
+  updateStudent,
+  deleteStudent,
+  batchImportStudents,
 };

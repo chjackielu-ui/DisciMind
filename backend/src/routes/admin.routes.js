@@ -26,6 +26,7 @@ router.get('/dashboard', dashboardController.getDashboard);
 
 // ==================== 2. 用户管理 ====================
 router.get('/users', userController.getUserList);
+router.post('/users', userController.createUser);
 router.put('/users/:user_id/status', userController.updateUserStatus);
 router.put('/users/:user_id/password', userController.resetUserPassword);
 router.put('/users/:user_id', userController.updateUser);

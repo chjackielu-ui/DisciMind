@@ -18,16 +18,21 @@ function formatUser(user) {
     college: user.profile?.college || null,
     major: user.profile?.major || null,
     grade: user.profile?.grade || null,
+    gender: fromPrismaGender(user.profile?.gender),
     email: user.email,
     phone: user.phone,
     status: fromPrismaStatus(user.status),
     last_login_at: user.last_login_at,
     created_at: user.created_at,
+    // 行政班级信息
+    admin_class_id: user.profile?.admin_class?.class_id || null,
+    admin_class_name: user.profile?.admin_class?.class_name || null,
   };
 }
 
 /**
- * 获取用户列表（分页 + 搜索 + 筛选）
+ * 获取用户列表（分页 + 精确搜索 + 筛选）
+ * 支持通用 keyword 搜索和精确字段搜索
  */
 async function getUserList(query = {}) {
   const page = Math.max(1, parseInt(query.page, 10) || 1);
@@ -35,8 +40,9 @@ async function getUserList(query = {}) {
   const skip = (page - 1) * pageSize;
 
   const where = {};
+  const profileWhere = {};
 
-  // 关键词搜索
+  // 关键词模糊搜索（用户名、姓名、邮箱、手机号）
   if (query.keyword) {
     const keyword = String(query.keyword).trim();
     where.OR = [
@@ -44,8 +50,40 @@ async function getUserList(query = {}) {
       { email: { contains: keyword } },
       { phone: { contains: keyword } },
       { profile: { real_name: { contains: keyword } } },
-      { profile: { student_no: { contains: keyword } } },
     ];
+  }
+
+  // 精确字段搜索（仅在不使用通用 keyword 时生效）
+  if (!query.keyword) {
+    // 学号精确搜索
+    if (query.student_no) {
+      profileWhere.student_no = { contains: String(query.student_no).trim() };
+    }
+    // 工号精确搜索
+    if (query.teacher_no) {
+      profileWhere.teacher_no = { contains: String(query.teacher_no).trim() };
+    }
+    // 姓名精确搜索
+    if (query.real_name) {
+      profileWhere.real_name = { contains: String(query.real_name).trim() };
+    }
+    // 学院精确搜索
+    if (query.college) {
+      profileWhere.college = { contains: String(query.college).trim() };
+    }
+    // 专业精确搜索
+    if (query.major) {
+      profileWhere.major = { contains: String(query.major).trim() };
+    }
+    // 年级精确搜索
+    if (query.grade) {
+      profileWhere.grade = { contains: String(query.grade).trim() };
+    }
+    // 班级名称搜索（通过 AdminClass 关联）
+    if (query.class_name) {
+      const className = String(query.class_name).trim();
+      profileWhere.admin_class = { class_name: { contains: className } };
+    }
   }
 
   // 角色筛选
@@ -62,10 +100,21 @@ async function getUserList(query = {}) {
     if (prismaStatus) where.status = prismaStatus;
   }
 
+  // 合并 profile 精确搜索条件
+  if (Object.keys(profileWhere).length > 0) {
+    where.profile = profileWhere;
+  }
+
+  const include = {
+    profile: {
+      include: { admin_class: { select: { class_id: true, class_name: true } } },
+    },
+  };
+
   const [list, total] = await Promise.all([
     prisma.user.findMany({
       where,
-      include: { profile: true },
+      include,
       orderBy: { created_at: 'desc' },
       skip,
       take: pageSize,
@@ -180,6 +229,8 @@ async function updateUser(userId, data) {
   }
   if (data.student_no !== undefined) profileData.student_no = data.student_no || null;
   if (data.teacher_no !== undefined) profileData.teacher_no = data.teacher_no || null;
+  if (data.grade !== undefined) profileData.grade = data.grade || null;
+  if (data.admin_class_id !== undefined) profileData.class_id = data.admin_class_id || null;
 
   if (Object.keys(profileData).length > 0) {
     if (user.profile) {
@@ -194,4 +245,56 @@ async function updateUser(userId, data) {
   return { user_id: userId };
 }
 
-module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser, updateUser };
+/**
+ * 创建用户（管理员用）
+ */
+async function createUser(data) {
+  if (!data.username || !data.password || !data.role) {
+    throw Object.assign(new Error('用户名、密码和角色为必填项'), { code: 40001 });
+  }
+
+  if (String(data.password).length < 6) {
+    throw Object.assign(new Error('密码不能少于 6 位'), { code: 40001 });
+  }
+
+  const roleMap = { admin: 'ADMIN', teacher: 'TEACHER', student: 'STUDENT' };
+  const prismaRole = roleMap[data.role];
+  if (!prismaRole) {
+    throw Object.assign(new Error('无效的角色类型，仅支持 student / teacher / admin'), { code: 40001 });
+  }
+
+  // 检查用户名唯一性
+  const existing = await prisma.user.findUnique({ where: { username: data.username } });
+  if (existing) {
+    throw Object.assign(new Error('用户名已存在'), { code: 40002 });
+  }
+
+  const passwordHash = await bcrypt.hash(String(data.password), PASSWORD_HASH_ROUNDS);
+
+  const user = await prisma.user.create({
+    data: {
+      username: data.username,
+      password_hash: passwordHash,
+      role: prismaRole,
+      email: data.email || null,
+      phone: data.phone || null,
+      status: 'ACTIVE',
+      profile: {
+        create: {
+          real_name: data.real_name || data.username,
+          student_no: data.student_no || null,
+          teacher_no: data.teacher_no || null,
+          college: data.college || null,
+          major: data.major || null,
+          grade: data.grade || null,
+          gender: data.gender === 'male' ? 'MALE' : data.gender === 'female' ? 'FEMALE' : 'UNKNOWN',
+        },
+      },
+    },
+    include: { profile: true },
+  });
+
+  return formatUser(user);
+}
+
+module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser, updateUser, createUser };

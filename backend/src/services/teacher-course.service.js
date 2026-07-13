@@ -535,6 +535,43 @@ async function deleteKnowledgePoint(user, kpId) {
   await prisma.knowledgePoint.delete({ where: { knowledge_point_id: kpId } });
 }
 
+// ---------- 全局班级列表 ----------
+
+async function listAllTeachingClasses(user, query) {
+  const accessibleIds = await getAccessibleCourseIds(user);
+  const where = {};
+  if (accessibleIds) where.course_id = { in: accessibleIds };
+
+  if (query.keyword) where.teaching_class_name = { contains: query.keyword };
+  if (query.course_id) {
+    const cid = Number.parseInt(query.course_id, 10) || undefined;
+    if (cid) where.course_id = cid;
+  }
+
+  const classes = await prisma.teachingClass.findMany({
+    where,
+    orderBy: { created_at: 'desc' },
+    include: {
+      course: { select: { course_id: true, course_name: true } },
+      _count: { select: { enrollments: true } },
+    },
+  });
+
+  return {
+    list: classes.map((tc) => ({
+      teaching_class_id: tc.teaching_class_id,
+      teaching_class_name: tc.teaching_class_name,
+      semester: tc.semester,
+      description: tc.description,
+      course_id: tc.course_id,
+      course_name: tc.course?.course_name || null,
+      student_count: tc._count.enrollments,
+      created_at: tc.created_at.toISOString(),
+    })),
+    total: classes.length,
+  };
+}
+
 module.exports = {
   listCourses,
   createCourse,
@@ -542,6 +579,7 @@ module.exports = {
   updateCourse,
   deleteCourse,
   listTeachingClasses,
+  listAllTeachingClasses,
   createTeachingClass,
   updateTeachingClass,
   deleteTeachingClass,

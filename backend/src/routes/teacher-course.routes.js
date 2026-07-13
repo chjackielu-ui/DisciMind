@@ -16,6 +16,7 @@ router.put('/courses/:course_id', authMiddleware, roleMiddleware(['teacher', 'ad
 router.delete('/courses/:course_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.deleteCourse);
 
 // ---- 教学班级 ----
+router.get('/classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listAllTeachingClasses);
 router.get('/courses/:course_id/teaching-classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listTeachingClasses);
 router.post('/courses/:course_id/teaching-classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.createTeachingClass);
 router.put('/teaching-classes/:class_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.updateTeachingClass);

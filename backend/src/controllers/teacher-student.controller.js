@@ -88,6 +88,51 @@ async function createStudent(req, res) {
   }
 }
 
+async function updateStudent(req, res) {
+  try {
+    const studentUserId = parsePositiveInt(req.params.student_user_id, 'student_user_id');
+    const data = await teacherStudentService.updateStudent(req.user, studentUserId, req.body || {});
+    return success(res, data, '更新学生信息成功');
+  } catch (err) {
+    return handleError(res, 'updateStudent', err);
+  }
+}
+
+async function deleteStudent(req, res) {
+  try {
+    const studentUserId = parsePositiveInt(req.params.student_user_id, 'student_user_id');
+    const data = await teacherStudentService.deleteStudent(req.user, studentUserId);
+    return success(res, data, '删除学生成功');
+  } catch (err) {
+    return handleError(res, 'deleteStudent', err);
+  }
+}
+
+async function batchImportStudents(req, res) {
+  try {
+    const data = await teacherStudentService.batchImportStudents(req.user, req.body.students || []);
+    return success(res, data, '批量导入完成');
+  } catch (err) {
+    return handleError(res, 'batchImportStudents', err);
+  }
+}
+
+async function exportStudentTemplate(req, res) {
+  try {
+    // 生成 CSV 模板
+    const headers = ['username', 'real_name', 'password', 'student_no', 'college', 'major', 'grade', 'gender', 'phone', 'email', 'class_name', 'course_name'];
+    const headerRow = headers.join(',');
+    const exampleRow = 'stu001,张三,123456,2024001,计算机与软件工程学院,软件工程,2024,male,13800000001,stu001@demo.com,软件2403班,机器学习';
+    const csvContent = '﻿' + headerRow + '\n' + exampleRow + '\n';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="student_import_template.csv"');
+    return res.send(csvContent);
+  } catch (err) {
+    return handleError(res, 'exportStudentTemplate', err);
+  }
+}
+
 module.exports = {
   listStudents,
   getStudent,
@@ -96,4 +141,8 @@ module.exports = {
   getStudentPortrait,
   refreshPortrait,
   createStudent,
+  updateStudent,
+  deleteStudent,
+  batchImportStudents,
+  exportStudentTemplate,
 };

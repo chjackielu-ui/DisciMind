@@ -226,12 +226,24 @@ async function deleteKnowledgePoint(req, res) {
   }
 }
 
+// ---- 全局班级列表（跨课程）----
+
+async function listAllTeachingClasses(req, res) {
+  try {
+    const data = await teacherCourseService.listAllTeachingClasses(req.user, req.query || {});
+    return success(res, data, '获取班级列表成功');
+  } catch (err) {
+    return handleError(res, 'listAllTeachingClasses', err);
+  }
+}
+
 module.exports = {
   listCourses,
   createCourse,
   getCourse,
   updateCourse,
   deleteCourse,
+  listAllTeachingClasses,
   listTeachingClasses,
   createTeachingClass,
   updateTeachingClass,

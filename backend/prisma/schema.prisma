@@ -139,6 +139,7 @@ enum AsyncTaskType {
   ARTIFACT_CLEANUP
   LEARNING_FLOW_PRELOAD
   VOICE_PRELOAD
+  LESSON_PLAN_GENERATION
 }
 
 enum LearningFlowResourceRole {
@@ -3218,4 +3219,76 @@ model AiFlowGenerationJob {
   @@index([user_id])
   @@index([status])
   @@map("ai_flow_generation_jobs")
+}
+
+// ========================
+// Homework / 作业模块（纯新增，不改原有模型）
+// ========================
+
+enum HomeworkSubmitStatus {
+  UNSUBMIT  @map("unsubmit")
+  SUBMITTED @map("submitted")
+  LATE      @map("late")
+}
+
+enum HomeworkMarkType {
+  AI_AUTO        @map("ai_auto")
+  TEACHER_MANUAL @map("teacher_manual")
+  COMBINED       @map("combined")
+}
+
+model Homework {
+  homework_id   Int        @id @default(autoincrement())
+  teacher_id    Int
+  course_id     Int
+  title         String     @db.VarChar(200)
+  description   String?    @db.Text
+  question_json Json
+  total_score   Float      @default(100)
+  deadline      DateTime?
+  status        TaskStatus @default(DRAFT)
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+
+  @@index([teacher_id])
+  @@index([course_id])
+  @@index([status])
+  @@map("homeworks")
+}
+
+model HomeworkSubmission {
+  submission_id   Int                @id @default(autoincrement())
+  homework_id     Int
+  student_id      Int
+  submit_content  Json?
+  submit_time     DateTime?
+  score           Float?
+  submit_status   HomeworkSubmitStatus @default(UNSUBMIT)
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @updatedAt
+
+  @@unique([homework_id, student_id])
+  @@index([homework_id])
+  @@index([student_id])
+  @@index([submit_status])
+  @@map("homework_submissions")
+}
+
+model HomeworkMarkRecord {
+  mark_id          Int              @id @default(autoincrement())
+  submission_id    Int              @unique
+  teacher_id       Int?
+  ai_score         Float?
+  manual_score     Float?
+  final_score      Float?
+  comment          String?          @db.Text
+  wrong_keywords   Json?
+  mark_type        HomeworkMarkType @default(AI_AUTO)
+  mark_time        DateTime         @default(now())
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @updatedAt
+
+  @@index([submission_id])
+  @@index([teacher_id])
+  @@map("homework_mark_records")
 }
