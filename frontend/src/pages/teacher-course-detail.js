@@ -4,6 +4,7 @@
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import {
   getTeacherCourse, updateTeacherCourse,
   getTeachingClasses, createTeachingClass, deleteTeachingClass,
@@ -22,7 +23,7 @@ import { initAllAutoResize } from '../utils/auto-resize.js'
 export async function renderTeacherCourseDetail(app, params) {
   const courseId = params && parseInt(params.course_id, 10)
   if (!courseId) {
-    window.location.hash = '#/teacher/courses'
+    window.location.hash = '#/teacher/system?tab=courses'
     return
   }
 
@@ -42,36 +43,13 @@ export async function renderTeacherCourseDetail(app, params) {
 
   const displayName = getUserDisplayName()
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   // ---- 初始加载骨架 ----
   renderDashboardLayout(app, {
     title: '课程详情',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML: `
       <div class="dashboard-content">
-        <div style="margin-bottom:20px;">
-          <button class="btn-back" onclick="window.location.hash='#/teacher/courses'">
-            ← 返回课程列表
-          </button>
-        </div>
-        <div class="loading-state">
-          <div class="loading-spinner"></div>
-          <p class="loading-text">正在加载课程详情...</p>
-        </div>
+        <div class="empty-hint" style="padding:60px 0;">正在加载课程详情...</div>
       </div>
     `,
     user,
@@ -120,44 +98,8 @@ export async function renderTeacherCourseDetail(app, params) {
 
     const contentHTML = `
       <div class="dashboard-content">
-        <!-- 顶部返回 + 课程标题 -->
-        <div style="margin-bottom:20px;">
-          <button class="btn-back" onclick="window.location.hash='#/teacher/courses'">
-            ← 返回课程列表
-          </button>
-        </div>
-
-        <div class="card" style="margin-bottom:20px;padding:20px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
-            <div style="flex:1;min-width:0;">
-              <h2 style="font-size:1.3rem;font-weight:700;color:var(--stu-dark);margin:0 0 6px;">
-                ${escapeHtml(course.course_name)}
-              </h2>
-              <div style="color:var(--text-secondary);font-size:0.85rem;">
-                <span>编码：${escapeHtml(course.course_code)}</span>
-                <span style="margin:0 10px;">|</span>
-                <span>分类：${escapeHtml(course.subject_category || '-')}</span>
-                <span style="margin:0 10px;">|</span>
-                <span>状态：
-                  <span style="background:${course.status === 'active' ? '#d1fae5' : '#fef3c7'};color:${course.status === 'active' ? '#065f46' : '#92400e'};padding:2px 8px;border-radius:10px;font-size:0.75rem;">
-                    ${course.status === 'active' ? '进行中' : '已归档'}
-                  </span>
-                </span>
-              </div>
-              ${course.description ? `<div style="color:var(--text-muted);font-size:0.85rem;margin-top:6px;">${escapeHtml(course.description)}</div>` : ''}
-            </div>
-            <div style="display:flex;gap:10px;flex-shrink:0;">
-              <button class="btn btn-primary" id="btn-edit-course-info" style="font-size:0.85rem;padding:6px 14px;">编辑课程</button>
-            </div>
-          </div>
-          <div style="display:flex;gap:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);flex-wrap:wrap;">
-            <span>授课教师：${escapeHtml(teachers || '未设置')}</span>
-            <span>${course.chapters?.length || chapters.length || 0} 个章节</span>
-            <span>${course.knowledge_point_count || 0} 个知识点</span>
-            <span>${classes.length} 个教学班级</span>
-            <span>${course.student_count || 0} 名学生</span>
-          </div>
-        </div>
+        <div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/teacher/courses'">← 返回课程管理</button></div>
+        <div class="course-hero-card"><div class="hero-inner"><div class="hero-info"><div class="hero-course-name">${escapeHtml(course.course_name)}</div><div class="hero-course-code">${escapeHtml(course.course_code)} · ${escapeHtml(course.subject_category || '')}</div><div class="hero-desc">${escapeHtml(course.description || '')}</div><div class="hero-meta-tags"><span class="hero-tag">👨‍🏫 ${escapeHtml(teachers || '未设置')}</span><span class="hero-tag">📖 ${course.chapters?.length || chapters.length || 0} 个章节</span><span class="hero-tag">🎯 ${course.knowledge_point_count || 0} 个知识点</span><span class="hero-tag">🏫 ${classes.length} 个班级</span><span class="hero-tag">👥 ${course.student_count || 0} 名学生</span><span class="hero-tag"><span style="background:${course.status === 'active' ? '#d1fae5' : '#fef3c7'};color:${course.status === 'active' ? '#065f46' : '#92400e'};padding:2px 8px;border-radius:10px;font-size:0.75rem;">${course.status === 'active' ? '进行中' : '已归档'}</span></span></div></div><div class="hero-chart-area" style="display:flex;align-items:center;justify-content:flex-end;"><button class="btn btn-primary" id="btn-edit-course-info" style="font-size:0.85rem;padding:8px 18px;">编辑课程</button></div></div></div>
 
         <!-- 标签页导航 -->
         <div class="tabs-nav" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;">
@@ -389,7 +331,7 @@ export async function renderTeacherCourseDetail(app, params) {
     app.innerHTML = ''
     renderDashboardLayout(app, {
       title: '课程详情',
-      menuItems,
+      menuItems: TEACHER_MENU_ITEMS,
       contentHTML,
       user,
     })
@@ -412,12 +354,9 @@ export async function renderTeacherCourseDetail(app, params) {
     app.innerHTML = ''
     renderDashboardLayout(app, {
       title: '课程详情',
-      menuItems,
+      menuItems: TEACHER_MENU_ITEMS,
       contentHTML: `
         <div class="dashboard-content">
-          <div style="margin-bottom:20px;">
-            <button class="btn-back" onclick="window.location.hash='#/teacher/courses'">← 返回课程列表</button>
-          </div>
           <div class="error-state">
             <div class="error-icon"></div>
             <div class="error-message">${escapeHtml(message)}</div>
@@ -956,4 +895,8 @@ export async function renderTeacherCourseDetail(app, params) {
     document.getElementById('course-edit-modal').style.display = 'none'
   }
 }
+
+
+
+
 

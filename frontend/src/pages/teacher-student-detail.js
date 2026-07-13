@@ -1,15 +1,16 @@
-﻿// 教师端 - 学生详情页
+// 教师端 - 学生详情页
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherStudent, getStudentMastery, getStudentPortrait, refreshStudentPortrait } from '../api/teacher.js'
 
 export async function renderTeacherStudentDetail(app, params) {
   let user = getUser()
   const studentUserId = params?.student_user_id ? parseInt(params.student_user_id) : null
   if (!studentUserId) {
-    window.location.hash = '#/teacher/students'
+    window.location.hash = '#/teacher/system?tab=students'
     return
   }
 
@@ -25,25 +26,9 @@ export async function renderTeacherStudentDetail(app, params) {
     }
   }
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
       <div class="page-header">
-        <a href="#/teacher/students" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回学生列表</a>
         <h2 class="page-title" id="student-name">学生详情</h2>
         <p class="page-subtitle" id="student-info">加载中...</p>
       </div>
@@ -57,12 +42,12 @@ export async function renderTeacherStudentDetail(app, params) {
 
       <div class="content-columns">
         <div class="card">
-          <h3 class="card-title">📚 选修课程</h3>
+          <h3 class="card-title">选修课程</h3>
           <div id="student-courses"><div class="empty-hint">加载中...</div></div>
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 class="card-title" style="margin-bottom:0;">📊 知识点掌握度</h3>
+            <h3 class="card-title" style="margin-bottom:0;">知识点掌握度</h3>
             <button class="btn btn-link" id="btn-refresh-portrait" style="font-size:0.8rem;">刷新画像</button>
           </div>
           <div id="mastery-container"><div class="empty-hint">加载中...</div></div>
@@ -73,7 +58,7 @@ export async function renderTeacherStudentDetail(app, params) {
 
   renderDashboardLayout(app, {
     title: '学生详情',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -187,4 +172,6 @@ export async function renderTeacherStudentDetail(app, params) {
 
   loadData()
 }
+
+
 

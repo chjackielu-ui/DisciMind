@@ -4,7 +4,7 @@ const prisma = require('../../config/prisma');
 const ACTIVE_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
 const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
 const CANCELLABLE_STATUSES = ['RUNNING'];
-const TASK_TYPES = ['KNOWLEDGE_INDEXING', 'FILE_GENERATION', 'DOCUMENT_EXPORT', 'ARTIFACT_CLEANUP', 'LEARNING_FLOW_PRELOAD', 'VOICE_PRELOAD'];
+const TASK_TYPES = ['KNOWLEDGE_INDEXING', 'FILE_GENERATION', 'DOCUMENT_EXPORT', 'ARTIFACT_CLEANUP', 'LEARNING_FLOW_PRELOAD', 'VOICE_PRELOAD', 'LESSON_PLAN_GENERATION'];
 const PROGRESS_MODES = ['DETERMINATE', 'INDETERMINATE', 'STAGE_ONLY'];
 
 function taskError(message, code = 40001, status = 400) {
@@ -30,6 +30,7 @@ const RESULT_URL_PATTERNS = [
   /^#\/student\/artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/learning-flows(?:\?.*)?$/,
   /^#\/student\/learning\/session\/\d+$/,
+  /^#\/teacher\/lesson-plan(?:\?.*)?$/,
 ];
 
 function sanitizeResultUrl(value) {
@@ -66,6 +67,7 @@ function serialize(task) {
     requiresUserAction: task.requiresUserAction,
     attemptCount: task.attemptCount,
     maxAttempts: task.maxAttempts,
+    metadataJson: task.metadataJson || null,
     dismissedAt: task.dismissedAt,
     startedAt: task.startedAt,
     completedAt: task.completedAt,
@@ -97,6 +99,14 @@ async function assertResultAccess(userId, task) {
     const owned = await prisma.learningFlowPreload.findFirst({
       where: { id: Number(task.resultId), userId: Number(userId), deletedAt: null },
       select: { id: true },
+    });
+    if (!owned) throw taskError('任务结果不存在或无权访问', 40301, 403);
+    return;
+  }
+  if (task.resultType === 'LESSON_PLAN') {
+    const owned = await prisma.courseTeacherRelation.findFirst({
+      where: { course_id: Number(task.resultId), teacher_user_id: Number(userId) },
+      select: { relation_id: true },
     });
     if (!owned) throw taskError('任务结果不存在或无权访问', 40301, 403);
     return;

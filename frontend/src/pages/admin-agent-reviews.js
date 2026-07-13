@@ -1,5 +1,6 @@
 import { getUser } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
 import { escapeHtml } from '../utils/format.js'
 import {
   listAdminAgentReviews, approveAdminAgentReview, rejectAdminAgentReview,
@@ -7,12 +8,6 @@ import {
   listAdminAgentReports, resolveAdminAgentReport,
 } from '../api/marketplace.js'
 import { loadingHTML, operationId, setButtonBusy, notify } from './agent/marketplace-shared.js'
-
-const ADMIN_MENU = [
-  { label: '首页', icon: 'home', hash: '#/admin/dashboard' }, { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '教学管理', icon: 'book', hash: '#/admin/courses' }, { label: '智能体审核', icon: 'star', hash: '#/admin/agent-reviews' },
-  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge' },
-]
 
 function agentReviewCard(item) {
   const v = item.version
@@ -32,7 +27,7 @@ function reportCard(item) {
 }
 
 export async function renderAdminAgentReviews(app) {
-  renderDashboardLayout(app, { user: getUser(), menuItems: ADMIN_MENU, contentHTML: `<div class="agent-market-shell"><section class="agent-market-hero"><div><h1>智能体审核与治理</h1><p>审核公开版本、知识库与举报，所有操作都会保留审计记录。</p></div></section><div class="knowledge-tabs"><button class="active" data-review-tab="agents">智能体审核</button><button data-review-tab="knowledge">知识库审核</button><button data-review-tab="reports">举报处理</button></div><div id="admin-review-root">${loadingHTML()}</div></div>` })
+  renderDashboardLayout(app, { user: getUser(), menuItems: ADMIN_MENU_ITEMS, contentHTML: `<div class="agent-market-shell"><section class="agent-market-hero"><div><h1>智能体审核与治理</h1><p>审核公开版本、知识库与举报，所有操作都会保留审计记录。</p></div></section><div class="knowledge-tabs"><button class="active" data-review-tab="agents">智能体审核</button><button data-review-tab="knowledge">知识库审核</button><button data-review-tab="reports">举报处理</button></div><div id="admin-review-root">${loadingHTML()}</div></div>` })
   const root = document.getElementById('admin-review-root')
   const load = async tab => {
     root.innerHTML = loadingHTML()

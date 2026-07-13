@@ -82,4 +82,14 @@ async function updateUser(req, res) {
   }
 }
 
-module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser, updateUser };
+async function createUser(req, res) {
+  try {
+    const data = await userService.createUser(req.body || {});
+    return success(res, data, '用户创建成功');
+  } catch (err) {
+    console.error('[admin-user] createUser error:', err.message);
+    return fail(res, err.code || 50001, err.message);
+  }
+}
+
+module.exports = { getUserList, updateUserStatus, resetUserPassword, deleteUser, updateUser, createUser };

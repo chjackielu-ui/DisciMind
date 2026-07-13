@@ -78,6 +78,11 @@ class AsyncTaskWorker {
       await voice.processVoiceTask(task, signal);
       return { terminal: true };
     });
+    this.register('LESSON_PLAN_GENERATION', async (task) => {
+      const lessonPlanGraph = require('../lesson-plan/graph/lesson-plan.graph');
+      await lessonPlanGraph.runLessonPlanGraph(task.id);
+      return { terminal: true };
+    });
     this.register('KNOWLEDGE_INDEXING', async (task) => {
       const documentId = Number(task.relatedResourceId);
       if (!Number.isInteger(documentId) || documentId < 1) {

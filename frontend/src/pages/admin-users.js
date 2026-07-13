@@ -1,595 +1,616 @@
-﻿// 管理员端 — 用户管理页面
-// 支持搜索、筛选、重置密码、启用/禁用、删除用户
+// 管理员端 — 用户管理页面（完整功能版 V2）
+// 按需求文档 FR-USER-001：分角色 Tab 管理 + 精确搜索 + 账号生命周期管理
+// 布局对齐学生端页面结构
 
 import { getMe } from '../api/auth.js'
-import { getAdminUsers, updateAdminUser, updateUserStatus, resetUserPassword, deleteUser } from '../api/admin.js'
+import { getAdminUsers, createAdminUser, updateAdminUser, updateUserStatus, resetUserPassword, deleteUser } from '../api/admin.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { escapeHtml, formatDate } from '../utils/format.js'
+import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
 
 const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
-
-const menuItems = [
-  { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
-  { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '教学管理', icon: 'book', hash: '#/admin/courses', prefixMatch: '/admin/courses', children: [
-      { label: '课程管理', hash: '#/admin/courses' },
-      { label: '班级管理', hash: '#/admin/classes' },
-    ]},
-  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge', prefixMatch: '/admin/knowledge', children: [
-      { label: '知识库管理', hash: '#/admin/knowledge' },
-      { label: '操作日志', hash: '#/admin/logs' },
-      { label: '通知管理', hash: '#/admin/notifications' },
-      { label: 'AI 配置', hash: '#/admin/ai-config' },
-      { label: '个人信息', hash: '#/admin/profile' },
-    ]},
-]
-
-function escapeHtml(str) {
-  if (str == null) return ''
-  const div = document.createElement('div')
-  div.textContent = String(str)
-  return div.innerHTML
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '-'
-  try {
-    const d = new Date(dateStr)
-    if (isNaN(d.getTime())) return dateStr
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    const h = String(d.getHours()).padStart(2, '0')
-    const min = String(d.getMinutes()).padStart(2, '0')
-    return `${y}-${m}-${day} ${h}:${min}`
-  } catch {
-    return dateStr
-  }
-}
+const ROLE_ORDER = ['student', 'teacher', 'admin']
 
 function showToast(message, type = 'success') {
-  const container = document.getElementById('toast-container')
+  const container = document.getElementById('admin-toast-container')
   if (!container) return
   const toast = document.createElement('div')
   toast.className = `toast-item toast-${type}`
   toast.textContent = message
   container.appendChild(toast)
-  setTimeout(() => {
-    if (toast.parentNode) toast.remove()
-  }, 3000)
+  setTimeout(() => { if (toast.parentNode) toast.remove() }, 3000)
 }
 
+// ========================
+// 统计概览条
+// ========================
+function buildOverviewBar(stats = {}) {
+  return `<div class="courses-overview-bar">
+    <div class="courses-overview-item"><div class="overview-icon blue">👥</div><div><div class="overview-value">${stats.total || 0}</div><div class="overview-label">用户总数</div></div></div>
+    <div class="courses-overview-item"><div class="overview-icon green">🎓</div><div><div class="overview-value">${stats.student_count || 0}</div><div class="overview-label">学生</div></div></div>
+    <div class="courses-overview-item"><div class="overview-icon amber">👨‍🏫</div><div><div class="overview-value">${stats.teacher_count || 0}</div><div class="overview-label">教师</div></div></div>
+    <div class="courses-overview-item"><div class="overview-icon purple">⚙️</div><div><div class="overview-value">${stats.admin_count || 0}</div><div class="overview-label">管理员</div></div></div>
+    <div class="courses-overview-item"><div class="overview-icon red">🚫</div><div><div class="overview-value">${stats.disabled_count || 0}</div><div class="overview-label">已禁用</div></div></div>
+  </div>`
+}
+
+// ========================
+// 角色切换 Tab
+// ========================
+function buildRoleTabs(activeTab) {
+  const tabs = [
+    { key: 'all', label: '全部用户', icon: '👥' },
+    { key: 'student', label: '学生', icon: '🎓' },
+    { key: 'teacher', label: '教师', icon: '👨‍🏫' },
+    { key: 'admin', label: '管理员', icon: '⚙️' },
+  ]
+  return `<div class="card" style="margin-bottom:20px;padding:0;overflow:hidden;">
+    <div style="display:flex;gap:0;background:var(--bg);border-bottom:2px solid var(--border);">
+      ${tabs.map(t => `
+        <button type="button" class="tab-btn${activeTab === t.key ? ' active' : ''}" data-role-tab="${t.key}" style="flex:1;padding:12px 16px;text-align:center;font-weight:600;color:${activeTab === t.key ? 'var(--primary)' : 'var(--text-secondary)'};border-bottom:2px solid ${activeTab === t.key ? 'var(--primary)' : 'transparent'};margin-bottom:-2px;text-decoration:none;background:${activeTab === t.key ? 'rgba(99,102,241,0.04)' : 'transparent'};border-top:none;border-left:none;border-right:none;cursor:pointer;font-size:0.9rem;font-family:inherit;">
+          ${t.icon} ${t.label}
+        </button>
+      `).join('')}
+    </div>
+  </div>`
+}
+
+// ========================
+// 精确搜索栏（按角色切换字段）
+// ========================
+function buildSearchBar(activeTab, filters = {}) {
+  const keywordPlaceholder = activeTab === 'student' ? '搜索姓名、学号...'
+    : activeTab === 'teacher' ? '搜索姓名、工号...'
+    : activeTab === 'admin' ? '搜索姓名...'
+    : '搜索用户名、姓名、邮箱、手机号...'
+
+  let preciseFieldsHTML = ''
+  if (activeTab === 'student') {
+    preciseFieldsHTML = `
+      <input type="text" id="filter-real-name" placeholder="姓名" value="${escapeHtml(filters.real_name || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-student-no" placeholder="学号" value="${escapeHtml(filters.student_no || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-college" placeholder="学院" value="${escapeHtml(filters.college || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-major" placeholder="专业" value="${escapeHtml(filters.major || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-grade" placeholder="年级" value="${escapeHtml(filters.grade || '')}" style="width:70px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-class-name" placeholder="班级" value="${escapeHtml(filters.class_name || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+    `
+  } else if (activeTab === 'teacher') {
+    preciseFieldsHTML = `
+      <input type="text" id="filter-real-name" placeholder="姓名" value="${escapeHtml(filters.real_name || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-teacher-no" placeholder="工号" value="${escapeHtml(filters.teacher_no || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+      <input type="text" id="filter-college" placeholder="学院" value="${escapeHtml(filters.college || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+    `
+  } else if (activeTab === 'admin') {
+    preciseFieldsHTML = `
+      <input type="text" id="filter-real-name" placeholder="姓名" value="${escapeHtml(filters.real_name || '')}" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
+    `
+  }
+
+  return `<div class="card" style="margin-bottom:20px;padding:14px 20px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="search-box" style="flex:1;min-width:180px;">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="input-keyword" placeholder="${keywordPlaceholder}" value="${escapeHtml(filters.keyword || '')}" />
+      </div>
+      ${preciseFieldsHTML}
+      <select id="select-status" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;min-width:90px;">
+        <option value="all" ${filters.status === 'all' || !filters.status ? 'selected' : ''}>全部状态</option>
+        <option value="active" ${filters.status === 'active' ? 'selected' : ''}>正常</option>
+        <option value="disabled" ${filters.status === 'disabled' ? 'selected' : ''}>已禁用</option>
+      </select>
+      <button class="btn btn-primary" id="btn-search" style="padding:8px 16px;font-size:0.85rem;white-space:nowrap;">🔍 搜索</button>
+      <button class="btn" id="btn-reset" style="border:1px solid var(--border);padding:8px 12px;font-size:0.85rem;white-space:nowrap;">重置</button>
+      <button class="btn btn-primary" id="btn-create-user" style="margin-left:auto;padding:8px 16px;font-size:0.85rem;white-space:nowrap;">＋ 新建用户</button>
+    </div>
+  </div>`
+}
+
+// ========================
+// 用户表格
+// ========================
+function buildUserRow(u, activeTab) {
+  const roleClass = `tag tag-${u.role}`
+  const roleLabel = ROLE_LABEL[u.role] || u.role
+  const statusClass = u.status === 'active' ? 'tag tag-active' : 'tag tag-disabled'
+  const statusLabel = u.status === 'active' ? '正常' : '已禁用'
+  const realName = u.real_name || '-'
+  const studentNo = u.student_no || '-'
+  const teacherNo = u.teacher_no || '-'
+  const college = u.college || '-'
+  const gender = u.gender === 'male' ? '男' : u.gender === 'female' ? '女' : '-'
+
+  let extraCols = ''
+  if (activeTab === 'student' || activeTab === 'all') {
+    extraCols = `<td>${escapeHtml(studentNo)}</td><td>${escapeHtml(college)}</td><td>${escapeHtml(u.major || '-')}</td><td>${escapeHtml(u.grade || '-')}</td><td>${escapeHtml(u.admin_class_name || '-')}</td>`
+  } else if (activeTab === 'teacher') {
+    extraCols = `<td>${escapeHtml(teacherNo)}</td><td>${escapeHtml(college)}</td><td>${escapeHtml(gender)}</td>`
+  } else if (activeTab === 'admin') {
+    extraCols = `<td>${escapeHtml(gender)}</td>`
+  }
+
+  const isStudent = u.role === 'student'
+  const statusActionLabel = u.status === 'active' ? '禁用' : '启用'
+
+  return `<tr>
+    <td>${escapeHtml(String(u.user_id || ''))}</td>
+    <td>${escapeHtml(u.username || '-')}</td>
+    <td>${escapeHtml(realName)}</td>
+    <td><span class="${roleClass}">${roleLabel}</span></td>
+    ${extraCols}
+    <td>${escapeHtml(u.email || '-')}</td>
+    <td><span class="${statusClass}">${statusLabel}</span></td>
+    <td>${formatDate(u.created_at)}</td>
+    <td>
+      <div class="action-btns">
+        <button class="btn-edit-user" data-user-id="${u.user_id}" data-username="${escapeHtml(u.username)}" data-role="${u.role}">编辑</button>
+        <button class="btn-reset-pwd" data-user-id="${u.user_id}" data-username="${escapeHtml(u.username)}">重置密码</button>
+        <button class="btn-toggle-status" data-user-id="${u.user_id}" data-username="${escapeHtml(u.username)}" data-status="${u.status || 'active'}">${statusActionLabel}</button>
+        ${isStudent ? `<button class="btn-delete" data-user-id="${u.user_id}" data-username="${escapeHtml(u.username)}">删除</button>` : ''}
+      </div>
+    </td>
+  </tr>`
+}
+
+function buildTableHead(activeTab) {
+  let extraHead = ''
+  if (activeTab === 'student' || activeTab === 'all') {
+    extraHead = '<th>学号</th><th>学院</th><th>专业</th><th>年级</th><th>班级</th>'
+  } else if (activeTab === 'teacher') {
+    extraHead = '<th>工号</th><th>学院</th><th>性别</th>'
+  } else if (activeTab === 'admin') {
+    extraHead = '<th>性别</th>'
+  }
+  return `<tr>
+    <th>ID</th><th>用户名</th><th>姓名</th><th>角色</th>
+    ${extraHead}
+    <th>邮箱</th><th>状态</th><th>创建时间</th><th style="min-width:260px;">操作</th>
+  </tr>`
+}
+
+// ========================
+// 模态框
+// ========================
+function buildCreateEditModal(targetUser, activeTab) {
+  const isEdit = !!targetUser
+  const title = isEdit ? `编辑用户 — ${escapeHtml(targetUser.username)}` : '新建用户'
+  const u = targetUser || {}
+  const role = u.role || activeTab !== 'all' ? activeTab : 'student'
+  const roleLabel = ROLE_LABEL[role] || '学生'
+
+  return `<div class="modal-overlay" id="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:16px;padding:28px;width:580px;max-width:90vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <h3 style="font-size:1.2rem;margin:0;">${title}</h3>
+        <button type="button" id="btn-modal-close" style="border:none;background:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px;line-height:1;">×</button>
+      </div>
+      <form id="user-form">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+          <div class="form-group">
+            <label>用户名 ${!isEdit ? '<span class="required">*</span>' : ''}</label>
+            <input type="text" id="form-username" required ${isEdit ? 'readonly style="background:#f5f5f5;"' : ''} value="${escapeHtml(u.username || '')}" placeholder="登录用户名" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" />
+          </div>
+          <div class="form-group">
+            <label>角色${!isEdit ? ' <span class="required">*</span>' : ''}</label>
+            <select id="form-role" ${isEdit ? 'disabled' : ''} style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:${isEdit ? '#f5f5f5' : '#fff'};box-sizing:border-box;">
+              <option value="student" ${role === 'student' ? 'selected' : ''}>学生</option>
+              <option value="teacher" ${role === 'teacher' ? 'selected' : ''}>教师</option>
+              <option value="admin" ${role === 'admin' ? 'selected' : ''}>管理员</option>
+            </select>
+          </div>
+          ${!isEdit ? `
+          <div class="form-group" style="grid-column:1/-1;">
+            <label>密码 <span class="required">*</span></label>
+            <input type="password" id="form-password" required placeholder="至少6位" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" />
+          </div>` : ''}
+          <div class="form-group">
+            <label>真实姓名 <span class="required">*</span></label>
+            <input type="text" id="form-real-name" required value="${escapeHtml(u.real_name || '')}" placeholder="真实姓名" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" />
+          </div>
+          <div class="form-group">
+            <label>邮箱</label>
+            <input type="email" id="form-email" value="${escapeHtml(u.email || '')}" placeholder="email@example.com" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" />
+          </div>
+          <div class="form-group">
+            <label>手机号</label>
+            <input type="text" id="form-phone" value="${escapeHtml(u.phone || '')}" placeholder="手机号" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" />
+          </div>
+          <div class="form-group">
+            <label>性别</label>
+            <select id="form-gender" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;box-sizing:border-box;">
+              <option value="" ${!u.gender ? 'selected' : ''}>未设置</option>
+              <option value="male" ${u.gender === 'male' ? 'selected' : ''}>男</option>
+              <option value="female" ${u.gender === 'female' ? 'selected' : ''}>女</option>
+            </select>
+          </div>
+          ${role === 'student' ? `
+          <div class="form-group"><label>学号</label><input type="text" id="form-student-no" value="${escapeHtml(u.student_no || '')}" placeholder="学号" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+          <div class="form-group"><label>学院</label><input type="text" id="form-college" value="${escapeHtml(u.college || '')}" placeholder="学院" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+          <div class="form-group"><label>专业</label><input type="text" id="form-major" value="${escapeHtml(u.major || '')}" placeholder="专业" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+          <div class="form-group"><label>年级</label><input type="text" id="form-grade" value="${escapeHtml(u.grade || '')}" placeholder="年级" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+          ` : ''}
+          ${role === 'teacher' ? `
+          <div class="form-group"><label>工号</label><input type="text" id="form-teacher-no" value="${escapeHtml(u.teacher_no || '')}" placeholder="工号" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+          <div class="form-group"><label>学院</label><input type="text" id="form-college" value="${escapeHtml(u.college || '')}" placeholder="学院" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+          ` : ''}
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;padding-top:16px;border-top:1px solid var(--border);">
+          <button type="button" class="btn" id="btn-modal-cancel" style="border:1px solid var(--border);padding:8px 20px;border-radius:8px;background:transparent;cursor:pointer;">取消</button>
+          <button type="submit" class="btn btn-primary" style="padding:8px 24px;border:none;border-radius:8px;cursor:pointer;">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>`
+}
+
+function buildResetPwdModal(targetUser) {
+  return `<div class="modal-overlay" id="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:16px;padding:28px;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+      <h3 style="margin-bottom:16px;">重置密码</h3>
+      <p style="margin-bottom:16px;color:var(--text-secondary);font-size:0.9rem;">为用户 <strong>${escapeHtml(targetUser.username)}</strong> 重置密码</p>
+      <div class="form-group" style="margin-bottom:14px;"><label>新密码</label><input type="password" id="input-new-pwd" placeholder="至少6位" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+      <div class="form-group" style="margin-bottom:14px;"><label>确认密码</label><input type="password" id="input-confirm-pwd" placeholder="再次输入" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;" /></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn" id="btn-modal-cancel" style="border:1px solid var(--border);padding:8px 20px;border-radius:8px;background:transparent;cursor:pointer;">取消</button>
+        <button class="btn btn-primary" id="btn-modal-confirm" style="padding:8px 20px;border:none;border-radius:8px;cursor:pointer;">确认重置</button>
+      </div>
+    </div>
+  </div>`
+}
+
+function buildConfirmModal(targetUser, type) {
+  const labels = { 'toggle-status': targetUser.status === 'active' ? '禁用' : '启用', 'delete': '删除' }
+  const actionLabel = labels[type] || type
+  const isDanger = type === 'delete'
+  return `<div class="modal-overlay" id="modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:16px;padding:28px;width:400px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;">
+      <h3 style="margin-bottom:12px;">确认${actionLabel}</h3>
+      <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:20px;">确定要${actionLabel}用户 <strong>${escapeHtml(targetUser.username)}</strong> 吗？${type === 'delete' ? '此操作不可撤销。' : ''}</p>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button class="btn" id="btn-modal-cancel" style="border:1px solid var(--border);padding:8px 24px;border-radius:8px;background:transparent;cursor:pointer;">取消</button>
+        <button class="btn" id="btn-modal-confirm" style="padding:8px 24px;border:none;border-radius:8px;background:${isDanger ? '#DC2626' : 'var(--primary)'};color:#fff;cursor:pointer;">确认${actionLabel}</button>
+      </div>
+    </div>
+  </div>`
+}
+
+// ========================
+// 主渲染函数
+// ========================
 export async function renderAdminUsers(app) {
   let user = getUser()
-
   try {
     const result = await getMe()
     user = result.data.user
     setAuth(getToken(), user)
   } catch {
-    if (!user) {
-      clearAuth()
-      window.location.hash = '#/login'
-      return
-    }
+    if (!user) { clearAuth(); window.location.hash = '#/login'; return }
   }
 
-  // 查询参数
+  // ---- 状态 ----
   let currentPage = 1
-  let pageSize = 10
+  let pageSize = 15
   let totalPages = 1
   let totalCount = 0
   let users = []
   let loading = true
-  let error = null
+  let loadError = null
+  let activeTab = 'all'
+  let stats = {}
 
   // 筛选条件
-  let searchKeyword = ''
-  let filterRole = 'all'
-  let filterStatus = 'all'
+  let filters = { keyword: '', status: 'all' }
 
-  // 模态框状态
+  // 模态框
+  let modalType = null
   let modalTargetUser = null
-  let modalType = null // 'reset-password' | 'toggle-status' | 'delete'
+
+  // ---- Loading ----
+  renderDashboardLayout(app, {
+    menuItems: ADMIN_MENU_ITEMS,
+    contentHTML: `<div class="page-header"><h1 class="page-title">用户管理</h1><p class="page-subtitle">管理学生、教师、管理员账号，支持精确搜索与分角色管理</p></div><div class="loading-state"><div class="loading-spinner"></div><p class="loading-text">正在加载用户数据...</p></div>`,
+    user,
+  })
+
+  // ---- 加载数据 ----
+  await fetchUsers()
 
   function buildContentHTML() {
     let tableHTML = ''
-
     if (loading) {
-      tableHTML = `
-        <div class="loading-state">
-          <div class="loading-spinner"></div>
-          <p>正在加载用户数据...</p>
-        </div>
-      `
-    } else if (error) {
-      tableHTML = `
-        <div class="empty-state">
-          <div class="empty-icon"></div>
-          <p>${escapeHtml(error)}</p>
-          <button class="btn-sm btn-primary" style="margin-top:12px;" id="btn-retry-load">重新加载</button>
-        </div>
-      `
+      tableHTML = `<div class="loading-state"><div class="loading-spinner"></div><p class="loading-text">正在加载用户数据...</p></div>`
+    } else if (loadError) {
+      tableHTML = `<div class="error-state"><div class="error-icon">😞</div><p class="error-message">${escapeHtml(loadError)}</p><button class="btn-retry" id="btn-retry-load">重新加载</button></div>`
     } else if (users.length === 0) {
-      tableHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">👥</div>
-          <p>暂无匹配的用户数据</p>
-        </div>
-      `
+      tableHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-title">暂无匹配的用户</div><div class="empty-desc">尝试调整筛选条件或点击"新建用户"添加账号。</div></div>`
     } else {
       tableHTML = `
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>用户名</th>
-                <th>姓名</th>
-                <th>学号</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>邮箱</th>
-                <th>手机号</th>
-                <th>创建时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${users.map(u => buildUserRow(u)).join('')}
-            </tbody>
+        <div class="table-container" style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#f8f9fa;border-bottom:2px solid var(--border);">${buildTableHead(activeTab)}</tr></thead>
+            <tbody>${users.map(u => buildUserRow(u, activeTab)).join('')}</tbody>
           </table>
         </div>
-        <div class="pagination">
-          <button id="btn-page-prev" ${currentPage <= 1 ? 'disabled' : ''}>上一页</button>
-          <span class="page-info">第 ${currentPage} / ${totalPages} 页，共 ${totalCount} 条</span>
-          <button id="btn-page-next" ${currentPage >= totalPages ? 'disabled' : ''}>下一页</button>
+        <div style="display:flex;justify-content:center;align-items:center;gap:16px;margin-top:20px;padding:16px 0;">
+          <button class="btn" id="btn-page-prev" style="border:1px solid var(--border);padding:6px 16px;" ${currentPage <= 1 ? 'disabled' : ''}>上一页</button>
+          <span style="font-size:0.9rem;color:var(--text-secondary);">第 ${currentPage} / ${totalPages} 页，共 ${totalCount} 条</span>
+          <button class="btn" id="btn-page-next" style="border:1px solid var(--border);padding:6px 16px;" ${currentPage >= totalPages ? 'disabled' : ''}>下一页</button>
         </div>
       `
     }
 
-    const contentHTML = `
-      <div class="search-bar" id="search-bar">
-        <input type="text" id="input-search" placeholder="搜索用户名、姓名、邮箱、手机号..." value="${escapeHtml(searchKeyword)}" />
-        <select id="select-role">
-          <option value="all" ${filterRole === 'all' ? 'selected' : ''}>全部角色</option>
-          <option value="student" ${filterRole === 'student' ? 'selected' : ''}>学生</option>
-          <option value="teacher" ${filterRole === 'teacher' ? 'selected' : ''}>教师</option>
-          <option value="admin" ${filterRole === 'admin' ? 'selected' : ''}>管理员</option>
-        </select>
-        <select id="select-status">
-          <option value="all" ${filterStatus === 'all' ? 'selected' : ''}>全部状态</option>
-          <option value="active" ${filterStatus === 'active' ? 'selected' : ''}>正常</option>
-          <option value="disabled" ${filterStatus === 'disabled' ? 'selected' : ''}>已禁用</option>
-        </select>
-        <button class="btn-sm btn-primary" id="btn-search">搜索</button>
-        <button class="btn-sm btn-secondary" id="btn-reset-filter">重置</button>
+    return `
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 class="page-title">用户管理</h1>
+            <p class="page-subtitle">管理学生、教师、管理员账号，支持精确搜索与分角色管理</p>
+          </div>
+        </div>
       </div>
-
-      <!-- Toast 容器 -->
-      <div id="toast-container" class="toast-container"></div>
-
-      <!-- 用户表格 -->
-      ${tableHTML}
-
-      <!-- 模态框容器 -->
+      ${buildOverviewBar(stats)}
+      ${buildRoleTabs(activeTab)}
+      ${buildSearchBar(activeTab, filters)}
+      <div id="admin-toast-container" class="toast-container"></div>
+      <div class="card" style="overflow:hidden;padding:0;">${tableHTML}</div>
       <div id="modal-container"></div>
-    `
-
-    return contentHTML
-  }
-
-  function buildUserRow(u) {
-    const roleTagClass = `tag tag-${u.role}`
-    const roleLabel = ROLE_LABEL[u.role] || u.role
-
-    const statusTagClass = u.status === 'active' ? 'tag tag-active' : 'tag tag-disabled'
-    const statusLabel = u.status === 'active' ? '正常' : '已禁用'
-
-    const studentNo = u.profile?.student_no || u.student_no || '-'
-    const realName = u.profile?.real_name || u.real_name || '-'
-
-    // 检查当前用户角色，非管理员只能看到有限操作（这里统一管理员视角）
-    const isStudent = u.role === 'student'
-
-    let statusActionLabel = u.status === 'active' ? '禁用' : '启用'
-
-    return `
-      <tr>
-        <td>${escapeHtml(String(u.user_id || u.id || ''))}</td>
-        <td>${escapeHtml(u.username || '-')}</td>
-        <td>${escapeHtml(realName)}</td>
-        <td>${escapeHtml(studentNo)}</td>
-        <td><span class="${roleTagClass}">${roleLabel}</span></td>
-        <td><span class="${statusTagClass}">${statusLabel}</span></td>
-        <td>${escapeHtml(u.email || '-')}</td>
-        <td>${escapeHtml(u.phone || '-')}</td>
-        <td>${formatDate(u.created_at || u.createdAt || '')}</td>
-        <td>
-          <div class="action-btns">
-            <button class="btn-edit-user" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}" data-role="${u.role}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;font-size:0.8rem;">编辑</button>
-            <button class="btn-reset-pwd" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}">重置密码</button>
-            <button class="btn-toggle-status" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}" data-status="${u.status || 'active'}">${statusActionLabel}</button>
-            ${isStudent ? `<button class="btn-danger btn-delete" data-user-id="${u.user_id || u.id}" data-username="${escapeHtml(u.username || '')}">删除</button>` : ''}
-          </div>
-        </td>
-      </tr>
-    `
-  }
-
-  function buildResetPasswordModal() {
-    if (!modalTargetUser) return ''
-    return `
-      <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-box">
-          <h3>重置密码</h3>
-          <p style="margin-bottom:16px;color:var(--stu-text-secondary);font-size:0.88rem;">
-            正在为用户 <strong>${escapeHtml(modalTargetUser.username)}</strong> 重置密码
-          </p>
-          <div class="form-group">
-            <label>新密码</label>
-            <input type="password" id="input-new-password" placeholder="请输入新密码，至少6位" />
-          </div>
-          <div class="form-group">
-            <label>确认密码</label>
-            <input type="password" id="input-confirm-password" placeholder="请再次输入新密码" />
-          </div>
-          <div class="modal-actions">
-            <button class="btn-cancel" id="btn-modal-cancel">取消</button>
-            <button class="btn-confirm" id="btn-modal-confirm">确认重置</button>
-          </div>
-        </div>
-      </div>
-    `
-  }
-
-  function buildToggleStatusModal() {
-    if (!modalTargetUser) return ''
-    const currentStatus = modalTargetUser.status || 'active'
-    const targetStatus = currentStatus === 'active' ? 'disabled' : 'active'
-    const actionLabel = currentStatus === 'active' ? '禁用' : '启用'
-    return `
-      <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-box">
-          <h3>确认${actionLabel}</h3>
-          <p style="margin-bottom:16px;color:var(--stu-text-secondary);font-size:0.88rem;">
-            确定要${actionLabel}用户 <strong>${escapeHtml(modalTargetUser.username)}</strong> 吗？
-          </p>
-          <div class="modal-actions">
-            <button class="btn-cancel" id="btn-modal-cancel">取消</button>
-            <button class="btn-confirm" id="btn-modal-confirm">确认${actionLabel}</button>
-          </div>
-        </div>
-      </div>
-    `
-  }
-
-  function buildDeleteModal() {
-    if (!modalTargetUser) return ''
-    return `
-      <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-box">
-          <h3>确认删除</h3>
-          <p style="margin-bottom:16px;color:var(--stu-text-secondary);font-size:0.88rem;">
-            确定要删除学生用户 <strong>${escapeHtml(modalTargetUser.username)}</strong> 吗？此操作不可撤销。
-          </p>
-          <div class="modal-actions">
-            <button class="btn-cancel" id="btn-modal-cancel">取消</button>
-            <button class="btn-confirm" id="btn-modal-confirm" style="background:#DC2626;">确认删除</button>
-          </div>
-        </div>
-      </div>
     `
   }
 
   function render() {
     const contentHTML = buildContentHTML()
-    renderDashboardLayout(app, {
-      title: '用户管理',
-      menuItems,
-      contentHTML,
-      user,
-    })
-    attachEventListeners()
+    app.innerHTML = ''
+    renderDashboardLayout(app, { menuItems: ADMIN_MENU_ITEMS, contentHTML, user })
+    attachEvents()
   }
 
-  function attachEventListeners() {
-    // 搜索按钮
+  function attachEvents() {
+    // Tab 切换
+    document.querySelectorAll('[data-role-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeTab = btn.dataset.roleTab
+        filters = { keyword: '', status: 'all' }
+        currentPage = 1
+        fetchUsers()
+      })
+    })
+
+    // 搜索
     document.getElementById('btn-search')?.addEventListener('click', () => {
-      searchKeyword = document.getElementById('input-search')?.value || ''
-      filterRole = document.getElementById('select-role')?.value || 'all'
-      filterStatus = document.getElementById('select-status')?.value || 'all'
+      collectFilters()
       currentPage = 1
       fetchUsers()
     })
-
-    // 回车搜索
-    document.getElementById('input-search')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        document.getElementById('btn-search')?.click()
-      }
+    document.getElementById('input-keyword')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { collectFilters(); currentPage = 1; fetchUsers() }
     })
 
-    // 重置筛选
-    document.getElementById('btn-reset-filter')?.addEventListener('click', () => {
-      const searchInput = document.getElementById('input-search')
-      const roleSelect = document.getElementById('select-role')
-      const statusSelect = document.getElementById('select-status')
-      if (searchInput) searchInput.value = ''
-      if (roleSelect) roleSelect.value = 'all'
-      if (statusSelect) statusSelect.value = 'all'
-      searchKeyword = ''
-      filterRole = 'all'
-      filterStatus = 'all'
+    // 精确搜索字段回车触发
+    ;['filter-real-name', 'filter-student-no', 'filter-teacher-no', 'filter-college', 'filter-major', 'filter-grade', 'filter-class-name'].forEach(id => {
+      document.getElementById(id)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { collectFilters(); currentPage = 1; fetchUsers() }
+      })
+    })
+
+    // 重置
+    document.getElementById('btn-reset')?.addEventListener('click', () => {
+      filters = { keyword: '', status: 'all' }
       currentPage = 1
       fetchUsers()
     })
 
     // 分页
-    document.getElementById('btn-page-prev')?.addEventListener('click', () => {
-      if (currentPage > 1) {
-        currentPage--
-        fetchUsers()
-      }
+    document.getElementById('btn-page-prev')?.addEventListener('click', () => { if (currentPage > 1) { currentPage--; fetchUsers() } })
+    document.getElementById('btn-page-next')?.addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; fetchUsers() } })
+
+    // 重试
+    document.getElementById('btn-retry-load')?.addEventListener('click', () => fetchUsers())
+
+    // 创建用户
+    document.getElementById('btn-create-user')?.addEventListener('click', () => {
+      modalType = 'create-edit'
+      modalTargetUser = null
+      showModal()
     })
 
-    document.getElementById('btn-page-next')?.addEventListener('click', () => {
-      if (currentPage < totalPages) {
-        currentPage++
-        fetchUsers()
-      }
-    })
+    // 表格操作（事件委托）
+    const table = document.querySelector('table tbody')
+    if (table) {
+      table.addEventListener('click', (e) => {
+        const btn = e.target.closest('button')
+        if (!btn) return
+        const userId = parseInt(btn.dataset.userId)
+        const username = btn.dataset.username
 
-    // 重试加载
-    document.getElementById('btn-retry-load')?.addEventListener('click', () => {
-      fetchUsers()
-    })
-
-    // 表格内的操作按钮 — 使用事件委托
-    const tableBody = document.querySelector('table tbody')
-    if (tableBody) {
-      tableBody.addEventListener('click', (e) => {
-        const target = e.target.closest('button')
-        if (!target) return
-
-        const userId = target.dataset.userId
-        const username = target.dataset.username
-        const status = target.dataset.status
-
-        if (target.classList.contains('btn-edit-user')) {
-          const role = target.dataset.role
-          const user = users.find(u => (u.user_id || u.id) === userId)
-          modalTargetUser = { user_id: userId, username, role, ...user }
-          modalType = 'edit-user'
+        if (btn.classList.contains('btn-edit-user')) {
+          const u = users.find(x => (x.user_id) === userId)
+          modalType = 'create-edit'
+          modalTargetUser = u || { user_id: userId, username, role: btn.dataset.role }
           showModal()
-        } else if (target.classList.contains('btn-reset-pwd')) {
+        } else if (btn.classList.contains('btn-reset-pwd')) {
+          modalType = 'reset-pwd'
           modalTargetUser = { user_id: userId, username }
-          modalType = 'reset-password'
           showModal()
-        } else if (target.classList.contains('btn-toggle-status')) {
-          modalTargetUser = { user_id: userId, username, status }
+        } else if (btn.classList.contains('btn-toggle-status')) {
           modalType = 'toggle-status'
+          modalTargetUser = { user_id: userId, username, status: btn.dataset.status }
           showModal()
-        } else if (target.classList.contains('btn-delete')) {
-          modalTargetUser = { user_id: userId, username }
+        } else if (btn.classList.contains('btn-delete')) {
           modalType = 'delete'
+          modalTargetUser = { user_id: userId, username }
           showModal()
         }
       })
     }
   }
 
-  function showModal() {
-    const container = document.getElementById('modal-container')
-    if (!container) return
-
-    let html = ''
-    if (modalType === 'reset-password') {
-      html = buildResetPasswordModal()
-    } else if (modalType === 'edit-user') {
-      html = buildEditUserModal()
-    } else if (modalType === 'toggle-status') {
-      html = buildToggleStatusModal()
-    } else if (modalType === 'delete') {
-      html = buildDeleteModal()
+  function collectFilters() {
+    filters = {
+      keyword: document.getElementById('input-keyword')?.value.trim() || '',
+      status: document.getElementById('select-status')?.value || 'all',
     }
-
-    container.innerHTML = html
-    attachModalListeners()
-  }
-
-  function hideModal() {
-    const container = document.getElementById('modal-container')
-    if (container) {
-      container.innerHTML = ''
-    }
-    modalTargetUser = null
-    modalType = null
-  }
-
-  function attachModalListeners() {
-    document.getElementById('btn-modal-cancel')?.addEventListener('click', hideModal)
-
-    // 点击遮罩关闭
-    document.getElementById('modal-overlay')?.addEventListener('click', (e) => {
-      if (e.target.id === 'modal-overlay') hideModal()
+    // 精确字段
+    ;['real_name', 'student_no', 'teacher_no', 'college', 'major', 'grade', 'class_name'].forEach(field => {
+      const el = document.getElementById(`filter-${field.replace(/_/g, '-')}`)
+      if (el?.value.trim()) filters[field] = el.value.trim()
     })
-
-    document.getElementById('btn-modal-confirm')?.addEventListener('click', async () => {
-      if (modalType === 'reset-password') {
-        await handleResetPassword()
-      } else if (modalType === 'edit-user') {
-        await handleEditUser()
-      } else if (modalType === 'toggle-status') {
-        await handleToggleStatus()
-      } else if (modalType === 'delete') {
-        await handleDeleteUser()
-      }
-    })
-
-    // 重置密码模态框支持回车确认
-    if (modalType === 'reset-password') {
-      const pwdInput = document.getElementById('input-new-password')
-      const confirmInput = document.getElementById('input-confirm-password')
-      const doConfirm = () => document.getElementById('btn-modal-confirm')?.click()
-
-      pwdInput?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          confirmInput?.focus()
-        }
-      })
-      confirmInput?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          doConfirm()
-        }
-      })
-    }
-  }
-
-  async function handleResetPassword() {
-    const newPwd = document.getElementById('input-new-password')?.value
-    const confirmPwd = document.getElementById('input-confirm-password')?.value
-
-    if (!newPwd || newPwd.length < 6) {
-      showToast('密码至少需要6位', 'error')
-      return
-    }
-    if (newPwd !== confirmPwd) {
-      showToast('两次密码输入不一致', 'error')
-      return
-    }
-
-    try {
-      await resetUserPassword(modalTargetUser.user_id, newPwd)
-      showToast(`用户「${modalTargetUser.username}」密码重置成功`)
-      hideModal()
-    } catch (err) {
-      showToast(err.message || '密码重置失败', 'error')
-    }
-  }
-
-  async function handleToggleStatus() {
-    if (!modalTargetUser) return
-    const currentStatus = modalTargetUser.status || 'active'
-    const newStatus = currentStatus === 'active' ? 'disabled' : 'active'
-    const actionLabel = currentStatus === 'active' ? '禁用' : '启用'
-
-    try {
-      await updateUserStatus(modalTargetUser.user_id, newStatus)
-      showToast(`用户「${modalTargetUser.username}」已${actionLabel}`)
-      hideModal()
-      fetchUsers()
-    } catch (err) {
-      showToast(err.message || `${actionLabel}操作失败`, 'error')
-    }
-  }
-
-  function buildEditUserModal() {
-    if (!modalTargetUser) return ''
-    const u = modalTargetUser
-    const realName = u.profile?.real_name || u.real_name || ''
-    const college = u.profile?.college || ''
-    const major = u.profile?.major || ''
-    const studentNo = u.profile?.student_no || u.student_no || ''
-    const email = u.email || ''
-    const phone = u.phone || ''
-    const roleLabel = u.role === 'teacher' ? '教师' : u.role === 'student' ? '学生' : u.role
-    return `
-      <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-box">
-          <h3>编辑用户信息 — ${escapeHtml(u.username)}（${roleLabel}）</h3>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0;">
-            <div class="form-group"><label>真实姓名</label><input type="text" id="edit-real-name" value="${escapeHtml(realName)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
-            <div class="form-group"><label>邮箱</label><input type="email" id="edit-email" value="${escapeHtml(email)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
-            <div class="form-group"><label>手机号</label><input type="text" id="edit-phone" value="${escapeHtml(phone)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
-            <div class="form-group"><label>学院</label><input type="text" id="edit-college" value="${escapeHtml(college)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
-            <div class="form-group"><label>专业</label><input type="text" id="edit-major" value="${escapeHtml(major)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>
-            ${u.role === 'student' ? `<div class="form-group"><label>学号</label><input type="text" id="edit-student-no" value="${escapeHtml(studentNo)}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;"></div>` : ''}
-          </div>
-          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
-            <button class="btn" id="btn-modal-cancel" style="padding:8px 20px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;">取消</button>
-            <button class="btn btn-primary" id="btn-modal-confirm" style="padding:8px 20px;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;">保存</button>
-          </div>
-        </div>
-      </div>
-    `
-  }
-
-  async function handleEditUser() {
-    if (!modalTargetUser) return
-    const data = {
-      real_name: document.getElementById('edit-real-name')?.value.trim(),
-      email: document.getElementById('edit-email')?.value.trim(),
-      phone: document.getElementById('edit-phone')?.value.trim(),
-      college: document.getElementById('edit-college')?.value.trim(),
-      major: document.getElementById('edit-major')?.value.trim(),
-    }
-    if (modalTargetUser.role === 'student') {
-      data.student_no = document.getElementById('edit-student-no')?.value.trim() || null
-    }
-    if (!data.real_name) { showToast('真实姓名不能为空', 'error'); return }
-    try {
-      await updateAdminUser(modalTargetUser.user_id, data)
-      showToast(`用户「${modalTargetUser.username}」信息已更新`)
-      hideModal()
-      fetchUsers()
-    } catch (err) {
-      showToast(err.message || '更新失败', 'error')
-    }
-  }
-
-  async function handleDeleteUser() {
-    if (!modalTargetUser) return
-
-    try {
-      await deleteUser(modalTargetUser.user_id)
-      showToast(`用户「${modalTargetUser.username}」已删除`)
-      hideModal()
-      fetchUsers()
-    } catch (err) {
-      showToast(err.message || '删除失败', 'error')
-    }
   }
 
   async function fetchUsers() {
     loading = true
-    error = null
+    loadError = null
     render()
 
     try {
       const params = { page: currentPage, page_size: pageSize }
-      if (searchKeyword.trim()) {
-        params.keyword = searchKeyword.trim()
-      }
-      if (filterRole !== 'all') {
-        params.role = filterRole
-      }
-      if (filterStatus !== 'all') {
-        params.status = filterStatus
-      }
+      if (filters.keyword) params.keyword = filters.keyword
+      if (activeTab !== 'all') params.role = activeTab
+      if (filters.status !== 'all') params.status = filters.status
+      // 精确字段
+      ;['real_name', 'student_no', 'teacher_no', 'college', 'major', 'grade', 'class_name'].forEach(field => {
+        if (filters[field]) params[field] = filters[field]
+      })
 
-      const result = await getAdminUsers(params)
-      const data = result.data || {}
+      const res = await getAdminUsers(params)
+      const data = res.data || {}
+      users = data.list || []
+      totalCount = data.total || 0
+      totalPages = Math.ceil(totalCount / pageSize) || 1
 
-      users = data.users || data.list || data.records || []
-      totalCount = data.total || data.total_count || data.totalCount || 0
-      const computedTotalPages = Math.ceil(totalCount / pageSize)
-      totalPages = computedTotalPages > 0 ? computedTotalPages : 1
+      // 统计信息
+      stats = {
+        total: data.total || 0,
+        student_count: data.student_count != null ? data.student_count : (activeTab === 'student' ? totalCount : 0),
+        teacher_count: data.teacher_count != null ? data.teacher_count : (activeTab === 'teacher' ? totalCount : 0),
+        admin_count: data.admin_count != null ? data.admin_count : (activeTab === 'admin' ? totalCount : 0),
+        disabled_count: data.disabled_count || 0,
+      }
       loading = false
       render()
     } catch (err) {
       loading = false
-      error = err.message || '加载用户数据失败'
+      loadError = err.message || '加载用户数据失败'
       render()
     }
   }
 
-  // 初始化渲染
-  render()
-  // 开始加载数据
-  fetchUsers()
+  // ---- 模态框 ----
+  function showModal() {
+    const container = document.getElementById('modal-container')
+    if (!container) return
+    let html = ''
+    if (modalType === 'create-edit') html = buildCreateEditModal(modalTargetUser, activeTab)
+    else if (modalType === 'reset-pwd') html = buildResetPwdModal(modalTargetUser)
+    else if (modalType === 'toggle-status') html = buildConfirmModal(modalTargetUser, 'toggle-status')
+    else if (modalType === 'delete') html = buildConfirmModal(modalTargetUser, 'delete')
+    container.innerHTML = html
+    bindModalEvents()
+  }
+
+  function hideModal() {
+    const container = document.getElementById('modal-container')
+    if (container) container.innerHTML = ''
+    modalType = null
+    modalTargetUser = null
+  }
+
+  function bindModalEvents() {
+    document.getElementById('btn-modal-cancel')?.addEventListener('click', hideModal)
+    document.getElementById('btn-modal-close')?.addEventListener('click', hideModal)
+    document.getElementById('modal-overlay')?.addEventListener('click', (e) => {
+      if (e.target.id === 'modal-overlay') hideModal()
+    })
+
+    // 创建/编辑表单提交
+    document.getElementById('user-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      await handleCreateEdit()
+    })
+
+    // 重置密码确认
+    document.getElementById('btn-modal-confirm')?.addEventListener('click', async () => {
+      if (modalType === 'reset-pwd') await handleResetPwd()
+      else if (modalType === 'toggle-status') await handleToggleStatus()
+      else if (modalType === 'delete') await handleDelete()
+    })
+
+    // 密码框回车
+    document.getElementById('input-confirm-pwd')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-modal-confirm')?.click()
+    })
+  }
+
+  async function handleCreateEdit() {
+    const isEdit = !!modalTargetUser
+    const role = isEdit ? modalTargetUser.role : document.getElementById('form-role')?.value || activeTab
+
+    const data = {
+      username: document.getElementById('form-username')?.value.trim(),
+      role: role,
+      real_name: document.getElementById('form-real-name')?.value.trim(),
+      email: document.getElementById('form-email')?.value.trim() || undefined,
+      phone: document.getElementById('form-phone')?.value.trim() || undefined,
+      gender: document.getElementById('form-gender')?.value || undefined,
+    }
+
+    if (!isEdit) {
+      data.password = document.getElementById('form-password')?.value.trim()
+      if (!data.password || data.password.length < 6) { showToast('密码至少需要6位', 'error'); return }
+    }
+    if (!data.real_name) { showToast('真实姓名不能为空', 'error'); return }
+
+    if (role === 'student') {
+      data.student_no = document.getElementById('form-student-no')?.value.trim() || undefined
+      data.college = document.getElementById('form-college')?.value.trim() || undefined
+      data.major = document.getElementById('form-major')?.value.trim() || undefined
+      data.grade = document.getElementById('form-grade')?.value.trim() || undefined
+    } else if (role === 'teacher') {
+      data.teacher_no = document.getElementById('form-teacher-no')?.value.trim() || undefined
+      data.college = document.getElementById('form-college')?.value.trim() || undefined
+    }
+
+    try {
+      if (isEdit) {
+        await updateAdminUser(modalTargetUser.user_id, data)
+        showToast('用户信息已更新')
+      } else {
+        await createAdminUser(data)
+        showToast('用户创建成功')
+      }
+      hideModal()
+      fetchUsers()
+    } catch (err) { showToast(err.message || '操作失败', 'error') }
+  }
+
+  async function handleResetPwd() {
+    const pwd = document.getElementById('input-new-pwd')?.value
+    const confirm = document.getElementById('input-confirm-pwd')?.value
+    if (!pwd || pwd.length < 6) { showToast('密码至少需要6位', 'error'); return }
+    if (pwd !== confirm) { showToast('两次密码不一致', 'error'); return }
+    try {
+      await resetUserPassword(modalTargetUser.user_id, pwd)
+      showToast('密码已重置')
+      hideModal()
+    } catch (err) { showToast(err.message || '操作失败', 'error') }
+  }
+
+  async function handleToggleStatus() {
+    const currentStatus = modalTargetUser.status || 'active'
+    const newStatus = currentStatus === 'active' ? 'disabled' : 'active'
+    try {
+      await updateUserStatus(modalTargetUser.user_id, newStatus)
+      showToast(`用户已${newStatus === 'active' ? '启用' : '禁用'}`)
+      hideModal()
+      fetchUsers()
+    } catch (err) { showToast(err.message || '操作失败', 'error') }
+  }
+
+  async function handleDelete() {
+    try {
+      await deleteUser(modalTargetUser.user_id)
+      showToast('用户已删除')
+      hideModal()
+      fetchUsers()
+    } catch (err) { showToast(err.message || '删除失败', 'error') }
+  }
 }
-
-

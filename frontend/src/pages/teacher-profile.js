@@ -3,6 +3,7 @@
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/teacher.js'
 
 export async function renderTeacherProfile(app) {
@@ -22,26 +23,8 @@ export async function renderTeacherProfile(app) {
 
   const displayName = getUserDisplayName()
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
-      <div style="margin-bottom:12px;">
-        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
-      </div>
       <div class="page-header">
         <h2 class="page-title">个人中心</h2>
         <p class="page-subtitle">个人信息与消息通知</p>
@@ -106,7 +89,7 @@ export async function renderTeacherProfile(app) {
 
   renderDashboardLayout(app, {
     title: '个人中心',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -263,4 +246,6 @@ export async function renderTeacherProfile(app) {
 
   loadNotifications()
 }
+
+
 

@@ -1,13 +1,84 @@
-﻿// 教师端 - 课程列表页
+// 教师端 - 课程列表页（对齐学生端布局结构）
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherCourses, createTeacherCourse, updateTeacherCourse, deleteTeacherCourse } from '../api/teacher.js'
-import { iconBook, iconSearch, iconRefresh } from '../utils/icons.js'
+import { iconSearch, iconRefresh } from '../utils/icons.js'
+import { escapeHtml, formatPercent } from '../utils/format.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
+import { disposeAllCharts, bindResize, initChart } from '../utils/echarts.js'
+import * as echarts from 'echarts'
+
+function buildOverviewBar(courses) {
+  const totalStudents = courses.reduce((s, c) => s + (c.student_count || 0), 0)
+  const totalClasses = courses.reduce((s, c) => s + (c.teaching_class_count || 0), 0)
+  const activeCount = courses.filter(c => c.status === 'active').length
+  const avgProgress = courses.length > 0 ? Math.round(courses.reduce((s, c) => s + (c.learning_progress || 0), 0) / courses.length) : 0
+  return `<div class="courses-overview-bar"><div class="courses-overview-item"><div class="overview-icon blue">📚</div><div><div class="overview-value">${courses.length}</div><div class="overview-label">负责课程</div></div></div><div class="courses-overview-item"><div class="overview-icon green">✅</div><div><div class="overview-value">${activeCount}</div><div class="overview-label">进行中</div></div></div><div class="courses-overview-item"><div class="overview-icon purple">👥</div><div><div class="overview-value">${totalStudents}</div><div class="overview-label">总学生数</div></div></div><div class="courses-overview-item"><div class="overview-icon amber">🏫</div><div><div class="overview-value">${totalClasses}</div><div class="overview-label">教学班级</div></div></div><div class="courses-overview-item"><div class="overview-icon blue">📈</div><div><div class="overview-value">${avgProgress}%</div><div class="overview-label">平均进度</div></div></div></div>`
+}
+
+function renderCoursesChart(courses) {
+  bindResize()
+  if (!courses || courses.length === 0) return
+  const inst = initChart('chart-courses-progress')
+  if (!inst) return
+  const chartHeight = courses.length === 1 ? 180 : Math.min(240, 80 + courses.length * 50)
+  const dom = document.getElementById('chart-courses-progress')
+  if (dom) dom.style.height = chartHeight + 'px'
+  inst.setOption({
+    tooltip: { backgroundColor: 'rgba(69,26,3,0.94)', borderColor: 'rgba(245,158,11,0.3)', borderWidth: 1, textStyle: { color: '#fff', fontSize: 12 } },
+    grid: { left: '3%', right: '4%', top: 8, bottom: 8, containLabel: true },
+    xAxis: { type: 'category', data: courses.map(c => c.course_name), axisLabel: { color: '#57534E', fontSize: 11 }, axisTick: { show: false }, axisLine: { lineStyle: { color: 'rgba(180,83,9,0.08)' } } },
+    yAxis: { type: 'value', max: 100, axisLabel: { color: '#A8A29E', fontSize: 11, formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(180,83,9,0.05)' } } },
+    series: [{
+      type: 'bar', barWidth: courses.length === 1 ? 100 : Math.max(32, 60 - courses.length * 3),
+      data: courses.map(c => ({ value: c.learning_progress || 0, itemStyle: { borderRadius: [8, 8, 0, 0], color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#FBBF24' }, { offset: 1, color: '#D97706' }]) } })),
+      label: { show: true, position: 'top', color: '#57534E', fontSize: 12, fontWeight: 'bold', formatter: '{c}%' },
+      emphasis: { itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#FDE68A' }, { offset: 1, color: '#F59E0B' }]) } },
+    }],
+  })
+  inst.resize()
+}
+
+function buildCourseCard(course) {
+  const progress = Math.max(0, Math.min(100, Number(course.learning_progress || 0)))
+  return `<article class="course-card-h" data-id="${course.course_id}">
+    <div class="course-card-main">
+      <h3 class="course-card-name">${escapeHtml(course.course_name || '')}</h3>
+      <p class="course-card-desc">${escapeHtml(course.description ? (course.description.substring(0, 80) + (course.description.length > 80 ? '...' : '')) : '暂无课程描述')}</p>
+      <div class="course-card-meta-row">
+        <span>${escapeHtml(course.course_code || '-')}</span>
+        <span>${escapeHtml(course.subject_category || '-')}</span>
+        <span>${course.teaching_class_count || 0} 个班级</span>
+        <span>${course.student_count || 0} 名学生</span>
+      </div>
+      <div class="course-card-last"><span style="background:${course.status === 'active' ? '#d1fae5' : '#fef3c7'};color:${course.status === 'active' ? '#065f46' : '#92400e'};padding:2px 10px;border-radius:12px;font-size:0.75rem;">${course.status === 'active' ? '进行中' : '已归档'}</span></div>
+    </div>
+    <div class="course-card-progress">
+      <div class="progress-header-h">
+        <span>学习进度</span>
+        <b>${formatPercent(progress)}</b>
+      </div>
+      <div class="progress-bar-h">
+        <div class="progress-bar-h-fill" style="width:${progress}%"></div>
+      </div>
+      <div class="course-card-actions-h">
+        <button class="btn-enter-course-h">进入课程 →</button>
+        <button class="btn-edit-course-h" type="button" data-id="${course.course_id}">编辑</button>
+        <button class="btn-del-course-h" type="button" data-id="${course.course_id}">删除</button>
+      </div>
+    </div>
+    <div class="course-card-cover-panel">
+      <div class="cover-bg-pattern"></div>
+      <div class="cover-placeholder" aria-hidden="true">${escapeHtml((course.course_name || '课').slice(0, 1))}</div>
+    </div>
+  </article>`
+}
 
 export async function renderTeacherCourses(app) {
+  disposeAllCharts()
   let user = getUser()
 
   try {
@@ -15,67 +86,54 @@ export async function renderTeacherCourses(app) {
     user = result.data.user
     setAuth(getUser() ? getToken() : '', user)
   } catch {
-    if (!user) {
-      clearAuth()
-      window.location.hash = '#/login'
-      return
-    }
+    if (!user) { clearAuth(); window.location.hash = '#/login'; return }
   }
 
-  const displayName = getUserDisplayName()
+  // Loading
+  renderDashboardLayout(app, {
+    menuItems: TEACHER_MENU_ITEMS,
+    contentHTML: `<div class="page-header"><h1 class="page-title">课程管理</h1><p class="page-subtitle">管理课程信息、教学班级与章节知识点</p></div><div class="loading-state"><div class="loading-spinner"></div><p class="loading-text">正在加载课程数据...</p></div>`,
+    user,
+  })
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
+  let courses = [], loadError = false
+  try { const res = await getTeacherCourses({}); courses = res.data.list || [] } catch (e) { loadError = true }
 
-  const contentHTML = `
-    <div class="dashboard-content">
-      <div style="margin-bottom:12px;">
-        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
-      </div>
-      <div class="page-header">
-        <h2 class="page-title">教学管理</h2>
-        <p class="page-subtitle">管理课程、教学班级、学生与知识库</p>
-      </div>
+  let contentHTML
+  if (loadError) {
+    contentHTML = `<div class="page-header"><h1 class="page-title">课程管理</h1></div><div class="error-state"><div class="error-icon">😞</div><p class="error-message">课程数据加载失败</p><button class="btn-retry" onclick="window.location.reload()">重新加载</button></div>`
+  } else if (courses.length === 0) {
+    contentHTML = `<div class="page-header"><h1 class="page-title">课程管理</h1><p class="page-subtitle">管理课程信息、教学班级与章节知识点</p></div><div class="empty-state"><div class="empty-icon">📚</div><div class="empty-title">暂无课程</div><div class="empty-desc">点击下方"新建课程"开始创建您的第一门课程。</div></div><div class="card" style="margin-bottom:20px;padding:14px 20px;"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><input type="text" id="search-keyword" placeholder="搜索课程名称..." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"><button class="btn btn-primary" id="btn-search" style="padding:6px 14px;font-size:0.85rem;">${iconSearch()} 搜索</button><button class="btn" id="btn-refresh" style="border:1px solid var(--border);padding:6px 10px;font-size:0.85rem;">${iconRefresh()}</button><button class="btn btn-primary" id="btn-create-course" style="margin-left:auto;padding:6px 14px;font-size:0.85rem;">＋ 新建课程</button></div></div>`
+  } else {
+    contentHTML = `
+      <div class="page-header"><div class="page-header-row"><div><h1 class="page-title">课程管理</h1><p class="page-subtitle">管理课程信息、教学班级与章节知识点</p></div><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><div class="search-box"><span class="search-icon">🔍</span><input type="text" id="search-keyword" placeholder="搜索课程名称或代码..." /></div><button class="btn btn-primary" id="btn-create-course" style="padding:6px 14px;font-size:0.85rem;white-space:nowrap;">＋ 新建课程</button></div></div></div>
+      ${buildOverviewBar(courses)}
+      <div class="chart-card" style="margin-bottom:24px;"><div class="chart-header"><span class="chart-title">课程学习进度对比</span></div><div class="chart-container" id="chart-courses-progress" style="height:220px;"></div></div>
+      <div class="courses-grid" id="courses-grid">${courses.map(c => buildCourseCard(c)).join('')}</div>
+      <div id="no-filter-results" class="no-filter-results" style="display:none;">没有符合筛选条件的课程<span class="btn-clear-filter" id="btn-clear-filter">清除筛选</span></div>
+    `
+  }
 
-      <!-- 子导航 -->
-      <div class="card" style="margin-bottom:20px;padding:0;overflow:hidden;">
-        <div style="display:flex;gap:0;background:var(--bg);border-bottom:2px solid var(--border);">
-          <a href="#/teacher/courses" style="flex:1;padding:12px 16px;text-align:center;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;text-decoration:none;background:rgba(99,102,241,0.04);">课程管理</a>
-          <a href="#/teacher/students" style="flex:1;padding:12px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;border-bottom:2px solid transparent;">学生管理</a>
-          <a href="#/teacher/knowledge" style="flex:1;padding:12px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;border-bottom:2px solid transparent;">知识库</a>
+  app.innerHTML = ''
+  renderDashboardLayout(app, { menuItems: TEACHER_MENU_ITEMS, contentHTML, user })
+
+  if (!loadError && courses.length > 0) {
+    setTimeout(() => {
+      renderCoursesChart(courses)
+      bindTeacherCoursesEvents(courses)
+    }, 150)
+  } else if (!loadError) {
+    bindTeacherCoursesEvents(courses)
+  }
+
+  // 注入模态框
+  const modalHTML = `
+    <div class="modal-overlay" id="course-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:16px;padding:28px;width:520px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+          <h3 id="modal-title" style="font-size:1.2rem;margin:0;">新建课程</h3>
+          <button type="button" id="btn-modal-close" style="border:none;background:none;font-size:24px;color:#999;cursor:pointer;padding:0 4px;line-height:1;">×</button>
         </div>
-      </div>
-
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="filter-bar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-          <input type="text" id="search-keyword" placeholder="搜索课程名称..." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
-          <button class="btn btn-primary" id="btn-search">${iconSearch()} 搜索</button>
-          <button class="btn" id="btn-refresh" style="border:1px solid var(--border);">${iconRefresh()}</button>
-          <button class="btn btn-primary" id="btn-create-course" style="margin-left:auto;">＋ 新建课程</button>
-        </div>
-      </div>
-
-      <div id="course-list-container">
-        <div class="empty-hint">正在加载课程数据...</div>
-      </div>
-    </div>
-
-    <!-- 新建/编辑课程弹窗 -->
-    <div class="modal-overlay" id="course-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:none;align-items:center;justify-content:center;">
-      <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:520px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-        <h3 id="modal-title" style="margin-bottom:20px;font-size:1.2rem;">新建课程</h3>
         <form id="course-form">
           <div class="form-group" style="margin-bottom:14px;">
             <label>课程名称 <span class="required">*</span></label>
@@ -99,127 +157,76 @@ export async function renderTeacherCourses(app) {
           </div>
         </form>
       </div>
-    </div>
-  `
+    </div>`
+  app.insertAdjacentHTML('beforeend', modalHTML)
+  initAllAutoResize()
+}
 
-  renderDashboardLayout(app, {
-    title: '课程管理',
-    menuItems,
-    contentHTML,
-    user,
-  })
+let editingCourseId = null
 
-  // ---- 加载课程 ----
-  let currentCourses = []
+function bindTeacherCoursesEvents(courses) {
+  // 搜索
+  const searchInput = document.getElementById('search-keyword')
+  let currentKeyword = ''
 
-  async function loadCourses(keyword = '') {
-    const container = document.getElementById('course-list-container')
-    if (!container) return
-    container.innerHTML = '<div class="empty-hint">加载中...</div>'
-
-    try {
-      const res = await getTeacherCourses({ keyword })
-      currentCourses = res.data.list || []
-      renderCourses(currentCourses)
-    } catch (err) {
-      container.innerHTML = `<div class="error-state"><div class="error-icon">⚠️</div><div class="error-message">${err.message}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
+  function applyFilter() {
+    const grid = document.getElementById('courses-grid')
+    const noResults = document.getElementById('no-filter-results')
+    if (!grid) return
+    currentKeyword = (searchInput?.value || '').toLowerCase()
+    let filtered = courses
+    if (currentKeyword) {
+      filtered = courses.filter(c => (c.course_name + ' ' + c.course_code).toLowerCase().includes(currentKeyword))
     }
+    grid.innerHTML = filtered.map(c => buildCourseCard(c)).join('')
+    if (noResults) noResults.style.display = filtered.length === 0 && courses.length > 0 ? '' : 'none'
+    bindCardEvents()
   }
 
-  function renderCourses(courses) {
-    const container = document.getElementById('course-list-container')
-    if (!container) return
+  searchInput?.addEventListener('input', applyFilter)
+  document.getElementById('btn-refresh')?.addEventListener('click', applyFilter)
 
-    if (!courses || courses.length === 0) {
-      container.innerHTML = '<div class="empty-hint" style="padding:60px 0;">暂无课程，点击上方"新建课程"开始创建</div>'
-      return
-    }
-
-    container.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;">
-        ${courses.map(c => `
-          <div class="card course-card" data-id="${c.course_id}" style="cursor:pointer;padding:20px;transition:all 0.25s ease;border-left:4px solid var(--stu-primary);">
-            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:10px;">
-              <h3 style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);">${c.course_name}</h3>
-              <span style="background:${c.status === 'active' ? '#d1fae5' : '#fef3c7'};color:${c.status === 'active' ? '#065f46' : '#92400e'};padding:2px 10px;border-radius:12px;font-size:0.75rem;">${c.status === 'active' ? '进行中' : '已归档'}</span>
-            </div>
-            <div style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:12px;">
-              <div>编码：${c.course_code}</div>
-              <div>分类：${c.subject_category || '-'}</div>
-              ${c.description ? `<div style="margin-top:4px;color:var(--text-muted);">${c.description.substring(0, 80)}${c.description.length > 80 ? '...' : ''}</div>` : ''}
-            </div>
-            <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);padding-top:12px;border-top:1px solid var(--border);margin-top:8px;">
-              <span>📚 ${c.teaching_class_count || 0} 个班级</span>
-              <span>👨‍🎓 ${c.student_count || 0} 名学生</span>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-              <button class="btn-edit-course" data-id="${c.course_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;font-size:0.85rem;">编辑</button>
-              <button class="btn-delete-course" data-id="${c.course_id}" style="flex:1;padding:6px;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.85rem;">删除</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `
-
-    // 点击卡片进入详情
-    container.querySelectorAll('.course-card').forEach(el => {
-      el.addEventListener('click', (e) => {
+  function bindCardEvents() {
+    document.querySelectorAll('.course-card-h').forEach(card => {
+      card.addEventListener('click', (e) => {
         if (e.target.closest('button')) return
-        const id = el.dataset.id
-        window.location.hash = `#/teacher/courses/${id}`
+        const id = card.dataset.id; if (id) window.location.hash = `#/teacher/courses/${id}`
       })
     })
-
-    // 编辑
-    container.querySelectorAll('.btn-edit-course').forEach(btn => {
+    document.querySelectorAll('.btn-enter-course-h').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); const card = btn.closest('.course-card-h'); const id = card?.dataset.id; if (id) window.location.hash = `#/teacher/courses/${id}`
+      })
+    })
+    document.querySelectorAll('.btn-edit-course-h').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
         const id = parseInt(btn.dataset.id)
-        const course = currentCourses.find(c => c.course_id === id)
+        const course = courses.find(c => c.course_id === id)
         if (course) openModal(course)
       })
     })
-
-    // 删除
-    container.querySelectorAll('.btn-delete-course').forEach(btn => {
+    document.querySelectorAll('.btn-del-course-h').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation()
         const id = parseInt(btn.dataset.id)
         if (!confirm('确定删除该课程吗？此操作不可撤销。')) return
         try {
           await deleteTeacherCourse(id)
-          loadCourses(document.getElementById('search-keyword')?.value || '')
-        } catch (err) {
-          alert(err.message)
-        }
+          window.location.reload()
+        } catch (err) { alert(err.message) }
       })
     })
   }
 
-  // ---- 弹窗 ----
-  let editingCourseId = null
+  bindCardEvents()
 
-  function openModal(course = null) {
-    const modal = document.getElementById('course-modal')
-    modal.style.display = 'flex'
-    document.getElementById('modal-title').textContent = course ? '编辑课程' : '新建课程'
-    document.getElementById('form-course-name').value = course?.course_name || ''
-    document.getElementById('form-course-code').value = course?.course_code || ''
-    document.getElementById('form-subject-category').value = course?.subject_category || ''
-    document.getElementById('form-description').value = course?.description || ''
-    editingCourseId = course?.course_id || null
-    if (!course) document.getElementById('form-course-code').readOnly = false
-  }
+  // 创建按钮
+  document.getElementById('btn-create-course')?.addEventListener('click', () => openModal())
 
-  function closeModal() {
-    const modal = document.getElementById('course-modal')
-    modal.style.display = 'none'
-    editingCourseId = null
-  }
-
+  // 模态框事件
   document.addEventListener('click', (e) => {
-    if (e.target.id === 'btn-create-course') openModal()
-    if (e.target.id === 'btn-modal-cancel') closeModal()
+    if (e.target.id === 'btn-modal-cancel' || e.target.id === 'btn-modal-close') closeModal()
     if (e.target.classList.contains('modal-overlay')) closeModal()
   })
 
@@ -231,12 +238,7 @@ export async function renderTeacherCourses(app) {
       subject_category: document.getElementById('form-subject-category').value.trim() || '计算机大类学科',
       description: document.getElementById('form-description').value.trim(),
     }
-
-    if (!data.course_name || !data.course_code) {
-      alert('课程名称和编码为必填项')
-      return
-    }
-
+    if (!data.course_name || !data.course_code) { alert('课程名称和编码为必填项'); return }
     try {
       if (editingCourseId) {
         await updateTeacherCourse(editingCourseId, data)
@@ -244,27 +246,25 @@ export async function renderTeacherCourses(app) {
         await createTeacherCourse(data)
       }
       closeModal()
-      loadCourses(document.getElementById('search-keyword')?.value || '')
-    } catch (err) {
-      alert(err.message)
-    }
+      window.location.reload()
+    } catch (err) { alert(err.message) }
   })
-
-  document.getElementById('btn-search')?.addEventListener('click', () => {
-    const keyword = document.getElementById('search-keyword')?.value || ''
-    loadCourses(keyword)
-  })
-
-  document.getElementById('search-keyword')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      const keyword = document.getElementById('search-keyword')?.value || ''
-      loadCourses(keyword)
-    }
-  })
-
-  document.getElementById('btn-refresh')?.addEventListener('click', () => loadCourses())
-
-  initAllAutoResize()
-  loadCourses()
 }
 
+function openModal(course = null) {
+  const modal = document.getElementById('course-modal')
+  if (!modal) return
+  editingCourseId = course?.course_id || null
+  document.getElementById('modal-title').textContent = course ? '编辑课程' : '新建课程'
+  document.getElementById('form-course-name').value = course?.course_name || ''
+  document.getElementById('form-course-code').value = course?.course_code || ''
+  document.getElementById('form-subject-category').value = course?.subject_category || ''
+  document.getElementById('form-description').value = course?.description || ''
+  modal.style.display = 'flex'
+}
+
+function closeModal() {
+  const modal = document.getElementById('course-modal')
+  if (modal) modal.style.display = 'none'
+  editingCourseId = null
+}

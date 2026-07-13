@@ -84,6 +84,13 @@
     linear-gradient(180deg, #FFFBEB 0%, #FFF7ED 100%);
 }
 
+/* 教师端页面背景光晕（覆盖蓝色光晕） */
+.role-teacher .student-dashboard-wrapper::before {
+  background:
+    radial-gradient(ellipse at 70% 30%, rgba(245, 158, 11, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse at 30% 60%, rgba(234, 88, 12, 0.04) 0%, transparent 50%) !important;
+}
+
 /* 教师端侧边栏 */
 .role-teacher .student-sidebar {
   background: linear-gradient(180deg, rgba(69, 26, 3, 0.70), rgba(180, 83, 9, 0.50));
@@ -248,4 +255,159 @@
 /* 教师端课程卡片 */
 .role-teacher .course-card {
   border-left-color: #F59E0B !important;
+}
+
+/* ============================================
+   教师端覆盖 — 学生端硬编码蓝色类 → 琥珀色
+   以下覆盖 student.css / dashboard.css 中无法通过
+   --stu-* 变量覆盖的硬编码颜色值
+   ============================================ */
+
+/* Hero 卡片（课程详情页顶部） */
+.role-teacher .course-hero-card {
+  background: linear-gradient(135deg, #451A03 0%, #78350F 40%, #B45309 70%, #D97706 100%) !important;
+  box-shadow: 0 12px 40px rgba(69, 26, 3, 0.20) !important;
+}
+.role-teacher .course-hero-card::before {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.22), transparent 60%) !important;
+}
+.role-teacher .course-hero-card .hero-course-code,
+.role-teacher .course-hero-card .hero-desc,
+.role-teacher .course-hero-card .hero-tag {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+.role-teacher .course-hero-card .hero-tag {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* 快捷入口主要按钮 */
+.role-teacher .home-quick-card.primary {
+  background: linear-gradient(135deg, #B45309, #D97706) !important;
+}
+.role-teacher .home-quick-card.primary:hover {
+  background: linear-gradient(135deg, #92400E, #B45309) !important;
+}
+
+/* 快捷入口悬停 */
+.role-teacher .home-quick-card:hover {
+  border-color: rgba(245, 158, 11, 0.40) !important;
+  box-shadow: 0 8px 18px rgba(180, 83, 9, 0.12) !important;
+}
+
+/* 课程卡片悬停 */
+.role-teacher .course-card-h:hover {
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  box-shadow: 0 8px 24px rgba(180, 83, 9, 0.12) !important;
+}
+
+/* 课程卡片操作按钮 */
+.role-teacher .btn-enter-course-h {
+  background: linear-gradient(135deg, #B45309, #D97706) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.20) !important;
+}
+.role-teacher .btn-enter-course-h:hover {
+  background: linear-gradient(135deg, #92400E, #B45309) !important;
+  box-shadow: 0 4px 14px rgba(180, 83, 9, 0.30) !important;
+}
+
+/* 进度条填充 */
+.role-teacher .progress-bar-h-fill {
+  background: linear-gradient(90deg, #FBBF24, #D97706) !important;
+}
+.role-teacher .home-progress-bar i {
+  background: linear-gradient(90deg, #FBBF24, #D97706) !important;
+}
+
+/* 知识点统计标签 */
+.role-teacher .kp-inline-stats .kp-stat {
+  background: rgba(180, 83, 9, 0.05) !important;
+}
+
+/* 面板链接 */
+.role-teacher .home-panel-link {
+  color: #F59E0B !important;
+}
+
+/* 指标卡片强调色 */
+.role-teacher .home-metric-card.blue b {
+  color: #D97706 !important;
+}
+.role-teacher .home-metric-card.green b {
+  color: #2C7A63 !important;
+}
+.role-teacher .home-metric-card.amber b {
+  color: #B45309 !important;
+}
+.role-teacher .home-metric-card.red b {
+  color: #B64C3D !important;
+}
+
+/* 推荐标签 */
+.role-teacher .home-rec-tag.blue {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #B45309 !important;
+}
+.role-teacher .home-rec-tag.green {
+  background: rgba(34, 197, 94, 0.10) !important;
+  color: #166534 !important;
+}
+.role-teacher .home-rec-tag.amber {
+  background: rgba(245, 158, 11, 0.14) !important;
+  color: #92400E !important;
+}
+
+/* 概览图标颜色 */
+.role-teacher .overview-icon.blue {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #B45309 !important;
+}
+
+/* 搜索框 */
+.role-teacher .search-box input:focus {
+  border-color: #F59E0B !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.08) !important;
+}
+
+/* 图表卡片 */
+.role-teacher .chart-card {
+  border-color: rgba(245, 158, 11, 0.08) !important;
+}
+
+/* 空状态图标 */
+.role-teacher .empty-state .empty-icon {
+  opacity: 0.5;
+}
+
+/* 筛选芯片 */
+.role-teacher .filter-chip.active {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #B45309 !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+
+/* 返回按钮 */
+.role-teacher .btn-back {
+  color: #57534E !important;
+}
+.role-teacher .btn-back:hover {
+  color: #B45309 !important;
+  background: rgba(245, 158, 11, 0.06) !important;
+}
+
+/* 消息列表未读项 */
+.role-teacher .home-task-item.unread {
+  background: rgba(245, 158, 11, 0.04) !important;
+  border-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+/* 个人信息卡片头像 */
+.role-teacher .home-student-avatar {
+  background: linear-gradient(135deg, #B45309, #D97706) !important;
+}
+
+/* 个人信息卡片姓名 */
+.role-teacher .home-student-name {
+  color: #451A03 !important;
 }

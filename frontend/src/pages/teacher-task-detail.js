@@ -1,8 +1,9 @@
-﻿// 教师端 - 任务详情页（含提交列表）
+// 教师端 - 任务详情页（含提交列表）
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherTask, getTaskSubmissions, getTaskSubmission, deleteTeacherTask } from '../api/teacher.js'
 
 export async function renderTeacherTaskDetail(app, params) {
@@ -25,25 +26,9 @@ export async function renderTeacherTaskDetail(app, params) {
     }
   }
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
       <div class="page-header">
-        <a href="#/teacher/tasks" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回任务列表</a>
         <h2 class="page-title" id="task-title">任务详情</h2>
         <p class="page-subtitle" id="task-subtitle">加载中...</p>
       </div>
@@ -55,7 +40,7 @@ export async function renderTeacherTaskDetail(app, params) {
 
       <!-- 提交列表 -->
       <div class="card">
-        <h3 class="card-title">📋 学生提交列表</h3>
+        <h3 class="card-title">学生提交列表</h3>
         <div id="submissions-container">
           <div class="empty-hint">加载中...</div>
         </div>
@@ -65,7 +50,7 @@ export async function renderTeacherTaskDetail(app, params) {
 
   renderDashboardLayout(app, {
     title: '任务详情',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -93,15 +78,15 @@ export async function renderTeacherTaskDetail(app, params) {
             </div>
             ${data.description ? `<p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:8px;">${data.description}</p>` : ''}
             <div style="font-size:0.85rem;color:var(--text-muted);">
-              <div>📅 ${data.start_time ? formatDate(data.start_time) : '无开始时间'} → ${data.deadline ? formatDate(data.deadline) : '无截止时间'}</div>
+              <div>${data.start_time ? formatDate(data.start_time) : '无开始时间'} → ${data.deadline ? formatDate(data.deadline) : '无截止时间'}</div>
               <div>🔢 ${data.questions?.length || 0} 道题目</div>
-              <div>📤 ${data.submission_count || 0} 次提交</div>
+              <div>${data.submission_count || 0} 次提交</div>
               ${data.allow_late_submit ? '<div>✅ 允许补交</div>' : ''}
             </div>
           </div>
           <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px;justify-content:flex-end;">
-            <button class="btn" id="btn-edit-task" style="border:1px solid var(--border);font-size:0.85rem;">✏️ 编辑任务</button>
-            <button class="btn" id="btn-delete-task" style="border:1px solid #fecaca;color:#dc2626;font-size:0.85rem;">🗑️ 删除任务</button>
+            <button class="btn" id="btn-edit-task" style="border:1px solid var(--border);font-size:0.85rem;">编辑任务</button>
+            <button class="btn" id="btn-delete-task" style="border:1px solid #fecaca;color:#dc2626;font-size:0.85rem;">删除任务</button>
           </div>
         </div>
       `
@@ -195,4 +180,6 @@ export async function renderTeacherTaskDetail(app, params) {
   await loadTask()
   await loadSubmissions()
 }
+
+
 

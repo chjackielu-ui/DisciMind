@@ -117,6 +117,14 @@ app.use('/api/teacher', teacherNotificationRoutes);
 const teacherAiRoutes = require('./routes/teacher-ai.routes');
 app.use('/api/teacher', teacherAiRoutes);
 
+// 教师端智能教案生成
+const teacherLessonPlanRoutes = require('./routes/teacher-lesson-plan.routes');
+app.use('/api/teacher', teacherLessonPlanRoutes);
+
+// 教师端作业管理（独立 homework 模块）
+const homeworkRoutes = require('./modules/homework/homework.routes');
+app.use('/api/teacher/homework', homeworkRoutes);
+
 // ============================================================
 // 教师端路由（教师端开发者在此区域添加新模块挂载）
 // ============================================================
