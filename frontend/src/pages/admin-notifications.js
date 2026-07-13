@@ -4,22 +4,7 @@ import { getMe } from '../api/auth.js'
 import { getAdminNotifications, createAdminNotification, markNotificationRead, markAllNotificationsRead } from '../api/admin.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
-
-const menuItems = [
-  { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
-  { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-  { label: '教学管理', icon: 'book', hash: '#/admin/courses', prefixMatch: '/admin/courses', children: [
-      { label: '课程管理', hash: '#/admin/courses' },
-      { label: '班级管理', hash: '#/admin/classes' },
-    ]},
-  { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge', prefixMatch: '/admin/knowledge', children: [
-      { label: '知识库管理', hash: '#/admin/knowledge' },
-      { label: '操作日志', hash: '#/admin/logs' },
-      { label: '通知管理', hash: '#/admin/notifications' },
-      { label: 'AI 配置', hash: '#/admin/ai-config' },
-      { label: '个人信息', hash: '#/admin/profile' },
-    ]},
-]
+import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
 
 const notificationTypeLabels = {
   task_published: '任务发布',
@@ -147,7 +132,7 @@ export async function renderAdminNotifications(app) {
 
   function renderView() {
     const contentHTML = getContentHTML()
-    renderDashboardLayout(app, { title: '通知管理', menuItems, contentHTML, user })
+    renderDashboardLayout(app, { title: '通知管理', menuItems: ADMIN_MENU_ITEMS, contentHTML, user })
 
     // 搜索
     document.getElementById('btn-search')?.addEventListener('click', () => {

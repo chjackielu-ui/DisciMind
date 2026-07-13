@@ -12,6 +12,7 @@ import {
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
+import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
 
 // ========================
@@ -67,26 +68,11 @@ export async function renderAdminCourseDetail(app, params) {
   }
 
   const displayName = getUserDisplayName()
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/admin/dashboard' },
-    { label: '用户管理', icon: 'user', hash: '#/admin/users' },
-    { label: '教学管理', icon: 'book', hash: '#/admin/courses', prefixMatch: '/admin/courses', children: [
-      { label: '课程管理', hash: '#/admin/courses' },
-      { label: '班级管理', hash: '#/admin/classes' },
-    ]},
-    { label: '系统管理', icon: 'settings', hash: '#/admin/knowledge', prefixMatch: '/admin/knowledge', children: [
-      { label: '知识库管理', hash: '#/admin/knowledge' },
-      { label: '操作日志', hash: '#/admin/logs' },
-      { label: '通知管理', hash: '#/admin/notifications' },
-      { label: 'AI 配置', hash: '#/admin/ai-config' },
-      { label: '个人信息', hash: '#/admin/profile' },
-    ]},
-  ]
 
   // ---- 初始骨架 ----
   renderDashboardLayout(app, {
     title: '课程详情',
-    menuItems,
+    menuItems: ADMIN_MENU_ITEMS,
     contentHTML: `
       <div class="dashboard-content">
         <div style="margin-bottom:20px;">
@@ -414,7 +400,7 @@ export async function renderAdminCourseDetail(app, params) {
     app.innerHTML = ''
     renderDashboardLayout(app, {
       title: '课程详情',
-      menuItems,
+      menuItems: ADMIN_MENU_ITEMS,
       contentHTML,
       user,
     })
@@ -439,7 +425,7 @@ export async function renderAdminCourseDetail(app, params) {
     app.innerHTML = ''
     renderDashboardLayout(app, {
       title: '课程详情',
-      menuItems,
+      menuItems: ADMIN_MENU_ITEMS,
       contentHTML: `
         <div class="dashboard-content">
           <div style="margin-bottom:20px;">

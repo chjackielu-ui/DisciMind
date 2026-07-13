@@ -127,6 +127,7 @@ let themeColor = '#3B82F6'
 let themeAlpha = 'rgba(59,130,246,0.05)'
 let activePanel = 'none' // 'none' | 'login' | 'register'
 let loginSubmitting = false
+let regRole = 'student'
 let showScrollHint = true
 
 // ========== 面板切换 ==========
@@ -163,6 +164,9 @@ function showPanel(panelName) {
       registerPanel.style.display = 'block'
       void registerPanel.offsetHeight
       registerPanel.classList.add('visible')
+      requestAnimationFrame(() => {
+        updateRegHighlightPosition()
+      })
     }
     if (loginPanel) {
       loginPanel.classList.remove('visible')
@@ -320,6 +324,47 @@ function updateHighlightPosition() {
 
   highlight.style.left = optionRect.left - capsuleRect.left + 'px'
   highlight.style.width = optionRect.width + 'px'
+}
+
+// ========== 注册胶囊高亮定位 ==========
+function updateRegHighlightPosition() {
+  const capsule = document.getElementById('reg-identity-capsule')
+  const highlight = document.getElementById('reg-identity-highlight')
+  if (!capsule || !highlight) return
+
+  const activeOption = capsule.querySelector('.identity-option.active')
+  if (!activeOption) return
+
+  const capsuleRect = capsule.getBoundingClientRect()
+  const optionRect = activeOption.getBoundingClientRect()
+
+  highlight.style.left = optionRect.left - capsuleRect.left + 'px'
+  highlight.style.width = optionRect.width + 'px'
+}
+
+// ========== 注册角色字段联动 ==========
+function updateRegFieldVisibility() {
+  const studentNoRow = document.getElementById('reg-student-no-row')
+  const teacherNoRow = document.getElementById('reg-teacher-no-row')
+  const majorGradeRow = document.getElementById('reg-major-grade-row')
+
+  if (studentNoRow) studentNoRow.style.display = regRole === 'student' ? '' : 'none'
+  if (teacherNoRow) teacherNoRow.style.display = regRole === 'teacher' ? '' : 'none'
+  if (majorGradeRow) majorGradeRow.style.display = regRole === 'student' ? '' : 'none'
+}
+
+// ========== 同步注册胶囊到指定角色 ==========
+function syncRegCapsuleToRole(role) {
+  regRole = role
+  const regCapsule = document.getElementById('reg-identity-capsule')
+  if (regCapsule) {
+    regCapsule.querySelectorAll('.identity-option').forEach((opt) => opt.classList.remove('active'))
+    const target = regCapsule.querySelector(`.identity-option[data-role="${role}"]`)
+    if (target) target.classList.add('active')
+  }
+  applyTheme(role)
+  updateRegHighlightPosition()
+  updateRegFieldVisibility()
 }
 
 // ========== 生成场景卡片 HTML ==========
@@ -553,6 +598,15 @@ export function renderLoginPage(app) {
 
           <!-- 注册面板（初始隐藏） -->
           <div class="auth-panel register-panel" id="register-panel" style="display:none;">
+            <!-- 注册角色切换胶囊（仅学生/教师，不含管理员） -->
+            <div class="identity-selector">
+              <div class="identity-capsule" id="reg-identity-capsule">
+                <div class="identity-highlight" id="reg-identity-highlight"></div>
+                <button class="identity-option active" data-role="student" type="button">学生注册</button>
+                <button class="identity-option" data-role="teacher" type="button">教师注册</button>
+              </div>
+            </div>
+
             <form id="register-form" class="register-form-inline">
               <div class="form-row">
                 <div class="form-group">
@@ -567,17 +621,12 @@ export function renderLoginPage(app) {
 
               <div class="form-row">
                 <div class="form-group">
-                  <label for="reg-real-name">真实姓名</label>
-                  <input type="text" id="reg-real-name" placeholder="请输入真实姓名" />
+                  <label for="reg-confirm-password">确认密码 <span class="required">*</span></label>
+                  <input type="password" id="reg-confirm-password" placeholder="请再次输入密码" required />
                 </div>
                 <div class="form-group">
-                  <label for="reg-role">角色 <span class="required">*</span></label>
-                  <select id="reg-role" required>
-                    <option value="">请选择角色</option>
-                    <option value="student">学生</option>
-                    <option value="teacher">教师</option>
-                    <option value="admin">管理员</option>
-                  </select>
+                  <label for="reg-real-name">真实姓名 <span class="required">*</span></label>
+                  <input type="text" id="reg-real-name" placeholder="请输入真实姓名" required />
                 </div>
               </div>
 
@@ -607,7 +656,8 @@ export function renderLoginPage(app) {
                 </div>
               </div>
 
-              <div class="form-row">
+              <!-- 学生专有：专业、年级 -->
+              <div class="form-row" id="reg-major-grade-row">
                 <div class="form-group">
                   <label for="reg-major">专业</label>
                   <input type="text" id="reg-major" placeholder="请输入专业" />
@@ -618,14 +668,19 @@ export function renderLoginPage(app) {
                 </div>
               </div>
 
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="reg-student-no">学号</label>
-                  <input type="text" id="reg-student-no" placeholder="学生请填写学号" />
+              <!-- 学生专有：学号 -->
+              <div class="form-row" id="reg-student-no-row">
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label for="reg-student-no">学号 <span class="required">*</span></label>
+                  <input type="text" id="reg-student-no" placeholder="请输入学号" />
                 </div>
-                <div class="form-group">
-                  <label for="reg-teacher-no">教师工号</label>
-                  <input type="text" id="reg-teacher-no" placeholder="教师请填写工号" />
+              </div>
+
+              <!-- 教师专有：教师工号 -->
+              <div class="form-row" id="reg-teacher-no-row" style="display:none;">
+                <div class="form-group" style="grid-column: 1 / -1;">
+                  <label for="reg-teacher-no">教师工号 <span class="required">*</span></label>
+                  <input type="text" id="reg-teacher-no" placeholder="请输入教师工号" />
                 </div>
               </div>
 
@@ -697,6 +752,9 @@ export function renderLoginPage(app) {
   requestAnimationFrame(() => {
     updateHighlightPosition()
   })
+
+  // 初始化注册字段可见性（默认学生角色显示学号）
+  updateRegFieldVisibility()
 
   // 页面进入动画
   const heroContent = document.getElementById('hero-content')
@@ -799,6 +857,7 @@ export function renderLoginPage(app) {
     if (activePanel === 'register') {
       showPanel('none')
     } else {
+      syncRegCapsuleToRole(currentRole)
       showPanel('register')
     }
   })
@@ -840,6 +899,25 @@ export function renderLoginPage(app) {
     applyTheme(role)
     accountInput.placeholder = accountPlaceholders[role]
     updateHighlightPosition()
+  })
+
+  // ========== 注册身份胶囊切换（仅学生/教师） ==========
+  const regCapsule = document.getElementById('reg-identity-capsule')
+
+  regCapsule.addEventListener('click', (e) => {
+    const option = e.target.closest('.identity-option')
+    if (!option) return
+
+    const role = option.dataset.role
+    if (role === regRole) return
+
+    regCapsule.querySelectorAll('.identity-option').forEach((opt) => opt.classList.remove('active'))
+    option.classList.add('active')
+
+    regRole = role
+    applyTheme(role)
+    updateRegHighlightPosition()
+    updateRegFieldVisibility()
   })
 
   // 登录表单提交
@@ -891,10 +969,11 @@ export function renderLoginPage(app) {
   regForm.addEventListener('submit', async (e) => {
     e.preventDefault()
 
+    const confirmPassword = document.getElementById('reg-confirm-password').value
     const data = {
       username: document.getElementById('reg-username').value.trim(),
       password: document.getElementById('reg-password').value,
-      role: document.getElementById('reg-role').value,
+      role: regRole,
       real_name: document.getElementById('reg-real-name').value.trim(),
       gender: document.getElementById('reg-gender').value,
       phone: document.getElementById('reg-phone').value.trim(),
@@ -906,13 +985,28 @@ export function renderLoginPage(app) {
       teacher_no: document.getElementById('reg-teacher-no').value.trim(),
     }
 
-    if (!data.username || !data.password || !data.role) {
-      showRegError('用户名、密码、角色为必填项')
+    if (!data.username || !data.password || !data.real_name) {
+      showRegError('用户名、密码、真实姓名为必填项')
       return
     }
 
     if (data.password.length < 6) {
       showRegError('密码长度不能少于6位')
+      return
+    }
+
+    if (data.password !== confirmPassword) {
+      showRegError('两次输入的密码不一致')
+      return
+    }
+
+    // 角色专有字段校验
+    if (data.role === 'student' && !data.student_no) {
+      showRegError('学生请填写学号')
+      return
+    }
+    if (data.role === 'teacher' && !data.teacher_no) {
+      showRegError('教师请填写工号')
       return
     }
 
@@ -939,12 +1033,26 @@ export function renderLoginPage(app) {
     }
   })
 
-  // ========== 面板切换链接 ==========
+  // ========== 面板切换链接（角色双向联动） ==========
   document.getElementById('link-to-register').addEventListener('click', () => {
+    syncRegCapsuleToRole(currentRole)
     showPanel('register')
   })
 
   document.getElementById('link-to-login').addEventListener('click', () => {
+    // 同步登录胶囊到注册角色
+    const loginCapsule = document.getElementById('identity-capsule')
+    if (loginCapsule) {
+      loginCapsule.querySelectorAll('.identity-option').forEach((opt) => opt.classList.remove('active'))
+      const target = loginCapsule.querySelector(`.identity-option[data-role="${regRole}"]`)
+      if (target) {
+        target.classList.add('active')
+        applyTheme(regRole)
+        const accountInput = document.getElementById('login-account')
+        if (accountInput) accountInput.placeholder = accountPlaceholders[regRole]
+        updateHighlightPosition()
+      }
+    }
     showPanel('login')
   })
 

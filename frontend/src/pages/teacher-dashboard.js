@@ -1,11 +1,196 @@
-// 教师端首页
-// 接入真实 API 数据
+// 教师端首页 — 紧凑工作台总览（对齐学生端布局结构）
+// 布局参考学生端 student-dashboard.js，保持教师端琥珀色调与内容不变
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
-import { getTeacherDashboard } from '../api/teacher.js'
-import { getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadNotificationCount } from '../api/teacher.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
+import { getTeacherDashboard, getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadNotificationCount } from '../api/teacher.js'
+import { escapeHtml, formatPercent, formatDate } from '../utils/format.js'
+
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace(/\/api\/?$/, '')
+
+function safeNumber(value, fallback = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function getAvatarUrl(user) {
+  const url = user?.profile?.avatar_url || user?.avatar_url
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url) || url.startsWith('data:')) return url
+  return `${API_ORIGIN}${url.startsWith('/') ? url : '/' + url}`
+}
+
+function getInitial(name) {
+  return String(name || '师').trim().slice(0, 1).toUpperCase()
+}
+
+function buildMetricGrid(overview = {}) {
+  const metrics = [
+    { label: '我的课程', value: safeNumber(overview.course_count), hint: '负责课程数', tone: 'blue' },
+    { label: '教学班级', value: safeNumber(overview.teaching_class_count), hint: '当前学期', tone: 'green' },
+    { label: '学生人数', value: safeNumber(overview.student_count), hint: '在读学生', tone: 'green' },
+    { label: '平均成绩', value: overview.average_test_score != null ? `${overview.average_test_score}%` : '-', hint: '测试均分', tone: 'blue' },
+    { label: '平均掌握度', value: overview.average_mastery_score != null ? `${overview.average_mastery_score}%` : '-', hint: '知识点掌握', tone: 'amber' },
+    { label: '待审文档', value: safeNumber(overview.pending_review_document_count), hint: '需审核', tone: 'red' },
+  ]
+
+  return `
+    <div class="home-metric-grid">
+      ${metrics.map(item => `
+        <article class="home-metric-card ${item.tone}">
+          <span>${item.label}</span>
+          <b>${escapeHtml(String(item.value))}</b>
+          <em>${escapeHtml(item.hint)}</em>
+        </article>
+      `).join('')}
+    </div>`
+}
+
+function buildQuickEntries() {
+  const entries = [
+    { label: '课程管理', sub: '管理课程与章节', hash: '#/teacher/courses' },
+    { label: '学生管理', sub: '学生与班级', hash: '#/teacher/students' },
+    { label: '作业任务', sub: '发布与批改', hash: '#/teacher/tasks' },
+    { label: '学情分析', sub: '数据看板', hash: '#/teacher/analytics' },
+    { label: '题库管理', sub: '建设题库', hash: '#/teacher/questions' },
+    { label: '智能教案', sub: 'AI 备课', hash: '#/teacher/lesson-plan' },
+  ]
+
+  return `
+    <div class="home-quick-grid">
+      ${entries.map((item, idx) => `
+        <button type="button" class="home-quick-card${idx === 0 ? ' primary' : ''}" data-teacher-nav="${item.hash}">
+          <span>${escapeHtml(item.label)}</span>
+          <b>${escapeHtml(item.sub)}</b>
+        </button>
+      `).join('')}
+    </div>`
+}
+
+function buildProfileCard(user, displayName, overview = {}) {
+  const avatarUrl = getAvatarUrl(user)
+  const profile = user?.profile || {}
+  const info = [
+    { label: '姓名', value: displayName },
+    { label: '学院', value: profile.college || '未填写' },
+    { label: '工号', value: profile.teacher_no || '未填写' },
+    { label: '邮箱', value: user.email || '未填写' },
+  ]
+
+  return `
+    <aside class="home-student-card">
+      <div class="home-student-avatar">
+        ${avatarUrl
+          ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}">`
+          : `<span>${escapeHtml(getInitial(displayName))}</span>`}
+      </div>
+      <div class="home-student-name">${escapeHtml(displayName)}</div>
+      <div class="home-student-role">教师工作台</div>
+      <div class="home-student-info-list">
+        ${info.map(item => `
+          <div class="home-student-info-row">
+            <span>${escapeHtml(item.label)}</span>
+            <b>${escapeHtml(item.value)}</b>
+          </div>
+        `).join('')}
+      </div>
+      <div class="home-student-progress">
+        <div>
+          <span>课程数量</span>
+          <b>${safeNumber(overview.course_count)} 门</b>
+        </div>
+        <div class="home-progress-bar">
+          <i style="width:${Math.min(100, safeNumber(overview.course_count) * 20)}%"></i>
+        </div>
+      </div>
+    </aside>`
+}
+
+function buildOverviewPanel(overview = {}) {
+  return `
+    <section class="home-panel home-recommend-panel">
+      <div class="home-panel-head">
+        <div>
+          <h3>教学概览</h3>
+          <p>教学班级与学生的整体状态。</p>
+        </div>
+      </div>
+      <div class="home-rec-list">
+        <div class="home-rec-item">
+          <span class="home-rec-tag green">教学班</span>
+          <b>${safeNumber(overview.teaching_class_count)} 个教学班级</b>
+          <em>当前学期负责的教学组织</em>
+        </div>
+        <div class="home-rec-item">
+          <span class="home-rec-tag blue">学生</span>
+          <b>${safeNumber(overview.student_count)} 名在读学生</b>
+          <em>覆盖所有教学班级</em>
+        </div>
+        <div class="home-rec-item">
+          <span class="home-rec-tag amber">文档</span>
+          <b>${safeNumber(overview.pending_review_document_count)} 份待审核文档</b>
+          <em>知识库文档审核队列</em>
+        </div>
+      </div>
+    </section>`
+}
+
+function buildNotificationSection() {
+  return `
+    <section class="home-panel home-task-panel" id="notification-section">
+      <div class="home-panel-head">
+        <div>
+          <h3>消息通知</h3>
+          <span id="unread-badge" style="display:none;background:#dc2626;color:#fff;font-size:0.72rem;padding:1px 8px;border-radius:10px;font-weight:600;margin-left:8px;"></span>
+        </div>
+        <button class="home-panel-link" id="notif-mark-all-read" style="display:none;">全部标记已读</button>
+      </div>
+      <div id="notification-list" style="min-height:60px;">
+        <div class="home-empty-inline">加载中...</div>
+      </div>
+    </section>`
+}
+
+function buildErrorContent(message) {
+  return `
+    <div class="dashboard-content">
+      <div class="error-state">
+        <div class="error-icon">!</div>
+        <p class="error-message">${escapeHtml(message || '教师工作台数据加载失败')}</p>
+        <button class="btn-retry" onclick="window.location.reload()">重新加载</button>
+      </div>
+    </div>`
+}
+
+function buildHomeContent({ user, displayName, dashboardData }) {
+  const overview = dashboardData || {}
+
+  return `
+    <div class="dashboard-content teacher-home-shell">
+      <section class="student-home-top">
+        <div class="student-home-primary">
+          <div class="student-home-title-row">
+            <div>
+              <span class="home-eyebrow">教学工作台</span>
+              <h2>欢迎回来，${escapeHtml(displayName)}</h2>
+              <p>这里汇总您的课程、班级、学生数据和教学快捷入口。</p>
+            </div>
+            <span class="home-sync-time">同步 ${formatDate(new Date().toISOString(), 'time')}</span>
+          </div>
+          ${buildMetricGrid(overview)}
+          ${buildQuickEntries()}
+        </div>
+        ${buildProfileCard(user, displayName, overview)}
+      </section>
+
+      <section class="home-two-column">
+        ${buildOverviewPanel(overview)}
+        ${buildNotificationSection()}
+      </section>
+    </div>`
+}
 
 export async function renderTeacherDashboard(app) {
   let user = getUser()
@@ -22,160 +207,71 @@ export async function renderTeacherDashboard(app) {
     }
   }
 
+  // Loading 状态
+  renderDashboardLayout(app, {
+    menuItems: TEACHER_MENU_ITEMS,
+    contentHTML: `
+      <div class="dashboard-content teacher-home-shell">
+        <div class="loading-state">
+          <div class="loading-spinner"></div>
+          <p class="loading-text">正在加载教学工作台数据...</p>
+        </div>
+      </div>`,
+    user,
+  });
+
+  // 加载真实数据
+  let dashboardData = {}
+  try {
+    const res = await getTeacherDashboard()
+    dashboardData = res.data || {}
+  } catch (err) {
+    console.error('加载概览数据失败', err)
+    renderDashboardLayout(app, {
+      menuItems: TEACHER_MENU_ITEMS,
+      contentHTML: buildErrorContent(err.message),
+      user,
+    })
+    return
+  }
+
   const displayName = getUserDisplayName()
-
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
-  const contentHTML = `
-    <div class="dashboard-content">
-      <!-- 欢迎横幅 -->
-      <div class="welcome-banner teacher-banner">
-        <div class="welcome-text">
-          <h2>欢迎你，${displayName}</h2>
-          <p>教学工作顺利，桃李满天下！</p>
-        </div>
-        <div class="welcome-illustration"></div>
-      </div>
-
-      <!-- 数据卡片 -->
-      <div class="stats-grid" id="stats-container">
-        <div class="stat-card"><div class="stat-value" id="stat-courses">-</div><div class="stat-label">我的课程</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-classes">-</div><div class="stat-label">教学班级</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-students">-</div><div class="stat-label">学生人数</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-testscore">-</div><div class="stat-label">平均成绩</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-mastery">-</div><div class="stat-label">平均掌握度</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-pending">-</div><div class="stat-label">待审文档</div></div>
-      </div>
-
-      <!-- 下方两栏 -->
-      <div class="content-columns">
-        <!-- 快捷入口 -->
-        <div class="card">
-          <h3 class="card-title">快捷入口</h3>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="quick-link" data-hash="#/teacher/courses" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:0.85rem;margin-top:4px;">课程管理</div>
-            </div>
-            <div class="quick-link" data-hash="#/teacher/tasks" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:0.85rem;margin-top:4px;">作业任务</div>
-            </div>
-            <div class="quick-link" data-hash="#/teacher/students" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:0.85rem;margin-top:4px;">学生管理</div>
-            </div>
-            <div class="quick-link" data-hash="#/teacher/analytics" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:0.85rem;margin-top:4px;">学情分析</div>
-            </div>
-            <div class="quick-link" data-hash="#/teacher/questions" style="padding:14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;">
-              <div style="font-size:0.85rem;margin-top:4px;">题库管理</div>
-            </div>
-            <div class="quick-link" data-hash="#" id="ai-quick-btn" style="padding:14px;border:1px solid #a78bfa;border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;background:rgba(167,139,250,0.05);">
-              <div style="font-size:0.85rem;margin-top:4px;color:#7c3aed;">AI 助手</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 账户信息 -->
-        <div class="card user-info-card">
-          <h3 class="card-title">账户信息</h3>
-          <div class="user-info-grid">
-            <div class="info-item">
-              <span class="info-label">用户名</span>
-              <span class="info-value">${user.username || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">角色</span>
-              <span class="info-value">教师</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">真实姓名</span>
-              <span class="info-value">${user.profile?.real_name || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">学院</span>
-              <span class="info-value">${user.profile?.college || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">工号</span>
-              <span class="info-value">${user.profile?.teacher_no || '-'}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">邮箱</span>
-              <span class="info-value">${user.email || '-'}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-    <!-- 消息通知开始 -->
-    <div class="card" id="notification-section" style="margin-top:0;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h3 class="card-title" style="margin:0;display:flex;align-items:center;gap:8px;">
-          消息通知
-          <span id="unread-badge" style="display:none;background:#dc2626;color:#fff;font-size:0.72rem;padding:1px 8px;border-radius:10px;font-weight:600;"></span>
-        </h3>
-        <button class="btn-mark-all-read" id="notif-mark-all-read" style="padding:5px 14px;font-size:0.8rem;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;color:var(--text-secondary);display:none;">全部标记已读</button>
-      </div>
-      <div id="notification-list" style="min-height:60px;">
-        <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.9rem;">加载中...</div>
-      </div>
-    </div>
-    <!-- 消息通知结束 -->
-  `
+  const contentHTML = buildHomeContent({ user, displayName, dashboardData })
 
   renderDashboardLayout(app, {
-    title: '教师教学中心',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
 
-  // 加载真实数据
-  async function loadStats() {
-    try {
-      const res = await getTeacherDashboard()
-      const data = res.data || {}
-
-      document.getElementById('stat-courses').textContent = data.course_count ?? '-'
-      document.getElementById('stat-classes').textContent = data.teaching_class_count ?? '-'
-      document.getElementById('stat-students').textContent = data.student_count ?? '-'
-      document.getElementById('stat-testscore').textContent = data.average_test_score != null ? `${data.average_test_score}%` : '-'
-      document.getElementById('stat-mastery').textContent = data.average_mastery_score != null ? `${data.average_mastery_score}%` : '-'
-      document.getElementById('stat-pending').textContent = data.pending_review_document_count ?? '-'
-    } catch (err) {
-      console.error('加载概览数据失败', err)
-    }
-  }
-
   // 快捷入口点击
-  document.querySelectorAll('.quick-link').forEach(el => {
-    el.addEventListener('click', () => {
-      const hash = el.dataset.hash
+  bindTeacherHomeEvents()
+
+  // 加载通知
+  loadNotifications()
+
+  // ========================
+  // 快捷入口事件绑定
+  // ========================
+  function bindTeacherHomeEvents() {
+    const main = document.getElementById('student-main')
+    if (!main) return
+    if (main._teacherHomeClickHandler) {
+      main.removeEventListener('click', main._teacherHomeClickHandler)
+    }
+
+    const handler = (event) => {
+      const nav = event.target.closest('[data-teacher-nav]')
+      if (!nav) return
+      const hash = nav.dataset.teacherNav
       if (hash && hash !== '#') {
         window.location.hash = hash
       }
-    })
-  })
+    }
 
-  document.getElementById('ai-quick-btn')?.addEventListener('click', () => {
-    alert('该功能正在开发中，敬请期待')
-  })
-
-  loadStats()
-  loadNotifications()
+    main._teacherHomeClickHandler = handler
+    main.addEventListener('click', handler)
+  }
 
   // ========================
   // 消息通知
@@ -217,7 +313,7 @@ export async function renderTeacherDashboard(app) {
       }
 
       if (list.length === 0) {
-        notifListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.9rem;">暂无消息通知</div>'
+        notifListEl.innerHTML = '<div class="home-empty-inline">暂无消息通知</div>'
         return
       }
 
@@ -227,32 +323,24 @@ export async function renderTeacherDashboard(app) {
         ai_grading_done: 'AI批改', system_notice: '系统通知',
       }
 
-      notifListEl.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${
+      notifListEl.innerHTML = `<div class="home-task-list">${
         list.map((n) => {
           const time = n.created_at ? new Date(n.created_at).toLocaleString('zh-CN') : ''
           const typeLabel = typeLabels[n.notification_type] || n.notification_type
-          return `<div class="notif-item" data-id="${n.notification_id}" style="cursor:pointer;display:flex;align-items:flex-start;gap:12px;padding:10px 14px;border-radius:12px;background:${n.is_read ? 'transparent' : 'rgba(255,149,5,0.06)'};border:1px solid ${n.is_read ? 'var(--border)' : 'rgba(255,149,5,0.15)'};transition:all 0.2s;">
-            <div style="flex:1;min-width:0;">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <span style="font-size:0.8rem;color:var(--text-muted);">${typeLabel}</span>
-                <span style="font-size:0.75rem;color:var(--text-muted);">${time}</span>
-                ${!n.is_read ? '<span style="width:7px;height:7px;border-radius:50%;background:#dc2626;flex-shrink:0;"></span>' : ''}
-              </div>
-              <div class="notif-title" style="font-weight:${n.is_read ? '400' : '600'};color:var(--text);font-size:0.9rem;margin-top:4px;">${n.title}</div>
-              ${n.content ? `<div style="font-size:0.82rem;color:var(--text-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px;">${n.content}</div>` : ''}
-              ${n.sender_name ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">来自：${n.sender_name}</div>` : ''}
+          return `<div class="home-task-item${n.is_read ? '' : ' unread'}" data-id="${n.notification_id}">
+            <div>
+              <b>${escapeHtml(n.title)}</b>
+              <span>${typeLabel} · ${time}${!n.is_read ? ' · <em style="color:#dc2626;">未读</em>' : ''}</span>
             </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;">
-              <button class="notif-read-btn" data-id="${n.notification_id}" data-is-read="${n.is_read}" style="padding:4px 12px;font-size:0.78rem;border:1px solid var(--border);border-radius:8px;background:${n.is_read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.7)'};cursor:pointer;color:var(--text-secondary);white-space:nowrap;">${n.is_read ? '已读' : '标为已读'}</button>
-            </div>
+            <button type="button" class="notif-read-btn" data-id="${n.notification_id}" data-is-read="${n.is_read}">${n.is_read ? '已读' : '标为已读'}</button>
           </div>`
         }).join('')
       }</div>`
 
       // 绑定事件：点击通知项阅读详情
-      notifListEl.querySelectorAll('.notif-item').forEach((item) => {
+      notifListEl.querySelectorAll('.home-task-item').forEach((item) => {
         item.addEventListener('click', (e) => {
-          if (e.target.closest('.notif-read-btn')) return // 交给按钮自己的事件
+          if (e.target.closest('.notif-read-btn')) return
           const nid = parseInt(item.dataset.id, 10)
           const notif = list.find((n) => n.notification_id === nid)
           if (notif) showNotificationDetail(notif)

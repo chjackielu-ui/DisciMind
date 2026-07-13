@@ -147,6 +147,14 @@ export function createTeacherStudent(data) {
   return post('/teacher/students', data)
 }
 
+export function updateTeacherStudent(studentUserId, data) {
+  return put(`/teacher/students/${studentUserId}`, data)
+}
+
+export function deleteTeacherStudent(studentUserId) {
+  return del(`/teacher/students/${studentUserId}`)
+}
+
 export function getTeacherStudent(studentUserId) {
   return get(`/teacher/students/${studentUserId}`)
 }
@@ -165,6 +173,39 @@ export function getStudentPortrait(studentUserId, params = {}) {
 
 export function refreshStudentPortrait(studentUserId, data) {
   return post(`/teacher/students/${studentUserId}/refresh`, data)
+}
+
+export function batchImportStudents(data) {
+  return post('/teacher/students/batch-import', data)
+}
+
+export async function downloadStudentTemplate() {
+  // 直接通过 fetch 下载（避免 JSON 解析）
+  const { getToken } = await import('../utils/auth.js')
+  const token = getToken()
+  const BASE_URL = (await import('./request.js')).BASE_URL || 'http://localhost:3000/api'
+  const response = await fetch(`${BASE_URL}/teacher/students/template`, {
+    headers: { Authorization: token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error('下载模板失败')
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'student_import_template.csv'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// ========================
+// 班级管理
+// ========================
+
+export function getAllTeachingClasses(params = {}) {
+  return get('/teacher/classes', { params })
 }
 
 // ========================
@@ -247,6 +288,58 @@ export function uploadKnowledgeDocument(formData) {
 }
 
 // ========================
+// 作业管理（独立 homework 模块）
+// ========================
+
+export function createHomework(data) {
+  return post('/teacher/homework/create', data)
+}
+
+export function updateHomework(id, data) {
+  return put(`/teacher/homework/${id}`, data)
+}
+
+export function publishHomework(id) {
+  return put(`/teacher/homework/${id}/publish`)
+}
+
+export function closeHomework(id) {
+  return put(`/teacher/homework/${id}/close`)
+}
+
+export function importHomeworkQuestions(id, data) {
+  return post(`/teacher/homework/${id}/import-question`, data)
+}
+
+export function getHomeworkList(params = {}) {
+  return get('/teacher/homework/list', { params })
+}
+
+export function getHomeworkDetail(id) {
+  return get(`/teacher/homework/${id}/detail`)
+}
+
+export function getHomeworkSubmissions(id, params = {}) {
+  return get(`/teacher/homework/${id}/submissions`, { params })
+}
+
+export function aiMarkSubmission(subId) {
+  return post(`/teacher/homework/submission/${subId}/ai-mark`)
+}
+
+export function batchAiMarkHomework(id) {
+  return post(`/teacher/homework/${id}/batch-ai-mark`)
+}
+
+export function manualMarkSubmission(subId, data) {
+  return put(`/teacher/homework/submission/${subId}/manual-mark`, data)
+}
+
+export function getHomeworkScoreStat(id) {
+  return get(`/teacher/homework/${id}/score-stat`)
+}
+
+// ========================
 // 消息通知
 // ========================
 
@@ -284,4 +377,20 @@ export function aiVideoGeneration(data) {
 
 export function aiLearningAnalysis(data) {
   return post('/teacher/ai/learning-analysis', data)
+}
+
+// ========================
+// 智能教案生成
+// ========================
+
+export function createLessonPlanTask(data) {
+  return post('/teacher/lesson-plan/create-task', data)
+}
+
+export function getLessonPlanTask(taskId) {
+  return get(`/teacher/lesson-plan/task/${taskId}`)
+}
+
+export function getLessonPlanKeywords(params = {}) {
+  return get('/teacher/lesson-plan/keywords', { params })
 }

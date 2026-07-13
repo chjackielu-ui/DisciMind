@@ -1,8 +1,9 @@
-﻿// 教师端 - 任务列表页
+// 教师端 - 任务列表页
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherTasks, getTeacherCourses, deleteTeacherTask } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 
@@ -23,26 +24,8 @@ export async function renderTeacherTasks(app) {
 
   const displayName = getUserDisplayName()
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
-      <div style="margin-bottom:12px;">
-        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
-      </div>
       <div class="page-header">
         <h2 class="page-title">作业考试</h2>
         <p class="page-subtitle">管理作业任务、测验、学习任务与题库</p>
@@ -89,7 +72,7 @@ export async function renderTeacherTasks(app) {
 
   renderDashboardLayout(app, {
     title: '作业测试',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -144,10 +127,10 @@ export async function renderTeacherTasks(app) {
 
   function getTaskTypeLabel(type) {
     const map = {
-      homework: '📝 作业',
-      quiz: '📄 测验',
-      study_task: '📖 学习任务',
-      review_plan: '🔄 复习计划',
+      homework: '作业',
+      quiz: '测验',
+      study_task: '学习任务',
+      review_plan: '复习计划',
     }
     return map[type] || type || '-'
   }
@@ -210,9 +193,9 @@ export async function renderTeacherTasks(app) {
               <span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:8px;font-size:0.75rem;">${getTaskTypeLabel(t.task_type)}</span>
             </div>
             <div style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;flex:1;">
-              <div>📚 ${t.course_name || '-'}</div>
+              <div>${t.course_name || '-'}</div>
               <div>👥 ${t.class_name || '-'}</div>
-              ${t.deadline ? '<div>⏰ 截止：' + formatDate(t.deadline) + '</div>' : ''}
+              ${t.deadline ? '<div>截止：' + formatDate(t.deadline) + '</div>' : ''}
               ${
                 t.description
                   ? '<div style="margin-top:4px;color:var(--text-muted);font-size:0.8rem;">' +
@@ -223,8 +206,8 @@ export async function renderTeacherTasks(app) {
               }
             </div>
             <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);padding-top:10px;border-top:1px solid var(--border);">
-              <span>📝 ${t.question_count || 0} 题</span>
-              <span>📊 ${t.submission_count || 0} 人已提交</span>
+              <span>${t.question_count || 0} 题</span>
+              <span>${t.submission_count || 0} 人已提交</span>
             </div>
             <div style="display:flex;gap:8px;margin-top:12px;">
               <button class="btn-delete-task" data-id="${t.task_id}" style="flex:1;padding:6px;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.85rem;">删除</button>
@@ -283,4 +266,6 @@ export async function renderTeacherTasks(app) {
   loadCourseOptions()
   loadTasks()
 }
+
+
 

@@ -3,6 +3,7 @@
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherCourses, getTeacherDashboard, getAnalyticsProgress, getAnalyticsKnowledgeHeatmap, getAnalyticsScoreDistribution, getAnalyticsQuestionFrequency, getAnalyticsWeakKnowledgePoints } from '../api/teacher.js'
 
 export async function renderTeacherAnalytics(app) {
@@ -22,21 +23,6 @@ export async function renderTeacherAnalytics(app) {
 
   const displayName = getUserDisplayName()
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
       <div class="page-header">
@@ -44,29 +30,29 @@ export async function renderTeacherAnalytics(app) {
         <p class="page-subtitle">查看课程整体学习数据与学生表现统计</p>
       </div>
 
-      <div style="margin-bottom:12px;">
-        <a href="#/teacher/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回首页</a>
-      </div>
-
-      <!-- 课程选择器 -->
-      <div class="card" style="margin-bottom:20px;padding:14px 20px;">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <label for="course-select" style="font-weight:600;font-size:0.9rem;color:var(--text);">选择课程：</label>
-          <select id="course-select" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
-            <option value="">全部课程</option>
-          </select>
-          <span id="course-hint" style="font-size:0.8rem;color:var(--text-muted);">切换课程后将自动刷新分析数据</span>
+      <!-- 概览卡片 + 课程选择（左右两栏） -->
+      <div style="display:flex;gap:20px;margin-bottom:20px;align-items:stretch;">
+        <!-- 左侧：统计卡片 -->
+        <div style="flex:0 0 68%;">
+          <div class="stats-grid" id="overview-stats">
+            <div class="stat-card"><div class="stat-value" id="stat-students">-</div><div class="stat-label">学生总数</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-mastery">-</div><div class="stat-label">平均掌握度</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-score">-</div><div class="stat-label">平均成绩</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-questions">-</div><div class="stat-label">AI 提问数</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-weak">-</div><div class="stat-label">薄弱知识点</div></div>
+            <div class="stat-card"><div class="stat-value" id="stat-pending">-</div><div class="stat-label">待审文档</div></div>
+          </div>
         </div>
-      </div>
-
-      <!-- 概览卡片 -->
-      <div class="stats-grid" id="overview-stats">
-        <div class="stat-card"><div class="stat-value" id="stat-students">-</div><div class="stat-label">学生总数</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-mastery">-</div><div class="stat-label">平均掌握度</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-score">-</div><div class="stat-label">平均成绩</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-questions">-</div><div class="stat-label">AI 提问数</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-weak">-</div><div class="stat-label">薄弱知识点</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-pending">-</div><div class="stat-label">待审文档</div></div>
+        <!-- 右侧：课程选择 + 摘要信息 -->
+        <div style="flex:1;min-width:240px;">
+          <div class="card" style="padding:16px 20px;height:100%;display:flex;flex-direction:column;justify-content:center;gap:12px;">
+            <label for="course-select" style="font-weight:600;font-size:0.85rem;color:var(--text);">选择课程</label>
+            <select id="course-select" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+              <option value="">全部课程</option>
+            </select>
+            <span id="course-hint" style="font-size:0.78rem;color:var(--text-muted);line-height:1.5;">切换课程后将自动刷新分析数据</span>
+          </div>
+        </div>
       </div>
 
       <!-- 成绩分布 -->
@@ -80,7 +66,7 @@ export async function renderTeacherAnalytics(app) {
       <!-- 关键词词云 -->
       <div class="card" style="margin-bottom:20px;">
         <h3 class="card-title">学科对话关键词词云</h3>
-        <p style="font-size:0.8rem;color:var(--text-muted);margin:-8px 0 12px;">基于学生学科对话提取的高频关键词，字体越大表示出现频率越高</p>
+        <p style="font-size:0.8rem;color:var(--text-muted);margin:-8px 0 12px;">基于学生学科对话提取的知识点关键词，词越大表示字数越多/概念越复杂；含停用词过滤与同义归并</p>
         <div id="word-cloud-container" style="min-height:120px;padding:8px 0;">
           <div class="empty-hint">加载中...</div>
         </div>
@@ -112,7 +98,7 @@ export async function renderTeacherAnalytics(app) {
 
   renderDashboardLayout(app, {
     title: '学情分析',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -259,18 +245,36 @@ export async function renderTeacherAnalytics(app) {
       if (!wordCloud || wordCloud.length === 0) {
         wcContainer.innerHTML = '<div class="empty-hint">暂无词云数据（学生进行学科对话后将自动生成）</div>'
       } else {
-        const maxCount = Math.max(...wordCloud.map(w => w.count), 1)
-        const minFont = 12
-        const maxFont = 42
-        const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#64748b']
+        // 词大小按知识点字数长度映射（需求规定）
+        // 2字: 14-18px | 3-4字: 20-26px | 5-6字: 28-34px | 7字+: 36-42px
+        function getFontSizeByLength(len) {
+          if (len >= 7) return 36 + Math.min(len - 7, 3) * 2  // 7字36px, 8字38px, 9字40px, 10字42px
+          if (len >= 5) return 28 + (len - 5) * 3             // 5字28px, 6字31px
+          if (len >= 3) return 20 + (len - 3) * 3             // 3字20px, 4字23px
+          return 14 + (len - 1) * 2                            // 1字14px, 2字16px
+        }
+        function getBgByLength(len) {
+          if (len >= 7) return '#FEF2F2'
+          if (len >= 5) return '#FFFBEB'
+          if (len >= 3) return '#EFF6FF'
+          return '#F0FDF4'
+        }
+        function getColorByLength(len) {
+          if (len >= 7) return '#dc2626'
+          if (len >= 5) return '#d97706'
+          if (len >= 3) return '#2563eb'
+          return '#16a34a'
+        }
+        const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6']
         wcContainer.innerHTML = `
-          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;padding:16px;min-height:100px;background:rgba(255,255,255,0.4);border-radius:16px;border:1px solid var(--border);">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding:16px;min-height:100px;background:rgba(255,255,255,0.4);border-radius:16px;border:1px solid var(--border);">
             ${wordCloud.map(w => {
-              const ratio = w.count / maxCount
-              const fontSize = minFont + ratio * (maxFont - minFont)
+              const len = w.char_length || w.keyword.length
+              const fontSize = getFontSizeByLength(len)
+              const bg = getBgByLength(len)
               const color = colors[Math.floor(Math.random() * colors.length)]
-              const opacity = 0.55 + ratio * 0.45
-              return `<span style="display:inline-block;font-size:${fontSize}px;font-weight:${ratio > 0.5 ? 700 : 400};color:${color};opacity:${opacity};padding:4px 8px;border-radius:8px;transition:all 0.2s;cursor:default;line-height:1.4;" title="出现 ${w.count} 次">${w.keyword}</span>`
+              const count = w.count || 0
+              return `<span style="display:inline-block;font-size:${fontSize}px;font-weight:${len >= 5 ? 700 : 500};color:${color};background:${bg};padding:4px 10px;border-radius:8px;border:1px solid ${color}25;transition:all 0.2s;cursor:default;line-height:1.4;" title="字数:${len} · 出现:${count}次">${w.keyword}</span>`
             }).join('')}
           </div>
         `
@@ -305,4 +309,5 @@ export async function renderTeacherAnalytics(app) {
   // 初始化：先加载课程列表，再加载分析数据
   loadCourses().then(() => loadAll())
 }
+
 

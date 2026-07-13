@@ -149,6 +149,31 @@
 }
 
 /* ============================================
+   三点五、二级导航面板（覆盖 dashboard.css 蓝色默认值）
+   ============================================ */
+.role-admin .sub-nav-panel {
+  background: rgba(30, 27, 46, 0.92);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  box-shadow: 0 12px 40px rgba(91, 33, 182, 0.18);
+}
+
+.role-admin .sub-nav-item {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.role-admin .sub-nav-item:hover {
+  background: rgba(124, 58, 237, 0.22);
+  color: #fff;
+}
+
+.role-admin .sub-nav-item.active {
+  background: rgba(124, 58, 237, 0.30);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ============================================
    四、欢迎横幅（管理员端紫色渐变）
    ============================================ */
 .role-admin .welcome-banner {

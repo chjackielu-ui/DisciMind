@@ -1,8 +1,9 @@
-﻿// 教师端 - 题库管理页
+// 教师端 - 题库管理页
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherQuestions, deleteTeacherQuestion, aiGenerateQuestions } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 
@@ -21,26 +22,8 @@ export async function renderTeacherQuestions(app) {
     }
   }
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
-      <div style="margin-bottom:12px;">
-        <a href="#/teacher/tasks" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回作业考试</a>
-      </div>
       <div class="page-header">
         <h2 class="page-title">题库管理</h2>
         <p class="page-subtitle">管理课程题目，支持单选题、多选题、判断题、填空题、简答题</p>
@@ -66,7 +49,7 @@ export async function renderTeacherQuestions(app) {
           <button class="btn btn-primary" id="btn-search">${iconSearch()} 搜索</button>
           <button class="btn" id="btn-refresh" style="border:1px solid var(--border);">${iconRefresh()}</button>
           <div style="margin-left:auto;display:flex;gap:8px;">
-            <button class="btn" id="btn-ai-generate" style="border:1px solid #a78bfa;color:#7c3aed;">🤖 AI 生成</button>
+            <button class="btn" id="btn-ai-generate" style="border:1px solid #a78bfa;color:#7c3aed;">AI 生成</button>
             <button class="btn btn-primary" id="btn-create">＋ 新建题目</button>
           </div>
         </div>
@@ -82,7 +65,7 @@ export async function renderTeacherQuestions(app) {
 
   renderDashboardLayout(app, {
     title: '题库管理',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -202,4 +185,6 @@ export async function renderTeacherQuestions(app) {
 
   loadQuestions()
 }
+
+
 

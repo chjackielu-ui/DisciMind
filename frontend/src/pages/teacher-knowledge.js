@@ -1,8 +1,9 @@
-﻿// 教师端 - 知识库管理页
+// 教师端 - 知识库管理页
 
 import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
+import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getKnowledgeDocuments, reviewKnowledgeDocument, uploadKnowledgeDocument } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
@@ -22,26 +23,8 @@ export async function renderTeacherKnowledge(app) {
     }
   }
 
-  const menuItems = [
-    { label: '首页', icon: 'home', hash: '#/teacher/dashboard' },
-    { label: '教学管理', icon: 'book', hash: '#/teacher/courses', children: [
-      { label: '课程管理', hash: '#/teacher/courses' },
-      { label: '学生管理', hash: '#/teacher/students' },
-      { label: '知识库', hash: '#/teacher/knowledge' },
-    ]},
-    { label: '作业考试', icon: 'edit', hash: '#/teacher/tasks', children: [
-      { label: '作业任务', hash: '#/teacher/tasks' },
-      { label: '题库管理', hash: '#/teacher/questions' },
-    ]},
-    { label: '学情分析', icon: 'chart', hash: '#/teacher/analytics' },
-    { label: '个人中心', icon: 'user', hash: '#/teacher/profile' },
-  ]
-
   const contentHTML = `
     <div class="dashboard-content">
-      <div style="margin-bottom:12px;">
-        <a href="#/teacher/courses" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回教学管理</a>
-      </div>
       <div class="page-header">
         <h2 class="page-title">知识库管理</h2>
         <p class="page-subtitle">管理与审核课程相关的知识库文档</p>
@@ -101,7 +84,7 @@ export async function renderTeacherKnowledge(app) {
     <!-- 上传文档弹窗 -->
     <div id="upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
       <div style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-        <h3 style="margin-bottom:20px;">📄 上传知识库文档</h3>
+        <h3 style="margin-bottom:20px;">上传知识库文档</h3>
         <form id="upload-form">
           <div class="form-group" style="margin-bottom:14px;">
             <label>选择文件 <span class="required">*</span></label>
@@ -146,7 +129,7 @@ export async function renderTeacherKnowledge(app) {
 
   renderDashboardLayout(app, {
     title: '知识库管理',
-    menuItems,
+    menuItems: TEACHER_MENU_ITEMS,
     contentHTML,
     user,
   })
@@ -321,4 +304,6 @@ export async function renderTeacherKnowledge(app) {
   initAllAutoResize()
   loadDocuments()
 }
+
+
 

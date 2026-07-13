@@ -44,6 +44,10 @@ import { renderTeacherQuestionCreate } from '../pages/teacher-question-create.js
 import { renderTeacherKnowledge } from '../pages/teacher-knowledge.js'
 import { renderTeacherAnalytics } from '../pages/teacher-analytics.js'
 import { renderTeacherProfile } from '../pages/teacher-profile.js'
+import { renderTeacherClasses } from '../pages/teacher-classes.js'
+import { renderTeacherSystemManagement } from '../pages/teacher-system-management.js'
+import { renderTeacherLessonPlan } from '../pages/teacher-lesson-plan.js'
+import { renderTeacherHomework } from '../pages/teacher-homework.js'
 import { renderAdminDashboard } from '../pages/admin-dashboard.js'
 import { renderAdminUsers } from '../pages/admin-users.js'
 import { renderAdminCourses } from '../pages/admin-courses.js'
@@ -95,8 +99,8 @@ const staticRoutes = {
   '/student/learning-flows': { render: renderStudentLearningFlows, auth: true, roles: ['student'] },
   '/student/learning-context': { render: () => navigateTo('#/student/learning-flows?panel=learning-plan'), auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
-  '/teacher/courses': { render: renderTeacherCourses, auth: true, roles: ['teacher', 'admin'] },
-  '/teacher/students': { render: renderTeacherStudents, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/courses': { render: () => navigateTo('#/teacher/system?tab=courses'), auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/students': { render: () => navigateTo('#/teacher/system?tab=students'), auth: true, roles: ['teacher', 'admin'] },
   '/teacher/tasks': { render: renderTeacherTasks, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/tasks/create': { render: renderTeacherTaskCreate, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/questions': { render: renderTeacherQuestions, auth: true, roles: ['teacher', 'admin'] },
@@ -104,6 +108,10 @@ const staticRoutes = {
   '/teacher/knowledge': { render: renderTeacherKnowledge, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/analytics': { render: renderTeacherAnalytics, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/profile': { render: renderTeacherProfile, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/classes': { render: () => navigateTo('#/teacher/system?tab=classes'), auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/system': { render: renderTeacherSystemManagement, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/lesson-plan': { render: renderTeacherLessonPlan, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/homework': { render: renderTeacherHomework, auth: true, roles: ['teacher', 'admin'] },
 
   // ========== 教师端路由（教师端开发者在此区域添加）==========
 

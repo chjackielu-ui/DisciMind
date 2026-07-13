@@ -13,6 +13,10 @@ export function getAdminUsers(params) {
   return get('/admin/users', { params })
 }
 
+export function createAdminUser(data) {
+  return post('/admin/users', data)
+}
+
 export function updateAdminUser(userId, data) {
   return put(`/admin/users/${userId}`, data)
 }
