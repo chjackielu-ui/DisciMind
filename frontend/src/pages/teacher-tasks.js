@@ -28,7 +28,7 @@ export async function renderTeacherTasks(app) {
     <div class="dashboard-content">
       <div class="page-header">
         <h2 class="page-title">作业考试</h2>
-        <p class="page-subtitle">管理作业任务、测验、学习任务与题库</p>
+        <p class="page-subtitle">统一管理作业、考试、练习、资料与教学通知</p>
       </div>
 
       <!-- 子导航 -->
@@ -48,9 +48,10 @@ export async function renderTeacherTasks(app) {
           <select id="filter-type" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
             <option value="">全部类型</option>
             <option value="homework">作业</option>
-            <option value="quiz">测验</option>
-            <option value="study_task">学习任务</option>
-            <option value="review_plan">复习计划</option>
+            <option value="exam">考试</option>
+            <option value="practice">练习</option>
+            <option value="material">资料</option>
+            <option value="announcement">通知</option>
           </select>
           <select id="filter-status" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
             <option value="">全部状态</option>
@@ -128,9 +129,11 @@ export async function renderTeacherTasks(app) {
   function getTaskTypeLabel(type) {
     const map = {
       homework: '作业',
+      exam: '考试',
       quiz: '测验',
-      study_task: '学习任务',
-      review_plan: '复习计划',
+      practice: '练习',
+      material: '资料',
+      announcement: '通知',
     }
     return map[type] || type || '-'
   }
@@ -266,6 +269,4 @@ export async function renderTeacherTasks(app) {
   loadCourseOptions()
   loadTasks()
 }
-
-
 

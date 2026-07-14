@@ -9,8 +9,8 @@ const ACTIVE_EXPORT_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
 
 const ARTIFACT_INCLUDE = {
   exports: { where: { deletedAt: null }, orderBy: { format: 'asc' } },
-  agent: { select: { id: true, systemKey: true, isSystem: true, currentPublicVersion: { select: { name: true } }, currentDraftVersion: { select: { name: true } } } },
-  conversation: { select: { id: true, title: true, agentVersion: { select: { name: true } } } },
+  agent: { select: { id: true, systemKey: true, isSystem: true, iconKey: true, iconColor: true, iconBackground: true, avatarUrl: true, currentPublicVersion: { select: { name: true } }, currentDraftVersion: { select: { name: true } } } },
+  conversation: { select: { id: true, title: true, deletedAt: true, agentVersion: { select: { name: true } } } },
   course: { select: { course_id: true, course_name: true } },
   resourceLinks: {
     where: { deletedAt: null },
@@ -20,6 +20,9 @@ const ARTIFACT_INCLUDE = {
       workflowTemplate: { select: { template_id: true, title: true } },
     },
   },
+  task: { select: { id: true, status: true, stage: true, progress: true } },
+  parentArtifact: { select: { id: true, title: true, artifactRole: true } },
+  variants: { where: { deletedAt: null }, select: { id: true, title: true, artifactRole: true, status: true } },
 };
 
 function serializeExport(record) {
@@ -31,18 +34,27 @@ function serializeExport(record) {
     fileSizeBytes: record.fileSizeBytes == null ? null : Number(record.fileSizeBytes),
     errorCode: record.errorCode,
     errorMessage: record.errorMessage,
+    downloadAvailable: record.downloadAvailable === true,
+    downloadCount: record.downloadCount || 0,
     lastAccessedAt: record.lastAccessedAt,
     updatedAt: record.updatedAt,
   };
 }
 
 function serializeArtifact(artifact, { detail = false, adminMetadataOnly = false } = {}) {
+  const activeExports = (artifact.exports || []).filter((item) => !item.deletedAt);
+  const hasDownload = activeExports.some(item => item.status === 'READY' && item.downloadAvailable === true);
+  const hasActiveExport = activeExports.some(item => ['QUEUED', 'EXPORTING'].includes(item.status));
+  const allExportsFailed = activeExports.length > 0 && activeExports.every(item => item.status === 'FAILED');
+  const allExportsCancelled = allExportsFailed && activeExports.every(item => item.errorCode === 'TASK_CANCELLED');
   const data = {
     id: artifact.id,
     ownerUserId: adminMetadataOnly ? artifact.ownerUserId : undefined,
     agentId: artifact.agentId,
     conversationId: artifact.conversationId,
     taskId: artifact.taskId,
+    parentArtifactId: artifact.parentArtifactId || null,
+    artifactRole: artifact.artifactRole || 'PRIMARY',
     artifactType: artifact.artifactType,
     title: artifact.title,
     description: artifact.description,
@@ -51,13 +63,19 @@ function serializeArtifact(artifact, { detail = false, adminMetadataOnly = false
     fileFormat: artifact.fileFormat,
     fileSizeBytes: artifact.fileSizeBytes == null ? null : Number(artifact.fileSizeBytes),
     status: artifact.status,
+    archived: artifact.requirementsJson?.teacherArtifactArchived === true,
     errorCode: artifact.errorCode,
     lastAccessedAt: artifact.lastAccessedAt,
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
-    exports: (artifact.exports || []).filter((item) => !item.deletedAt).map(serializeExport),
-    sourceAgent: artifact.agent ? { id: artifact.agent.id, name: artifact.conversation?.agentVersion?.name || artifact.agent.currentPublicVersion?.name || artifact.agent.currentDraftVersion?.name || '文件生成智能体', systemKey: artifact.agent.systemKey, isSystem: artifact.agent.isSystem } : null,
-    sourceConversation: artifact.conversation ? { id: artifact.conversation.id, title: artifact.conversation.title } : null,
+    exports: activeExports.map(serializeExport),
+    publicStatus: artifact.status === 'FAILED' ? 'FAILED' : artifact.task?.status === 'CANCELLED' || allExportsCancelled ? 'CANCELLED'
+      : hasDownload ? 'DOWNLOADABLE' : allExportsFailed && !hasActiveExport ? 'FAILED' : 'GENERATING',
+    sourceTask: artifact.task || null,
+    parentArtifact: artifact.parentArtifact || null,
+    variants: artifact.variants || [],
+    sourceAgent: artifact.agent ? { id: artifact.agent.id, name: artifact.conversation?.agentVersion?.name || artifact.agent.currentPublicVersion?.name || artifact.agent.currentDraftVersion?.name || '文件生成智能体', systemKey: artifact.agent.systemKey, isSystem: artifact.agent.isSystem, icon: require('../agent-marketplace/agent-icon.service').resolveAgentIcon(artifact.agent, artifact.agent.currentPublicVersion || artifact.agent.currentDraftVersion) } : null,
+    sourceConversation: artifact.conversation && !artifact.conversation.deletedAt ? { id: artifact.conversation.id, title: artifact.conversation.title } : null,
     course: artifact.course ? { id: artifact.course.course_id, name: artifact.course.course_name } : null,
     knowledgePoints: artifact.knowledgePointsResolved || [],
     learningFlowLinks: (artifact.resourceLinks || []).map(link => ({
@@ -96,6 +114,13 @@ async function listArtifacts(user, query) {
   if (!adminMetadataOnly) where.ownerUserId = Number(user.user_id);
   if (query.status) where.status = query.status;
   if (query.artifactType) where.artifactType = query.artifactType;
+  if (query.artifactRole) where.artifactRole = query.artifactRole;
+  if (query.agentId) where.agentId = Number(query.agentId);
+  if (query.q) where.OR = [{ title: { contains: query.q } }, { description: { contains: query.q } }];
+  if (query.dateFrom || query.dateTo) where.createdAt = {
+    ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+    ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+  };
   const [records, total] = await Promise.all([
     prisma.generatedArtifact.findMany({
       where,
@@ -110,6 +135,7 @@ async function listArtifacts(user, query) {
   const points = pointIds.length ? await prisma.knowledgePoint.findMany({ where: { knowledge_point_id: { in: pointIds } }, select: { knowledge_point_id: true, knowledge_point_name: true } }) : [];
   const pointMap = new Map(points.map(item => [item.knowledge_point_id, { id: item.knowledge_point_id, name: item.knowledge_point_name }]));
   records.forEach(item => { item.knowledgePointsResolved = (item.knowledgePointIdsJson || []).map(id => pointMap.get(Number(id))).filter(Boolean); });
+  await Promise.all(records.flatMap(item => (item.exports || []).map(async record => { record.downloadAvailable = await exportFileExists(record); })));
   return { list: records.map((artifact) => serializeArtifact(artifact, { adminMetadataOnly })), total, page: query.page, pageSize: query.pageSize };
 }
 
@@ -126,6 +152,9 @@ async function getArtifact(user, id) {
     })));
     data.downloadAvailable = data.exports.some(item => item.downloadAvailable);
     data.fileMissing = data.exports.some(item => item.status === 'READY' && !item.downloadAvailable);
+    const allFailed = data.exports.length > 0 && data.exports.every(item => item.status === 'FAILED');
+    const allCancelled = allFailed && data.exports.every(item => item.errorCode === 'TASK_CANCELLED');
+    data.publicStatus = access.artifact.status === 'FAILED' ? 'FAILED' : access.artifact.task?.status === 'CANCELLED' || allCancelled ? 'CANCELLED' : data.downloadAvailable ? 'DOWNLOADABLE' : allFailed ? 'FAILED' : 'GENERATING';
   }
   return data;
 }
@@ -136,7 +165,7 @@ async function getDownload(user, id) {
   if (docxExport) return getExportDownload(user, id, 'DOCX');
   assert(artifact.status === 'READY' && artifact.storagePath, '文件尚未准备好', 40901, 409);
   const { absolutePath, stat } = await validateExportFile({ storagePath: artifact.storagePath, mimeType: WORD_MIME }, 'DOCX');
-  await prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: new Date() } });
+  await prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: new Date(), downloadCount: { increment: 1 } } });
   return { absolutePath, fileName: `${artifact.title}.docx`, mimeType: WORD_MIME, size: stat.size };
 }
 
@@ -152,7 +181,7 @@ async function validateExportFile(record, format) {
   let handle;
   try {
     const stat = await fs.stat(absolutePath);
-    assert(stat.isFile(), '文件不存在或已失效', 40002, 404);
+    assert(stat.isFile() && stat.size > 0 && stat.size <= Number(process.env.GENERATED_ARTIFACT_MAX_MB || 20) * 1024 * 1024, '文件不存在或已失效', 40002, 404);
     handle = await fs.open(absolutePath, 'r');
     const length = format === 'PDF' ? 5 : 4;
     const signature = Buffer.alloc(length);
@@ -161,6 +190,16 @@ async function validateExportFile(record, format) {
       ? signature.toString() === '%PDF-'
       : signature.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
     assert(valid, '文件内容与导出格式不一致', 40901, 409);
+    if (format === 'PDF') {
+      const tailLength = Math.min(2048, stat.size);
+      const tail = Buffer.alloc(tailLength);
+      await handle.read(tail, 0, tailLength, stat.size - tailLength);
+      assert(tail.toString('latin1').includes('%%EOF'), 'PDF 文件结构不完整', 40901, 409);
+    } else {
+      const buffer = await fs.readFile(absolutePath);
+      const manifest = buffer.toString('latin1');
+      assert(buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) >= 0 && manifest.includes('[Content_Types].xml') && manifest.includes('word/document.xml'), 'DOCX OpenXML 结构不完整', 40901, 409);
+    }
     return { absolutePath, stat };
   } catch (error) {
     if (error?.status) throw error;
@@ -178,8 +217,8 @@ async function getExportDownload(user, id, formatValue) {
   const { absolutePath, stat } = await validateExportFile(record, format);
   const now = new Date();
   await Promise.all([
-    prisma.generatedArtifactExport.update({ where: { id: record.id }, data: { lastAccessedAt: now } }),
-    prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: now } }),
+    prisma.generatedArtifactExport.update({ where: { id: record.id }, data: { lastAccessedAt: now, downloadCount: { increment: 1 } } }),
+    prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: now, downloadCount: { increment: 1 } } }),
   ]);
   return {
     absolutePath,
@@ -236,8 +275,12 @@ async function requestExport(user, id, operationId, requestedFormats = ['DOCX'])
       resultType: 'ARTIFACT',
       resultId: artifact.id,
       resultUrl,
-      cancellable: false,
+      cancellable: true,
+      maxAttempts: 3,
       metadataJson: { artifactId: artifact.id, retryExport: true, format, requestOperationId: operationId },
+      requestPayload: { artifactId: artifact.id, format, requestedFromArtifactPage: true },
+      agentId: artifact.agentId,
+      conversationId: artifact.conversationId,
     }));
   }
   return { artifact: serializeArtifact(artifact), tasks: created, task: created[0] || null, readyExports };
@@ -276,8 +319,30 @@ async function deleteArtifact(user, id) {
   return { deleted: true };
 }
 
+async function bulkDeleteArtifacts(user, ids) {
+  const records = await prisma.generatedArtifact.findMany({
+    where: { id: { in: ids.map(Number) }, ownerUserId: Number(user.user_id), deletedAt: null }, select: { id: true },
+  });
+  assert(records.length === ids.length, '部分产物不存在或无权删除', 40301, 403);
+  const deletedIds = [];
+  for (const record of records) {
+    await deleteArtifact(user, record.id);
+    deletedIds.push(record.id);
+  }
+  return { deletedCount: deletedIds.length, deletedIds };
+}
+
+async function renameArtifact(user, id, title) {
+  const access = await findAccessible(user, id, { ownerOnly: true });
+  const safeTitle = String(title || '').trim();
+  assert(safeTitle && safeTitle.length <= 200, '产物名称长度应为 1-200 字', 40001, 400);
+  const updated = await prisma.generatedArtifact.update({ where: { id: access.artifact.id }, data: { title: safeTitle } });
+  return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+}
+
 module.exports = {
   serializeArtifact,
+  exportFileExists,
   findAccessible,
   listArtifacts,
   getArtifact,
@@ -285,4 +350,6 @@ module.exports = {
   getExportDownload,
   requestExport,
   deleteArtifact,
+  bulkDeleteArtifacts,
+  renameArtifact,
 };

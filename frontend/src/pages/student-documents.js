@@ -1,5 +1,5 @@
 import { getMe } from '../api/auth.js'
-import { getStudentCourses, uploadStudentDocument, parseStudentDocument, getStudentDocuments, getStudentDocumentDetail, deleteStudentDocument } from '../api/student.js'
+import { getStudentCourses, uploadStudentDocument, parseStudentDocument, getStudentDocuments, getStudentDocumentDetail, deleteStudentDocument, getStudentSharedResources, openStudentSharedResource, completeStudentSharedResource, downloadStudentSharedResource } from '../api/student.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
@@ -43,6 +43,12 @@ function statusCounts(list) {
   return counts
 }
 
+function sharedResourcesHTML(resources = []) {
+  if (!resources.length) return ''
+  const typeLabels = { course_material: '课程资料', pre_class_material: '课前资料', classroom_task: '课堂任务', homework_attachment: '作业附件', exam_attachment: '考试附件', announcement: '教学公告' }
+  return `<section class="student-shared-resources"><div class="student-shared-resources-head"><div><span>教师下发</span><h2>课程资料与讲义</h2></div><b>${resources.filter(item => !item.read_at).length} 项未读</b></div><div class="student-shared-resource-grid">${resources.map(item => `<article class="${item.read_at ? '' : 'unread'}" data-shared-resource="${item.recipient_id}"><div><span>${escapeHtml(typeLabels[item.distribution_type] || '教学资源')} · v${item.resource_version}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml([item.course?.course_name, item.teaching_class?.teaching_class_name].filter(Boolean).join(' · ') || '课程资料')}</p><time>${formatDate(item.publish_at)}</time></div><footer><button class="complex-btn-secondary" data-shared-open>打开</button>${item.resource.external ? '' : '<button class="complex-btn-secondary" data-shared-download>下载</button>'}<button class="complex-btn-ghost" data-shared-complete ${item.completed_at ? 'disabled' : ''}>${item.completed_at ? '已完成' : '标记完成'}</button></footer></article>`).join('')}</div></section>`
+}
+
 function buildPage(state) {
   if (state.loading) return buildLoading()
   if (state.error) {
@@ -60,6 +66,8 @@ function buildPage(state) {
           <button class="complex-btn" id="btn-pick-file">上传资料</button>
         </div>
       </section>
+
+      ${sharedResourcesHTML(state.sharedResources)}
 
       <section class="complex-metric-grid">
         <div class="complex-metric"><b>${counts.total}</b><span>文档总数</span></div>
@@ -195,6 +203,7 @@ export async function renderStudentDocuments(app) {
     error: '',
     courses: [],
     documents: [],
+    sharedResources: [],
     selectedFile: null,
     uploading: false,
     form: { title: '', course_id: '', knowledge_point_id: '', visibility: 'private' },
@@ -207,12 +216,14 @@ export async function renderStudentDocuments(app) {
     state.error = ''
     rerender()
     try {
-      const [courseRes, docRes] = await Promise.all([
+      const [courseRes, docRes, resourceRes] = await Promise.all([
         getStudentCourses().catch(() => ({ data: { list: [] } })),
         getStudentDocuments({ page_size: 50 }),
+        getStudentSharedResources({ page_size: 100 }).catch(() => ({ data: { list: [] } })),
       ])
       state.courses = courseRes.data?.list || []
       state.documents = docRes.data?.list || []
+      state.sharedResources = resourceRes.data?.list || []
     } catch (err) {
       state.error = err.message || '知识库加载失败'
       showToast('文档列表加载失败', 'error')
@@ -320,6 +331,24 @@ export async function renderStudentDocuments(app) {
   function bindEvents() {
     document.getElementById('btn-retry-docs')?.addEventListener('click', loadData)
     document.getElementById('btn-refresh-docs')?.addEventListener('click', loadData)
+    document.querySelectorAll('[data-shared-resource]').forEach(card => {
+      const id = Number(card.dataset.sharedResource)
+      const item = state.sharedResources.find(resource => resource.recipient_id === id)
+      card.querySelector('[data-shared-open]')?.addEventListener('click', async () => {
+        try {
+          const result = await openStudentSharedResource(id)
+          if (result.data?.external_url) window.open(result.data.external_url, '_blank', 'noopener')
+          else await downloadStudentSharedResource(id, item?.title || '教学资源')
+          await loadData()
+        } catch (error) { showToast(error.message || '资源打开失败', 'error') }
+      })
+      card.querySelector('[data-shared-download]')?.addEventListener('click', async () => {
+        try { await downloadStudentSharedResource(id, item?.title || '教学资源'); await loadData() } catch (error) { showToast(error.message || '资源下载失败', 'error') }
+      })
+      card.querySelector('[data-shared-complete]')?.addEventListener('click', async () => {
+        try { await completeStudentSharedResource(id); await loadData(); showToast('已记录完成状态', 'success') } catch (error) { showToast(error.message || '状态更新失败', 'error') }
+      })
+    })
     document.getElementById('btn-pick-file')?.addEventListener('click', () => document.getElementById('doc-file-input')?.click())
     document.getElementById('upload-dropzone')?.addEventListener('click', () => document.getElementById('doc-file-input')?.click())
     document.getElementById('doc-file-input')?.addEventListener('change', e => setFile(e.target.files?.[0]))

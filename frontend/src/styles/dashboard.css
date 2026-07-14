@@ -870,9 +870,40 @@
 /* ============================================
    三点五、全局 AI 对话悬浮入口
    ============================================ */
+.discimind-global-overlays {
+  /* Keep the semantic overlay host boxless and out of every page stacking context. */
+  position: static;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.discimind-global-overlays > * { pointer-events: auto; }
+
+body:has(.lws-page.is-pdf-open) .global-task-center { top: 96px; right: 22px !important; }
+body:has(.lws-page.is-pdf-open) .ai-float-widget {
+  /* The assistant remains viewport-anchored; PDF geometry only changes its compact presentation. */
+  right: 18px !important;
+  width: 52px;
+  min-height: 52px;
+  padding: 4px;
+  border-radius: 15px;
+}
+body:has(.lws-page.is-pdf-open) .ai-float-grip { display: none; }
+
+@media (max-width: 1180px) {
+  body:has(.lws-page.is-pdf-open) .global-task-center { right: 22px !important; }
+}
+
+@media (max-width: 560px) {
+  body:has(.lws-page.is-pdf-open) .global-task-center { top: 96px; right: 12px !important; }
+  body:has(.lws-page.is-pdf-open) .ai-float-widget { right: 12px !important; }
+}
+
 .ai-float-widget {
   position: fixed;
-  z-index: 680;
+  z-index: var(--z-global-assistant, 96);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -889,12 +920,14 @@
     0 0 0 1px rgba(34, 211, 238, 0.12) inset;
   backdrop-filter: blur(18px) saturate(145%);
   -webkit-backdrop-filter: blur(18px) saturate(145%);
-  cursor: default;
+  cursor: grab;
   user-select: none;
   transition:
     transform 0.25s ease,
     box-shadow 0.22s ease,
-    opacity 0.22s ease;
+    opacity 0.22s ease,
+    top 0.18s ease,
+    right 0.18s ease;
 }
 
 .ai-float-widget:hover {
@@ -907,6 +940,9 @@
   cursor: grabbing;
   transition: none;
 }
+.ai-float-widget.is-snapping { transition: top .18s ease,right .18s ease,transform .18s ease,opacity .18s ease; }
+.ai-float-widget.is-learning-context { border-color: rgba(20, 184, 166, .5); }
+.ai-float-drag-active,.ai-float-drag-active * { user-select: none !important; }
 
 .ai-float-main {
   display: flex;
@@ -918,7 +954,8 @@
   border: 0;
   background: transparent;
   padding: 0;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
 }
 
 .ai-float-main:focus-visible,
@@ -962,33 +999,15 @@
   line-height: 1;
 }
 
-.ai-float-grip {
-  position: absolute;
-  right: 4px;
-  bottom: 5px;
-  width: 8px;
-  display: none;
-  grid-template-rows: repeat(3, 4px);
-  gap: 4px;
-  opacity: 0.45;
-}
-
-.ai-float-grip span {
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(11, 31, 77, 0.50);
-}
-
 .ai-float-dock {
   display: none;
   position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 8px;
-  width: 38px;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 14px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 8px 0 0 8px;
   background: linear-gradient(135deg, #2563EB, #14B8A6);
   color: #ffffff;
   font-size: 13px;
@@ -997,17 +1016,20 @@
   box-shadow: 0 8px 22px rgba(37, 99, 235, 0.26);
 }
 
-.ai-float-dock svg {
-  width: 18px;
-  height: 18px;
-}
+.ai-float-dock::before { content: '‹'; font-size: 15px; line-height: 1; }
 
 .ai-float-widget.is-docked {
-  opacity: 0.92;
+  right: 0 !important;
+  opacity: 0.76;
+  box-shadow: 0 5px 14px rgba(11, 31, 77, .12);
+}
+
+body:has(.lws-page.is-pdf-open) .ai-float-widget.is-docked {
+  right: 0 !important;
 }
 
 .ai-float-widget[data-side="right"].is-docked {
-  transform: translateX(calc(100% - 48px));
+  transform: translateX(calc(100% - 14px));
 }
 
 .ai-float-widget.is-docked .ai-float-main,
@@ -1025,15 +1047,15 @@
 }
 
 .ai-float-widget[data-side="right"].is-docked .ai-float-dock {
-  left: 6px;
+  left: 0;
 }
 
 .ai-mini-panel {
   position: absolute;
-  right: 0;
+  right: calc(100% + 12px);
   bottom: calc(100% + 12px);
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(520px, calc(100vh - 96px));
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(600px, calc(100vh - 80px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1084,6 +1106,9 @@
   font-size: 11px;
 }
 
+.ai-mini-head-actions { display: flex; align-items: center; gap: 6px; }
+
+.ai-mini-maximize,
 .ai-mini-close {
   width: 28px;
   height: 28px;
@@ -1096,6 +1121,9 @@
   line-height: 1;
 }
 
+.ai-mini-maximize { font-size: 15px; }
+
+.ai-mini-maximize:focus-visible,
 .ai-mini-close:focus-visible,
 .ai-mini-form textarea:focus,
 .ai-mini-form button:focus-visible,
@@ -1106,8 +1134,8 @@
 
 .ai-mini-messages {
   flex: 1;
-  min-height: 180px;
-  max-height: 300px;
+  min-height: 220px;
+  max-height: 380px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1267,6 +1295,38 @@
 .ai-mini-form button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+.ai-mini-attachments { grid-column: 1 / -1; display: flex; min-width: 0; align-items: center; gap: 6px; }
+.ai-mini-attachments > label,
+.ai-mini-attachments > button { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid rgba(37,99,235,.16); border-radius: 9px; background: #fff; color: #2563eb; cursor: pointer; }
+.ai-mini-attachments > button.is-recording { color: #fff; background: #dc2626; animation: ai-voice-pulse 1s ease infinite; }
+.ai-mini-attachments > div { display: flex; min-width: 0; gap: 5px; overflow-x: auto; }
+.ai-mini-attachments span { display: flex; max-width: 150px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 4px 7px; border-radius: 999px; background: #e8f0ff; color: #315f91; font-size: 10px; white-space: nowrap; }
+.ai-mini-attachments span > button { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }
+.ai-mini-form button.is-stop { background: #dc2626; }
+@keyframes ai-voice-pulse { 50% { opacity: .65; } }
+
+@media (max-width: 600px) {
+  .discimind-global-overlays:has(.ai-mini-panel:not([hidden]))::before {
+    position: fixed;
+    inset: 0;
+    content: '';
+    background: rgba(15, 23, 42, .26);
+    pointer-events: auto;
+  }
+  .ai-mini-panel {
+    position: fixed;
+    inset: max(12px, env(safe-area-inset-top)) 12px max(76px, calc(env(safe-area-inset-bottom) + 68px));
+    width: auto;
+    max-height: none;
+    border-radius: 14px;
+  }
+  .ai-float-widget.panel-below .ai-mini-panel {
+    top: max(12px, env(safe-area-inset-top));
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 68px));
+  }
+  .ai-mini-messages { max-height: none; }
 }
 
 /* ============================================

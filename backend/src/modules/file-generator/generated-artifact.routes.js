@@ -7,10 +7,12 @@ const learningResourceController = require('../learning-flow-resource/learning-f
 const router = Router();
 router.use(auth, roles(['student', 'teacher', 'admin']));
 router.get('/', controller.list);
+router.post('/bulk-delete', controller.bulkRemove);
 router.get('/:id', controller.detail);
 router.get('/:id/download', controller.download);
 router.get('/:id/exports/:format/download', controller.downloadExport);
 router.post('/:id/export', controller.exportDocument);
+router.patch('/:id', controller.rename);
 router.post('/:id/learning-flow-links', learningResourceController.create);
 router.delete('/:id', controller.remove);
 

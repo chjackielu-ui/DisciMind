@@ -88,6 +88,15 @@ async function getSubmission(req, res) {
   }
 }
 
+async function previewTaskComposition(req, res) {
+  try {
+    const data = await teacherTaskService.previewTaskComposition(req.user, req.body || {});
+    return success(res, data, '组卷预览生成成功');
+  } catch (err) {
+    return handleError(res, 'previewTaskComposition', err);
+  }
+}
+
 module.exports = {
   listTasks,
   createTask,
@@ -96,4 +105,5 @@ module.exports = {
   deleteTask,
   listSubmissions,
   getSubmission,
+  previewTaskComposition,
 };

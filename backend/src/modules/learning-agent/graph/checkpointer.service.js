@@ -37,4 +37,11 @@ function getCheckpointer() {
   return _instance;
 }
 
-module.exports = { initCheckpointer, getCheckpointer };
+async function closeCheckpointer() {
+  if (!_instance) return;
+  const instance = _instance;
+  _instance = null;
+  if (instance.db?.open) instance.db.close();
+}
+
+module.exports = { initCheckpointer, getCheckpointer, closeCheckpointer };

@@ -57,14 +57,15 @@ test('cancel is explicit and dismiss never cancels an active task', async () => 
   assert.ok(dismissed.dismissedAt);
 });
 
-test('queued and waiting external tasks cannot be cancelled even when explicitly enabled', async () => {
+test('queued and waiting external tasks can be cancelled when explicitly enabled', async () => {
   const { a } = await users();
   for (const status of ['QUEUED', 'WAITING_EXTERNAL']) {
     const task = await tasks.createTask(a.user_id, {
       operationId: `test-${crypto.randomUUID()}`, taskType: 'DOCUMENT_EXPORT', title: `${status} 取消测试`,
       status, stage: status, progressMode: 'STAGE_ONLY', cancellable: true,
     });
-    await assert.rejects(() => tasks.cancelTask(a.user_id, task.id), error => error.status === 409);
+    const cancelled = await tasks.cancelTask(a.user_id, task.id);
+    assert.equal(cancelled.status, 'CANCELLED');
   }
 });
 
@@ -80,6 +81,29 @@ test('non-cancellable and terminal tasks return a conflict instead of pretending
     status: 'SUCCEEDED', stage: 'READY', progressMode: 'STAGE_ONLY', cancellable: true,
   });
   await assert.rejects(() => tasks.cancelTask(a.user_id, terminal.id), error => error.status === 409);
+});
+
+test('task actions reject malformed route ids before Prisma and bulk actions process eligible records', async () => {
+  const { a } = await users();
+  await assert.rejects(
+    () => tasks.cancelTask(a.user_id, 'bulk'),
+    error => error.status === 400 && error.message === '任务 ID 不合法',
+  );
+  const active = await tasks.createTask(a.user_id, {
+    operationId: `test-${crypto.randomUUID()}`, taskType: 'DOCUMENT_EXPORT', title: '批量取消测试',
+    status: 'RUNNING', stage: 'EXPORTING', progressMode: 'INDETERMINATE', cancellable: true,
+  });
+  const failed = await tasks.createTask(a.user_id, {
+    operationId: `test-${crypto.randomUUID()}`, taskType: 'DOCUMENT_EXPORT', title: '批量删除测试',
+    status: 'FAILED', stage: 'FAILED', progressMode: 'STAGE_ONLY', cancellable: true,
+  });
+  const cancelled = await tasks.bulkCancel(a.user_id, [active.id, failed.id]);
+  assert.equal(cancelled.affected, 1);
+  assert.equal(cancelled.results.find(item => item.id === active.id)?.ok, true);
+  assert.equal(cancelled.results.find(item => item.id === failed.id)?.ok, false);
+  const removed = await tasks.bulkDelete(a.user_id, [active.id, failed.id]);
+  assert.equal(removed.affected, 2);
+  assert.equal(await prisma.asyncTask.count({ where: { id: { in: [active.id, failed.id] } } }), 0);
 });
 
 test('determinate progress accepts real values and terminal results persist', async () => {

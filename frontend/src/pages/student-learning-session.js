@@ -15,6 +15,9 @@ import { getNodeType } from '../config/learning-flow.js';
 import { normalizeLearningAgentResult, getSectionConfig } from '../utils/learning-agent-result.js';
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js';
 import { LearningNarrationClient } from '../services/learning-narration.js';
+import { collectNarrationSegments } from '../services/learning-speech-segments.js';
+import { LearningPdfViewer } from '../services/learning-pdf-viewer.js';
+import { studentLearningPlanApi } from '../api/student-learning-plans.js';
 
 // ========================
 // 常量
@@ -47,8 +50,23 @@ let formalActive = false;
 let currentRequestId = null;
 let completionChat = { messages: [], sending: false, abortController: null };
 let narrationClient = null;
-let narrationState = 'disabled';
+let narrationState = 'idle';
 let lastNarrationKey = '';
+let narrationSnapshot = { state: 'idle', hasSession: false, currentIndex: -1, total: 0, progress: 0 };
+let narrationObserver = null;
+let narrationOriginalVisible = true;
+let narrationMiniMinimized = false;
+let progressNavState = null;
+let lastProgressNodeId = null;
+let pdfViewer = null;
+let pdfSources = [];
+let pdfOpenDocuments = [];
+let activePdfDocumentId = '';
+let pdfDocumentSerial = 0;
+let pdfSwitchVersion = 0;
+let pdfSwitchPromise = Promise.resolve();
+let pdfControlsCleanup = null;
+let pdfSourcesLoaded = false;
 
 function initState(sessionId) {
   return {
@@ -109,6 +127,18 @@ function applySessionSnapshot(snapshot) {
   S = snapshot.data || snapshot;
   state.sessionPhase = S.status;
   state.nodeRuns = S.node_runs || [];
+  const page = document.getElementById('lws-page');
+  if (page) {
+    const planId = S.learning_plan?.id || S.learningPlanId || '';
+    Object.assign(page.dataset, {
+      learningSessionId: String(S.session_id || state.sessionId || ''),
+      learningPlanId: String(planId),
+      courseId: String(S.course_id || S.course?.course_id || ''),
+      knowledgePointId: String(S.knowledge_point_id || S.knowledge_point?.knowledge_point_id || ''),
+      currentNodeId: String(S.current_node_id || ''),
+    });
+    window.dispatchEvent(new Event('discimind:learning-context'));
+  }
 }
 
 function setGuidePhase(phase, info = {}) {
@@ -191,11 +221,31 @@ export function renderStudentLearningSession(app, params) {
   completionChat = { messages: [], sending: false, abortController: null };
   narrationClient?.destroy().catch(() => {});
   narrationClient = new LearningNarrationClient();
-  narrationState = 'disabled';
+  narrationState = 'idle';
+  narrationSnapshot = { state: 'idle', hasSession: false, currentIndex: -1, total: 0, progress: 0 };
+  narrationOriginalVisible = true;
+  narrationMiniMinimized = false;
+  lastProgressNodeId = null;
+  pdfViewer?.destroy().catch(() => {});
+  pdfViewer = null;
+  pdfSources = [];
+  pdfOpenDocuments = [];
+  activePdfDocumentId = '';
+  pdfDocumentSerial = 0;
+  pdfSwitchVersion = 0;
+  pdfSwitchPromise = Promise.resolve();
+  pdfSourcesLoaded = false;
+  pdfControlsCleanup?.();
+  pdfControlsCleanup = null;
   lastNarrationKey = '';
 
   const html = buildPageShell();
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: html, user });
+  document.querySelector('.student-dashboard-wrapper')?.classList.add('learning-session-layout');
+  const resetInitialScroll = () => window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  resetInitialScroll();
+  requestAnimationFrame(resetInitialScroll);
+  setTimeout(resetInitialScroll, 0);
 
   setTimeout(() => bindEvents(), 50);
   setTimeout(() => initializeNarration(), 60);
@@ -204,6 +254,8 @@ export function renderStudentLearningSession(app, params) {
 
 function buildPageShell() {
   return `<div class="lws-page" id="lws-page">
+    <div class="lws-progress-trigger" id="lws-progress-trigger" aria-hidden="true"></div>
+    <div class="lws-study-layout" id="lws-study-layout"><section class="lws-study-column">
     <div class="lws-sticky-shell" id="lws-sticky-shell">
       <div class="lws-topbar" id="lws-topbar">
         <button class="lws-back-btn" data-learning-action="return">
@@ -220,6 +272,9 @@ function buildPageShell() {
         <div class="lws-topbar-right">
           <span class="lws-save-status" id="lws-save-status"></span>
           <span class="lws-agent-badge" id="lws-agent-badge" style="display:none"></span>
+          <button class="lws-btn lws-btn-outline lws-btn-sm" data-learning-action="pdf-toggle" id="lws-pdf-toggle">参考资料</button>
+          <button class="lws-progress-pin" data-learning-action="progress-pin" id="lws-progress-pin" type="button" aria-label="锁定进度导航">锁定</button>
+          <button class="lws-progress-collapse" data-learning-action="progress-toggle" id="lws-progress-toggle" type="button" aria-label="收起进度导航">收起</button>
           <button class="lws-btn lws-btn-outline lws-btn-sm" data-learning-action="pause" id="lws-pause-btn">暂停</button>
         </div>
       </div>
@@ -242,15 +297,15 @@ function buildPageShell() {
         </div>
         <div class="lws-guide-blocks" id="lws-guide-blocks"></div>
         <div class="lws-narration" id="lws-narration">
-          <div class="lws-narration-copy"><span id="lws-narration-title">语音伴学</span><span id="lws-narration-subtitle">未开启语音伴学</span></div>
+          <div class="lws-narration-copy"><span id="lws-narration-title">语音伴学</span><span id="lws-narration-subtitle">未开启语音伴学</span><small id="lws-narration-position">第 0 / 0 段</small><div class="lws-narration-progress"><i id="lws-narration-progress"></i></div></div>
           <div class="lws-narration-controls">
             <button type="button" data-learning-action="narration-toggle" id="lws-narration-toggle">开启语音伴学</button>
-            <button type="button" data-learning-action="narration-play-pause" id="lws-narration-play-pause" disabled>播放</button>
+            <button type="button" data-learning-action="narration-play-pause" data-narration-play-pause disabled>播放</button>
             <button type="button" data-learning-action="narration-stop" disabled>停止</button>
             <button type="button" data-learning-action="narration-replay" disabled>重播</button>
             <button type="button" data-learning-action="narration-previous" disabled>上一段</button>
             <button type="button" data-learning-action="narration-next" disabled>下一段</button>
-            <select id="lws-narration-rate" aria-label="语音倍速"><option value="0.75">0.75×</option><option value="1" selected>1.0×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select>
+            <select id="lws-narration-rate" data-narration-rate aria-label="语音倍速"><option value="0.75">0.75×</option><option value="1" selected>1.0×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select>
             <label><input type="checkbox" id="lws-narration-subtitles" checked> 字幕</label>
           </div>
         </div>
@@ -263,7 +318,44 @@ function buildPageShell() {
       </div>
       <div class="lws-error-state" id="lws-error-state" style="display:none"></div>
       <div class="lws-paused-state" id="lws-paused-state" style="display:none"></div>
-    </div>
+    </div></section>
+    <button type="button" class="lws-pdf-backdrop" id="lws-pdf-backdrop" data-learning-action="pdf-close" aria-label="关闭 PDF 阅读器" hidden></button>
+    <aside class="lws-pdf-panel" id="lws-pdf-panel" aria-hidden="true" aria-label="PDF 连续阅读器" hidden>
+      <div class="lws-pdf-resizer" id="lws-pdf-resizer" aria-label="拖动调整阅读器宽度"></div>
+      <header class="lws-pdf-header">
+        <div class="lws-pdf-title"><b>参考资料</b><span id="lws-pdf-file-name">请选择 PDF</span></div>
+        <select id="lws-pdf-source" aria-label="添加 PDF 来源"><option value="">添加计划产物或知识库 PDF</option></select>
+        <label class="lws-pdf-local-picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 15v4h14v-4"/></svg><span>添加 PDF</span><input id="lws-pdf-local" type="file" accept="application/pdf,.pdf" multiple hidden></label>
+        <button type="button" class="lws-pdf-icon-btn" data-learning-action="pdf-close" aria-label="关闭阅读器" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      </header>
+      <div class="lws-pdf-tabs" id="lws-pdf-tabs" role="tablist" aria-label="已打开的 PDF" hidden></div>
+      <div class="lws-pdf-local-note" id="lws-pdf-local-note" hidden>仅在当前浏览器会话预览，不会上传到知识库。</div>
+      <div class="lws-pdf-toolbar">
+        <button type="button" class="lws-pdf-icon-btn" data-learning-action="pdf-prev" aria-label="上一页" title="上一页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+        <label class="lws-pdf-page-field"><input id="lws-pdf-page-input" type="number" min="1" value="1" inputmode="numeric" aria-label="跳转页码"><span id="lws-pdf-page-count">/ 0</span></label>
+        <button type="button" class="lws-pdf-icon-btn" data-learning-action="pdf-next" aria-label="下一页" title="下一页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
+        <i class="lws-pdf-tool-separator"></i>
+        <button type="button" class="lws-pdf-icon-btn" data-learning-action="pdf-zoom-out" aria-label="缩小" title="缩小"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M8 11h6m3 6 4 4"/></svg></button>
+        <span class="lws-pdf-zoom-value" id="lws-pdf-zoom-value">100%</span>
+        <button type="button" class="lws-pdf-icon-btn" data-learning-action="pdf-zoom-in" aria-label="放大" title="放大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M8 11h6m-3-3v6m6 3 4 4"/></svg></button>
+        <button type="button" class="lws-pdf-fit-btn" data-learning-action="pdf-fit" title="根据阅读区宽度缩放"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 12h8"/></svg><span>适合宽度</span></button>
+        <span class="lws-pdf-continuous" title="页面按顺序连续排列">连续</span>
+      </div>
+      <div class="lws-pdf-drop-overlay" id="lws-pdf-drop-overlay" hidden>松开即可添加 PDF，可一次拖入多个文件</div><div class="lws-pdf-viewport" data-pdf-viewport tabindex="0"><div class="lws-pdf-empty" id="lws-pdf-status">请选择上方资料，或将 PDF 拖到这里</div><div class="lws-pdf-pages" data-pdf-pages></div></div><output class="lws-pdf-zoom-hint" data-pdf-zoom-hint aria-live="polite"></output>
+      <footer class="lws-pdf-footer"><button type="button" data-learning-action="pdf-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>下载</button><button type="button" data-learning-action="pdf-open-window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4h6v6m0-6-9 9M19 13v6H5V5h6"/></svg>新窗口打开</button></footer>
+    </aside></div>
+    <aside class="lws-narration-mini" id="lws-narration-mini" hidden aria-label="悬浮语音播放器">
+      <div class="lws-narration-mini-copy"><b id="lws-narration-mini-title">当前讲解</b><span id="lws-narration-mini-position">第 0 / 0 段</span><div class="lws-narration-progress"><i id="lws-narration-mini-progress"></i></div></div>
+      <div class="lws-narration-mini-controls">
+        <button type="button" data-learning-action="narration-previous" aria-label="上一段">上一段</button>
+        <button type="button" data-learning-action="narration-play-pause" data-narration-play-pause aria-label="播放或暂停">播放</button>
+        <button type="button" data-learning-action="narration-next" aria-label="下一段">下一段</button>
+        <button type="button" data-learning-action="narration-stop">停止</button>
+        <select data-narration-rate aria-label="语音倍速"><option value="0.75">0.75×</option><option value="1" selected>1.0×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2.0×</option></select>
+        <button type="button" data-learning-action="narration-return">返回原位置</button>
+        <button type="button" data-learning-action="narration-mini-toggle" aria-label="最小化">—</button>
+      </div>
+    </aside>
     <div class="lws-bottom-bar" id="lws-bottom-bar" style="display:none">
       <button class="lws-btn lws-btn-ghost" data-learning-action="retry" id="lws-btn-retry" style="display:none">重新尝试</button>
       <div class="lws-bottom-spacer"></div>
@@ -318,17 +410,37 @@ function bindEvents() {
       case 'narration-previous': await narrationClient?.playRelativeSegment(-1); break;
       case 'narration-next': await narrationClient?.playRelativeSegment(1); break;
       case 'narration-history': await startNarrationForRun(Number(actionEl.dataset.nodeRunId), 'history_replay', true); break;
+      case 'narration-return': scrollToNarration(); break;
+      case 'narration-mini-toggle': narrationMiniMinimized = !narrationMiniMinimized; updateNarrationMini(); break;
+      case 'progress-toggle': setProgressCollapsed(!progressNavState?.collapsed, { lock: true }); break;
+      case 'progress-pin': toggleProgressLock(); break;
+      case 'progress-node': locateProgressNode(actionEl.dataset.nodeId); break;
+      case 'current-content': document.getElementById('lws-teaching-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+      case 'pdf-toggle': await togglePdfPanel(); break;
+      case 'pdf-close': await closePdfPanel(); break;
+      case 'pdf-prev': await pdfViewer?.goTo(pdfViewer.pageNumber - 1); break;
+      case 'pdf-next': await pdfViewer?.goTo(pdfViewer.pageNumber + 1); break;
+      case 'pdf-zoom-out': await pdfViewer?.zoomBy(-0.1); break;
+      case 'pdf-zoom-in': await pdfViewer?.zoomBy(0.1); break;
+      case 'pdf-fit': await pdfViewer?.fit(); break;
+      case 'pdf-download': pdfViewer?.download(); break;
+      case 'pdf-open-window': pdfViewer?.openWindow(); break;
     }
   };
 
   root.addEventListener('click', handler);
 
-  const rate = document.getElementById('lws-narration-rate');
-  const onRate = () => narrationClient?.setPlaybackRate(Number(rate.value));
-  rate?.addEventListener('change', onRate);
+  const rates = [...root.querySelectorAll('[data-narration-rate]')];
+  const onRate = (event) => {
+    const value = Number(event.currentTarget.value);
+    rates.forEach((select) => { select.value = String(value); });
+    narrationClient?.setPlaybackRate(value);
+  };
+  rates.forEach((rate) => rate.addEventListener('change', onRate));
   const subtitles = document.getElementById('lws-narration-subtitles');
   const onSubtitles = () => narrationClient?.setSubtitles(subtitles.checked);
   subtitles?.addEventListener('change', onSubtitles);
+  pdfControlsCleanup = initPdfControls(root);
 
   // Modal overlay — bind once per DOM, use named function for cleanup
   const modalOverlay = document.getElementById('lws-modal-overlay');
@@ -350,8 +462,10 @@ function bindEvents() {
       modalOverlay.removeEventListener('click', modalClickHandler);
     }
     window.removeEventListener('beforeunload', beforeUnloadHandler);
-    rate?.removeEventListener('change', onRate);
+    rates.forEach((rate) => rate.removeEventListener('change', onRate));
     subtitles?.removeEventListener('change', onSubtitles);
+    pdfControlsCleanup?.();
+    pdfControlsCleanup = null;
     cleanup();
   };
 }
@@ -368,6 +482,8 @@ function cleanup() {
   completionChat.sending = false;
   narrationClient?.destroy().catch(() => {});
   narrationClient = null;
+  pdfViewer?.destroy().catch(() => {});
+  pdfViewer = null;
 
   // Clear all timers
   clearFormalAgentTimer();
@@ -375,6 +491,8 @@ function cleanup() {
 
   // Clear sticky observer
   if (stickyObserver) { stickyObserver.disconnect(); stickyObserver = null; }
+  if (narrationObserver) { narrationObserver.disconnect(); narrationObserver = null; }
+  cleanupProgressNavigation();
   const sentinel = document.getElementById('lws-sticky-sentinel');
   if (sentinel) sentinel.remove();
 }
@@ -384,10 +502,8 @@ function cleanup() {
 // ========================
 
 const NARRATION_STATUS = {
-  disabled: '未开启语音伴学', ready: '语音伴学已开启', preparing: '正在准备讲稿',
-  connecting: '正在连接语音服务', generating: '正在生成语音', playing: '正在播放',
-  paused: '已暂停', stopped: '已停止', done: '语音已完成', cancelled: '语音已停止',
-  unavailable: '语音暂时不可用', waiting: '等待学生回答',
+  idle: '语音伴学待开启', preparing: '正在准备讲解', playing: '正在播放', paused: '已暂停',
+  stopped: '已停止', completed: '语音已完成', error: '语音暂时不可用',
 };
 
 async function initializeNarration() {
@@ -398,28 +514,34 @@ async function initializeNarration() {
     const toggle = document.getElementById('lws-narration-toggle');
     const subtitles = document.getElementById('lws-narration-subtitles');
     if (subtitles) subtitles.checked = client.subtitlesEnabled;
+    document.querySelectorAll('[data-narration-rate]').forEach((select) => { select.value = String(client.playbackRate); });
     if (!detail.enabled) {
-      if (toggle) { toggle.disabled = true; toggle.textContent = detail.unavailableReason === 'TTS_NOT_CONFIGURED' ? '语音服务暂未配置' : '语音伴学未开启'; }
-      setNarrationUi('unavailable', detail.unavailableReason === 'TTS_NOT_CONFIGURED' ? '语音服务暂未配置' : '语音伴学未开启');
+      if (toggle) { toggle.disabled = true; toggle.textContent = '当前浏览器不支持语音'; }
+      setNarrationUi('error', '当前浏览器和实时语音服务均不可用');
     } else if (client.enabledByUser && toggle) {
       toggle.textContent = '关闭自动伴学';
-      setNarrationUi('ready', '点击播放以恢复语音伴学');
+      setNarrationUi('idle', detail.remoteEnabled ? '实时语音已就绪，点击播放开始' : '浏览器语音已就绪，点击播放开始');
+    } else {
+      setNarrationUi('idle', detail.remoteEnabled ? '可使用实时语音讲解' : '可使用浏览器语音讲解');
     }
   });
-  client.addEventListener('state', ({ detail }) => { if (client === narrationClient) setNarrationUi(detail.state, detail.message); });
+  client.addEventListener('state', ({ detail }) => { if (client === narrationClient) setNarrationUi(detail.state, detail.message, detail); });
   client.addEventListener('segment', ({ detail }) => {
     if (client !== narrationClient) return;
     const title = document.getElementById('lws-narration-title');
     const subtitle = document.getElementById('lws-narration-subtitle');
-    if (title) title.textContent = `正在讲解：${currentNodeTitle()}`;
+    if (title) title.textContent = `正在讲解：${detail.title || currentNodeTitle()}`;
     if (subtitle) { subtitle.textContent = detail.subtitle || ''; subtitle.hidden = !client.subtitlesEnabled; }
+    highlightNarrationSegment(detail.anchorId);
+    narrationSnapshot = { ...narrationSnapshot, ...detail };
+    updateNarrationMini();
   });
   client.addEventListener('subtitles', ({ detail }) => {
     const subtitle = document.getElementById('lws-narration-subtitle');
     if (subtitle) subtitle.hidden = !detail.enabled;
   });
-  client.addEventListener('error', ({ detail }) => setNarrationUi('unavailable', detail.message));
-  try { await client.loadSettings(); } catch { setNarrationUi('unavailable', '语音暂时不可用，文字内容不受影响。'); }
+  client.addEventListener('error', ({ detail }) => setNarrationUi('error', detail.message));
+  try { await client.loadSettings(); initNarrationObserver(); } catch { setNarrationUi('error', '语音暂时不可用，文字内容不受影响。'); }
 }
 
 function currentNodeTitle() {
@@ -427,20 +549,26 @@ function currentNodeTitle() {
   return node?.title || NODE_LABELS[node?.type] || '当前学习内容';
 }
 
-function setNarrationUi(nextState, message) {
-  if (nextState === 'done' && state?.formalAgent?.executionStatus === 'WAITING_INPUT') nextState = 'waiting';
+function setNarrationUi(nextState, message, snapshot = {}) {
   narrationState = nextState;
+  narrationSnapshot = { ...narrationSnapshot, ...snapshot, state: nextState, hasSession: narrationClient?.hasSession || false, currentIndex: narrationClient?.currentIndex ?? -1, total: narrationClient?.totalSegments || 0, progress: narrationClient?.progress || 0 };
   const subtitle = document.getElementById('lws-narration-subtitle');
-  if (subtitle && !message && !['generating', 'playing'].includes(nextState)) subtitle.textContent = NARRATION_STATUS[nextState] || '语音伴学';
+  if (subtitle && !message && nextState !== 'playing') subtitle.textContent = NARRATION_STATUS[nextState] || '语音伴学';
   if (subtitle && message) subtitle.textContent = message;
-  const playPause = document.getElementById('lws-narration-play-pause');
-  if (playPause) {
-    playPause.disabled = ['disabled', 'unavailable', 'preparing', 'connecting'].includes(nextState);
-    playPause.textContent = nextState === 'paused' ? '继续' : nextState === 'ready' ? '播放' : '暂停';
-  }
-  document.querySelectorAll('[data-learning-action="narration-stop"], [data-learning-action="narration-replay"], [data-learning-action="narration-previous"], [data-learning-action="narration-next"]').forEach((button) => {
-    button.disabled = ['disabled', 'unavailable', 'ready'].includes(nextState);
+  document.querySelectorAll('[data-narration-play-pause]').forEach((playPause) => {
+    playPause.disabled = nextState === 'error' && !narrationClient?.enabledByUser;
+    playPause.textContent = nextState === 'paused' ? '继续' : ['playing', 'preparing'].includes(nextState) ? '暂停' : '播放';
   });
+  document.querySelectorAll('[data-learning-action="narration-stop"], [data-learning-action="narration-replay"], [data-learning-action="narration-previous"], [data-learning-action="narration-next"]').forEach((button) => {
+    button.disabled = !narrationClient?.hasSession;
+  });
+  const current = Math.max(0, (narrationClient?.currentIndex ?? -1) + 1);
+  const total = narrationClient?.totalSegments || 0;
+  setText('lws-narration-position', `第 ${current} / ${total} 段`);
+  const progress = narrationClient?.progress || 0;
+  const bar = document.getElementById('lws-narration-progress');
+  if (bar) bar.style.width = `${progress}%`;
+  updateNarrationMini();
 }
 
 async function toggleNarration() {
@@ -456,14 +584,17 @@ async function toggleNarration() {
       lastNarrationKey = '';
       if (toggle) toggle.textContent = '开启语音伴学';
     }
-  } catch (error) { setNarrationUi('unavailable', error.message); }
+  } catch (error) { setNarrationUi('error', error.message); }
 }
 
 async function toggleNarrationPlayback() {
   if (!narrationClient) return;
-  if (!narrationClient.jobId && narrationClient.enabledByUser) return maybeStartNarration(null, 'node_content', true);
+  if (!narrationClient.hasSession && narrationClient.enabledByUser) return maybeStartNarration(null, 'node_content', true);
   if (narrationState === 'paused') await narrationClient.resume();
-  else await narrationClient.pause();
+  else if (['playing', 'preparing'].includes(narrationState)) await narrationClient.pause();
+  else if (narrationState === 'completed') await narrationClient.replay();
+  else if (narrationState === 'stopped') await narrationClient.replay();
+  else await maybeStartNarration(null, 'node_content', true);
 }
 
 async function stopNarration() { lastNarrationKey = ''; await narrationClient?.stop({ cancel: true }); }
@@ -479,8 +610,9 @@ async function startNarrationForRun(nodeRunId, purpose = 'node_content', force =
     await narrationClient.start({
       sessionId: Number(S.session_id), nodeRunId: Number(nodeRunId),
       contentBlockId: `node_${nodeRunId}_main`, purpose,
+      fallbackSegments: collectCurrentNarrationSegments(),
     });
-  } catch (error) { setNarrationUi('unavailable', error.message || '语音暂时不可用，文字内容不受影响。'); }
+  } catch (error) { setNarrationUi('error', error.message || '语音暂时不可用，文字内容不受影响。'); }
 }
 
 async function maybeStartNarration(node, purpose = 'node_content', force = false) {
@@ -488,6 +620,383 @@ async function maybeStartNarration(node, purpose = 'node_content', force = false
   const nodeRunId = state?.execution?.nodeRunId || S?.currentNodeRun?.node_run_id
     || (S?.node_runs || []).find((run) => String(run.node_id) === String(node?.id || state?.nodeId))?.node_run_id;
   return startNarrationForRun(Number(nodeRunId), purpose, force);
+}
+
+function collectCurrentNarrationSegments() {
+  return collectNarrationSegments([
+    document.getElementById('lws-guide-blocks'),
+    document.getElementById('lws-teaching-result'),
+    document.getElementById('lws-kp-overview'),
+  ]);
+}
+
+function highlightNarrationSegment(anchorId) {
+  document.querySelectorAll('.is-narrating').forEach((element) => element.classList.remove('is-narrating'));
+  if (!anchorId) return;
+  const element = document.querySelector(`[data-narration-anchor="${CSS.escape(String(anchorId))}"]`);
+  element?.classList.add('is-narrating');
+}
+
+function initNarrationObserver() {
+  narrationObserver?.disconnect();
+  const original = document.getElementById('lws-narration');
+  if (!original) return;
+  narrationObserver = new IntersectionObserver(([entry]) => {
+    narrationOriginalVisible = entry.isIntersecting;
+    if (entry.isIntersecting) narrationMiniMinimized = false;
+    updateNarrationMini();
+  }, { threshold: [0.05, 0.5] });
+  narrationObserver.observe(original);
+}
+
+function updateNarrationMini() {
+  const mini = document.getElementById('lws-narration-mini');
+  if (!mini) return;
+  const show = Boolean(narrationClient?.hasSession && narrationState !== 'idle' && !narrationOriginalVisible);
+  mini.hidden = !show;
+  mini.classList.toggle('is-minimized', narrationMiniMinimized);
+  setText('lws-narration-mini-title', narrationClient?.currentSegment?.title || currentNodeTitle());
+  const current = Math.max(0, (narrationClient?.currentIndex ?? -1) + 1);
+  const total = narrationClient?.totalSegments || 0;
+  setText('lws-narration-mini-position', `第 ${current} / ${total} 段 · ${narrationClient?.playbackRate || 1}×`);
+  const bar = document.getElementById('lws-narration-mini-progress');
+  if (bar) bar.style.width = `${narrationClient?.progress || 0}%`;
+}
+
+function scrollToNarration() {
+  narrationMiniMinimized = false;
+  document.getElementById('lws-narration')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ========================
+// 右侧 PDF 对照阅读（PDF.js + 受保护文件 Blob）
+// ========================
+
+const PDF_PANEL_STATE_KEY = 'discimind:learning-pdf-panel';
+
+function readPdfPanelState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PDF_PANEL_STATE_KEY) || '{}');
+    return { width: Math.max(360, Math.min(520, Number(parsed.width) || 430)), sourceId: String(parsed.sourceId || '') };
+  } catch { return { width: 430, sourceId: '' }; }
+}
+
+function savePdfPanelState(patch = {}) {
+  const current = readPdfPanelState();
+  try { localStorage.setItem(PDF_PANEL_STATE_KEY, JSON.stringify({ ...current, ...patch })); } catch {}
+}
+
+function currentPdfDocument() {
+  return pdfOpenDocuments.find(item => item.id === activePdfDocumentId) || null;
+}
+
+function renderPdfTabs() {
+  const tabs = document.getElementById('lws-pdf-tabs');
+  if (!tabs) return;
+  tabs.hidden = pdfOpenDocuments.length === 0;
+  tabs.innerHTML = pdfOpenDocuments.map(item => `<span class="lws-pdf-tab${item.id === activePdfDocumentId ? ' is-active' : ''}" role="presentation">
+    <button type="button" role="tab" aria-selected="${item.id === activePdfDocumentId}" data-pdf-document="${escAttr(item.id)}" title="${escAttr(item.name)}">${escHtml(item.name)}</button>
+    <button type="button" class="lws-pdf-tab-close" data-pdf-document-close="${escAttr(item.id)}" aria-label="关闭 ${escAttr(item.name)}" title="关闭此 PDF">×</button>
+  </span>`).join('');
+}
+
+function captureActivePdfView() {
+  const item = currentPdfDocument();
+  if (!item || !pdfViewer?.document) return;
+  item.view = pdfViewer.snapshotView();
+  if (pdfViewer.blob && !item.source.file) item.source = { ...item.source, file: pdfViewer.blob };
+}
+
+function pdfDocumentId(source) {
+  if (source.type !== 'local' && source.id) return `server:${source.id}`;
+  pdfDocumentSerial += 1;
+  return `local:${Date.now()}:${pdfDocumentSerial}`;
+}
+
+async function switchPdfDocument(documentId, { force = false } = {}) {
+  const next = pdfOpenDocuments.find(item => item.id === documentId);
+  if (!next || !pdfViewer) return;
+  if (!force && activePdfDocumentId === documentId && pdfViewer.document) return;
+  captureActivePdfView();
+  activePdfDocumentId = documentId;
+  renderPdfTabs();
+  const version = ++pdfSwitchVersion;
+  pdfSwitchPromise = pdfSwitchPromise.catch(() => {}).then(async () => {
+    if (version !== pdfSwitchVersion || activePdfDocumentId !== documentId) return;
+    try {
+      const savedView = { ...next.view };
+      await pdfViewer.load(next.source);
+      if (version !== pdfSwitchVersion || activePdfDocumentId !== documentId) return;
+      if (pdfViewer.blob && !next.source.file) next.source = { ...next.source, file: pdfViewer.blob };
+      await pdfViewer.restoreView(savedView);
+      const select = document.getElementById('lws-pdf-source');
+      if (select) select.value = '';
+      savePdfPanelState({ sourceId: next.source.type === 'local' ? '' : String(next.source.id || '') });
+      renderPdfTabs();
+    } catch (error) {
+      if (version === pdfSwitchVersion) showToast(error.message || 'PDF 加载失败', 'error');
+    }
+  });
+  return pdfSwitchPromise;
+}
+
+async function addPdfDocument(source, { activate = true } = {}) {
+  const id = pdfDocumentId(source);
+  const existing = pdfOpenDocuments.find(item => item.id === id);
+  if (existing) return activate ? switchPdfDocument(existing.id) : existing;
+  const item = { id, name: source.name || '参考资料.pdf', source: { ...source }, view: {} };
+  pdfOpenDocuments.push(item);
+  renderPdfTabs();
+  if (activate) await switchPdfDocument(item.id);
+  return item;
+}
+
+async function addLocalPdfFiles(files) {
+  const incoming = [...(files || [])];
+  const accepted = incoming.filter(file => file instanceof Blob && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')));
+  if (!accepted.length) {
+    if (incoming.length) showToast('请拖入有效的 PDF 文件', 'error');
+    return;
+  }
+  let last = null;
+  for (const file of accepted) last = await addPdfDocument({ type: 'local', name: file.name, file }, { activate: false });
+  if (last) await switchPdfDocument(last.id);
+  if (accepted.length > 1) showToast(`已添加 ${accepted.length} 个 PDF，可通过标签切换`, 'success');
+}
+
+async function removePdfDocument(documentId) {
+  const index = pdfOpenDocuments.findIndex(item => item.id === documentId);
+  if (index < 0) return;
+  const wasActive = activePdfDocumentId === documentId;
+  if (wasActive) captureActivePdfView();
+  pdfOpenDocuments.splice(index, 1);
+  if (!wasActive) { renderPdfTabs(); return; }
+  pdfSwitchVersion += 1;
+  const replacement = pdfOpenDocuments[Math.min(index, pdfOpenDocuments.length - 1)] || null;
+  activePdfDocumentId = '';
+  if (!replacement) {
+    await pdfViewer?.destroy();
+    updatePdfUi({ loaded: false, fileName: '' });
+    renderPdfTabs();
+    return;
+  }
+  await switchPdfDocument(replacement.id, { force: true });
+}
+
+function updatePdfUi(viewState = {}) {
+  const status = document.getElementById('lws-pdf-status');
+  const hasDocument = Boolean(viewState.loaded || pdfViewer?.document);
+  if (status) {
+    status.hidden = hasDocument && !viewState.loading && !viewState.error;
+    status.textContent = viewState.error || (viewState.loading ? '正在解析 PDF…' : '请选择上方资料，或将 PDF 拖到这里');
+    status.classList.toggle('is-error', Boolean(viewState.error));
+  }
+  setText('lws-pdf-file-name', viewState.fileName || pdfViewer?.fileName || '请选择 PDF');
+  const currentPage = viewState.pageNumber || pdfViewer?.pageNumber || 1;
+  const pageCount = viewState.pageCount || pdfViewer?.pageCount || 0;
+  const pageInput = document.getElementById('lws-pdf-page-input');
+  if (pageInput && document.activeElement !== pageInput) pageInput.value = String(currentPage);
+  if (pageInput) pageInput.max = String(Math.max(1, pageCount));
+  setText('lws-pdf-page-count', `/ ${pageCount}`);
+  setText('lws-pdf-zoom-value', `${Math.round((viewState.scale || pdfViewer?.scale || 1) * 100)}%`);
+  document.querySelector('[data-learning-action="pdf-fit"]')?.classList.toggle('is-active', Boolean(viewState.fitWidth ?? pdfViewer?.fitWidth));
+  document.getElementById('lws-pdf-local-note')?.toggleAttribute('hidden', (viewState.sourceType || pdfViewer?.sourceType) !== 'local');
+  const active = currentPdfDocument();
+  if (active && !viewState.loading && !viewState.error && hasDocument) {
+    active.view = { ...active.view, pageNumber: currentPage, scale: viewState.scale || pdfViewer?.scale || 1, fitWidth: viewState.fitWidth ?? pdfViewer?.fitWidth };
+  }
+  renderPdfTabs();
+  document.querySelectorAll('[data-learning-action^="pdf-"]').forEach((button) => {
+    const action = button.dataset.learningAction;
+    if (['pdf-toggle', 'pdf-close'].includes(action)) return;
+    if (action === 'pdf-prev') button.disabled = !hasDocument || (pdfViewer?.pageNumber || 1) <= 1;
+    else if (action === 'pdf-next') button.disabled = !hasDocument || (pdfViewer?.pageNumber || 0) >= (pdfViewer?.pageCount || 0);
+    else button.disabled = !hasDocument;
+  });
+}
+
+function initPdfControls(root) {
+  const panel = document.getElementById('lws-pdf-panel');
+  const select = document.getElementById('lws-pdf-source');
+  const localInput = document.getElementById('lws-pdf-local');
+  const tabs = document.getElementById('lws-pdf-tabs');
+  const dropOverlay = document.getElementById('lws-pdf-drop-overlay');
+  const pageInput = document.getElementById('lws-pdf-page-input');
+  const resizer = document.getElementById('lws-pdf-resizer');
+  if (!panel || !select || !localInput || !tabs || !resizer) return () => {};
+  pdfViewer = new LearningPdfViewer(panel, { onStateChange: updatePdfUi });
+  const saved = readPdfPanelState();
+  root.style.setProperty('--lws-pdf-width', `${saved.width}px`);
+  let resizeFrame = 0;
+  let drag = null;
+  const onSource = async () => {
+    const source = pdfSources.find((item) => item.id === select.value);
+    if (!source) return;
+    select.value = '';
+    await addPdfDocument(source);
+  };
+  const onLocal = async () => {
+    const files = localInput.files;
+    if (!files?.length) return;
+    await addLocalPdfFiles(files);
+    localInput.value = '';
+  };
+  const onTabsClick = (event) => {
+    const close = event.target.closest('[data-pdf-document-close]');
+    if (close) { event.stopPropagation(); void removePdfDocument(close.dataset.pdfDocumentClose); return; }
+    const tab = event.target.closest('[data-pdf-document]');
+    if (tab) void switchPdfDocument(tab.dataset.pdfDocument);
+  };
+  const hasDraggedFiles = event => [...(event.dataTransfer?.types || [])].includes('Files');
+  const showDropTarget = (visible) => {
+    panel.classList.toggle('is-drag-over', visible);
+    dropOverlay?.toggleAttribute('hidden', !visible);
+  };
+  const onDragOver = (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    showDropTarget(true);
+  };
+  const onDragLeave = (event) => {
+    if (event.relatedTarget && panel.contains(event.relatedTarget)) return;
+    showDropTarget(false);
+  };
+  const onDrop = (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    showDropTarget(false);
+    void addLocalPdfFiles(event.dataTransfer?.files || []);
+  };
+  const onPageJump = async () => {
+    if (!pdfViewer?.document) return;
+    await pdfViewer.goTo(Number(pageInput?.value));
+  };
+  const onPageKeydown = (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); onPageJump(); }
+  };
+  const onPointerDown = (event) => {
+    if (event.button !== 0 || window.innerWidth < 1180) return;
+    drag = { pointerId: event.pointerId, startX: event.clientX, startWidth: panel.getBoundingClientRect().width };
+    resizer.setPointerCapture?.(event.pointerId);
+    panel.classList.add('is-resizing');
+    event.preventDefault();
+  };
+  const onPointerMove = (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const width = Math.max(360, Math.min(520, drag.startWidth + drag.startX - event.clientX));
+    root.style.setProperty('--lws-pdf-width', `${width}px`);
+    savePdfPanelState({ width: Math.round(width) });
+  };
+  const onPointerEnd = async (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    drag = null;
+    panel.classList.remove('is-resizing');
+    resizer.releasePointerCapture?.(event.pointerId);
+    if (pdfViewer?.document && pdfViewer.fitWidth) await pdfViewer.fit();
+  };
+  const onWindowResize = () => {
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0;
+      if (pdfViewer?.document && pdfViewer.fitWidth) pdfViewer.fit().catch(() => {});
+    });
+  };
+  select.addEventListener('change', onSource);
+  localInput.addEventListener('change', onLocal);
+  tabs.addEventListener('click', onTabsClick);
+  panel.addEventListener('dragenter', onDragOver);
+  panel.addEventListener('dragover', onDragOver);
+  panel.addEventListener('dragleave', onDragLeave);
+  panel.addEventListener('drop', onDrop);
+  pageInput?.addEventListener('change', onPageJump);
+  pageInput?.addEventListener('keydown', onPageKeydown);
+  resizer.addEventListener('pointerdown', onPointerDown);
+  resizer.addEventListener('pointermove', onPointerMove);
+  resizer.addEventListener('pointerup', onPointerEnd);
+  resizer.addEventListener('pointercancel', onPointerEnd);
+  window.addEventListener('resize', onWindowResize, { passive: true });
+  updatePdfUi();
+  return () => {
+    select.removeEventListener('change', onSource);
+    localInput.removeEventListener('change', onLocal);
+    tabs.removeEventListener('click', onTabsClick);
+    panel.removeEventListener('dragenter', onDragOver);
+    panel.removeEventListener('dragover', onDragOver);
+    panel.removeEventListener('dragleave', onDragLeave);
+    panel.removeEventListener('drop', onDrop);
+    pageInput?.removeEventListener('change', onPageJump);
+    pageInput?.removeEventListener('keydown', onPageKeydown);
+    resizer.removeEventListener('pointerdown', onPointerDown);
+    resizer.removeEventListener('pointermove', onPointerMove);
+    resizer.removeEventListener('pointerup', onPointerEnd);
+    resizer.removeEventListener('pointercancel', onPointerEnd);
+    window.removeEventListener('resize', onWindowResize);
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+  };
+}
+
+async function loadPdfSources() {
+  if (pdfSourcesLoaded || !S) return;
+  const select = document.getElementById('lws-pdf-source');
+  if (!select) return;
+  select.disabled = true;
+  select.innerHTML = '<option value="">正在读取有权限的 PDF…</option>';
+  const sources = [];
+  const planId = S.learning_plan?.id || S.learningPlanId;
+  try {
+    if (!planId) throw new Error('学习会话未关联学习计划');
+    const result = await studentLearningPlanApi.referenceMaterials(planId);
+    const payload = result.data || result;
+    (payload.list || []).filter(item => item.previewable && item.mimeType === 'application/pdf').forEach((item) => sources.push({
+      id: item.id,
+      type: item.group === 'knowledge' ? 'knowledge' : 'plan',
+      name: item.fileName || item.title,
+      label: `${item.group === 'pre_class' ? '课前资料' : item.group === 'knowledge' ? `知识库 · ${item.knowledgeBaseName || ''}` : '学习计划产物'} · ${item.fileName || item.title}`,
+      url: item.previewUrl,
+    }));
+  } catch (error) { console.warn('[LearningPdf] reference materials unavailable', error.message); }
+  pdfSources = sources;
+  pdfSourcesLoaded = true;
+  select.disabled = false;
+  select.innerHTML = `<option value="">${sources.length ? '选择计划产物或知识库 PDF' : '暂无服务端 PDF，可选择本地文件'}</option>${sources.map((source) => `<option value="${escAttr(source.id)}">${escHtml(source.label)}</option>`).join('')}`;
+  const savedId = readPdfPanelState().sourceId;
+  if (savedId && sources.some((item) => item.id === savedId)) select.value = savedId;
+}
+
+async function togglePdfPanel() {
+  const panel = document.getElementById('lws-pdf-panel');
+  const page = document.getElementById('lws-page');
+  const backdrop = document.getElementById('lws-pdf-backdrop');
+  if (!panel || !page) return;
+  if (!panel.hidden) return closePdfPanel();
+  panel.hidden = false;
+  panel.setAttribute('aria-hidden', 'false');
+  backdrop?.removeAttribute('hidden');
+  page.classList.add('is-pdf-open');
+  window.dispatchEvent(new Event('discimind:float-layout'));
+  document.getElementById('lws-pdf-toggle')?.setAttribute('aria-expanded', 'true');
+  await loadPdfSources();
+  const select = document.getElementById('lws-pdf-source');
+  if (activePdfDocumentId && !pdfViewer?.document) await switchPdfDocument(activePdfDocumentId, { force: true });
+  else if (select?.value && !pdfViewer?.document) select.dispatchEvent(new Event('change'));
+  requestAnimationFrame(() => { syncProgressOffset(); pdfViewer?.fit().catch(() => {}); });
+}
+
+async function closePdfPanel() {
+  const panel = document.getElementById('lws-pdf-panel');
+  const page = document.getElementById('lws-page');
+  if (!panel || !page) return;
+  panel.hidden = true;
+  panel.setAttribute('aria-hidden', 'true');
+  document.getElementById('lws-pdf-backdrop')?.setAttribute('hidden', '');
+  page.classList.remove('is-pdf-open');
+  window.dispatchEvent(new Event('discimind:float-layout'));
+  document.getElementById('lws-pdf-toggle')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('lws-pdf-local').value = '';
+  captureActivePdfView();
+  await pdfViewer?.destroy();
+  updatePdfUi({ loaded: false, fileName: '' });
 }
 
 // Timer cleanup helpers
@@ -725,6 +1234,7 @@ function restoreGuideFromNodeRun() {
 
 // IntersectionObserver for sticky shell
 let stickyObserver = null;
+let progressRevealTimer = null;
 
 function initStickyObserver() {
   if (stickyObserver) stickyObserver.disconnect();
@@ -751,6 +1261,220 @@ function initStickyObserver() {
   stickyObserver.observe(sentinel);
 }
 
+function initProgressNavigation() {
+  cleanupProgressNavigation();
+  const compactDefault = window.innerHeight < 700;
+  progressNavState = {
+    mode: compactDefault ? 'collapsed' : 'expanded',
+    collapsed: compactDefault,
+    locked: null,
+    lastScrollTop: Math.max(0, window.scrollY || document.documentElement.scrollTop || 0),
+    downDistance: 0,
+    upDistance: 0,
+    hover: false,
+    transitioning: false,
+    transitionTarget: null,
+    transitionTimer: null,
+    holdExpandedUntil: 0,
+    raf: 0,
+  };
+  const shell = document.getElementById('lws-sticky-shell');
+  const nav = document.getElementById('lws-progress-nav');
+  const onScroll = () => {
+    if (!progressNavState || progressNavState.raf) return;
+    progressNavState.raf = requestAnimationFrame(() => {
+      if (!progressNavState) return;
+      progressNavState.raf = 0;
+      const nextTop = Math.max(0, window.scrollY || document.documentElement.scrollTop || 0);
+      const delta = nextTop - progressNavState.lastScrollTop;
+      progressNavState.lastScrollTop = nextTop;
+      if (Math.abs(delta) < 2 || progressNavState.locked || progressNavState.transitioning) return;
+      if (nextTop < 64) {
+        progressNavState.downDistance = 0;
+        progressNavState.upDistance = 0;
+        setProgressCollapsed(false, { reason: 'near-top' });
+        return;
+      }
+      if (delta > 0) {
+        progressNavState.upDistance = 0;
+        progressNavState.downDistance += delta;
+        if (!progressNavState.hover
+          && performance.now() >= progressNavState.holdExpandedUntil
+          && nextTop > 120
+          && progressNavState.downDistance >= 48) {
+          progressNavState.downDistance = 0;
+          setProgressCollapsed(true, { reason: 'scroll-down' });
+        }
+      } else {
+        progressNavState.downDistance = 0;
+        progressNavState.upDistance += Math.abs(delta);
+        if (progressNavState.upDistance >= 24) {
+          progressNavState.upDistance = 0;
+          setProgressCollapsed(false, { reason: 'scroll-up' });
+        }
+      }
+    });
+  };
+  const trigger = document.getElementById('lws-progress-trigger');
+  const onTrigger = () => {
+    if (!progressNavState || progressNavState.locked) return;
+    progressNavState.hover = true;
+    progressNavState.downDistance = 0;
+    progressNavState.holdExpandedUntil = Math.max(progressNavState.holdExpandedUntil, performance.now() + 600);
+    setProgressCollapsed(false, { reason: 'top-hot-zone', minimumHold: 600 });
+  };
+  const onTriggerLeave = () => {
+    if (!progressNavState) return;
+    progressNavState.hover = false;
+    progressNavState.downDistance = 0;
+    progressNavState.lastScrollTop = Math.max(0, window.scrollY || document.documentElement.scrollTop || 0);
+  };
+  const onResize = () => {
+    syncProgressOffset();
+  };
+  const onTransitionEnd = (event) => {
+    if (event.target === nav && ['max-height', 'opacity', 'padding-top', 'padding-bottom'].includes(event.propertyName)) finishProgressTransition();
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onResize, { passive: true });
+  trigger?.addEventListener('pointerenter', onTrigger);
+  trigger?.addEventListener('pointerleave', onTriggerLeave);
+  nav?.addEventListener('transitionend', onTransitionEnd);
+  progressNavState.cleanup = () => {
+    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('resize', onResize);
+    trigger?.removeEventListener('pointerenter', onTrigger);
+    trigger?.removeEventListener('pointerleave', onTriggerLeave);
+    nav?.removeEventListener('transitionend', onTransitionEnd);
+  };
+  shell?.setAttribute('data-progress-state', progressNavState.mode);
+  setProgressCollapsed(compactDefault, { immediate: true });
+  syncProgressOffset();
+}
+
+function cleanupProgressNavigation() {
+  if (progressRevealTimer) { clearTimeout(progressRevealTimer); progressRevealTimer = null; }
+  if (progressNavState?.raf) cancelAnimationFrame(progressNavState.raf);
+  if (progressNavState?.transitionTimer) clearTimeout(progressNavState.transitionTimer);
+  progressNavState?.cleanup?.();
+  progressNavState = null;
+}
+
+function setProgressCollapsed(collapsed, options = {}) {
+  if (!progressNavState) return;
+  const target = Boolean(collapsed);
+  if (progressNavState.locked && !options.lock && !options.ignoreLock) return;
+  if (options.lock) progressNavState.locked = target ? 'collapsed' : 'expanded';
+  if (!target && options.minimumHold) {
+    progressNavState.holdExpandedUntil = Math.max(progressNavState.holdExpandedUntil, performance.now() + options.minimumHold);
+  }
+  const shell = document.getElementById('lws-sticky-shell');
+  if (!shell) return;
+  if (progressNavState.collapsed === target && !progressNavState.transitioning) {
+    shell.classList.toggle('is-progress-collapsed', target);
+    shell.classList.toggle('is-progress-locked', Boolean(progressNavState.locked));
+    progressNavState.mode = progressNavState.locked ? `locked-${target ? 'collapsed' : 'expanded'}` : (target ? 'collapsed' : 'expanded');
+    shell.dataset.progressState = progressNavState.mode;
+    shell.classList.toggle('is-progress-locked', Boolean(progressNavState.locked));
+    updateProgressControls();
+    return;
+  }
+  progressNavState.collapsed = target;
+  progressNavState.downDistance = 0;
+  progressNavState.upDistance = 0;
+  shell.classList.toggle('is-progress-collapsed', target);
+  shell.classList.toggle('is-progress-locked', Boolean(progressNavState.locked));
+  if (options.immediate) {
+    progressNavState.transitioning = false;
+    progressNavState.transitionTarget = null;
+    progressNavState.mode = progressNavState.locked ? `locked-${target ? 'collapsed' : 'expanded'}` : (target ? 'collapsed' : 'expanded');
+    shell.dataset.progressState = progressNavState.mode;
+  } else {
+    progressNavState.transitioning = true;
+    progressNavState.transitionTarget = target;
+    progressNavState.mode = 'transitioning';
+    shell.dataset.progressState = 'transitioning';
+    shell.classList.add('is-progress-transitioning');
+    if (progressNavState.transitionTimer) clearTimeout(progressNavState.transitionTimer);
+    progressNavState.transitionTimer = setTimeout(finishProgressTransition, 260);
+  }
+  updateProgressControls();
+  requestAnimationFrame(syncProgressOffset);
+}
+
+function finishProgressTransition() {
+  if (!progressNavState?.transitioning) return;
+  if (progressNavState.transitionTimer) clearTimeout(progressNavState.transitionTimer);
+  progressNavState.transitionTimer = null;
+  progressNavState.transitioning = false;
+  progressNavState.transitionTarget = null;
+  progressNavState.mode = progressNavState.locked
+    ? `locked-${progressNavState.collapsed ? 'collapsed' : 'expanded'}`
+    : (progressNavState.collapsed ? 'collapsed' : 'expanded');
+  const shell = document.getElementById('lws-sticky-shell');
+  shell?.classList.remove('is-progress-transitioning');
+  if (shell) shell.dataset.progressState = progressNavState.mode;
+  progressNavState.lastScrollTop = Math.max(0, window.scrollY || document.documentElement.scrollTop || 0);
+  requestAnimationFrame(syncProgressOffset);
+}
+
+function updateProgressControls() {
+  if (!progressNavState) return;
+  const toggle = document.getElementById('lws-progress-toggle');
+  if (toggle) {
+    toggle.textContent = progressNavState.collapsed ? '展开' : '收起';
+    toggle.setAttribute('aria-label', progressNavState.collapsed ? '展开进度导航' : '收起进度导航');
+  }
+  const pin = document.getElementById('lws-progress-pin');
+  if (pin) {
+    pin.textContent = progressNavState.locked ? '已锁定' : '锁定';
+    pin.setAttribute('aria-pressed', progressNavState.locked ? 'true' : 'false');
+  }
+}
+
+function toggleProgressLock() {
+  if (!progressNavState) return;
+  progressNavState.locked = progressNavState.locked ? null : (progressNavState.collapsed ? 'collapsed' : 'expanded');
+  setProgressCollapsed(progressNavState.collapsed, { ignoreLock: true, immediate: true });
+}
+
+function brieflyRevealProgress() {
+  if (!progressNavState || progressNavState.locked === 'collapsed') return;
+  setProgressCollapsed(false, { reason: 'node-change', minimumHold: 1200 });
+  if (progressRevealTimer) clearTimeout(progressRevealTimer);
+  progressRevealTimer = setTimeout(() => { progressRevealTimer = null; }, 1200);
+}
+
+function syncProgressOffset() {
+  const shell = document.getElementById('lws-sticky-shell');
+  if (!shell) return;
+  document.documentElement.style.setProperty('--lws-progress-offset', `${Math.ceil(shell.getBoundingClientRect().height + 14)}px`);
+}
+
+function locateProgressNode(nodeId) {
+  if (!nodeId || !S) return;
+  const graphNodes = S.runtime_graph_json?.nodes || [];
+  const node = graphNodes.find((item) => String(item.id) === String(nodeId));
+  if (!node) return;
+  if (String(node.id) === String(S.current_node_id)) {
+    const target = document.getElementById('lws-guide-panel')?.offsetParent
+      ? document.getElementById('lws-guide-panel')
+      : document.getElementById('lws-content-area');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  const run = (S.node_runs || []).find((item) => String(item.node_id) === String(node.id));
+  if (['COMPLETED', 'SKIPPED'].includes(run?.status)) {
+    const history = document.querySelector(`[data-history-node="${CSS.escape(String(node.id))}"]`);
+    if (history) {
+      history.open = true;
+      history.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else showToast('该节点已完成，但暂无可展示的历史内容', 'info');
+    return;
+  }
+  showToast('该节点尚未解锁，请按当前学习流程继续', 'warning');
+}
+
 function updateTopbar() {
   if (!S) return;
   setText('lws-flow-title', S.workflow_template?.title || '学习会话');
@@ -769,6 +1493,7 @@ function hideSkeleton() {
   showEl('lws-bottom-bar');
   showEl('lws-kp-overview');
   initStickyObserver();
+  initProgressNavigation();
 }
 
 function renderProgressNav() {
@@ -781,51 +1506,50 @@ function renderProgressNav() {
   const completedIds = new Set(nodeRuns.filter(r => r.status === 'COMPLETED' || r.status === 'SKIPPED').map(r => r.node_id));
   const failedIds = new Set(nodeRuns.filter(r => r.status === 'FAILED').map(r => r.node_id));
 
-  el.innerHTML = `<div class="lws-progress-track">${nodes.map((node, i) => {
+  const completedCount = nodeRuns.filter((run) => ['COMPLETED', 'SKIPPED'].includes(run.status)).length;
+  const currentIndex = Math.max(0, nodes.findIndex((node) => String(node.id) === String(S.current_node_id)));
+  const percent = S.status === 'COMPLETED' ? 100 : nodes.length ? Math.min(99, Math.round((completedCount / nodes.length) * 100)) : 0;
+  const remaining = Math.max(0, nodes.length - completedCount - (S.status === 'COMPLETED' ? 0 : 1));
+  const current = nodes[currentIndex];
+  const nodeChanged = lastProgressNodeId != null && String(lastProgressNodeId) !== String(S.current_node_id);
+  lastProgressNodeId = S.current_node_id;
+  el.innerHTML = `<div class="lws-progress-summary"><div><b>${escHtml(S.workflow_template?.title || '学习流')}</b><span>当前：${escHtml(current?.title || NODE_LABELS[current?.type] || '已完成')}</span></div><div class="lws-progress-summary-value"><strong>${percent}%</strong><small>剩余 ${remaining} 个节点</small></div></div>
+    <button type="button" class="lws-progress-compact" data-learning-action="progress-toggle"><span>${escHtml(current?.title || NODE_LABELS[current?.type] || '学习已完成')}</span><b>${Math.min(nodes.length, currentIndex + 1)} / ${nodes.length}</b><i><em style="width:${percent}%"></em></i></button>
+    <div class="lws-progress-track">${nodes.map((node, i) => {
     let cls = 'lws-progress-node';
-    if (node.id === S.current_node_id) cls += ' current';
-    else if (completedIds.has(node.id)) {
-      const skipped = nodeRuns.find(r => r.node_id === node.id && r.status === 'SKIPPED');
+    if (String(node.id) === String(S.current_node_id)) cls += ' current';
+    else if (completedIds.has(node.id) || completedIds.has(String(node.id))) {
+      const skipped = nodeRuns.find(r => String(r.node_id) === String(node.id) && r.status === 'SKIPPED');
       cls += skipped ? ' skipped' : ' completed';
-    } else if (failedIds.has(node.id)) cls += ' failed';
+    } else if (failedIds.has(node.id) || failedIds.has(String(node.id))) cls += ' failed';
     else cls += ' waiting';
 
     const info = getNodeType(node.type);
-    return `<div class="${cls}" title="${escAttr(node.title || NODE_LABELS[node.type] || node.type)}">
+    return `<button type="button" class="${cls}" data-learning-action="progress-node" data-node-id="${escAttr(String(node.id))}" title="${escAttr(node.title || NODE_LABELS[node.type] || node.type)}">
       <span class="lws-progress-dot">${i + 1}</span>
       <span class="lws-progress-label">${escHtml(node.title || NODE_LABELS[node.type] || node.type)}</span>
       <span class="lws-progress-agent">${escHtml(info?.agent || '')}</span>
-    </div>`;
+    </button>`;
   }).join('')}</div>`;
+  if (nodeChanged) brieflyRevealProgress();
+  requestAnimationFrame(syncProgressOffset);
 }
 
 function renderKnowledgePointOverview() {
   const el = document.getElementById('lws-kp-overview');
   if (!el || !S) return;
   showEl('lws-kp-overview');
-  const kpName = S.knowledge_point?.knowledge_point_name || '知识点';
-  const courseName = S.course?.course_name || '—';
-  const chapterName = knowledgePointData?.chapter?.chapter_name || '—';
   const mastery = S.mastery_current != null ? Math.round(S.mastery_current) : null;
-
   const graph = S.runtime_graph_json || {};
   const node = (graph.nodes || []).find(n => n.id === S.current_node_id);
   const nodeLabel = node ? (node.title || NODE_LABELS[node.type] || node.type) : '—';
   const info = node ? getNodeType(node.type) : null;
-
-  let defHtml = '';
-  if (knowledgePointData?.definition) {
-    defHtml = `<div class="lws-kp-definition"><span class="lws-kp-label">定义</span><p>${escHtml(knowledgePointData.definition)}</p></div>`;
-  }
-
+  const sessionStatus = ({ RUNNING: '学习进行中', PAUSED: '已暂停', COMPLETED: '已完成', FAILED: '需要重试' })[S.status] || '准备中';
   el.innerHTML = `<div class="lws-kp-card">
-    <div class="lws-kp-header"><span class="lws-kp-tag">知识点概览</span><h3>${escHtml(kpName)}</h3></div>
-    <div class="lws-kp-meta"><span>课程: ${escHtml(courseName)}</span><span>章节: ${escHtml(chapterName)}</span>${mastery != null ? `<span>当前掌握度: <b>${mastery}%</b></span>` : ''}</div>
-    ${defHtml}
-    <div class="lws-kp-current-task"><span class="lws-kp-label">当前节点</span>
-      <div class="lws-kp-task-info"><span class="lws-kp-task-name">${escHtml(nodeLabel)}</span><span class="lws-kp-task-type">${escHtml(info?.label || '')}</span></div>
-      <p class="lws-kp-task-goal">${escHtml(node?.description || `完成 ${nodeLabel}`)}</p>
-    </div>
+    <div class="lws-kp-current"><span class="lws-kp-tag">当前节点</span><h3>${escHtml(nodeLabel)}</h3><span class="lws-kp-task-type">${escHtml(info?.label || '学习节点')}</span></div>
+    <div class="lws-kp-status"><span>${escHtml(sessionStatus)}</span>${mastery != null ? `<span>掌握度 <b>${mastery}%</b></span>` : '<span>掌握度待评估</span>'}</div>
+    <p class="lws-kp-task-goal">${escHtml(node?.description || `完成 ${nodeLabel}`)}</p>
+    <button type="button" class="lws-kp-primary" data-learning-action="current-content">进入当前内容</button>
   </div>`;
 }
 
@@ -1216,7 +1940,9 @@ async function startGuideAgent(node, phase = 'enter', extraContext = null, execu
       boundContext
     );
   } catch (e) {
-    if (e.name === 'AbortError' || !isExecutionCurrent(execution)) return;
+    // A navigation can win the race before the previous request observes abort.
+    // The backend's stale-execution response is an expected cancellation, not an error.
+    if (e.name === 'AbortError' || e.code === 'STALE_NODE_EXECUTION' || !isExecutionCurrent(execution)) return;
     console.error('[LearningGuide] error for phase ' + phase + ':', e.message);
   } finally {
     if (guideAbortCtrl === controller) guideAbortCtrl = null;

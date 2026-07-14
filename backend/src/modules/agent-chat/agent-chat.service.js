@@ -4,6 +4,10 @@ const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { scopedOperationId } = require('../agent-marketplace/operation-id');
 const { runAgent } = require('./agent-runtime.service');
 const memoryService = require('./agent-memory.service');
+const contextService = require('./agent-context.service');
+const generationRegistry = require('./generation-registry');
+const attachmentService = require('./agent-attachment.service');
+const iconService = require('../agent-marketplace/agent-icon.service');
 
 const FALLBACK_NOTICE = '当前知识库中未找到直接依据，以下内容由 AI 通用知识生成，仅供参考。';
 const UNAVAILABLE_NOTICE = '知识库暂时不可用，本次回答由 AI 通用知识生成。';
@@ -25,16 +29,37 @@ function serializeConversation(conversation, detail = false) {
   const data = {
     id: conversation.id, agentId: conversation.agentId, agentVersionId: conversation.agentVersionId,
     title: conversation.title, memoryEnabled: conversation.memoryEnabled, activeGenerationId: conversation.activeGenerationId,
+    difyConversationId: conversation.difyConversationId || null, mode: conversation.mode || 'AGENT', subject: conversation.subject || null,
     createdAt: conversation.createdAt, updatedAt: conversation.updatedAt,
   };
   if (detail) data.messages = (conversation.messages || []).map((message) => ({
     id: message.id, role: message.role, content: message.content, answerSource: message.answerSource,
     knowledgeFallbackUsed: message.knowledgeFallbackUsed, generationStatus: message.generationStatus,
     generationId: message.generationId, createdAt: message.createdAt,
+    metadata: message.metadataJson || null,
+    knowledgeBaseRefs: message.knowledgeBaseRefsJson || [], agentRefs: message.agentRefsJson || [],
+    attachments: attachmentService.serializeAttachments(message),
+    invocations: (message.invocations || []).map(item => ({
+      id: item.id, agentId: item.agentId, agentName: item.agent?.currentDraftVersion?.name || item.agent?.currentPublicVersion?.name || '智能体',
+      agent: item.agent ? {
+        id: item.agent.id,
+        agentType: item.agent.agentType,
+        icon: iconService.resolveAgentIcon(item.agent, item.agent.currentDraftVersion || item.agent.currentPublicVersion),
+      } : null,
+      sequence: item.sequence, status: item.status, output: item.outputText, errorMessage: item.errorMessage,
+      durationMs: item.durationMs, taskIds: item.taskIdsJson || [], artifactIds: item.artifactIdsJson || [],
+      startedAt: item.startedAt, completedAt: item.completedAt,
+    })),
     sources: (message.sources || []).map((source) => ({
       id: source.id, knowledgeBaseId: source.knowledgeBaseId, knowledgeBaseName: source.knowledgeBase?.name || '',
-      documentName: source.documentName, segmentId: source.segmentId, pageNumber: source.pageNumber, quote: source.quote,
+      documentId: source.documentId, documentName: source.documentName, segmentId: source.segmentId, pageNumber: source.pageNumber,
+      quote: source.quote, score: source.score, externalUrl: source.externalUrl || null,
     })),
+  }));
+  if (detail) data.artifacts = (conversation.generatedArtifacts || []).map(item => ({
+    id: item.id, taskId: item.taskId, artifactType: item.artifactType, title: item.title, status: item.status,
+    fileFormat: item.fileFormat, fileSizeBytes: item.fileSizeBytes == null ? null : Number(item.fileSizeBytes),
+    createdAt: item.createdAt, updatedAt: item.updatedAt,
   }));
   return data;
 }
@@ -58,9 +83,17 @@ async function listConversations(userId, agentId) {
 }
 
 async function listUserConversations(userId, query = {}) {
-  assert(!query.agentType || query.agentType === 'CHAT', '当前仅支持 CHAT 会话');
-  const where = { userId, deletedAt: null, agent: { agentType: 'CHAT' } };
+  const where = { userId, deletedAt: null };
+  if (query.agentType && query.agentType !== 'ALL') where.agent = { agentType: query.agentType };
   if (query.agentId) where.agentId = Number(query.agentId);
+  if (query.mode) where.mode = String(query.mode).toUpperCase();
+  if (query.subject) where.subject = String(query.subject).slice(0, 64);
+  const q = String(query.q || query.search || '').trim();
+  if (q) where.title = { contains: q };
+  if (query.dateFrom || query.dateTo) where.updatedAt = {
+    ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+    ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+  };
   const records = await prisma.marketplaceAgentConversation.findMany({ where, orderBy: { updatedAt: 'desc' }, take: 100 });
   return { list: records.map(item => serializeConversation(item)) };
 }
@@ -68,10 +101,28 @@ async function listUserConversations(userId, query = {}) {
 async function getConversation(userId, conversationId) {
   const conversation = await prisma.marketplaceAgentConversation.findFirst({
     where: { id: Number(conversationId), userId, deletedAt: null },
-    include: { messages: { orderBy: { createdAt: 'asc' }, include: { sources: { include: { knowledgeBase: true } } } } },
+    include: {
+      messages: { orderBy: { createdAt: 'asc' }, include: {
+        sources: { include: { knowledgeBase: true } },
+        invocations: { orderBy: { sequence: 'asc' }, include: { agent: { include: { currentDraftVersion: true, currentPublicVersion: true } } } },
+      } },
+      generatedArtifacts: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
+    },
   });
   assert(conversation, '对话不存在或无权查看', 40301, 403);
-  return serializeConversation(conversation, true);
+  const data = serializeConversation(conversation, true);
+  const artifactService = require('../file-generator/generated-artifact.service');
+  data.artifacts = await Promise.all((conversation.generatedArtifacts || []).map(async item => {
+    const detail = await artifactService.getArtifact({ user_id: userId, role: 'student' }, item.id);
+    return {
+      id: detail.id, taskId: detail.taskId, artifactType: detail.artifactType, artifactRole: detail.artifactRole,
+      title: detail.title, status: detail.status, publicStatus: detail.publicStatus,
+      downloadAvailable: Boolean(detail.downloadAvailable), exports: detail.exports,
+      fileFormat: detail.fileFormat, fileSizeBytes: detail.fileSizeBytes,
+      createdAt: detail.createdAt, updatedAt: detail.updatedAt,
+    };
+  }));
+  return data;
 }
 
 async function updateConversation(userId, conversationId, input) {
@@ -81,10 +132,93 @@ async function updateConversation(userId, conversationId, input) {
   return serializeConversation(updated);
 }
 
+async function quiesceActiveGenerations(records) {
+  const activeIds = records.map(item => item.activeGenerationId).filter(Boolean);
+  if (!activeIds.length) return;
+  await prisma.marketplaceAgentMessage.updateMany({
+    where: { generationId: { in: activeIds }, generationStatus: 'GENERATING' },
+    data: { generationStatus: 'CANCELLED' },
+  });
+  activeIds.forEach(id => generationRegistry.cancel(id));
+  const conversationIds = records.map(item => item.id);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const stillActive = await prisma.marketplaceAgentConversation.count({
+      where: { id: { in: conversationIds }, activeGenerationId: { not: null } },
+    });
+    if (!stillActive) return;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert(false, '对话正在停止生成，请稍后重试该操作', 40901, 409);
+}
+
 async function deleteConversation(userId, conversationId) {
-  const result = await prisma.marketplaceAgentConversation.updateMany({ where: { id: Number(conversationId), userId, deletedAt: null }, data: { deletedAt: new Date() } });
-  assert(result.count > 0, '对话不存在或无权删除', 40301, 403);
-  return { deleted: true };
+  const conversation = await prisma.marketplaceAgentConversation.findFirst({
+    where: { id: Number(conversationId), userId, deletedAt: null },
+    include: {
+      generatedArtifacts: { where: { deletedAt: null }, select: { id: true } },
+      messages: { select: { attachmentsJson: true } },
+    },
+  });
+  assert(conversation, '对话不存在或无权删除', 40301, 403);
+  await quiesceActiveGenerations([conversation]);
+  const result = await prisma.$transaction(async tx => {
+    await tx.marketplaceAgentInvocation.deleteMany({ where: { conversationId: conversation.id } });
+    const messages = await tx.marketplaceAgentMessage.deleteMany({ where: { conversationId: conversation.id } });
+    await tx.asyncTask.updateMany({ where: { conversationId: conversation.id, userId }, data: { conversationId: null } });
+    await tx.marketplaceAgentConversation.update({ where: { id: conversation.id }, data: { deletedAt: new Date(), activeGenerationId: null } });
+    return { deleted: true, deletedMessageCount: messages.count, preservedArtifactCount: conversation.generatedArtifacts.length };
+  });
+  await attachmentService.removeAttachments(conversation.messages.flatMap(item => Array.isArray(item.attachmentsJson) ? item.attachmentsJson : []));
+  return result;
+}
+
+async function clearConversationMessages(userId, conversationId) {
+  const conversation = await prisma.marketplaceAgentConversation.findFirst({ where: { id: Number(conversationId), userId, deletedAt: null } });
+  assert(conversation, '对话不存在或无权清空', 40301, 403);
+  await quiesceActiveGenerations([conversation]);
+  const attachments = await prisma.marketplaceAgentMessage.findMany({ where: { conversationId: conversation.id }, select: { attachmentsJson: true } });
+  const result = await prisma.$transaction(async tx => {
+    await tx.marketplaceAgentInvocation.deleteMany({ where: { conversationId: conversation.id } });
+    const deleted = await tx.marketplaceAgentMessage.deleteMany({ where: { conversationId: conversation.id } });
+    await tx.marketplaceAgentConversation.update({ where: { id: conversation.id }, data: { activeGenerationId: null, updatedAt: new Date() } });
+    return deleted.count;
+  });
+  await attachmentService.removeAttachments(attachments.flatMap(item => Array.isArray(item.attachmentsJson) ? item.attachmentsJson : []));
+  return { cleared: true, clearedMessageCount: result };
+}
+
+async function bulkManageConversations(userId, input) {
+  const records = await prisma.marketplaceAgentConversation.findMany({
+    where: { id: { in: input.conversationIds }, userId, deletedAt: null },
+    include: {
+      generatedArtifacts: { where: { deletedAt: null }, select: { id: true } },
+      messages: { select: { attachmentsJson: true } },
+    },
+  });
+  assert(records.length === input.conversationIds.length, '部分会话不存在或无权操作', 40301, 403);
+  await quiesceActiveGenerations(records);
+  const artifactIds = records.flatMap(item => item.generatedArtifacts.map(artifact => artifact.id));
+  const attachments = records.flatMap(item => item.messages).flatMap(item => Array.isArray(item.attachmentsJson) ? item.attachmentsJson : []);
+  if (input.action === 'DELETE' && input.deleteArtifacts) {
+    const artifacts = require('../file-generator/generated-artifact.service');
+    for (const artifactId of artifactIds) await artifacts.deleteArtifact({ user_id: userId, role: 'student' }, artifactId);
+  }
+  const result = await prisma.$transaction(async tx => {
+    await tx.marketplaceAgentInvocation.deleteMany({ where: { conversationId: { in: input.conversationIds } } });
+    if (input.action === 'CLEAR_MESSAGES') {
+      const messages = await tx.marketplaceAgentMessage.deleteMany({ where: { conversationId: { in: input.conversationIds } } });
+      await tx.marketplaceAgentConversation.updateMany({ where: { id: { in: input.conversationIds }, userId }, data: { activeGenerationId: null, updatedAt: new Date() } });
+      return { affectedCount: records.length, clearedMessageCount: messages.count };
+    }
+    await tx.marketplaceAgentMessage.deleteMany({ where: { conversationId: { in: input.conversationIds } } });
+    await tx.asyncTask.updateMany({ where: { conversationId: { in: input.conversationIds }, userId }, data: { conversationId: null } });
+    const deleted = await tx.marketplaceAgentConversation.updateMany({
+      where: { id: { in: input.conversationIds }, userId, deletedAt: null }, data: { deletedAt: new Date(), activeGenerationId: null },
+    });
+    return { affectedCount: deleted.count, preservedArtifactCount: input.deleteArtifacts ? 0 : artifactIds.length };
+  });
+  await attachmentService.removeAttachments(attachments);
+  return { action: input.action, deleteArtifacts: input.deleteArtifacts, ...result };
 }
 
 function actualPageNumber(metadata) {
@@ -93,7 +227,8 @@ function actualPageNumber(metadata) {
   return Number.isInteger(number) && number > 0 ? number : null;
 }
 
-async function retrieve(version, question) {
+async function retrieve(version, question, options = {}) {
+  if (options.userId) return contextService.resolveRetrieval(options.userId, version, question, options.knowledgeBaseRefs || []);
   if (version.responseMode !== 'KNOWLEDGE_FIRST') return { records: [], fallback: false, unavailable: false };
   const bindings = await prisma.agentKnowledgeBase.findMany({
     where: { agentVersionId: version.id },
@@ -138,9 +273,17 @@ async function sendMessage(userId, conversationId, input) {
     update: {},
     create: { conversationId: conversation.id, role: 'USER', content: input.content, operationId: userOperationId },
   });
-  const retrieval = await retrieve(conversation.agentVersion, input.content);
+  const resolvedAgentRefs = await contextService.resolveAgentRefs(userId, input.agentRefs || []);
+  const retrieval = await retrieve(conversation.agentVersion, input.content, { userId, knowledgeBaseRefs: input.knowledgeBaseRefs || [] });
+  const normalizedKnowledgeRefs = contextService.normalizedKnowledgeRefs(retrieval.knowledgeBases || []);
+  const normalizedAgentRefs = contextService.normalizedAgentRefs(resolvedAgentRefs);
+  const memoryCandidate = memoryService.detectMemoryCandidate(input.content);
+  await prisma.marketplaceAgentMessage.update({ where: { id: userMessage.id }, data: {
+    knowledgeBaseRefsJson: normalizedKnowledgeRefs, agentRefsJson: normalizedAgentRefs,
+    metadataJson: memoryCandidate ? { memoryCandidate } : undefined,
+  } });
   const memories = conversation.memoryEnabled
-    ? await prisma.agentMemory.findMany({ where: { userId, agentId: conversation.agentId, confirmed: true, deletedAt: null }, orderBy: { updatedAt: 'desc' }, take: 20 }) : [];
+      ? await prisma.agentMemory.findMany({ where: { userId, agentId: conversation.agentId, confirmed: true, enabled: true, deletedAt: null }, orderBy: { updatedAt: 'desc' }, take: 20 }) : [];
   let result;
   try {
     result = await runAgent({ version: conversation.agentVersion, history: conversation.messages, memories, question: input.content, records: retrieval.records });
@@ -161,20 +304,24 @@ async function sendMessage(userId, conversationId, input) {
     if (retrieval.records.length) await tx.agentMessageSource.createMany({ data: retrieval.records.map((item) => ({
       messageId: message.id, knowledgeBaseId: item.knowledgeBaseId, documentId: item.documentId,
       documentName: item.documentName, segmentId: item.segmentId, pageNumber: item.pageNumber,
-      quote: item.content.slice(0, 800), score: item.score,
+       quote: item.content.slice(0, 800), score: item.score, externalUrl: item.externalUrl || null,
     })) });
     await tx.marketplaceAgentConversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date(), title: conversation.title === '新对话' ? input.content.slice(0, 50) : conversation.title } });
     await tx.userAgent.update({ where: { id: conversation.agentId }, data: { usageCount: { increment: 1 } } });
     return message;
   });
-  if (conversation.memoryEnabled) await memoryService.rememberExplicitRequest(userId, conversation.agentId, userMessage.id, input.content);
+  if (memories.length) await memoryService.markMemoriesUsed(memories.map(item => item.id));
   return {
     message: {
       id: assistant.id, role: assistant.role, content: assistant.content, answerSource: assistant.answerSource,
       knowledgeFallbackUsed: assistant.knowledgeFallbackUsed,
-      sources: retrieval.records.map((item) => ({ knowledgeBaseId: item.knowledgeBaseId, knowledgeBaseName: item.knowledgeBaseName, documentName: item.documentName, segmentId: item.segmentId, pageNumber: item.pageNumber, quote: item.content.slice(0, 800) })),
+       sources: retrieval.records.map((item) => ({ knowledgeBaseId: item.knowledgeBaseId, knowledgeBaseName: item.knowledgeBaseName, documentId: item.documentId, documentName: item.documentName, segmentId: item.segmentId, pageNumber: item.pageNumber, quote: item.content.slice(0, 800), score: item.score, externalUrl: item.externalUrl })),
     },
   };
 }
 
-module.exports = { FALLBACK_NOTICE, UNAVAILABLE_NOTICE, resolveAgentVersion, createConversation, listConversations, listUserConversations, getConversation, updateConversation, deleteConversation, retrieve, sendMessage, actualPageNumber };
+module.exports = {
+  FALLBACK_NOTICE, UNAVAILABLE_NOTICE, resolveAgentVersion, createConversation, listConversations, listUserConversations,
+  getConversation, updateConversation, deleteConversation, clearConversationMessages, bulkManageConversations,
+  retrieve, sendMessage, actualPageNumber,
+};

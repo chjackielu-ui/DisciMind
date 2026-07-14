@@ -17,6 +17,7 @@ import { renderStudentPracticeCenter } from '../pages/student-practice-center.js
 import { renderStudentPracticeSession } from '../pages/student-practice-session.js'
 import { renderStudentTrainerSession } from '../pages/student-trainer-session.js'
 import { renderStudentTaskAnswer } from '../pages/student-task-answer.js'
+import { renderStudentTeachingTasks } from '../pages/student-teaching-tasks.js'
 import { renderStudentSubmissionResult } from '../pages/student-submission-result.js'
 import { renderStudentDocuments } from '../pages/student-documents.js'
 import { renderStudentVideos } from '../pages/student-videos.js'
@@ -26,6 +27,7 @@ import { renderAgentCreate, renderAgentEdit } from '../pages/agent/AgentCreatePa
 import { renderKnowledgeBases } from '../pages/agent/KnowledgeBasesPage.js'
 import { renderAgentChat } from '../pages/agent/AgentChatPage.js'
 import { renderGeneratedArtifacts, renderGeneratedArtifactDetail } from '../pages/agent/GeneratedArtifactsPage.js'
+import { renderAgentTasks } from '../pages/agent/AgentTasksPage.js'
 import { renderStudentLearningFlows } from '../pages/student-learning-flows.js'
 import { renderStudentLearningFlowEditor } from '../pages/student-learning-flow-editor.js'
 import { renderStudentLearningSession } from '../pages/student-learning-session.js'
@@ -48,6 +50,11 @@ import { renderTeacherClasses } from '../pages/teacher-classes.js'
 import { renderTeacherSystemManagement } from '../pages/teacher-system-management.js'
 import { renderTeacherLessonPlan } from '../pages/teacher-lesson-plan.js'
 import { renderTeacherHomework } from '../pages/teacher-homework.js'
+import { renderTeacherAiChat } from '../pages/teacher-ai-chat.js'
+import { renderTeacherPreparation } from '../pages/teacher-preparation.js'
+import { renderTeacherPreparationImmersive } from '../pages/teacher-preparation-immersive.js'
+import { renderTeacherArtifacts } from '../pages/teacher-artifacts.js'
+import { renderTeacherAgentMarketplace } from '../pages/teacher-agent-marketplace.js'
 import { renderAdminDashboard } from '../pages/admin-dashboard.js'
 import { renderAdminUsers } from '../pages/admin-users.js'
 import { renderAdminCourses } from '../pages/admin-courses.js'
@@ -59,6 +66,7 @@ import { renderAdminNotifications } from '../pages/admin-notifications.js'
 import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
 import { renderAdminProfile } from '../pages/admin-profile.js'
 import { renderAdminAgentReviews } from '../pages/admin-agent-reviews.js'
+import { unmountTeacherGlobalOverlays } from '../components/teacher-global-assistant.js'
 
 // ============================================================
 // 教师端页面导入区域（教师端开发者在此添加 import）
@@ -86,16 +94,18 @@ const staticRoutes = {
   '/student/diagnostician': { render: renderStudentDiagnostician, auth: true, roles: ['student'] },
   '/student/profile': { render: renderStudentProfile, auth: true, roles: ['student'] },
   '/student/ai-chat': { render: renderStudentAiChat, auth: true, roles: ['student'] },
+  '/student/teaching-tasks': { render: renderStudentTeachingTasks, auth: true, roles: ['student'] },
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
   '/student/agents/trainer': { render: renderStudentAgentDetail, auth: true, roles: ['student'] },
-  '/student/agents': { render: renderAgentMarket, auth: true, roles: ['student'] },
-  '/student/agents/mine': { render: renderMyAgents, auth: true, roles: ['student'] },
-  '/student/agents/knowledge': { render: renderKnowledgeBases, auth: true, roles: ['student'] },
-  '/student/agents/favorites': { render: renderFavoriteAgents, auth: true, roles: ['student'] },
-  '/student/agents/create': { render: renderAgentCreate, auth: true, roles: ['student'] },
-  '/student/artifacts': { render: renderGeneratedArtifacts, auth: true, roles: ['student'] },
-  '/student/generated-artifacts': { render: () => navigateTo('#/student/artifacts'), auth: true, roles: ['student'] },
+  '/student/agents': { render: renderAgentMarket, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/agents/mine': { render: renderMyAgents, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/agents/knowledge': { render: renderKnowledgeBases, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/agents/favorites': { render: renderFavoriteAgents, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/agents/create': { render: renderAgentCreate, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/agent-tasks': { render: renderAgentTasks, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/artifacts': { render: renderGeneratedArtifacts, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/generated-artifacts': { render: () => navigateTo('#/student/artifacts'), auth: true, roles: ['student', 'teacher', 'admin'] },
   '/student/learning-flows': { render: renderStudentLearningFlows, auth: true, roles: ['student'] },
   '/student/learning-context': { render: () => navigateTo('#/student/learning-flows?panel=learning-plan'), auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
@@ -111,7 +121,17 @@ const staticRoutes = {
   '/teacher/classes': { render: () => navigateTo('#/teacher/system?tab=classes'), auth: true, roles: ['teacher', 'admin'] },
   '/teacher/system': { render: renderTeacherSystemManagement, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/lesson-plan': { render: renderTeacherLessonPlan, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/preparation': { render: renderTeacherPreparation, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/preparation/immersive': { render: renderTeacherPreparationImmersive, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/ai': { render: renderTeacherAiChat, auth: true, roles: ['teacher', 'admin'] },
   '/teacher/homework': { render: renderTeacherHomework, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/agents': { render: renderTeacherAgentMarketplace, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/agents/mine': { render: () => navigateTo('#/teacher/agents'), auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/agents/knowledge': { render: renderKnowledgeBases, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/agents/favorites': { render: () => navigateTo('#/teacher/agents'), auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/agents/create': { render: renderAgentCreate, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/agent-tasks': { render: renderAgentTasks, auth: true, roles: ['teacher', 'admin'] },
+  '/teacher/artifacts': { render: renderTeacherArtifacts, auth: true, roles: ['teacher', 'admin'] },
 
   // ========== 教师端路由（教师端开发者在此区域添加）==========
 
@@ -135,42 +155,77 @@ const dynamicRoutes = [
     pattern: /^\/student\/artifacts\/(\d+)$/,
     render: renderGeneratedArtifactDetail,
     auth: true,
-    roles: ['student'],
+    roles: ['student', 'teacher', 'admin'],
     paramNames: ['id'],
   },
   {
     pattern: /^\/student\/generated-artifacts\/(\d+)$/,
     render: (_app, params) => navigateTo(`#/student/artifacts/${params.id}`),
     auth: true,
-    roles: ['student'],
+    roles: ['student', 'teacher', 'admin'],
     paramNames: ['id'],
   },
   {
     pattern: /^\/student\/agents\/(\d+)\/detail$/,
     render: renderMarketplaceAgentDetail,
     auth: true,
-    roles: ['student'],
+    roles: ['student', 'teacher', 'admin'],
     paramNames: ['id'],
   },
   {
     pattern: /^\/student\/agents\/(\d+)\/edit$/,
     render: renderAgentEdit,
     auth: true,
-    roles: ['student'],
+    roles: ['student', 'teacher', 'admin'],
     paramNames: ['id'],
   },
   {
     pattern: /^\/student\/agents\/(\d+)\/chat\/(\d+)$/,
     render: renderAgentChat,
     auth: true,
-    roles: ['student'],
+    roles: ['student', 'teacher', 'admin'],
     paramNames: ['id', 'conversationId'],
   },
   {
     pattern: /^\/student\/agents\/(\d+)\/chat$/,
     render: renderAgentChat,
     auth: true,
-    roles: ['student'],
+    roles: ['student', 'teacher', 'admin'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/teacher\/artifacts\/(\d+)$/,
+    render: renderGeneratedArtifactDetail,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/teacher\/agents\/(\d+)\/detail$/,
+    render: renderTeacherAgentMarketplace,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/teacher\/agents\/(\d+)\/edit$/,
+    render: renderAgentEdit,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['id'],
+  },
+  {
+    pattern: /^\/teacher\/agents\/(\d+)\/chat\/(\d+)$/,
+    render: renderAgentChat,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['id', 'conversationId'],
+  },
+  {
+    pattern: /^\/teacher\/agents\/(\d+)\/chat$/,
+    render: renderAgentChat,
+    auth: true,
+    roles: ['teacher', 'admin'],
     paramNames: ['id'],
   },
   {
@@ -368,6 +423,7 @@ function matchRoute(path) {
 }
 
 let renderSeq = 0
+let activePageCleanup = null
 
 function buildAuthCheckingHTML() {
   return `
@@ -384,6 +440,13 @@ async function render() {
   const app = document.getElementById('app')
   if (!app) return
 
+  if (activePageCleanup) {
+    const cleanup = activePageCleanup
+    activePageCleanup = null
+    try { await cleanup() } catch (error) { console.warn('页面清理未完全完成', error) }
+    if (seq !== renderSeq) return
+  }
+
   if (getAuthStatus() === AUTH_STATUS.INITIALIZING) {
     app.innerHTML = buildAuthCheckingHTML()
     await initializeAuth()
@@ -391,6 +454,7 @@ async function render() {
   }
 
   const path = getCurrentPath()
+  if (!path.startsWith('/teacher/')) unmountTeacherGlobalOverlays()
   const matched = matchRoute(path)
 
   // 路由不存在 → 跳转到合适的默认页
@@ -440,7 +504,12 @@ async function render() {
 
   // 渲染页面
   app.innerHTML = ''
-  route.render(app, params)
+  const cleanup = await route.render(app, params)
+  if (seq !== renderSeq) {
+    if (typeof cleanup === 'function') await cleanup()
+    return
+  }
+  activePageCleanup = typeof cleanup === 'function' ? cleanup : null
 }
 
 export function initRouter() {

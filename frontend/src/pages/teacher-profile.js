@@ -1,251 +1,32 @@
-﻿// 教师端 - 个人中心
-
-import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
+import { getMe, changePassword, uploadAvatar } from '../api/auth.js'
+import { getTeacherProfile, updateTeacherProfile } from '../api/teacher.js'
+import { getUser, getToken, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
-import { getUnreadNotificationCount, getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/teacher.js'
+import { escapeHtml } from '../utils/format.js'
+import { showToast } from '../utils/toast.js'
 
-export async function renderTeacherProfile(app) {
-  let user = getUser()
-
-  try {
-    const result = await getMe()
-    user = result.data.user
-    setAuth(getUser() ? getToken() : '', user)
-  } catch {
-    if (!user) {
-      clearAuth()
-      window.location.hash = '#/login'
-      return
-    }
-  }
-
-  const displayName = getUserDisplayName()
-
-  const contentHTML = `
-    <div class="dashboard-content">
-      <div class="page-header">
-        <h2 class="page-title">个人中心</h2>
-        <p class="page-subtitle">个人信息与消息通知</p>
-      </div>
-
-      <div class="content-columns">
-        <!-- 个人信息卡片 -->
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <h3 class="card-title" style="margin:0;">个人信息</h3>
-            <button class="btn btn-sm" id="btn-toggle-edit" style="padding:5px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-size:0.85rem;">编辑</button>
-          </div>
-          <div id="profile-display">
-            <div class="user-info-grid">
-              <div class="info-item"><span class="info-label">用户名</span><span class="info-value">${user.username || '-'}</span></div>
-              <div class="info-item"><span class="info-label">角色</span><span class="info-value">教师</span></div>
-              <div class="info-item"><span class="info-label">真实姓名</span><span class="info-value">${user.profile?.real_name || '-'}</span></div>
-              <div class="info-item"><span class="info-label">学院</span><span class="info-value">${user.profile?.college || '-'}</span></div>
-              <div class="info-item"><span class="info-label">专业</span><span class="info-value">${user.profile?.major || '-'}</span></div>
-              <div class="info-item"><span class="info-label">工号</span><span class="info-value">${user.profile?.teacher_no || '-'}</span></div>
-              <div class="info-item"><span class="info-label">邮箱</span><span class="info-value">${user.email || '-'}</span></div>
-              <div class="info-item"><span class="info-label">手机号</span><span class="info-value">${user.phone || '-'}</span></div>
-              <div class="info-item"><span class="info-label">性别</span><span class="info-value">${user.profile?.gender === 'male' ? '男' : user.profile?.gender === 'female' ? '女' : '-'}</span></div>
-            </div>
-          </div>
-          <div id="profile-edit" style="display:none;">
-            <div class="user-info-grid">
-              <div class="info-item"><span class="info-label">真实姓名</span><input type="text" id="edit-real-name" value="${user.profile?.real_name || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
-              <div class="info-item"><span class="info-label">学院</span><input type="text" id="edit-college" value="${user.profile?.college || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
-              <div class="info-item"><span class="info-label">专业</span><input type="text" id="edit-major" value="${user.profile?.major || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
-              <div class="info-item"><span class="info-label">邮箱</span><input type="email" id="edit-email" value="${user.email || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
-              <div class="info-item"><span class="info-label">手机号</span><input type="text" id="edit-phone" value="${user.phone || ''}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;"></div>
-              <div class="info-item"><span class="info-label">性别</span>
-                <select id="edit-gender" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:#fff;">
-                  <option value="" ${!user.profile?.gender ? 'selected' : ''}>未设置</option>
-                  <option value="male" ${user.profile?.gender === 'male' ? 'selected' : ''}>男</option>
-                  <option value="female" ${user.profile?.gender === 'female' ? 'selected' : ''}>女</option>
-                </select>
-              </div>
-            </div>
-            <div style="display:flex;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-              <button class="btn btn-primary" id="btn-save-profile" style="padding:8px 24px;border:none;border-radius:8px;background:var(--primary);color:#fff;cursor:pointer;font-size:0.9rem;">保存</button>
-              <button class="btn" id="btn-cancel-edit" style="padding:8px 24px;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-size:0.9rem;">取消</button>
-              <span id="profile-save-status" style="font-size:0.85rem;color:var(--text-muted);align-self:center;"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 消息通知 -->
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 class="card-title" style="margin-bottom:0;">消息通知</h3>
-            <button class="btn btn-link" id="btn-mark-all-read" style="font-size:0.8rem;padding:4px 12px;">全部已读</button>
-          </div>
-          <div id="notification-list">
-            <div class="empty-hint">加载中...</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `
-
-  renderDashboardLayout(app, {
-    title: '个人中心',
-    menuItems: TEACHER_MENU_ITEMS,
-    contentHTML,
-    user,
-  })
-
-  // 加载通知
-  async function loadNotifications() {
-    const container = document.getElementById('notification-list')
-    if (!container) return
-
-    try {
-      const [notifRes, unreadRes] = await Promise.all([
-        getNotifications({ page_size: 20 }),
-        getUnreadNotificationCount(),
-      ])
-
-      const notifications = notifRes.data?.list || []
-      const unreadCount = unreadRes.data?.unread_count || 0
-
-      if (notifications.length === 0) {
-        container.innerHTML = '<div class="empty-hint">暂无消息通知</div>'
-        return
-      }
-
-      const typeLabels = {
-        task_published: '任务发布',
-        task_deadline: '任务截止',
-        document_review: '文档审核',
-        document_parsed: '文档解析',
-        ai_grading_done: 'AI 批改',
-        system_notice: '系统通知',
-      }
-
-      container.innerHTML = `
-        ${unreadCount > 0 ? `<div style="margin-bottom:10px;font-size:0.85rem;color:var(--primary);">${unreadCount} 条未读</div>` : ''}
-        ${notifications.map(n => `
-          <div class="notification-item" data-id="${n.notification_id}" style="padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;${n.is_read ? '' : 'background:rgba(37,99,235,0.04);margin:0 -12px;padding:12px;border-radius:8px;'}">
-            <div style="display:flex;justify-content:space-between;align-items:start;">
-              <div>
-                <span style="font-size:0.8rem;font-weight:${n.is_read ? '400' : '600'};color:var(--text);">${typeLabels[n.notification_type] || n.notification_type}</span>
-                ${!n.is_read ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3b82f6;margin-left:6px;"></span>' : ''}
-              </div>
-              <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">${formatTime(n.created_at)}</span>
-            </div>
-            <div style="margin-top:4px;font-size:0.85rem;color:var(--text-secondary);">${n.title}</div>
-            ${n.content ? `<div style="margin-top:2px;font-size:0.8rem;color:var(--text-muted);">${n.content}</div>` : ''}
-          </div>
-        `).join('')}
-      `
-
-      // 点击标记已读
-      container.querySelectorAll('.notification-item').forEach(el => {
-        el.addEventListener('click', async () => {
-          const id = parseInt(el.dataset.id)
-          try {
-            await markNotificationRead(id)
-            loadNotifications()
-          } catch (err) {
-            console.error(err)
-          }
-        })
-      })
-    } catch (err) {
-      container.innerHTML = `<div class="empty-hint">加载失败: ${err.message}</div>`
-    }
-  }
-
-  document.getElementById('btn-mark-all-read')?.addEventListener('click', async () => {
-    try {
-      await markAllNotificationsRead()
-      loadNotifications()
-    } catch (err) {
-      alert(err.message)
-    }
-  })
-
-  // ---- 个人信息编辑 ----
-  let isEditing = false
-  const toggleBtn = document.getElementById('btn-toggle-edit')
-  const displayDiv = document.getElementById('profile-display')
-  const editDiv = document.getElementById('profile-edit')
-  const saveStatus = document.getElementById('profile-save-status')
-  const cancelBtn = document.getElementById('btn-cancel-edit')
-  const saveBtn = document.getElementById('btn-save-profile')
-
-  function toggleEditMode() {
-    isEditing = !isEditing
-    displayDiv.style.display = isEditing ? 'none' : ''
-    editDiv.style.display = isEditing ? '' : 'none'
-    toggleBtn.textContent = isEditing ? '取消' : '编辑'
-    saveStatus.textContent = ''
-  }
-
-  if (toggleBtn) toggleBtn.addEventListener('click', toggleEditMode)
-  if (cancelBtn) cancelBtn.addEventListener('click', toggleEditMode)
-  if (saveBtn) saveBtn.addEventListener('click', async () => {
-    const data = {
-      real_name: document.getElementById('edit-real-name').value.trim(),
-      college: document.getElementById('edit-college').value.trim(),
-      major: document.getElementById('edit-major').value.trim(),
-      email: document.getElementById('edit-email').value.trim(),
-      phone: document.getElementById('edit-phone').value.trim(),
-      gender: document.getElementById('edit-gender').value || undefined,
-    }
-    if (!data.real_name) { saveStatus.textContent = '真实姓名不能为空'; saveStatus.style.color = '#dc2626'; return }
-    saveStatus.textContent = '保存中...'
-    saveStatus.style.color = 'var(--text-muted)'
-    saveBtn.disabled = true
-    try {
-      const { updateMe } = await import('../api/auth.js')
-      const res = await updateMe(data)
-      const updated = res.data?.user || {}
-      // 更新显示
-      const display = document.querySelectorAll('#profile-display .info-value')
-      if (display[2]) display[2].textContent = data.real_name || '-'
-      if (display[3]) display[3].textContent = data.college || '-'
-      if (display[4]) display[4].textContent = data.major || '-'
-      if (display[6]) display[6].textContent = data.email || '-'
-      if (display[7]) display[7].textContent = data.phone || '-'
-      if (display[8]) display[8].textContent = data.gender === 'male' ? '男' : data.gender === 'female' ? '女' : '-'
-      // 更新 user 对象
-      if (user.profile) {
-        user.profile.real_name = data.real_name
-        user.profile.college = data.college || null
-        user.profile.major = data.major || null
-        user.profile.gender = data.gender || null
-      }
-      user.email = data.email || null
-      user.phone = data.phone || null
-      saveStatus.textContent = '保存成功'
-      saveStatus.style.color = '#10b981'
-      setTimeout(() => { toggleEditMode(); saveStatus.textContent = '' }, 1000)
-    } catch (err) {
-      saveStatus.textContent = '保存失败: ' + (err.message || '未知错误')
-      saveStatus.style.color = '#dc2626'
-    } finally {
-      saveBtn.disabled = false
-    }
-  })
-
-  function formatTime(isoStr) {
-    if (!isoStr) return ''
-    const d = new Date(isoStr)
-    const now = new Date()
-    const diffMs = now - d
-    const diffMin = Math.floor(diffMs / 60000)
-    if (diffMin < 1) return '刚刚'
-    if (diffMin < 60) return `${diffMin}分钟前`
-    const diffHour = Math.floor(diffMin / 60)
-    if (diffHour < 24) return `${diffHour}小时前`
-    const diffDay = Math.floor(diffHour / 24)
-    if (diffDay < 7) return `${diffDay}天前`
-    return `${d.getMonth() + 1}月${d.getDate()}日`
-  }
-
-  loadNotifications()
+function shell(profile) {
+  const prefs = profile.preferences || {}; const messages = prefs.message_preferences || {}; const ai = prefs.ai_preferences || {}
+  return `<div class="teacher-profile-page"><header class="teacher-page-head compact"><div><span class="teacher-eyebrow">账户与教学偏好</span><h2>教师个人中心</h2><p>个人资料、默认课程、消息与 AI 偏好统一管理。</p></div></header><div class="teacher-profile-layout">
+    <aside class="teacher-profile-summary"><label class="teacher-profile-avatar">${profile.avatar_url ? `<img src="${escapeHtml(profile.avatar_url)}" alt="头像">` : `<span>${escapeHtml((profile.name || '师').slice(0, 1))}</span>`}<input id="profile-avatar-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><i>更换头像</i></label><h3>${escapeHtml(profile.name || '教师')}</h3><p>${escapeHtml(profile.professional_title || '教师')} · ${escapeHtml(profile.college || '未填写学院')}</p><div><span><b>${profile.statistics?.course_count || 0}</b>负责课程</span><span><b>${profile.statistics?.teaching_class_count || 0}</b>教学班</span></div><dl><dt>教师工号</dt><dd>${escapeHtml(profile.teacher_no || '未填写')}</dd><dt>最近登录</dt><dd>${profile.last_login_at ? new Date(profile.last_login_at).toLocaleString('zh-CN') : '暂无记录'}</dd></dl></aside>
+    <main><form id="teacher-profile-form" class="teacher-profile-card"><header><h3>基本资料</h3><button class="teacher-btn primary" type="submit">保存</button></header><div class="teacher-form-grid"><label>姓名<input name="name" value="${escapeHtml(profile.name || '')}"></label><label>职称<input name="professional_title" value="${escapeHtml(profile.professional_title || '')}"></label><label>学院<input name="college" value="${escapeHtml(profile.college || '')}"></label><label>邮箱<input name="email" type="email" value="${escapeHtml(profile.email || '')}"></label><label>手机<input name="phone" value="${escapeHtml(profile.phone || '')}"></label><label>默认课程<select name="default_course_id"><option value="">不指定</option>${(profile.courses || []).map(item => `<option value="${item.course_id}" ${item.course_id === profile.default_course_id ? 'selected' : ''}>${escapeHtml(item.course_name)}</option>`).join('')}</select></label></div></form>
+    <form id="teacher-preference-form" class="teacher-profile-card"><header><h3>教学与 AI 偏好</h3><button class="teacher-btn primary" type="submit">保存偏好</button></header><div class="teacher-preference-grid"><section><h4>消息偏好</h4>${[['task_submission', '学生提交作业或考试'], ['knowledge_review', '知识库公开申请'], ['risk_alert', '风险学生与班级异常'], ['ai_task', 'AI 任务与文件完成']].map(([key, label]) => `<label><input type="checkbox" name="message_${key}" ${messages[key] !== false ? 'checked' : ''}><span>${label}</span></label>`).join('')}</section><section><h4>AI 偏好</h4><label>回答风格<select name="ai_response_style"><option value="structured" ${ai.response_style === 'structured' ? 'selected' : ''}>结构化</option><option value="concise" ${ai.response_style === 'concise' ? 'selected' : ''}>简洁</option><option value="detailed" ${ai.response_style === 'detailed' ? 'selected' : ''}>详细</option></select></label><label><input type="checkbox" name="ai_auto_sources" ${ai.auto_include_sources !== false ? 'checked' : ''}><span>默认标注数据来源</span></label><label>默认学情范围<select name="default_analytics_range"><option value="7d" ${prefs.default_analytics_range === '7d' ? 'selected' : ''}>最近 7 天</option><option value="30d" ${prefs.default_analytics_range === '30d' ? 'selected' : ''}>最近 30 天</option><option value="semester" ${prefs.default_analytics_range === 'semester' ? 'selected' : ''}>本学期</option></select></label></section></div></form>
+    <form id="teacher-password-form" class="teacher-profile-card"><header><h3>修改密码</h3><button class="teacher-btn" type="submit">更新密码</button></header><div class="teacher-form-grid"><label>当前密码<input name="old_password" type="password" autocomplete="current-password" required></label><label>新密码<input name="new_password" type="password" minlength="6" autocomplete="new-password" required></label><label>确认新密码<input name="confirm_password" type="password" minlength="6" autocomplete="new-password" required></label></div></form>
+    <section class="teacher-profile-card"><header><h3>负责教学空间</h3></header><div class="teacher-profile-course-list">${(profile.courses || []).map(course => `<button data-course-id="${course.course_id}"><b>${escapeHtml(course.course_name)}</b><span>${escapeHtml(course.course_code)}</span></button>`).join('') || '<p>暂无负责课程</p>'}</div></section></main></div></div>`
 }
 
+function bind(user) {
+  document.getElementById('teacher-profile-form').addEventListener('submit', async event => { event.preventDefault(); await updateTeacherProfile(Object.fromEntries(new FormData(event.target).entries())); showToast('教师资料已更新', 'success') })
+  document.getElementById('teacher-preference-form').addEventListener('submit', async event => { event.preventDefault(); const form = new FormData(event.target); await updateTeacherProfile({ preferences: { message_preferences: { task_submission: form.has('message_task_submission'), knowledge_review: form.has('message_knowledge_review'), risk_alert: form.has('message_risk_alert'), ai_task: form.has('message_ai_task') }, ai_preferences: { response_style: form.get('ai_response_style'), auto_include_sources: form.has('ai_auto_sources') }, default_analytics_range: form.get('default_analytics_range') } }); showToast('偏好已保存', 'success') })
+  document.getElementById('teacher-password-form').addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.target).entries()); if (data.new_password !== data.confirm_password) return showToast('两次输入的新密码不一致', 'warning'); await changePassword(data); event.target.reset(); showToast('密码已更新', 'success') })
+  document.querySelector('.teacher-profile-avatar').addEventListener('click', () => document.getElementById('profile-avatar-input').click())
+  document.getElementById('profile-avatar-input').addEventListener('change', async event => { const file = event.target.files[0]; if (!file) return; const result = await uploadAvatar(file); user.profile = { ...(user.profile || {}), avatar_url: result.data?.avatar_url }; setAuth(getToken(), user); showToast('头像已更新，刷新页面后生效', 'success') })
+  document.querySelectorAll('[data-course-id]').forEach(button => button.addEventListener('click', () => { window.location.hash = `#/teacher/courses/${button.dataset.courseId}` }))
+}
 
-
+export async function renderTeacherProfile(app) {
+  let user = getUser(); try { const result = await getMe(); user = result.data.user; setAuth(getToken(), user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
+  try { const result = await getTeacherProfile(); renderDashboardLayout(app, { title: '教师个人中心', menuItems: TEACHER_MENU_ITEMS, contentHTML: shell(result.data), user }); bind(user) }
+  catch (error) { renderDashboardLayout(app, { title: '教师个人中心', menuItems: TEACHER_MENU_ITEMS, contentHTML: `<div class="analytics-empty"><b>个人中心加载失败</b><p>${escapeHtml(error.message)}</p></div>`, user }) }
+}

@@ -10,6 +10,7 @@ router.get('/mine', controller.mine);
 router.get('/favorites', controller.favorites);
 router.get('/available-chat', controller.availableChat);
 router.get('/chat/available', controller.availableChat);
+router.get('/callable', controller.callable);
 router.get('/rankings/hot', controller.hotRankings);
 router.get('/', controller.list);
 router.post('/', rateLimit({ max: 10, keyPrefix: 'agent-create' }), controller.create);

@@ -9,6 +9,10 @@ const DEFAULT_LOCAL_SCAN_MS = 3_000;
 const DEFAULT_EXTERNAL_SCAN_MS = 15_000;
 const DEFAULT_RUNNING_STALE_MS = 5 * 60_000;
 const DEFAULT_EXTERNAL_MAX_AGE_MS = 24 * 60 * 60_000;
+// PPT/PPTX conversions are owned by document-conversion.service. They use the
+// global task table for visibility, but the generic artifact exporter must not
+// claim them while LibreOffice is running.
+const PPT_CONVERSION_OPERATION_PREFIX = 'DOCUMENT_EXPORT:ppt-convert-';
 
 function delayForAttempt(attempt) {
   return Math.min(60_000, 1_000 * (2 ** Math.max(0, Number(attempt || 1) - 1)));
@@ -34,12 +38,23 @@ class AsyncTaskWorker {
   }
 
   register(taskType, handler, options = {}) {
-    this.handlers.set(taskType, { handler, external: Boolean(options.external) });
+    this.handlers.set(taskType, {
+      handler,
+      external: Boolean(options.external),
+      local: options.local === undefined ? !options.external : Boolean(options.local),
+    });
     return this;
   }
 
+  cancel(taskId) {
+    const execution = this.active.get(Number(taskId));
+    if (!execution) return false;
+    execution.abortController.abort();
+    return true;
+  }
+
   registerDefaults() {
-    this.register('FILE_GENERATION', async (task) => {
+    this.register('FILE_GENERATION', async (task, { signal }) => {
       const artifactId = Number(task.relatedResourceId || task.metadataJson?.artifactId);
       if (!Number.isInteger(artifactId) || artifactId < 1) {
         throw Object.assign(new Error('文件生成任务缺少有效 Artifact 关联'), {
@@ -48,10 +63,10 @@ class AsyncTaskWorker {
         });
       }
       const generationGraph = require('../file-generator/graph/file-generator.graph');
-      await generationGraph.runFileGeneratorGraph(artifactId, { taskId: task.id });
+      await generationGraph.runFileGeneratorGraph(artifactId, { taskId: task.id, signal });
       return { terminal: true };
     });
-    this.register('DOCUMENT_EXPORT', async (task) => {
+    this.register('DOCUMENT_EXPORT', async (task, { signal }) => {
       const artifactId = Number(task.relatedResourceId || task.metadataJson?.artifactId);
       if (!Number.isInteger(artifactId) || artifactId < 1) {
         throw Object.assign(new Error('文件导出任务缺少有效 Artifact 关联'), {
@@ -60,7 +75,7 @@ class AsyncTaskWorker {
         });
       }
       const exporter = require('../file-generator/artifact-export.service');
-      await exporter.exportFormat(artifactId, task.metadataJson?.format || 'DOCX', { taskId: task.id });
+      await exporter.exportFormat(artifactId, task.metadataJson?.format || 'DOCX', { taskId: task.id, signal });
       return { terminal: true };
     });
     this.register('ARTIFACT_CLEANUP', async (task) => {
@@ -83,7 +98,7 @@ class AsyncTaskWorker {
       await lessonPlanGraph.runLessonPlanGraph(task.id);
       return { terminal: true };
     });
-    this.register('KNOWLEDGE_INDEXING', async (task) => {
+    this.register('KNOWLEDGE_INDEXING', async (task, { signal }) => {
       const documentId = Number(task.relatedResourceId);
       if (!Number.isInteger(documentId) || documentId < 1) {
         throw Object.assign(new Error('知识库任务缺少有效文档关联'), {
@@ -93,13 +108,16 @@ class AsyncTaskWorker {
       }
       const doc = await prisma.knowledgeDocument.findUnique({
         where: { document_id: documentId },
-        select: { knowledge_base_id: true },
+        select: { knowledge_base_id: true, processing_state: true, dify_batch_id: true },
       });
       if (!doc) throw Object.assign(new Error('知识库文档不存在'), {
         code: 'KNOWLEDGE_DOCUMENT_MISSING', permanent: true,
         userMessage: '知识库处理失败，可以重新上传或重新建立索引。',
       });
       const knowledge = require('../knowledge-base/knowledge-base.service');
+      if (task.status !== 'WAITING_EXTERNAL' || doc.processing_state !== 'indexing' || !doc.dify_batch_id) {
+        return require('../knowledge-base/knowledge-document-pipeline.service').processDocumentTask(task, signal);
+      }
       if (Date.now() - new Date(task.createdAt).getTime() >= this.externalMaxAgeMs) {
         throw Object.assign(new Error('外部知识库任务等待超时'), {
           code: 'EXTERNAL_TASK_TIMEOUT', permanent: true,
@@ -111,7 +129,7 @@ class AsyncTaskWorker {
       return TERMINAL_STATUSES.includes(refreshed?.status)
         ? { terminal: true }
         : { status: 'WAITING_EXTERNAL', nextRunAt: new Date(Date.now() + this.externalScanMs) };
-    }, { external: true });
+    }, { external: true, local: true });
     return this;
   }
 
@@ -146,7 +164,7 @@ class AsyncTaskWorker {
   }
 
   async scanLocal() {
-    const types = [...this.handlers.entries()].filter(([, value]) => !value.external).map(([key]) => key);
+    const types = [...this.handlers.entries()].filter(([, value]) => value.local).map(([key]) => key);
     if (!types.length) return;
     await this.claimAndRun({ statuses: ['QUEUED', 'RUNNING'], taskTypes: types, incrementAttempt: true });
   }
@@ -163,7 +181,7 @@ class AsyncTaskWorker {
     const leaseExpiredAt = new Date(Date.now() - this.leaseMs);
     const runningStaleAt = new Date(Date.now() - this.runningStaleMs);
     const statusConditions = statuses.map((status) => status === 'RUNNING'
-      ? { status, updatedAt: { lte: runningStaleAt } }
+      ? { status, OR: [{ lockedAt: null }, { lockedAt: { lt: leaseExpiredAt } }, { updatedAt: { lte: runningStaleAt } }] }
       : { status });
     const candidates = await prisma.asyncTask.findMany({
       where: {
@@ -172,6 +190,7 @@ class AsyncTaskWorker {
           { OR: [{ lockedAt: null }, { lockedAt: { lt: leaseExpiredAt } }] },
         ],
         taskType: { in: taskTypes }, nextRunAt: { lte: now },
+        NOT: { operationId: { startsWith: PPT_CONVERSION_OPERATION_PREFIX } },
         ...(this.operationIdContains ? { operationId: { contains: this.operationIdContains } } : {}),
       },
       orderBy: [{ nextRunAt: 'asc' }, { id: 'asc' }],
@@ -197,7 +216,6 @@ class AsyncTaskWorker {
           id: candidate.id, status: candidate.status, attemptCount: candidate.attemptCount,
           nextRunAt: { lte: now },
           ...(this.operationIdContains ? { operationId: { contains: this.operationIdContains } } : {}),
-          ...(candidate.status === 'RUNNING' ? { updatedAt: { lte: runningStaleAt } } : {}),
           OR: [{ lockedAt: null }, { lockedAt: { lt: leaseExpiredAt } }],
         },
         data,
@@ -306,5 +324,5 @@ function getAsyncTaskWorker() {
 module.exports = {
   AsyncTaskWorker, getAsyncTaskWorker, delayForAttempt,
   DEFAULT_LEASE_MS, DEFAULT_HEARTBEAT_MS, DEFAULT_LOCAL_SCAN_MS, DEFAULT_EXTERNAL_SCAN_MS,
-  DEFAULT_RUNNING_STALE_MS, DEFAULT_EXTERNAL_MAX_AGE_MS,
+  DEFAULT_RUNNING_STALE_MS, DEFAULT_EXTERNAL_MAX_AGE_MS, PPT_CONVERSION_OPERATION_PREFIX,
 };

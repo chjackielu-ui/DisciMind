@@ -25,6 +25,20 @@ router.get(
 );
 
 router.get(
+  '/analytics/workbench',
+  authMiddleware,
+  roleMiddleware(['teacher', 'admin']),
+  controller.getAnalyticsWorkbench,
+);
+
+router.get(
+  '/analytics/dialogue-insights',
+  authMiddleware,
+  roleMiddleware(['teacher', 'admin']),
+  controller.getDialogueInsights,
+);
+
+router.get(
   '/analytics/knowledge-heatmap',
   authMiddleware,
   roleMiddleware(['teacher', 'admin']),

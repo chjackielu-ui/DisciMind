@@ -1,0 +1,15 @@
+const { Router } = require('express');
+const auth = require('../middlewares/auth.middleware');
+const role = require('../middlewares/role.middleware');
+const controller = require('../controllers/teacher-reminder.controller');
+const router = Router(); const teacherOnly = [auth, role(['teacher','admin'])];
+router.get('/reminders', ...teacherOnly, controller.list);
+router.post('/reminders', ...teacherOnly, controller.create);
+router.post('/reminders/check-due', ...teacherOnly, controller.checkDue);
+router.get('/reminders/:id', ...teacherOnly, controller.detail);
+router.put('/reminders/:id', ...teacherOnly, controller.update);
+router.delete('/reminders/:id', ...teacherOnly, controller.remove);
+router.post('/reminders/:id/complete', ...teacherOnly, controller.complete);
+router.post('/reminders/:id/snooze', ...teacherOnly, controller.snooze);
+router.post('/reminders/:id/dismiss', ...teacherOnly, controller.dismiss);
+module.exports = router;

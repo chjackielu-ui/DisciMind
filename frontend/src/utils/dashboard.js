@@ -3,9 +3,12 @@
 
 import { getUserDisplayName, logoutSession } from './auth.js'
 import { getIcon, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
-import { createAiChatConversation, streamAiChatMessage } from '../api/student.js'
+import { createAiChatConversation, streamAiChatMessage, uploadAiChatAttachment } from '../api/student.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from './markdown.js'
 import { mountTaskCenter } from '../components/task-center.js'
+import { renderTeacherGlobalOverlays, mountTeacherGlobalOverlays, unmountTeacherGlobalOverlays } from '../components/teacher-global-assistant.js'
+import { renderStudentNotificationCenter, mountStudentNotificationCenter } from '../components/student-notification-center.js'
+import { renderTeacherSecondaryNav } from '../components/teacher-secondary-nav.js'
 
 const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
 const API_ORIGIN = 'http://localhost:3000'
@@ -148,12 +151,23 @@ const menuHTML = menuItems.map((item, index) => {
         </div>
       </nav>
 
-      <main class="student-main" id="student-main">${contentHTML}</main>
+      <main class="student-main" id="student-main">${user?.role === 'teacher' && currentHash.startsWith('/teacher/') ? renderTeacherSecondaryNav() : ''}${contentHTML}</main>
       ${subNavHTML}
-      ${user?.role === 'student' ? '<div class="global-task-center" id="global-task-center"></div>' : ''}
-      ${renderStudentAiFloat(user)}
     </div>
   `
+
+  // Global overlays must not inherit page grids, transforms or overflow clipping.
+  unmountTeacherGlobalOverlays()
+  if (user?.role === 'student' || (user?.role === 'teacher' && currentHash.startsWith('/teacher/'))) {
+    const overlays = document.getElementById('discimind-global-overlays') || document.createElement('div')
+    overlays.id = 'discimind-global-overlays'
+    overlays.className = 'discimind-global-overlays'
+    const onFullAiPage = window.location.hash.includes(user.role === 'student' ? '/student/ai-chat' : '/teacher/ai')
+    overlays.innerHTML = user.role === 'student'
+      ? `<div class="global-task-center" id="global-task-center"></div>${renderStudentNotificationCenter()}${onFullAiPage ? '' : renderStudentAiFloat(user)}`
+      : renderTeacherGlobalOverlays({ fullAiPage: onFullAiPage })
+    if (!overlays.isConnected) document.body.appendChild(overlays)
+  }
 
   // 侧边栏交互
   const sidebar = document.getElementById('student-sidebar')
@@ -282,7 +296,12 @@ const menuHTML = menuItems.map((item, index) => {
   }
   bindSubNavClicks()
 
-  initStudentAiFloat(user)
+  if (user?.role === 'student') initStudentAiFloat(user)
+  if (user?.role === 'student') mountStudentNotificationCenter()
+  if (user?.role === 'teacher' && currentHash.startsWith('/teacher/')) {
+    const dedicatedAssistantSurface = window.location.hash.includes('/teacher/ai') || window.location.hash.includes('/teacher/preparation/immersive')
+    mountTeacherGlobalOverlays({ fullAiPage: dedicatedAssistantSurface })
+  }
   mountTaskCenter(user)
 }
 
@@ -469,21 +488,21 @@ function renderStudentAiFloat(user) {
   if (user?.role !== 'student') return ''
   return `
     <div class="ai-float-widget" id="student-ai-float" aria-label="AI 对话悬浮入口">
-      <button class="ai-float-hide" id="student-ai-float-hide" type="button" title="贴边隐藏" aria-label="贴边隐藏 AI 助手">‹</button>
-      <button class="ai-float-main" id="student-ai-float-open" type="button" title="打开 AI 学习助手" aria-label="打开 AI 学习助手" aria-expanded="false">
+      <button class="ai-float-hide" id="student-ai-float-hide" type="button" title="贴边折叠" aria-label="贴边折叠 AI 助手">›</button>
+      <button class="ai-float-main" id="student-ai-float-open" type="button" title="点击打开，按住拖动" aria-label="打开或拖动 AI 学习助手" aria-expanded="false">
         <span class="ai-float-orb">${iconMessage()}</span>
       </button>
-      <span class="ai-float-grip" title="拖动 AI 助手" aria-hidden="true">
-        <span></span><span></span><span></span>
-      </span>
-      <button class="ai-float-dock" id="student-ai-float-dock" type="button" title="打开 AI 学习助手" aria-label="打开 AI 学习助手">${iconMessage()}</button>
+      <button class="ai-float-dock" id="student-ai-float-dock" type="button" title="展开 AI 学习助手" aria-label="展开 AI 学习助手"></button>
       <section class="ai-mini-panel" id="student-ai-mini-panel" aria-label="AI 对话窗" hidden>
         <div class="ai-mini-head">
           <div>
             <b>AI 学习助手</b>
-            <span>当前页面内快速问答</span>
+            <span id="student-ai-mini-context">当前页面内快速问答</span>
           </div>
-          <button class="ai-mini-close" id="student-ai-mini-close" type="button" aria-label="收起 AI 对话窗">×</button>
+          <div class="ai-mini-head-actions">
+            <button class="ai-mini-maximize" id="student-ai-mini-maximize" type="button" aria-label="进入完整对话" title="进入完整对话">↗</button>
+            <button class="ai-mini-close" id="student-ai-mini-close" type="button" aria-label="收起 AI 对话窗">×</button>
+          </div>
         </div>
         <div class="ai-mini-messages" id="student-ai-mini-messages">
           <div class="ai-mini-empty">可以直接问课程概念、错题思路或复习计划。</div>
@@ -494,6 +513,11 @@ function renderStudentAiFloat(user) {
           <button type="button" data-ai-mini-skill="study_plan">学习计划</button>
         </div>
         <form class="ai-mini-form" id="student-ai-mini-form">
+          <div class="ai-mini-attachments">
+            <label title="添加图片或文件">＋<input id="student-ai-mini-files" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" hidden></label>
+            <button id="student-ai-mini-voice" type="button" title="语音输入" aria-label="语音输入">🎙</button>
+            <div id="student-ai-mini-attachment-list" aria-live="polite"></div>
+          </div>
           <textarea id="student-ai-mini-input" maxlength="${AI_FLOAT_MAX_INPUT}" rows="2" placeholder="输入学习问题，Enter 发送"></textarea>
           <button id="student-ai-mini-send" type="submit" disabled>发送</button>
         </form>
@@ -509,10 +533,15 @@ function initStudentAiFloat(user) {
   const dockButton = document.getElementById('student-ai-float-dock')
   const panel = document.getElementById('student-ai-mini-panel')
   const closeButton = document.getElementById('student-ai-mini-close')
+  const maximizeButton = document.getElementById('student-ai-mini-maximize')
+  const contextEl = document.getElementById('student-ai-mini-context')
   const messagesEl = document.getElementById('student-ai-mini-messages')
   const form = document.getElementById('student-ai-mini-form')
   const input = document.getElementById('student-ai-mini-input')
   const sendButton = document.getElementById('student-ai-mini-send')
+  const fileInput = document.getElementById('student-ai-mini-files')
+  const attachmentList = document.getElementById('student-ai-mini-attachment-list')
+  const voiceButton = document.getElementById('student-ai-mini-voice')
   if (!widget || !openButton || !hideButton || !dockButton || !panel || !messagesEl || !form || !input || !sendButton) return
 
   let state = readAiFloatState()
@@ -523,14 +552,44 @@ function initStudentAiFloat(user) {
     messages: [],
     generating: false,
     abortController: null,
+    autoFollow: true,
+    renderFrame: 0,
+    attachments: [],
+    uploading: false,
   }
 
   function clampY(y) {
     const rect = widget.getBoundingClientRect()
-    const topLimit = window.innerWidth <= 768 ? 14 : 20
-    const bottomReserve = window.innerWidth <= 768 ? 104 : 24
-    const maxY = Math.max(topLimit, window.innerHeight - rect.height - bottomReserve)
-    return Math.min(Math.max(Number(y) || defaultAiFloatY(widget), topLimit), maxY)
+    let topLimit = window.innerWidth <= 768 ? 14 : 20
+    const pdfPanel = document.querySelector('.lws-page.is-pdf-open .lws-pdf-panel')
+    if (pdfPanel?.offsetParent) {
+      const headerBottom = pdfPanel.querySelector('.lws-pdf-header')?.getBoundingClientRect().bottom || 0
+      const toolbarBottom = pdfPanel.querySelector('.lws-pdf-toolbar')?.getBoundingClientRect().bottom || 0
+      topLimit = Math.max(topLimit, headerBottom, toolbarBottom) + 10
+    }
+    const bottomBar = document.getElementById('lws-bottom-bar')
+    const bottomReserve = Math.max(window.innerWidth <= 768 ? 104 : 24, bottomBar?.offsetParent ? bottomBar.getBoundingClientRect().height + 18 : 0)
+    let maxY = Math.max(topLimit, window.innerHeight - rect.height - bottomReserve)
+    let nextY = Math.min(Math.max(Number(y) || defaultAiFloatY(widget), topLimit), maxY)
+    const miniPlayer = document.getElementById('lws-narration-mini')
+    if (miniPlayer && !miniPlayer.hidden) {
+      const miniRect = miniPlayer.getBoundingClientRect()
+      if (nextY < miniRect.bottom + 8 && nextY + rect.height > miniRect.top - 8) {
+        const above = miniRect.top - rect.height - 10
+        nextY = above >= topLimit ? above : Math.min(maxY, miniRect.bottom + 10)
+      }
+    }
+    const taskIsland = document.querySelector('.global-task-center')
+    if (taskIsland?.offsetParent) {
+      const taskRect = taskIsland.getBoundingClientRect()
+      const aiLeft = window.innerWidth - AI_FLOAT_EDGE_MARGIN - rect.width
+      const horizontallyOverlaps = aiLeft < taskRect.right + 8 && aiLeft + rect.width > taskRect.left - 8
+      if (horizontallyOverlaps && nextY < taskRect.bottom + 8 && nextY + rect.height > taskRect.top - 8) {
+        const below = taskRect.bottom + 10
+        nextY = below <= maxY ? below : Math.max(topLimit, taskRect.top - rect.height - 10)
+      }
+    }
+    return Math.min(Math.max(nextY, topLimit), maxY)
   }
 
   function applyState(nextState = state) {
@@ -544,10 +603,9 @@ function initStudentAiFloat(user) {
     if (state.hidden) setPanelOpen(false)
     widget.style.top = `${state.y}px`
     widget.style.bottom = 'auto'
-    widget.style.right = 'auto'
-    const width = widget.offsetWidth || 186
-    widget.style.left = `${Math.max(AI_FLOAT_EDGE_MARGIN, window.innerWidth - width - AI_FLOAT_EDGE_MARGIN)}px`
-    hideButton.textContent = '‹'
+    widget.style.left = 'auto'
+    widget.style.right = `${AI_FLOAT_EDGE_MARGIN}px`
+    hideButton.textContent = '›'
     hideButton.setAttribute('aria-label', '向右贴边隐藏 AI 助手')
     updateMiniPanelPlacement()
   }
@@ -622,19 +680,80 @@ function initStudentAiFloat(user) {
       const actionHtml = shouldShowMiniAction(message)
         ? `<div class="ai-mini-actions"><button type="button" data-ai-mini-action="${escapeHtml(message.action.type)}" data-target="${escapeHtml(miniActionTarget(message.action))}">${escapeHtml(message.action.label || '前往')}</button></div>`
         : ''
-      return `<div class="ai-mini-message ${role}${message.streaming ? ' streaming' : ''}">
+      return `<div class="ai-mini-message ${role}${message.streaming ? ' streaming' : ''}" data-mini-message-id="${escapeHtml(message.id || '')}">
         <div class="message-markdown">${content}</div>
         ${actionHtml}
       </div>`
     }).join('')
     hydrateMiniMessages()
-    messagesEl.scrollTop = messagesEl.scrollHeight
+    if (miniState.autoFollow) messagesEl.scrollTop = messagesEl.scrollHeight
+  }
+
+  function updateStreamingMessage(message) {
+    if (miniState.renderFrame) return
+    miniState.renderFrame = window.setTimeout(() => {
+      miniState.renderFrame = 0
+      const node = messagesEl.querySelector(`[data-mini-message-id="${message.id}"] .message-markdown`)
+      if (node) node.textContent = message.content || '正在思考中...'
+      if (miniState.autoFollow) messagesEl.scrollTop = messagesEl.scrollHeight
+    }, 50)
+  }
+
+  function currentLearningContext() {
+    const page = document.getElementById('lws-page')
+    return {
+      source: page ? 'learning-session' : 'global',
+      sessionId: page?.dataset.learningSessionId || '',
+      learningPlanId: page?.dataset.learningPlanId || '',
+      courseId: page?.dataset.courseId || '',
+      knowledgePointId: page?.dataset.knowledgePointId || '',
+      currentNodeId: page?.dataset.currentNodeId || '',
+    }
+  }
+
+  function syncContextLabel() {
+    const context = currentLearningContext()
+    if (contextEl) contextEl.textContent = context.source === 'learning-session' ? '已关联当前学习会话' : '当前页面内快速问答'
+    widget.classList.toggle('is-learning-context', context.source === 'learning-session')
   }
 
   function updateInputState() {
-    sendButton.disabled = miniState.generating || !input.value.trim()
+    sendButton.textContent = miniState.generating ? '停止' : '发送'
+    sendButton.classList.toggle('is-stop', miniState.generating)
+    sendButton.disabled = miniState.uploading || (!miniState.generating && !input.value.trim() && !miniState.attachments.length)
     input.style.height = 'auto'
     input.style.height = `${Math.min(Math.max(input.scrollHeight, 42), 112)}px`
+  }
+
+  function renderAttachments() {
+    if (!attachmentList) return
+    attachmentList.innerHTML = miniState.attachments.map(item => `<span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}<button type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(item.name)}">×</button></span>`).join('')
+    attachmentList.querySelectorAll('[data-remove-attachment]').forEach(button => button.addEventListener('click', () => {
+      miniState.attachments = miniState.attachments.filter(item => item.id !== button.dataset.removeAttachment)
+      renderAttachments()
+      updateInputState()
+    }))
+  }
+
+  async function uploadMiniFiles(files) {
+    const queue = [...files].slice(0, Math.max(0, 8 - miniState.attachments.length))
+    if (!queue.length || miniState.uploading) return
+    miniState.uploading = true
+    updateInputState()
+    try {
+      const conversationId = await ensureMiniConversation()
+      for (const file of queue) {
+        const result = await uploadAiChatAttachment(file, conversationId)
+        miniState.attachments.push(result.data || result)
+        renderAttachments()
+      }
+    } catch (error) {
+      if (contextEl) contextEl.textContent = error.message || '附件上传失败'
+    } finally {
+      miniState.uploading = false
+      if (fileInput) fileInput.value = ''
+      updateInputState()
+    }
   }
 
   async function ensureMiniConversation() {
@@ -653,14 +772,17 @@ function initStudentAiFloat(user) {
   async function sendMiniMessage(rawText, options = {}) {
     let text = String(rawText || '').trim()
     if (text.length > AI_FLOAT_MAX_INPUT) text = text.slice(0, AI_FLOAT_MAX_INPUT)
-    if (!text || miniState.generating) return
+    if ((!text && !miniState.attachments.length) || miniState.generating) return
 
     input.value = ''
     updateInputState()
     setPanelOpen(true)
 
-    const assistantMessage = { role: 'assistant', content: '', streaming: true, action: options.action || null }
-    miniState.messages.push({ role: 'user', content: options.displayText || text }, assistantMessage)
+    const outgoingAttachments = [...miniState.attachments]
+    miniState.attachments = []
+    renderAttachments()
+    const assistantMessage = { id: `mini-${Date.now()}`, role: 'assistant', content: '', streaming: true, action: options.action || null }
+    miniState.messages.push({ role: 'user', content: options.displayText || text || outgoingAttachments.map(item => item.name).join('、') }, assistantMessage)
     miniState.generating = true
     miniState.abortController = new AbortController()
     renderMiniMessages()
@@ -669,12 +791,12 @@ function initStudentAiFloat(user) {
     let streamHadError = false
     try {
       const conversationId = await ensureMiniConversation()
-      await streamAiChatMessage(conversationId, { content: text }, {
+      await streamAiChatMessage(conversationId, { content: text, attachments: outgoingAttachments.map(item => item.id), assistantSurface: 'floating', learningContext: currentLearningContext() }, {
         signal: miniState.abortController.signal,
         onEvent: (eventName, payload) => {
           if (eventName === 'delta') {
             assistantMessage.content += payload.content || ''
-            renderMiniMessages()
+            updateStreamingMessage(assistantMessage)
           }
           if (eventName === 'done' && payload.assistant_message?.content) {
             assistantMessage.content = payload.assistant_message.content
@@ -702,8 +824,10 @@ function initStudentAiFloat(user) {
   }
 
   function snapToRight(y) {
+    widget.classList.add('is-snapping')
     applyState({ side: 'right', y, hidden: false })
     saveState()
+    window.setTimeout(() => widget.classList.remove('is-snapping'), 220)
   }
 
   applyState(state)
@@ -730,7 +854,26 @@ function initStudentAiFloat(user) {
   })
 
   closeButton?.addEventListener('click', () => setPanelOpen(false))
+  maximizeButton?.addEventListener('click', () => {
+    const context = currentLearningContext()
+    const query = new URLSearchParams(Object.entries(context).filter(([, value]) => value))
+    if (miniState.conversationId) query.set('conversationId', String(miniState.conversationId))
+    window.location.hash = `#/student/ai-chat?${query.toString()}`
+  })
+  messagesEl.addEventListener('scroll', () => {
+    miniState.autoFollow = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100
+  }, { passive: true })
   input.addEventListener('input', updateInputState)
+  input.addEventListener('paste', (event) => {
+    if (miniState.uploading) return
+    const images = [...(event.clipboardData?.items || [])]
+      .filter(item => item.kind === 'file' && /^image\/(?:png|jpeg|webp)$/i.test(item.type || ''))
+      .map(item => item.getAsFile())
+      .filter(Boolean)
+    if (!images.length) return
+    event.preventDefault()
+    void uploadMiniFiles(images)
+  })
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -739,7 +882,31 @@ function initStudentAiFloat(user) {
   })
   form.addEventListener('submit', (event) => {
     event.preventDefault()
+    if (miniState.generating) {
+      miniState.abortController?.abort()
+      return
+    }
     sendMiniMessage(input.value)
+  })
+  fileInput?.addEventListener('change', () => uploadMiniFiles(fileInput.files || []))
+  voiceButton?.addEventListener('click', () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      if (contextEl) contextEl.textContent = '当前浏览器不支持语音输入'
+      return
+    }
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'zh-CN'
+    recognition.interimResults = true
+    recognition.continuous = false
+    voiceButton.classList.add('is-recording')
+    recognition.onresult = (event) => {
+      input.value = [...event.results].map(result => result[0]?.transcript || '').join('')
+      updateInputState()
+    }
+    recognition.onerror = () => { if (contextEl) contextEl.textContent = '未能识别语音，请检查麦克风权限' }
+    recognition.onend = () => voiceButton.classList.remove('is-recording')
+    recognition.start()
   })
   widget.querySelectorAll('[data-ai-mini-skill]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -750,8 +917,8 @@ function initStudentAiFloat(user) {
 
   widget.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || state.hidden) return
-    if (!event.target.closest('.ai-float-grip')) return
-    if (event.target.closest('.ai-float-hide') || event.target.closest('.ai-mini-panel')) return
+    if (!event.target.closest('.ai-float-main')) return
+    if (event.target.closest('.ai-float-hide') || event.target.closest('.ai-float-dock') || event.target.closest('.ai-mini-panel')) return
     const rect = widget.getBoundingClientRect()
     dragState = {
       pointerId: event.pointerId,
@@ -763,37 +930,49 @@ function initStudentAiFloat(user) {
     wasDragging = false
     widget.classList.add('is-dragging')
     widget.setPointerCapture?.(event.pointerId)
+    document.documentElement.classList.add('ai-float-drag-active')
   })
 
-  widget.addEventListener('pointermove', (event) => {
+  const moveDrag = (event) => {
     if (!dragState || dragState.pointerId !== event.pointerId) return
     const dx = Math.abs(event.clientX - dragState.startX)
     const dy = Math.abs(event.clientY - dragState.startY)
     if (dx + dy > 5) wasDragging = true
     const rect = widget.getBoundingClientRect()
     const nextTop = clampY(event.clientY - dragState.offsetY)
-    widget.style.left = `${Math.max(AI_FLOAT_EDGE_MARGIN, window.innerWidth - rect.width - AI_FLOAT_EDGE_MARGIN)}px`
+    const nextLeft = Math.max(AI_FLOAT_EDGE_MARGIN, Math.min(window.innerWidth - rect.width - AI_FLOAT_EDGE_MARGIN, event.clientX - dragState.offsetX))
+    widget.style.left = 'auto'
+    widget.style.right = `${Math.max(AI_FLOAT_EDGE_MARGIN, window.innerWidth - nextLeft - rect.width)}px`
     widget.style.top = `${nextTop}px`
     widget.dataset.side = 'right'
     updateMiniPanelPlacement()
-  })
+    event.preventDefault()
+  }
 
   function endDrag(event) {
     if (!dragState || dragState.pointerId !== event.pointerId) return
     const rect = widget.getBoundingClientRect()
     widget.classList.remove('is-dragging')
+    document.documentElement.classList.remove('ai-float-drag-active')
     widget.releasePointerCapture?.(event.pointerId)
     dragState = null
     snapToRight(rect.top)
     window.setTimeout(() => { wasDragging = false }, 120)
   }
 
-  widget.addEventListener('pointerup', endDrag)
-  widget.addEventListener('pointercancel', endDrag)
+  window.addEventListener('pointermove', moveDrag, { passive: false })
+  window.addEventListener('pointerup', endDrag)
+  window.addEventListener('pointercancel', endDrag)
   window.addEventListener('resize', () => {
     if (!document.body.contains(widget)) return
     applyState(state)
   }, { passive: true })
+  window.addEventListener('discimind:float-layout', () => {
+    if (!document.body.contains(widget)) return
+    applyState(state)
+  })
+  window.addEventListener('discimind:learning-context', syncContextLabel)
+  syncContextLabel()
   renderMiniMessages()
   updateInputState()
 }

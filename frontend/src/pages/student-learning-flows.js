@@ -11,6 +11,7 @@ import {
 } from '../api/marketplace.js';
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js';
 import { studentLearningContextApi } from '../api/student-learning-context.js';
+import { studentLearningPlanApi } from '../api/student-learning-plans.js';
 import {
   FLOW_DRAFT_STORAGE_KEY, LEARNING_FLOW_CATEGORIES, getNodeCategory, getNodeType, isSupportedGraph,
 } from '../config/learning-flow.js';
@@ -45,7 +46,7 @@ export function renderStudentLearningFlows(app) {
     knowledgePointName: params.get('knowledgePointName') || '',
     items: [], counts: { all: 0, system: 0, mine: 0, teacher: 0 }, loading: true, error: '', batchMode: false, selected: new Set(),
     resources: [], resourcesLoading: true, activeFlowId: Number(params.get('flowId')) || null, learningContext: null,
-    contextLoading: true, contextError: '', planCourses: [],
+    contextLoading: true, contextError: '', planCourses: [], learningPlan: null, planRepair: null,
   };
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, user: getUser(), contentHTML: pageHtml() });
   bindPage();
@@ -54,12 +55,19 @@ export function renderStudentLearningFlows(app) {
 
 async function bootstrapLearningContext(params) {
   try {
-    const context = responseData(await studentLearningContextApi.get()); state.learningContext = context?.active ? context : null
-    if (state.learningContext && (params.get('context') === 'active' || (!state.courseId && !state.knowledgePointId))) {
+    const [planSettled, contextSettled] = await Promise.allSettled([studentLearningPlanApi.current(true), studentLearningContextApi.get()])
+    const current = planSettled.status === 'fulfilled' ? responseData(planSettled.value) : null
+    const context = contextSettled.status === 'fulfilled' ? responseData(contextSettled.value) : null
+    if (planSettled.status === 'rejected' && contextSettled.status === 'rejected') throw planSettled.reason
+    state.learningPlan = current?.plan || null; state.planRepair = current
+    state.learningContext = context?.active ? context : null
+    if (state.learningPlan && (params.get('context') === 'active' || (!state.courseId && !state.knowledgePointId))) {
+      state.courseId = String(state.learningPlan.courseId); state.knowledgePointId = String(state.learningPlan.knowledgePointId); state.knowledgePointName = state.learningPlan.knowledgePoint?.name || ''; state.activeFlowId ||= Number(state.learningPlan.workflowTemplateId)
+    } else if (state.learningContext && (params.get('context') === 'active' || (!state.courseId && !state.knowledgePointId))) {
       state.courseId = String(context.courseId); state.knowledgePointId = String(context.knowledgePointId); state.knowledgePointName = context.knowledgePoint?.name || ''; state.activeFlowId ||= Number(context.workflowTemplateId)
     }
   } catch (error) { state.learningContext = null; state.contextError = error.message || '当前学习计划读取失败' }
-  finally { state.contextLoading = false; renderLearningPlanSummary() }
+  finally { state.contextLoading = false; renderLearningPlanSummary(); renderCounts() }
   loadFlows(); loadResources(); loadLearningGoalAvailability(); if (state.courseId && state.knowledgePointId) loadRecommendation()
   const pendingFlowId = Number(params.get('flowId')); if (Number.isInteger(pendingFlowId) && pendingFlowId > 0 && !params.has('resources') && !params.has('preloadId') && !state.learningContext) setTimeout(() => openLearningPlanWizard({ preferredTemplateId: pendingFlowId }), 0)
   if (params.get('panel') === 'learning-plan') setTimeout(() => openLearningPlanWizard(), 0)
@@ -68,11 +76,11 @@ async function bootstrapLearningContext(params) {
 function pageHtml() {
   return `<main class="lf-page">
     <section class="lf-hero">
-      <div><p class="lf-eyebrow">PERSONAL LEARNING PATH</p><h1>学习流中心</h1><p>通过系统推荐、教师推荐或自主编排，创建适合自己的学习路径。</p></div>
-      <div class="lf-hero-right"><div class="lf-stat"><b id="lf-stat-total">—</b><span>学习流</span></div><div class="lf-stat"><b id="lf-stat-mine">—</b><span>我的学习流</span></div><button class="lf-button secondary lf-goal-create" id="lf-goal-create" hidden>${icon('target')}按学习目标生成</button><button class="lf-button primary lf-ai-create" id="lf-create">${icon('spark')}AI 生成学习流</button></div>
+      <div><p class="lf-eyebrow">LEARNING CENTER</p><h1>学习中心</h1><p>围绕一个明确计划完成准备、学习与课前资料，不再重复选择目标和工作流。</p></div>
+      <div class="lf-hero-right"><div class="lf-stat"><b id="lf-stat-total">—</b><span>进行中计划</span></div><div class="lf-stat"><b id="lf-stat-mine">—</b><span>可用模板</span></div><button class="lf-button primary" id="lf-create-plan">${icon('plus')}创建学习计划</button></div>
     </section>
     <section class="lf-plan-summary" id="lf-plan-summary" aria-live="polite"><div class="lf-loading"><i></i>正在读取学习目标与准备…</div></section>
-    <section class="lf-recommendation" id="lf-recommendation"><div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>智能学习推荐</h2><p>选择课程和知识点后，系统会结合你的掌握度为你推荐合适的学习流。</p></div><button class="lf-button secondary" id="lf-choose-context">选择课程与知识点</button></section>
+    <section class="lf-recommendation" id="lf-recommendation"><div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>推荐模板</h2><p>模板是创建计划时的候选项，不会在学习准备或启动时替换计划已冻结的版本。</p></div><button class="lf-button secondary" id="lf-choose-context">查看并创建计划</button></section>
     <section class="lf-resource-panel"><header><div><p class="lf-eyebrow">PRE-CLASS MATERIALS</p><h2>课前学习资料</h2><p>这里的资料独立于学习会话和 checkpoint，可随时预览、下载或解除关联。</p></div><button class="lf-button primary" id="lf-generate-handout">${icon('spark')}生成课前讲义</button></header><div id="lf-resource-list"><div class="lf-loading"><i></i>正在加载课前资料…</div></div></section>
     <section class="lf-toolbar"><div class="lf-tabs" id="lf-tabs"></div><div class="lf-toolbar-actions"><label class="lf-search">${icon('search')}<input id="lf-search" value="${escapeHtml(state.search)}" placeholder="搜索学习流名称"></label><button class="lf-button ghost" id="lf-batch">批量管理</button></div></section>
     <section class="lf-batch-bar" id="lf-batch-bar" hidden></section>
@@ -81,13 +89,15 @@ function pageHtml() {
 }
 
 function contextIsReady() {
-  const context = state.learningContext
-  return Boolean(context?.active && context?.valid && context.courseId && context.knowledgePointId && context.learningGoalId && context.workflowTemplateId)
+  const plan = state.learningPlan
+  return Boolean(plan?.id && plan.courseId && plan.knowledgePointId && plan.learningGoalId && plan.workflowVersionId && plan.graphSnapshot?.nodes?.length && ['ready', 'running', 'paused'].includes(plan.status))
 }
 
 function currentPreloadState() {
   const context = state.learningContext
-  const flow = state.items.find(item => Number(item.template_id) === Number(context?.workflowTemplateId))
+  const plan = state.learningPlan
+  if (plan?.preload) return { preloadId: plan.preload.id, preloadStatus: plan.preload.status, preloadProgress: plan.preload.progress, preloadStage: plan.preload.stage }
+  const flow = state.items.find(item => Number(item.template_id) === Number(plan?.workflowTemplateId || context?.workflowTemplateId))
   return flow || { preloadStatus: 'NOT_STARTED', preloadProgress: 0 }
 }
 
@@ -95,23 +105,62 @@ function renderLearningPlanSummary() {
   const root = document.getElementById('lf-plan-summary'); if (!root) return
   if (state.contextLoading) { root.innerHTML = '<div class="lf-loading"><i></i>正在读取学习目标与准备…</div>'; return }
   const context = state.learningContext
-  const ready = contextIsReady()
+  const plan = state.learningPlan; const ready = contextIsReady()
   const preload = currentPreloadState()
   const preloadLabel = ({ NOT_STARTED: '未准备', QUEUED: '准备中', PRELOADING: '准备中', PARTIAL: '部分完成', READY: '准备完成', FAILED: '准备失败', EXPIRED: '已过期' }[preload.preloadStatus] || '未准备')
-  const reason = state.contextError || (!context?.active ? '完成三个简单步骤后，学习准备、讲义生成与智能推荐都会自动复用。' : context.reason)
-  root.innerHTML = `<header><div><p class="lf-eyebrow">LEARNING GOAL & READINESS</p><h2>学习目标与准备</h2><p>${escapeHtml(ready ? '当前学习计划已同步，后续操作无需重复选择。' : reason || '当前学习计划需要调整。')}</p></div><span class="lf-plan-valid ${ready ? 'is-ready' : ''}">${ready ? '计划有效' : '待完善'}</span></header>
+  const reason = state.planRepair?.message || state.contextError || '选择一种方式创建学习计划。'
+  const resourcePanel = document.querySelector('.lf-resource-panel')
+  if (resourcePanel) resourcePanel.hidden = !ready
+  if (!plan) {
+    root.innerHTML = `<header><div><p class="lf-eyebrow">CREATE A PLAN</p><h2>创建学习计划</h2><p>${escapeHtml(reason)}</p></div>${state.planRepair?.needsRematch ? '<button class="lf-button secondary" data-repair-legacy>按当前目标重新匹配</button>' : ''}</header><div class="lf-plan-entry-grid"><button data-create-mode="goal_based"><span>${icon('target', 22)}</span><b>按学习目标生成</b><small>选择课程、知识点和目标，匹配现有模板</small></button><button data-create-mode="ai_generated"><span>${icon('spark', 22)}</span><b>AI 生成学习流</b><small>把自然语言目标转换为可编辑流程</small></button><button data-create-mode="custom"><span>${icon('plus', 22)}</span><b>自定义学习流</b><small>从空白或模板副本开始编排</small></button></div>`
+    bindPlanEntryActions(root); root.querySelector('[data-repair-legacy]')?.addEventListener('click', rematchLegacyLearningPlan); return
+  }
+  const statusLabel = ({ ready: '可以准备', running: '学习中', paused: '已暂停', failed: '运行失败', draft: '草稿', completed: '已完成', archived: '已归档' }[plan.status] || plan.status)
+  root.innerHTML = `<header><div><p class="lf-eyebrow">CURRENT LEARNING PLAN</p><h2>${['running', 'paused'].includes(plan.status) ? '继续学习' : '当前学习计划'}</h2><p>目标、工作流版本和图快照已冻结，模板后续更新不会影响本计划。</p></div><span class="lf-plan-valid ${ready ? 'is-ready' : ''}">${statusLabel}</span></header>
     <div class="lf-plan-facts">
-      <div><small>当前课程</small><b>${escapeHtml(context?.course?.name || '未选择')}</b></div>
-      <div><small>当前知识点</small><b>${escapeHtml(context?.knowledgePoint?.name || '未选择')}</b></div>
-      <div><small>当前学习目标</small><b>${escapeHtml(context?.learningGoal?.title || '未选择')}</b></div>
-      <div><small>当前工作流</small><b>${escapeHtml(context?.workflowTemplate?.title || '未选择')}</b></div>
+      <div><small>当前课程</small><b>${escapeHtml(plan.course?.name || '未选择')}</b></div>
+      <div><small>当前知识点</small><b>${escapeHtml(plan.knowledgePoint?.name || '未选择')}</b></div>
+      <div><small>当前学习目标</small><b>${escapeHtml(plan.learningGoal?.title || plan.goalSnapshot?.normalizedTitle || '未选择')}</b></div>
+      <div><small>学习流版本</small><b>${escapeHtml(plan.workflow?.title || '未选择')} · v${plan.workflow?.version || '—'}</b></div>
+      <div><small>总进度</small><b>${plan.progress || 0}%${plan.currentNodeId ? ` · ${escapeHtml(plan.currentNodeId)}` : ''}</b></div>
       <div><small>准备状态</small><b class="is-${String(preload.preloadStatus || 'NOT_STARTED').toLowerCase()}">${preloadLabel}${['QUEUED', 'PRELOADING'].includes(preload.preloadStatus) ? ` ${preload.preloadProgress || 0}%` : ''}</b></div>
     </div>
-    <footer><button class="lf-button secondary" data-plan-action="adjust">调整目标</button><button class="lf-button secondary" data-plan-action="prepare">学习准备</button><button class="lf-button secondary" data-plan-action="handout">生成课前讲义</button><button class="lf-button compact primary" data-plan-action="start">${icon('play', 13)}开始学习</button></footer>`
-  root.querySelector('[data-plan-action="adjust"]').onclick = () => openLearningPlanWizard()
-  root.querySelector('[data-plan-action="prepare"]').onclick = () => prepareCurrentLearningPlan()
-  root.querySelector('[data-plan-action="handout"]').onclick = () => generateHandoutFromContext()
-  root.querySelector('[data-plan-action="start"]').onclick = () => startCurrentLearningPlan()
+    <footer><button class="lf-button secondary" data-plan-action="view">查看计划</button>${state.planRepair?.needsRematch || plan.status === 'failed' ? '<button class="lf-button secondary" data-plan-action="rematch">按当前目标重新匹配</button>' : ''}${ready ? '<button class="lf-button secondary" data-plan-action="prepare">学习准备</button><button class="lf-button secondary" data-plan-action="handout">生成课前讲义</button>' : ''}${ready ? `<button class="lf-button compact primary" data-plan-action="start">${icon('play', 13)}${['running', 'paused'].includes(plan.status) ? '继续学习' : '开始学习'}</button>` : ''}${['completed', 'archived'].includes(plan.status) ? '<button class="lf-button compact primary" data-plan-action="new">创建新计划</button>' : ''}</footer>`
+  root.querySelector('[data-plan-action="view"]').onclick = () => openLearningPlanWizard()
+  root.querySelector('[data-plan-action="rematch"]')?.addEventListener('click', rematchCurrentLearningPlan)
+  root.querySelector('[data-plan-action="prepare"]')?.addEventListener('click', prepareCurrentLearningPlan)
+  root.querySelector('[data-plan-action="handout"]')?.addEventListener('click', generateHandoutFromContext)
+  root.querySelector('[data-plan-action="start"]')?.addEventListener('click', startCurrentLearningPlan)
+  root.querySelector('[data-plan-action="new"]')?.addEventListener('click', () => openLearningPlanWizard({ reset: true }))
+}
+
+async function rematchLegacyLearningPlan() {
+  const button = document.querySelector('[data-repair-legacy]')
+  if (button) button.disabled = true
+  try {
+    const result = responseData(await studentLearningPlanApi.rematchCurrent())
+    state.learningPlan = result.plan; state.planRepair = result
+    renderLearningPlanSummary(); await loadFlows(); await loadResources()
+    showToast('已按当前目标重新匹配学习流', 'success')
+  } catch (error) {
+    if (button) button.disabled = false
+    showToast(error.message || '重新匹配失败', 'error')
+  }
+}
+
+function bindPlanEntryActions(root = document) {
+  root.querySelectorAll('[data-create-mode]').forEach(button => button.addEventListener('click', () => {
+    const mode = button.dataset.createMode
+    if (mode === 'goal_based') openLearningPlanWizard()
+    else if (mode === 'ai_generated') openScopeWizard(null, 'ai')
+    else openScopeWizard(null, 'custom')
+  }))
+}
+
+async function rematchCurrentLearningPlan() {
+  if (!state.learningPlan?.id) return
+  try { const result = responseData(await studentLearningPlanApi.rematch(state.learningPlan.id)); state.learningPlan = result.plan; state.planRepair = result; renderLearningPlanSummary(); showToast('已按当前目标重新匹配学习流', 'success') }
+  catch (error) { showToast(error.message || '重新匹配失败', 'error') }
 }
 
 function requireLearningPlan(missingStep = 1) {
@@ -123,41 +172,40 @@ function requireLearningPlan(missingStep = 1) {
 
 async function prepareCurrentLearningPlan() {
   if (!requireLearningPlan(1)) return
-  const context = state.learningContext
   const flow = currentPreloadState()
   if (['QUEUED', 'PRELOADING'].includes(flow.preloadStatus)) { showToast(`学习准备中（${flow.preloadProgress || 0}%）`, 'info'); return }
   try {
     const operationId = globalThis.crypto?.randomUUID?.() || `preload_${Date.now()}`
     const result = flow.preloadId && ['FAILED', 'EXPIRED', 'PARTIAL'].includes(flow.preloadStatus)
       ? responseData(await learningWorkflowApi.retryPreload(flow.preloadId, operationId))
-      : responseData(await learningWorkflowApi.createPreload({ workflowTemplateId: context.workflowTemplateId, learningGoalId: context.learningGoalId, operationId }))
+      : responseData(await studentLearningPlanApi.prepare(state.learningPlan.id, operationId))
     showToast(result.status === 'READY' ? '学习准备已完成' : '学习准备任务已创建', 'success')
     await loadFlows()
   } catch (error) { showToast(error.message || '学习准备失败，仍可直接学习。', 'error') }
 }
 
-function startCurrentLearningPlan() {
+async function startCurrentLearningPlan() {
   if (!requireLearningPlan(1)) return
-  const context = state.learningContext
-  startFlow(context.workflowTemplateId, context.courseId, context.knowledgePointId)
+  try { const result = responseData(await studentLearningPlanApi.start(state.learningPlan.id)); const sessionId = result.session?.session_id; if (!sessionId) throw new Error('学习会话创建失败'); navigateTo(`#/student/learning/session/${sessionId}`) }
+  catch (error) { showToast(error.message || '无法开始学习', 'error') }
 }
 
 async function generateHandoutFromContext() {
   if (!requireLearningPlan(1)) return
-  await generateHandout(state.learningContext.workflowTemplateId)
+  await generateHandout(state.learningPlan.workflowTemplateId)
 }
 
-async function openLearningPlanWizard({ missingStep = 1, preferredTemplateId = null } = {}) {
-  const current = state.learningContext || {}
+async function openLearningPlanWizard({ missingStep = 1, preferredTemplateId = null, reset = false } = {}) {
+  const current = reset ? {} : (state.learningPlan || state.learningContext || {})
   const wizard = {
     step: Math.max(1, Math.min(3, Number(missingStep) || 1)), busy: false,
     courses: [], points: [], goals: [], workflows: [],
     courseId: current.courseId || Number(state.courseId) || '',
     knowledgePointId: current.knowledgePointId || Number(state.knowledgePointId) || '',
-    learningGoalId: current.learningGoalId || '',
+    learningGoalId: current.learningGoalId || current.learningGoal?.id || '',
     workflowTemplateId: preferredTemplateId || current.workflowTemplateId || '',
     targetMastery: current.targetMastery || 80,
-    completionMode: current.completionMode || 'MASTERY_TARGET',
+    completionMode: String(current.completionMode || 'MASTERY_TARGET').toUpperCase() === 'FLOW_COMPLETE' ? 'WORKFLOW_COMPLETE' : String(current.completionMode || 'MASTERY_TARGET').toUpperCase(),
     learningPreference: { explanationStyle: 'DETAILED', practiceIntensity: 'STANDARD', includeExamples: true, ...(current.learningPreference || {}) },
     voiceConfig: { enabled: false, speechRate: 1, ...(current.voiceConfig || {}) },
     advancedOpen: false, goalText: '', error: '',
@@ -202,7 +250,7 @@ async function openLearningPlanWizard({ missingStep = 1, preferredTemplateId = n
   function stepThreeHtml() {
     const options = wizard.workflows.length ? wizard.workflows.map((item, index) => `<button class="lf-plan-option ${Number(item.template_id) === Number(wizard.workflowTemplateId) ? 'selected' : ''}" data-plan-workflow="${item.template_id}"><span><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.recommendationReason || (index === 0 ? '系统推荐' : '适用于当前目标'))}</small></span><em>${index === 0 ? '推荐' : sourceLabel(item)}</em></button>`).join('') : '<div class="lf-plan-empty">当前范围暂时没有可用工作流。</div>'
     const pref = wizard.learningPreference; const voice = wizard.voiceConfig
-    return `<div class="lf-plan-step-copy"><b>第三步 · 学习工作流</b><span>已按范围、目标、掌握度和可见性排序，可随时更换。</span></div><div class="lf-plan-workflow-list">${options}</div><details class="lf-plan-advanced" ${wizard.advancedOpen ? 'open' : ''}><summary>高级配置</summary><div class="lf-plan-advanced-grid"><label>目标掌握度<input id="lf-plan-mastery" type="number" min="1" max="100" value="${wizard.targetMastery}"></label><label>完成方式<select id="lf-plan-completion"><option value="MASTERY_TARGET" ${wizard.completionMode === 'MASTERY_TARGET' ? 'selected' : ''}>达到目标掌握度</option><option value="WORKFLOW_COMPLETE" ${wizard.completionMode === 'WORKFLOW_COMPLETE' ? 'selected' : ''}>完成流程即可</option><option value="TIME_BOXED" ${wizard.completionMode === 'TIME_BOXED' ? 'selected' : ''}>按时长完成</option></select></label><label>回答风格<select id="lf-plan-style"><option value="DETAILED" ${pref.explanationStyle === 'DETAILED' ? 'selected' : ''}>详细讲解</option><option value="CONCISE" ${pref.explanationStyle === 'CONCISE' ? 'selected' : ''}>简洁直达</option><option value="SOCRATIC" ${pref.explanationStyle === 'SOCRATIC' ? 'selected' : ''}>启发提问</option></select></label><label>练习强度<select id="lf-plan-intensity"><option value="STANDARD" ${pref.practiceIntensity === 'STANDARD' ? 'selected' : ''}>标准</option><option value="LIGHT" ${pref.practiceIntensity === 'LIGHT' ? 'selected' : ''}>轻量</option><option value="INTENSIVE" ${pref.practiceIntensity === 'INTENSIVE' ? 'selected' : ''}>强化</option></select></label><label>语速<input id="lf-plan-rate" type="number" min="0.5" max="2" step="0.1" value="${voice.speechRate || 1}"></label><label class="lf-plan-check"><input id="lf-plan-examples" type="checkbox" ${pref.includeExamples !== false ? 'checked' : ''}>讲解包含示例</label><label class="lf-plan-check"><input id="lf-plan-voice" type="checkbox" ${voice.enabled ? 'checked' : ''}>启用语音</label></div></details>`
+    return `<div class="lf-plan-step-copy"><b>第三步 · 学习工作流</b><span>已按范围、目标、掌握度和可见性排序；保存后固定使用所选版本。</span></div><div class="lf-plan-workflow-list">${options}</div><details class="lf-plan-advanced" ${wizard.advancedOpen ? 'open' : ''}><summary>高级配置</summary><div class="lf-plan-advanced-grid"><label>目标掌握度<input id="lf-plan-mastery" type="number" min="1" max="100" value="${wizard.targetMastery}"></label><label>完成方式<select id="lf-plan-completion"><option value="MASTERY_TARGET" ${wizard.completionMode === 'MASTERY_TARGET' ? 'selected' : ''}>达到目标掌握度</option><option value="WORKFLOW_COMPLETE" ${wizard.completionMode === 'WORKFLOW_COMPLETE' ? 'selected' : ''}>完成流程即可</option></select></label><label>回答风格<select id="lf-plan-style"><option value="DETAILED" ${pref.explanationStyle === 'DETAILED' ? 'selected' : ''}>详细讲解</option><option value="CONCISE" ${pref.explanationStyle === 'CONCISE' ? 'selected' : ''}>简洁直达</option><option value="SOCRATIC" ${pref.explanationStyle === 'SOCRATIC' ? 'selected' : ''}>启发提问</option></select></label><label>练习强度<select id="lf-plan-intensity"><option value="STANDARD" ${pref.practiceIntensity === 'STANDARD' ? 'selected' : ''}>标准</option><option value="LIGHT" ${pref.practiceIntensity === 'LIGHT' ? 'selected' : ''}>轻量</option><option value="INTENSIVE" ${pref.practiceIntensity === 'INTENSIVE' ? 'selected' : ''}>强化</option></select></label><label>语速<input id="lf-plan-rate" type="number" min="0.5" max="2" step="0.1" value="${voice.speechRate || 1}"></label><label class="lf-plan-check"><input id="lf-plan-examples" type="checkbox" ${pref.includeExamples !== false ? 'checked' : ''}>讲解包含示例</label><label class="lf-plan-check"><input id="lf-plan-voice" type="checkbox" ${voice.enabled ? 'checked' : ''}>启用语音</label></div></details>`
   }
 
   function rememberAdvanced() {
@@ -246,7 +294,11 @@ async function openLearningPlanWizard({ missingStep = 1, preferredTemplateId = n
         if (wizard.step === 1) { await loadGoals(); wizard.step = 2 }
         else if (wizard.step === 2) { await loadWorkflows(); wizard.step = 3 }
         else {
+          const selectedWorkflow = wizard.workflows.find(item => Number(item.template_id) === Number(wizard.workflowTemplateId))
+          if (!selectedWorkflow?.latestVersion?.version_id) throw new Error('所选工作流没有可用版本')
+          state.learningPlan = responseData(await studentLearningPlanApi.create({ courseId: wizard.courseId, knowledgePointId: wizard.knowledgePointId, learningGoalId: wizard.learningGoalId, workflowTemplateId: wizard.workflowTemplateId, workflowVersionId: selectedWorkflow.latestVersion.version_id, creationMode: 'goal_based', status: 'ready', targetMastery: wizard.targetMastery, completionMode: wizard.completionMode, estimatedMinutes: selectedWorkflow.latestVersion.settings_json?.estimated_minutes || 25 }))
           state.learningContext = responseData(await studentLearningContextApi.update({ courseId: wizard.courseId, knowledgePointId: wizard.knowledgePointId, learningGoalId: wizard.learningGoalId, workflowTemplateId: wizard.workflowTemplateId, targetMastery: wizard.targetMastery, completionMode: wizard.completionMode, learningPreference: wizard.learningPreference, voiceConfig: wizard.voiceConfig }))
+          state.planRepair = { plan: state.learningPlan }
           state.courseId = String(wizard.courseId); state.knowledgePointId = String(wizard.knowledgePointId); state.knowledgePointName = selectedPoint()?.knowledge_point_name || ''; state.activeFlowId = Number(wizard.workflowTemplateId)
           close(); persistListRoute(); renderLearningPlanSummary(); await Promise.all([loadFlows(), loadResources(), loadRecommendation()]); showToast('学习计划已保存，后续操作会自动复用。', 'success'); return
         }
@@ -264,11 +316,8 @@ const resourceRoleLabel = value => ({ PRE_CLASS_HANDOUT: '课前讲义', REFEREN
 async function loadResources() {
   state.resourcesLoading = true; renderResources()
   try {
-    const params = { pageSize: 100 }
-    if (state.courseId) params.courseId = Number(state.courseId)
-    if (state.knowledgePointId) params.knowledgePointId = Number(state.knowledgePointId)
-    if (state.activeFlowId) params.workflowTemplateId = state.activeFlowId
-    state.resources = responseData(await listLearningFlowResources(params))?.list || []
+    if (!state.learningPlan?.id) { state.resources = []; return }
+    state.resources = responseData(await listLearningFlowResources({ learningPlanId: state.learningPlan.id, pageSize: 100 }))?.list || []
   } catch (error) { state.resourceError = error.message || '课前资料加载失败'; state.resources = [] }
   finally { state.resourcesLoading = false; renderResources() }
 }
@@ -308,8 +357,8 @@ async function loadRecommendation() {
   try {
     const result = responseData(await learningWorkflowApi.recommendTemplate({ courseId: state.courseId, knowledgePointId: state.knowledgePointId }));
     const mastery = result.masteryScore == null ? '暂无记录' : `${Math.round(result.masteryScore)}%`;
-    container.innerHTML = `<div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>智能学习推荐</h2><p><b>${escapeHtml(state.knowledgePointName || '已选知识点')}</b> · 当前掌握度 ${mastery} · ${escapeHtml(result.reason || '为你匹配了推荐学习流')}</p><div class="lf-recommendation-meta">推荐：${escapeHtml(result.template?.title || '标准学习流')} · 近期错题 ${result.wrongCount || 0} 道</div></div><button class="lf-button primary" id="lf-recommend-start" data-id="${result.template?.id || ''}">${icon('play')}进入学习</button><button class="lf-button secondary" id="lf-choose-context">重新选择</button>`;
-    container.querySelector('#lf-recommend-start')?.addEventListener('click', async () => { if (await syncRecommendedContext(result.template?.id)) startFlow(result.template?.id, Number(state.courseId), Number(state.knowledgePointId)); });
+    container.innerHTML = `<div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>智能学习推荐</h2><p><b>${escapeHtml(state.knowledgePointName || '已选知识点')}</b> · 当前掌握度 ${mastery} · ${escapeHtml(result.reason || '为你匹配了推荐学习流')}</p><div class="lf-recommendation-meta">推荐：${escapeHtml(result.template?.title || '标准学习流')} · 近期错题 ${result.wrongCount || 0} 道</div></div><button class="lf-button primary" id="lf-recommend-start" data-id="${result.template?.id || ''}">使用此模板创建计划</button><button class="lf-button secondary" id="lf-choose-context">重新选择</button>`;
+    container.querySelector('#lf-recommend-start')?.addEventListener('click', () => syncRecommendedContext(result.template?.id));
     container.querySelector('#lf-choose-context')?.addEventListener('click', () => openLearningPlanWizard());
   } catch (error) {
     container.innerHTML = `<div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>智能学习推荐</h2><p>暂时无法加载推荐，可先选择课程和知识点后使用任意学习流。</p></div><button class="lf-button secondary" id="lf-choose-context">重新选择</button>`;
@@ -318,19 +367,16 @@ async function loadRecommendation() {
 }
 
 async function syncRecommendedContext(templateId) {
-  if (state.learningContext && Number(state.learningContext.workflowTemplateId) === Number(templateId) && Number(state.learningContext.knowledgePointId) === Number(state.knowledgePointId)) return true
-  try {
-    const goals = responseData(await learningGoalApi.list({ courseId: Number(state.courseId), knowledgePointId: Number(state.knowledgePointId), availableOnly: true, pageSize: 50 }))?.items || []
-    const goal = goals.find(item => Number(item.primaryKnowledgePoint?.knowledgePointId || item.primaryKnowledgePointId) === Number(state.knowledgePointId))
-    if (!goal) { showToast('当前范围还没有可用学习目标，请先完善学习计划。', 'warning'); openLearningPlanWizard({ missingStep: 2, preferredTemplateId: templateId }); return false }
-    state.learningContext = responseData(await studentLearningContextApi.update({ courseId: Number(state.courseId), knowledgePointId: Number(state.knowledgePointId), learningGoalId: goal.goalId, workflowTemplateId: Number(templateId), targetMastery: state.learningContext?.targetMastery || goal.targetMastery || 80, completionMode: state.learningContext?.completionMode || 'MASTERY_TARGET', learningPreference: state.learningContext?.learningPreference || { explanationStyle: 'DETAILED', practiceIntensity: 'STANDARD', includeExamples: true }, voiceConfig: state.learningContext?.voiceConfig || { enabled: false } }))
-    state.activeFlowId = Number(templateId); renderLearningPlanSummary(); showToast('智能推荐已同步到当前学习计划', 'success'); return true
-  } catch (error) { showToast(error.message || '无法同步当前学习上下文', 'error'); return false }
+  openLearningPlanWizard({ missingStep: 2, preferredTemplateId: Number(templateId) || null })
+  return false
 }
 
 function renderCounts() {
-  document.getElementById('lf-stat-total').textContent = state.counts.all ?? 0;
-  document.getElementById('lf-stat-mine').textContent = state.counts.mine ?? 0;
+  const active = ['running', 'paused'].includes(state.learningPlan?.status) ? 1 : 0
+  const activeTarget = document.getElementById('lf-stat-total')
+  const templateTarget = document.getElementById('lf-stat-mine')
+  if (activeTarget) activeTarget.textContent = active
+  if (templateTarget) templateTarget.textContent = state.counts.all ?? 0
 }
 function renderTabs() {
   const target = document.getElementById('lf-tabs'); if (!target) return;
@@ -355,7 +401,10 @@ function renderGrid() {
   target.innerHTML = state.items.map(flowCard).join('');
   target.querySelectorAll('[data-flow-action]').forEach((button) => button.addEventListener('click', (event) => {
     event.stopPropagation(); const { flowAction: action, flowId: id } = button.dataset;
-    if (action === 'start') openScopeWizard(Number(id));
+    if (action === 'start') {
+      if (contextIsReady() && Number(state.learningPlan.workflowTemplateId) === Number(id)) startCurrentLearningPlan()
+      else openLearningPlanWizard({ missingStep: 1, preferredTemplateId: Number(id) })
+    }
     if (action === 'preview') openPreview(Number(id));
     if (action === 'copy') copyFlow(Number(id));
     if (action === 'edit') navigateTo(`#/student/learning-flow/editor/${id}`);
@@ -374,8 +423,9 @@ function flowCard(flow) {
   const tags = nodes.slice(0, 4).map((node) => { const c = LEARNING_FLOW_CATEGORIES[getNodeCategory(node.type)]; return `<span style="color:${c.color};background:${c.background}">${escapeHtml(getNodeType(node.type)?.short || node.type)}</span>`; }).join('');
   const settings = flow.latestVersion?.settings_json || {};
   const owned = Boolean(flow.can_edit);
+  const isCurrentPlan = contextIsReady() && Number(state.learningPlan.workflowTemplateId) === Number(flow.template_id)
   const preloadLabel = ({ NOT_STARTED: '未准备', QUEUED: '准备中', PRELOADING: '准备中', PARTIAL: '部分完成', READY: '准备完成', FAILED: '准备失败', EXPIRED: '已过期' }[flow.preloadStatus] || '未准备');
-  const preloadAction = ['QUEUED', 'PRELOADING'].includes(flow.preloadStatus)
+  const preloadAction = !isCurrentPlan ? '' : ['QUEUED', 'PRELOADING'].includes(flow.preloadStatus)
     ? `<button class="lf-button compact secondary" data-flow-action="preload" data-flow-id="${flow.template_id}">查看准备进度 ${flow.preloadProgress || 0}%</button>`
     : ['FAILED', 'EXPIRED', 'PARTIAL'].includes(flow.preloadStatus)
       ? `<button class="lf-button compact secondary" data-flow-action="retry-preload" data-flow-id="${flow.template_id}">重新准备</button>`
@@ -388,7 +438,7 @@ function flowCard(flow) {
     <div class="lf-node-tags">${tags}${nodes.length > 4 ? `<span class="more">+${nodes.length - 4}</span>` : ''}</div>
     <div class="lf-card-meta"><span>${icon('clock', 14)} ${settings.estimated_minutes || 25} 分钟</span><span>${icon('target', 14)} ${settings.completion_mode === 'flow_complete' ? '按流程完成' : `目标 ${settings.target_mastery || 80}%`}</span></div>
     <div class="lf-preload-state is-${String(flow.preloadStatus || 'NOT_STARTED').toLowerCase()}"><b>${preloadLabel}</b><span>${escapeHtml(flow.preloadStage || (flow.preloadStatus === 'FAILED' ? '学习准备未完成，仍可直接开始学习。' : '可提前准备首节点内容和语音'))}</span>${preloadAction}</div>
-    <div class="lf-card-foot"><small>${nodes.length} 个节点 · 已使用 ${flow.usage_count || 0} 次</small><div class="lf-card-actions"><button class="lf-button compact secondary" data-flow-action="handout" data-flow-id="${flow.template_id}">生成课前讲义</button><button class="lf-button compact secondary" data-flow-action="preview" data-flow-id="${flow.template_id}">预览</button><button class="lf-button compact primary" data-flow-action="start" data-flow-id="${flow.template_id}">${icon('play', 13)}${['PARTIAL','READY'].includes(flow.preloadStatus) ? '前往学习' : '直接学习'}</button>${owned ? `<button class="lf-icon-button" title="编辑" data-flow-action="edit" data-flow-id="${flow.template_id}">${icon('edit')}</button><button class="lf-icon-button danger" title="删除" data-flow-action="delete" data-flow-id="${flow.template_id}">${icon('trash')}</button>` : `<button class="lf-icon-button" title="复制为我的学习流" data-flow-action="copy" data-flow-id="${flow.template_id}">${icon('copy')}</button>`}</div></div>
+    <div class="lf-card-foot"><small>${nodes.length} 个节点 · 已使用 ${flow.usage_count || 0} 次</small><div class="lf-card-actions"><button class="lf-button compact secondary" data-flow-action="preview" data-flow-id="${flow.template_id}">预览</button><button class="lf-button compact primary" data-flow-action="start" data-flow-id="${flow.template_id}">${icon('play', 13)}${isCurrentPlan ? '进入学习' : '用于新计划'}</button>${owned ? `<button class="lf-icon-button" title="编辑" data-flow-action="edit" data-flow-id="${flow.template_id}">${icon('edit')}</button><button class="lf-icon-button danger" title="删除" data-flow-action="delete" data-flow-id="${flow.template_id}">${icon('trash')}</button>` : `<button class="lf-icon-button" title="复制为我的学习流" data-flow-action="copy" data-flow-id="${flow.template_id}">${icon('copy')}</button>`}</div></div>
   </article>`;
 }
 
@@ -404,11 +454,10 @@ function renderBatchBar() {
 }
 
 function bindPage() {
-  document.getElementById('lf-create').addEventListener('click', () => openScopeWizard(null, 'ai'));
-  document.getElementById('lf-goal-create')?.addEventListener('click', () => openLearningGoalWizard());
+  document.getElementById('lf-create-plan')?.addEventListener('click', () => openLearningPlanWizard());
   document.getElementById('lf-choose-context').addEventListener('click', () => openLearningPlanWizard());
   document.getElementById('lf-batch').addEventListener('click', () => { state.batchMode = !state.batchMode; state.selected.clear(); document.getElementById('lf-batch').textContent = state.batchMode ? '完成管理' : '批量管理'; renderGrid(); renderBatchBar(); });
-  document.getElementById('lf-generate-handout')?.addEventListener('click', () => generateHandout(state.activeFlowId || state.items[0]?.template_id));
+  document.getElementById('lf-generate-handout')?.addEventListener('click', () => generateHandout(state.learningPlan?.workflowTemplateId));
   let timer;
   document.getElementById('lf-search').addEventListener('input', (event) => { clearTimeout(timer); timer = setTimeout(() => {
     state.search = event.target.value.trim(); persistListRoute(); loadFlows();
@@ -427,13 +476,14 @@ async function findGoalForFlow(flow) {
 
 async function prepareFlow(templateId, retry) {
   const flow = state.items.find(item => Number(item.template_id) === Number(templateId)); if (!flow) return
-  if (!contextIsReady() || Number(state.learningContext.workflowTemplateId) !== Number(templateId)) { openLearningPlanWizard({ missingStep: contextIsReady() ? 3 : 1, preferredTemplateId: templateId }); return }
-  if (['QUEUED', 'PRELOADING'].includes(flow.preloadStatus) && flow.preloadId) { showToast(`${flow.preloadStage || '学习准备中'}（${flow.preloadProgress || 0}%）`, 'info'); return }
-  const goalId = state.learningContext.learningGoalId
+  if (!contextIsReady() || Number(state.learningPlan.workflowTemplateId) !== Number(templateId)) { openLearningPlanWizard({ missingStep: contextIsReady() ? 3 : 1, preferredTemplateId: templateId }); return }
+  const preload = currentPreloadState()
+  if (['QUEUED', 'PRELOADING'].includes(preload.preloadStatus) && preload.preloadId) { showToast(`${preload.preloadStage || '学习准备中'}（${preload.preloadProgress || 0}%）`, 'info'); return }
   try {
-    const result = retry && flow.preloadId
-      ? responseData(await learningWorkflowApi.retryPreload(flow.preloadId, globalThis.crypto?.randomUUID?.() || `preload_${Date.now()}`))
-      : responseData(await learningWorkflowApi.createPreload({ workflowTemplateId: templateId, learningGoalId: goalId, operationId: globalThis.crypto?.randomUUID?.() || `preload_${Date.now()}` }))
+    const operationId = globalThis.crypto?.randomUUID?.() || `preload_${Date.now()}`
+    const result = retry && preload.preloadId
+      ? responseData(await learningWorkflowApi.retryPreload(preload.preloadId, operationId))
+      : responseData(await studentLearningPlanApi.prepare(state.learningPlan.id, operationId))
     showToast(result.status === 'READY' ? '学习流已准备完成' : '学习准备任务已创建', 'success'); await loadFlows()
   } catch (error) { showToast(error.message || '学习准备失败，仍可直接学习。', 'error') }
 }
@@ -445,20 +495,15 @@ async function enterFileGenerator(agent, prefill) {
 }
 
 async function generateHandout(templateId) {
-  let flow = state.items.find(item => Number(item.template_id) === Number(templateId))
-  if (!flow && templateId) flow = responseData(await learningWorkflowApi.getTemplate(templateId).catch(() => null))
-  if (!flow) { showToast('请先选择一个学习流', 'warning'); return }
-  const context = state.learningContext && Number(state.learningContext.workflowTemplateId) === Number(flow.template_id) ? state.learningContext : null
-  const courseId = Number(context?.courseId || state.courseId || flow.course_id); const knowledgePointId = Number(context?.knowledgePointId || state.knowledgePointId || flow.knowledge_point_id)
-  if (!contextIsReady() || !context || !courseId || !knowledgePointId) { showToast('请先完善当前学习计划', 'warning'); openLearningPlanWizard({ missingStep: 1, preferredTemplateId: templateId }); return }
-  const learningGoalId = await findGoalForFlow(flow).catch(() => null)
-  if (!learningGoalId) { showToast('请先确认当前学习目标，再生成课前讲义。', 'warning'); return }
+  const plan = state.learningPlan
+  if (!contextIsReady() || Number(plan.workflowTemplateId) !== Number(templateId)) { showToast('课前讲义只能从当前可用的学习计划生成。', 'warning'); openLearningPlanWizard({ missingStep: 1, preferredTemplateId: templateId }); return }
   try {
     const [publicResult, mineResult] = await Promise.all([listAgents({ agentType: 'FILE_GENERATOR', pageSize: 30 }), listMyAgents({ agentType: 'FILE_GENERATOR', pageSize: 30 })])
     const map = new Map(); [...(responseData(publicResult)?.list || []), ...(responseData(mineResult)?.list || [])].filter(item => item.agentType === 'FILE_GENERATOR').forEach(item => map.set(item.id, item))
     const agents = [...map.values()].sort((a, b) => Number(b.systemKey === 'system_study_handout_generator') - Number(a.systemKey === 'system_study_handout_generator'))
     if (!agents.length) { showToast('还没有可用的文件生成型智能体，请先创建一个。', 'warning'); navigateTo('#/student/agents/create'); return }
-    const prefill = { artifactType: 'STUDY_HANDOUT', courseId, knowledgePointId, learningGoalId, workflowTemplateId: flow.template_id, targetMastery: context.targetMastery, learningPreference: context.learningPreference, contextHash: context.contextHash, resourceRole: 'PRE_CLASS_HANDOUT' }
+    const planNodeSummary = (plan.graphSnapshot?.nodes || []).map((node, index) => ({ id: String(node.id), type: String(node.type), title: String(node.title || `步骤 ${index + 1}`) }))
+    const prefill = { artifactType: 'STUDY_HANDOUT', learningPlanId: plan.id, courseId: plan.courseId, knowledgePointId: plan.knowledgePointId, knowledgePointIds: plan.knowledgePointIds?.length ? plan.knowledgePointIds : [plan.knowledgePointId], learningGoalId: plan.learningGoalId, workflowTemplateId: plan.workflowTemplateId, workflowVersionId: plan.workflowVersionId, planNodeSummary, targetMastery: plan.targetMastery, learningPreference: state.learningContext?.learningPreference, contextHash: state.learningContext?.contextHash, resourceRole: 'PRE_CLASS_HANDOUT' }
     if (agents.length === 1) { await enterFileGenerator(agents[0], prefill); return }
     const overlay = modal(`<header class="lf-modal-head"><div><span class="lf-wizard-step">生成课前讲义</span><h2>选择文件生成器</h2><p>需求会安全预填，仍需在生成器内确认生成。</p></div><button class="lf-icon-button" data-close>${icon('close')}</button></header><div class="lf-modal-body"><div class="lf-choice-grid">${agents.map(agent => `<button class="lf-choice" data-generator="${agent.id}"><b>${escapeHtml(agent.version?.name || '文件生成器')}</b><span>${escapeHtml(agent.version?.shortDescription || '')}</span></button>`).join('')}</div></div>`)
     overlay.querySelector('[data-close]').onclick = () => overlay.remove(); overlay.querySelectorAll('[data-generator]').forEach(button => button.onclick = async () => { button.disabled = true; try { await enterFileGenerator(map.get(Number(button.dataset.generator)), prefill); overlay.remove() } catch (error) { button.disabled = false; showToast(error.message, 'error') } })
@@ -700,6 +745,7 @@ async function openScopeWizard(templateId = null, purpose = templateId ? 'start'
   function stepTitle() {
     if (templateId) return ['选择课程', '选择知识点', '确认开始'][wizard.step - 1];
     if (purpose === 'ai') return ['选择课程', '选择知识点', '描述学习目标'][wizard.step - 1];
+    if (purpose === 'custom') return ['选择课程', '选择知识点', '创建自定义学习流'][wizard.step - 1];
     return ['选择课程', '选择知识点', '确认推荐范围'][wizard.step - 1];
   }
 
@@ -774,7 +820,7 @@ async function openScopeWizard(templateId = null, purpose = templateId ? 'start'
     } else if (purpose === 'recommend') {
       footer = '<button class="lf-button secondary" data-close>取消</button><button class="lf-button ghost" data-back>上一步</button><button class="lf-button primary" data-apply-context>查看推荐</button>';
     } else {
-      footer = '<button class="lf-button secondary" data-close>取消</button><button class="lf-button ghost" data-back>上一步</button><button class="lf-button primary" data-next>AI 生成预览</button>';
+      footer = `<button class="lf-button secondary" data-close>取消</button><button class="lf-button ghost" data-back>上一步</button><button class="lf-button primary" data-next>${purpose === 'custom' ? '进入可视化编辑器' : 'AI 生成预览'}</button>`;
     }
 
     host.innerHTML = `<header class="lf-modal-head"><div><span class="lf-wizard-step">步骤 ${wizard.step}/${total}</span><h2>${stepTitle()}</h2><p>${templateId ? '为本次学习确定课程与知识点。' : purpose === 'ai' ? 'AI 会将自然语言目标转换成可编辑的节点与达成条件。' : '只选择推荐范围，不会新建重复学习流。'}</p></div><button class="lf-icon-button" data-close>${icon('close')}</button></header><div class="lf-modal-body">${body}</div><footer class="lf-modal-foot">${footer}</footer>`;
@@ -839,7 +885,8 @@ async function openScopeWizard(templateId = null, purpose = templateId ? 'start'
         if (wizard.method === 'manual') {
           const title = host.querySelector('#lf-new-title')?.value.trim();
           if (!title) { showToast('请填写学习流名称', 'warning'); wizard.advancing = false; return; }
-          sessionStorage.setItem(FLOW_DRAFT_STORAGE_KEY, JSON.stringify({ title, courseId: Number(wizard.courseId), knowledgePointId: Number(wizard.knowledgePointId), description: host.querySelector('#lf-new-description')?.value.trim() || '', settings: readWizardSettings(host) }));
+          const description = host.querySelector('#lf-new-description')?.value.trim() || ''
+          sessionStorage.setItem(FLOW_DRAFT_STORAGE_KEY, JSON.stringify({ title, goalText: description || title, creationMode: 'custom', courseId: Number(wizard.courseId), knowledgePointId: Number(wizard.knowledgePointId), description, settings: readWizardSettings(host) }));
           close(); navigateTo('#/student/learning-flow/editor/new'); return;
         }
         await generateAiPreview(wizard, host, close);
@@ -865,6 +912,7 @@ async function openScopeWizard(templateId = null, purpose = templateId ? 'start'
   await fetchCourses();
 }
 function createAiMethodHtml(wizard) {
+  if (wizard.purpose === 'custom') return `<div class="lf-ai-builder-intro"><span>${icon('plus', 22)}</span><div><b>从空白画布创建学习流</b><p>保存后会同时建立固定版本的学习计划，可在画布中添加节点、分支与达成条件。</p></div></div><label class="lf-field">学习流名称<input id="lf-new-title" maxlength="200" value="${escapeHtml(wizard.title)}" placeholder="例如：逻辑回归薄弱点修复"></label><label class="lf-field">学习目标与说明<textarea id="lf-new-description" maxlength="1000" rows="4" placeholder="说明你希望完成的学习目标和偏好">${escapeHtml(wizard.description)}</textarea></label><div class="lf-wizard-settings"><label>预计时长<input id="lf-ai-minutes" type="number" min="5" max="120" value="${wizard.estimatedMinutes}"> 分钟</label><label>目标掌握度<input id="lf-ai-mastery" type="number" min="60" max="100" value="${wizard.targetMastery}"> %</label></div>`;
   return `<div class="lf-ai-builder-intro"><span>${icon('spark', 22)}</span><div><b>用一句话描述你想怎么学</b><p>AI 会选择讲解、提问、练习、诊断和总结节点，并自动设置分支条件。</p></div></div><label class="lf-field">学习流名称<input id="lf-new-title" maxlength="200" value="${escapeHtml(wizard.title)}" placeholder="例如：逻辑回归薄弱点修复"></label><label class="lf-field">学习目标与偏好<textarea id="lf-ai-prompt" rows="5" placeholder="例如：我想在 25 分钟内理解逻辑回归，先用例子讲解，再做 3 道题；如果正确率低于 70% 就加入错因修复，掌握度达到 85% 后总结。">${escapeHtml(wizard.prompt)}</textarea></label><label class="lf-field">补充说明（可选）<textarea id="lf-new-description" maxlength="1000" placeholder="可填写考试时间、当前困难或希望避免的学习方式">${escapeHtml(wizard.description)}</textarea></label><div class="lf-wizard-settings"><label>预计时长<input id="lf-ai-minutes" type="number" min="5" max="120" value="${wizard.estimatedMinutes}"> 分钟</label><label>目标掌握度<input id="lf-ai-mastery" type="number" min="60" max="100" value="${wizard.targetMastery}"> %</label></div>`;
 }
 function rememberMethodFields(host, wizard) { wizard.title = host.querySelector('#lf-new-title')?.value || wizard.title; wizard.description = host.querySelector('#lf-new-description')?.value || wizard.description; wizard.prompt = host.querySelector('#lf-ai-prompt')?.value || wizard.prompt; wizard.estimatedMinutes = Number(host.querySelector('#lf-ai-minutes')?.value) || wizard.estimatedMinutes; wizard.targetMastery = Number(host.querySelector('#lf-ai-mastery')?.value) || wizard.targetMastery; }
@@ -902,15 +950,18 @@ async function generateAiPreview(wizard, host, close) {
     const generatedBadge = draft.aiGenerated === false ? '<span class="lf-ai-fallback">安全草稿</span>' : '<span class="lf-ai-success">AI 实时生成</span>';
     host.innerHTML = `<header class="lf-modal-head"><div><span class="lf-wizard-step">AI 预览 ${generatedBadge}</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(result.matchedReason || draft.matchedReason || '已生成可编辑学习流')}</p></div><button class="lf-icon-button" data-close>${icon('close')}</button></header><div class="lf-modal-body"><div class="lf-ai-goal-row"><span>目标 ${draft.settings?.target_mastery || wizardSettings.target_mastery}%</span><span>约 ${draft.settings?.estimated_minutes || wizardSettings.estimated_minutes} 分钟</span><span>${draft.graph.nodes.length} 个节点</span></div><ol class="lf-preview-path">${overview}</ol><p class="lf-ai-note">确认后保存为“我的学习流”，仍可进入编辑器微调节点和条件。</p></div><footer class="lf-modal-foot"><button class="lf-button secondary" data-close>取消</button><button class="lf-button ghost" data-manual>进入编辑器微调</button><button class="lf-button primary" data-save-ai>使用此流程</button></footer>`;
     host.querySelector('[data-close]').onclick = close;
-    host.querySelector('[data-manual]').onclick = () => { sessionStorage.setItem(FLOW_DRAFT_STORAGE_KEY, JSON.stringify({ title, courseId: Number(wizard.courseId), knowledgePointId: Number(wizard.knowledgePointId), description, settings: wizardSettings })); close(); navigateTo('#/student/learning-flow/editor/new'); };
-    host.querySelector('[data-save-ai]').onclick = async (event) => { event.currentTarget.disabled = true; event.currentTarget.textContent = '正在保存…'; try { const created = responseData(await learningWorkflowApi.createTemplate({ title, description: description || prompt, course_id: Number(wizard.courseId), knowledge_point_id: Number(wizard.knowledgePointId), graph_json: draft.graph, settings_json: draft.settings })); close(); navigateTo(`#/student/learning-flow/editor/${created.template_id}`); } catch (error) { event.currentTarget.disabled = false; event.currentTarget.textContent = '使用此流程'; showToast(error.message || '保存失败', 'error'); } };
+    host.querySelector('[data-manual]').onclick = () => { sessionStorage.setItem(FLOW_DRAFT_STORAGE_KEY, JSON.stringify({ title, goalText: prompt, creationMode: 'ai_generated', courseId: Number(wizard.courseId), knowledgePointId: Number(wizard.knowledgePointId), description, settings: draft.settings || wizardSettings, graph: draft.graph })); close(); navigateTo('#/student/learning-flow/editor/new'); };
+    host.querySelector('[data-save-ai]').onclick = async (event) => { event.currentTarget.disabled = true; event.currentTarget.textContent = '正在保存…'; try { const created = responseData(await learningWorkflowApi.createTemplate({ title, description: description || prompt, course_id: Number(wizard.courseId), knowledge_point_id: Number(wizard.knowledgePointId), graph_json: draft.graph, settings_json: draft.settings })); state.learningPlan = responseData(await studentLearningPlanApi.create({ courseId: Number(wizard.courseId), knowledgePointId: Number(wizard.knowledgePointId), goalText: prompt, workflowTemplateId: created.template_id, workflowVersionId: created.latestVersion?.version_id, creationMode: 'ai_generated', status: 'ready', targetMastery: draft.settings?.target_mastery || wizardSettings.target_mastery, completionMode: draft.settings?.completion_mode || wizardSettings.completion_mode, estimatedMinutes: draft.settings?.estimated_minutes || wizardSettings.estimated_minutes })); close(); navigateTo(`#/student/learning-flow/editor/${created.template_id}`); } catch (error) { event.currentTarget.disabled = false; event.currentTarget.textContent = '使用此流程'; showToast(error.message || '保存失败', 'error'); } };
   } catch (error) { button.disabled = false; button.textContent = '重新生成'; progress.remove(); showToast(error.message || 'AI 生成失败，可改用手动编排', 'error'); }
   finally { clearInterval(stageTimer); }
 }
 async function startFlow(templateId, courseId, knowledgePointId, done) {
   if (!templateId) { showToast('没有可用的学习流模板', 'warning'); return; }
-  const flow = state.items.find(item => Number(item.template_id) === Number(templateId));
-  const context = state.learningContext && Number(state.learningContext.workflowTemplateId) === Number(templateId) ? state.learningContext : null;
-  const prepared = flow?.preloadReady ? { preloadId: flow.preloadId, learningGoalId: flow.preloadLearningGoalId } : context ? { learningGoalId: context.learningGoalId } : {};
-  try { const result = responseData(await learningWorkflowApi.quickStart({ templateId, courseId, knowledgePointId, ...prepared })); const session = result.session; if (!session?.session_id) throw new Error('学习会话创建失败'); if (result.preload?.cachedFirstNode) sessionStorage.setItem(`discimind:preload:${session.session_id}`, JSON.stringify(result.preload)); done?.(); navigateTo(`#/student/learning/session/${session.session_id}`); } catch (error) { showToast(error.message || '无法开始学习', 'error'); }
+  const plan = state.learningPlan
+  if (!contextIsReady() || Number(plan.workflowTemplateId) !== Number(templateId) || Number(plan.courseId) !== Number(courseId) || Number(plan.knowledgePointId) !== Number(knowledgePointId)) {
+    done?.()
+    openLearningPlanWizard({ missingStep: 1, preferredTemplateId: Number(templateId) })
+    return
+  }
+  try { const result = responseData(await studentLearningPlanApi.start(plan.id)); const session = result.session; if (!session?.session_id) throw new Error('学习会话创建失败'); done?.(); navigateTo(`#/student/learning/session/${session.session_id}`); } catch (error) { showToast(error.message || '无法开始学习', 'error'); }
 }

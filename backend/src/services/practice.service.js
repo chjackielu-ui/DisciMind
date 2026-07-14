@@ -2013,12 +2013,19 @@ async function startTaskAttempt(userId, taskId) {
     throw Object.assign(new Error('任务不存在'), { code: 40002 });
   }
 
-  // 2. 校验学生已选修课程
+  // 2. 校验学生属于任务指定教学班，并且是发布接收人。
   const enrollment = await prisma.studentCourseEnrollment.findFirst({
-    where: { student_user_id: userId, course_id: task.course_id, enrollment_status: 'active' },
+    where: { student_user_id: userId, teaching_class_id: task.teaching_class_id, enrollment_status: 'active' },
   });
   if (!enrollment) {
-    throw Object.assign(new Error('未加入该课程'), { code: 40301 });
+    throw Object.assign(new Error('未加入该教学班或任务不可访问'), { code: 40301 });
+  }
+  const recipientCount = await prisma.learningTaskRecipient.count({ where: { task_id: taskId } });
+  if (recipientCount > 0) {
+    const recipient = await prisma.learningTaskRecipient.findUnique({
+      where: { task_id_student_user_id: { task_id: taskId, student_user_id: userId } },
+    });
+    if (!recipient) throw Object.assign(new Error('该任务未发布给当前学生'), { code: 40301 });
   }
 
   // 3. 校验任务状态
@@ -2064,8 +2071,20 @@ async function startTaskAttempt(userId, taskId) {
     };
   }
 
+  const completedAttemptCount = await prisma.practiceSession.count({
+    where: {
+      student_user_id: userId,
+      source_type: SOURCE_TYPE.TEACHER_TASK,
+      source_id: taskId,
+      status: { in: ['SUBMITTED', 'COMPLETED', 'GRADED'] },
+    },
+  });
+  if (completedAttemptCount >= (task.allowed_attempts || 1)) {
+    throw Object.assign(new Error('已达到允许作答次数'), { code: 40001 });
+  }
+
   // 7. 确定 mode 和 answer_mode
-  const isQuizType = task.task_type === 'QUIZ';
+  const isQuizType = task.task_type === 'QUIZ' || task.task_type === 'EXAM';
   const mode = isQuizType ? ATTEMPT_MODE.EXAM : ATTEMPT_MODE.PAPER_PRACTICE;
   const answerMode = 'PAPER';
 
@@ -2078,7 +2097,7 @@ async function startTaskAttempt(userId, taskId) {
       question_content: q.content,
       title: q.title,
       difficulty_level: toLower(q.difficulty_level),
-      score: q.score,
+      score: link.score ?? q.score,
       question_order: link.question_order,
       is_ai_generated: q.is_ai_generated || false,
       knowledge_points: q.knowledge_point
@@ -2092,19 +2111,21 @@ async function startTaskAttempt(userId, taskId) {
     };
   });
 
-  const totalScore = task.question_links.reduce((sum, l) => sum + (l.question.score || 0), 0);
+  const totalScore = task.question_links.reduce((sum, l) => sum + (l.score ?? l.question.score ?? 0), 0);
 
   // 9. 计算过期时间（限时任务）
   let expiresAt = null;
-  if (task.deadline) {
-    expiresAt = new Date(task.deadline);
-  }
+  const deadlineAt = task.deadline ? new Date(task.deadline) : null;
+  const durationAt = task.duration_minutes ? new Date(now.getTime() + task.duration_minutes * 60 * 1000) : null;
+  if (deadlineAt && durationAt) expiresAt = deadlineAt < durationAt ? deadlineAt : durationAt;
+  else expiresAt = deadlineAt || durationAt;
 
   // 10. 创建 PracticeSession
   const session = await prisma.practiceSession.create({
     data: {
       student_user_id: userId,
       course_id: task.course_id,
+      teaching_class_id: task.teaching_class_id,
       mode,
       answer_mode: answerMode,
       question_count: questions.length,
@@ -2117,9 +2138,12 @@ async function startTaskAttempt(userId, taskId) {
       task_id: taskId,
       navigation_config: {
         navigationMode: 'FREE',
-        allowModifyConfirmedAnswer: false,
+        allowModifyConfirmedAnswer: task.save_draft !== false,
         showResultAfterItemSubmit: isQuizType ? false : true,
         lockNavigationUntilCurrentConfirmed: false,
+        allowPause: task.allow_pause,
+        randomizeQuestions: task.randomize_questions,
+        randomizeOptions: task.randomize_options,
       },
     },
   });

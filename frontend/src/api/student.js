@@ -18,6 +18,36 @@ export function getStudentCourses() {
   return get('/student/courses')
 }
 
+export function getStudentSharedResources(params = {}) {
+  return get('/student/resources', { params })
+}
+
+export function openStudentSharedResource(recipientId) {
+  return post(`/student/resources/${recipientId}/open`, {})
+}
+
+export function completeStudentSharedResource(recipientId) {
+  return post(`/student/resources/${recipientId}/complete`, {})
+}
+
+export async function downloadStudentSharedResource(recipientId, fallbackName = '教学资源') {
+  const token = getToken()
+  const response = await fetch(`${BASE_URL}/student/resources/${recipientId}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include', redirect: 'follow',
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error?.message || payload.message || '资源下载失败')
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get('content-disposition') || ''
+  const matched = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i)
+  const name = matched ? decodeURIComponent(matched[1].replace(/\"/g, '')) : fallbackName
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 /**
  * 获取课程详情
  * @param {number} courseId
@@ -768,6 +798,45 @@ export function deleteAiChatConversation(conversationId) {
   return del(`/ai-chat/conversations/${conversationId}`)
 }
 
+export function uploadAiChatAttachment(file, conversationId = null) {
+  const form = new FormData()
+  form.append('file', file)
+  if (conversationId) form.append('conversationId', String(conversationId))
+  return upload('/ai-chat/attachments', form)
+}
+
+export function renameAiChatConversation(conversationId, title) {
+  return patch(`/ai-chat/conversations/${conversationId}`, { title })
+}
+
+export function bulkManageAiChatConversations(data = {}) {
+  return post('/ai-chat/conversations/bulk', data)
+}
+
+export function createSubjectChatRun(conversationId, data = {}) {
+  return post('/ai-chat/subject-chat/runs', { ...data, conversationId })
+}
+
+export function getSubjectChatRun(runId) {
+  return get(`/ai-chat/subject-chat/runs/${encodeURIComponent(runId)}`)
+}
+
+export function getLatestSubjectChatRun(conversationId) {
+  return get(`/ai-chat/subject-chat/conversations/${conversationId}/runs/latest`)
+}
+
+export function getSubjectChatRunEvents(runId, after = 0) {
+  return get(`/ai-chat/subject-chat/runs/${encodeURIComponent(runId)}/events?after=${Math.max(0, Number(after) || 0)}`)
+}
+
+export function cancelSubjectChatRun(runId) {
+  return post(`/ai-chat/subject-chat/runs/${encodeURIComponent(runId)}/cancel`, {})
+}
+
+export function retrySubjectChatTask(runId, taskId) {
+  return post(`/ai-chat/subject-chat/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/retry`, {})
+}
+
 function parseSseBlock(block, onEvent) {
   const lines = block.split('\n')
   let eventName = 'message'
@@ -853,6 +922,58 @@ export async function streamAiChatMessage(conversationId, data = {}, options = {
 
   buffer += decoder.decode()
   if (buffer.trim()) parseSseBlock(buffer, options.onEvent)
+}
+
+// 使用 fetch 订阅 GET SSE，以便继续携带现有 JWT；服务端事件均有持久化序号，
+// 页面刷新或网络重连时可通过 after 从上次事件继续恢复。
+export async function streamSubjectChatRun(runId, options = {}) {
+  const token = getToken()
+  const after = Math.max(0, Number(options.after) || 0)
+  let response
+  try {
+    response = await fetch(`${BASE_URL}/ai-chat/subject-chat/runs/${encodeURIComponent(runId)}/stream?after=${after}`, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal: options.signal,
+      credentials: 'include',
+    })
+  } catch (error) {
+    if (error.name === 'AbortError') throw error
+    throw new Error('运行事件连接失败，请检查网络连接')
+  }
+  if (!response.ok) {
+    const result = await response.json().catch(() => null)
+    if ((result?.code === 40101 || result?.code === 40102) && !options._retryAuth) {
+      await refreshAuthSession()
+      return streamSubjectChatRun(runId, { ...options, _retryAuth: true })
+    }
+    const error = new Error(result?.message || `运行事件连接失败（HTTP ${response.status}）`)
+    error.code = result?.code
+    throw error
+  }
+  if (!String(response.headers.get('content-type') || '').includes('text/event-stream') || !response.body) {
+    throw new Error('运行事件响应格式异常')
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      if (block.trim() && !block.trimStart().startsWith(':')) parseSseBlock(block, options.onEvent)
+      boundary = buffer.indexOf('\n\n')
+    }
+  }
+  buffer += decoder.decode()
+  if (buffer.trim() && !buffer.trimStart().startsWith(':')) parseSseBlock(buffer, options.onEvent)
 }
 
 // ========================

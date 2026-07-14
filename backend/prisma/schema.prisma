@@ -120,10 +120,14 @@ enum QuestionType {
 }
 
 enum TaskType {
-  HOMEWORK    @map("homework")
-  QUIZ        @map("quiz")
-  STUDY_TASK  @map("study_task")
-  REVIEW_PLAN @map("review_plan")
+  HOMEWORK     @map("homework")
+  EXAM         @map("exam")
+  PRACTICE     @map("practice")
+  MATERIAL     @map("material")
+  ANNOUNCEMENT @map("announcement")
+  QUIZ         @map("quiz")
+  STUDY_TASK   @map("study_task")
+  REVIEW_PLAN  @map("review_plan")
 }
 
 enum TaskStatus {
@@ -140,6 +144,8 @@ enum AsyncTaskType {
   LEARNING_FLOW_PRELOAD
   VOICE_PRELOAD
   LESSON_PLAN_GENERATION
+  LESSON_PLAN_EXPORT
+  TEACHER_ANALYTICS
 }
 
 enum LearningFlowResourceRole {
@@ -308,12 +314,31 @@ enum RunStatus {
 }
 
 enum NotificationType {
-  TASK_PUBLISHED  @map("task_published")
-  TASK_DEADLINE   @map("task_deadline")
-  DOCUMENT_REVIEW @map("document_review")
-  DOCUMENT_PARSED @map("document_parsed")
-  AI_GRADING_DONE @map("ai_grading_done")
-  SYSTEM_NOTICE   @map("system_notice")
+  TASK_PUBLISHED       @map("task_published")
+  TASK_DEADLINE        @map("task_deadline")
+  TASK_SUBMITTED       @map("task_submitted")
+  EXAM_SUBMITTED       @map("exam_submitted")
+  DOCUMENT_REVIEW      @map("document_review")
+  DOCUMENT_PARSED      @map("document_parsed")
+  KNOWLEDGE_APPLICATION @map("knowledge_application")
+  AI_GRADING_DONE      @map("ai_grading_done")
+  FILE_GENERATED       @map("file_generated")
+  AI_TASK_DONE         @map("ai_task_done")
+  STUDENT_RISK         @map("student_risk")
+  CLASS_ALERT          @map("class_alert")
+  FREQUENT_QUESTION    @map("frequent_question")
+  RESOURCE_SHARED      @map("resource_shared")
+  SYSTEM_NOTICE        @map("system_notice")
+}
+
+enum LessonPlanStatus {
+  DRAFT      @map("draft")
+  GENERATING @map("generating")
+  REVIEW     @map("review")
+  READY      @map("ready")
+  PUBLISHED  @map("published")
+  ARCHIVED   @map("archived")
+  FAILED     @map("failed")
 }
 
 enum FeedbackType {
@@ -349,6 +374,7 @@ model User {
   reviewed_documents           KnowledgeDocument[]            @relation("DocumentReviewer")
   document_reviews             KnowledgeDocumentReview[]      @relation("DocumentReviewUser")
   ai_conversations             AiConversation[]               @relation("AiConversationUser")
+  subject_chat_runs            SubjectChatRun[]               @relation("SubjectChatRunUser")
   chat_conversations           ChatConversation[]
   chat_messages                ChatMessage[]
   student_question_records     StudentQuestionRecord[]        @relation("StudentQuestions")
@@ -397,6 +423,7 @@ model User {
   marketplace_agents_created   UserAgent[]                    @relation("MarketplaceAgentCreator")
   marketplace_conversations    MarketplaceAgentConversation[] @relation("MarketplaceConversationUser")
   marketplace_memories         AgentMemory[]                  @relation("MarketplaceMemoryUser")
+  marketplace_agent_invocations MarketplaceAgentInvocation[]  @relation("MarketplaceInvocationUser")
   marketplace_favorites        AgentFavorite[]
   marketplace_ratings          AgentRating[]
   marketplace_reports          AgentReport[]                  @relation("MarketplaceReportUser")
@@ -410,6 +437,22 @@ model User {
   learning_flow_preloads       LearningFlowPreload[]
   generated_artifact_exports   GeneratedArtifactExport[]
   active_learning_context      StudentLearningContext?
+  learning_plans               StudentLearningPlan[]
+  primary_teaching_classes     TeachingClass[]                 @relation("TeachingClassPrimaryTeacher")
+  teaching_class_authorizations TeachingClassTeacherAuthorization[]
+  advised_admin_classes        AdminClass[]                    @relation("AdminClassAdvisor")
+  created_lesson_plans         LessonPlan[]                    @relation("LessonPlanCreator")
+  created_lesson_plan_versions LessonPlanVersion[]             @relation("LessonPlanVersionCreator")
+  lesson_plan_agent_executions LessonPlanAgentExecution[]      @relation("LessonPlanAgentExecutionTeacher")
+  analytics_snapshots          TeacherAnalyticsSnapshot[]
+  teacher_interventions        TeacherStudentIntervention[]    @relation("TeacherInterventionTeacher")
+  student_interventions        TeacherStudentIntervention[]    @relation("TeacherInterventionStudent")
+  task_recipients              LearningTaskRecipient[]         @relation("TaskRecipientStudent")
+  resource_distributions_sent  ResourceDistribution[]          @relation("ResourceDistributionSender")
+  resource_recipients          ResourceRecipient[]              @relation("ResourceRecipientStudent")
+  owned_editable_documents     EditableTeachingDocument[]       @relation("EditableDocumentOwner")
+  created_editable_versions    EditableTeachingDocumentVersion[] @relation("EditableDocumentVersionCreator")
+  created_document_revisions   DocumentRevision[]               @relation("DocumentRevisionCreator")
 
   @@index([role])
   @@index([status])
@@ -439,17 +482,28 @@ model AsyncTask {
   attemptCount        Int                   @default(0) @map("attempt_count")
   maxAttempts         Int                   @default(3) @map("max_attempts")
   metadataJson        Json?                 @map("metadata_json")
+  requestPayloadJson Json?                 @map("request_payload_json")
+  agentId             Int?                  @map("agent_id")
+  conversationId      Int?                  @map("conversation_id")
+  parentTaskId        Int?                  @map("parent_task_id")
+  rootTaskId          Int?                  @map("root_task_id")
+  taskGroupId         String?               @map("task_group_id") @db.VarChar(64)
+  dedupeKey           String?               @map("dedupe_key") @db.VarChar(128)
+  userVisible         Boolean               @default(true) @map("user_visible")
   lockedBy            String?               @map("locked_by") @db.VarChar(128)
   lockedAt            DateTime?             @map("locked_at")
   nextRunAt           DateTime              @default(now()) @map("next_run_at")
   dismissedAt         DateTime?             @map("dismissed_at")
   startedAt           DateTime?             @map("started_at")
   completedAt         DateTime?             @map("completed_at")
+  cancelledAt         DateTime?             @map("cancelled_at")
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
 
   user              User               @relation(fields: [userId], references: [user_id], onDelete: Cascade)
   generatedArtifact GeneratedArtifact? @relation("GeneratedArtifactTask")
+  agent             UserAgent?         @relation("AsyncTaskAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  conversation      MarketplaceAgentConversation? @relation("AsyncTaskConversation", fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@unique([userId, operationId], map: "async_tasks_user_operation_key")
   @@index([userId, status, updatedAt], map: "async_tasks_user_status_updated_idx")
@@ -457,6 +511,10 @@ model AsyncTask {
   @@index([status, updatedAt], map: "async_tasks_status_updated_idx")
   @@index([status, nextRunAt], map: "async_tasks_status_next_run_idx")
   @@index([lockedAt], map: "async_tasks_locked_at_idx")
+  @@index([agentId, status], map: "async_tasks_agent_status_idx")
+  @@index([conversationId, createdAt], map: "async_tasks_conversation_created_idx")
+  @@index([rootTaskId, parentTaskId], map: "async_tasks_hierarchy_idx")
+  @@index([userId, taskType, dedupeKey], map: "async_tasks_user_type_dedupe_idx")
   @@map("async_tasks")
 }
 
@@ -514,6 +572,9 @@ model UserProfile {
   grade          String?  @db.VarChar(20)
   admin_class_id Int?
   avatar_url     String?  @db.VarChar(500)
+  professional_title String? @db.VarChar(100)
+  teacher_preferences Json?
+  default_course_id Int?
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
@@ -527,16 +588,75 @@ model UserProfile {
 model AdminClass {
   admin_class_id Int      @id @default(autoincrement())
   class_name     String   @db.VarChar(100)
+  college_id     Int?
+  major_id       Int?
   college        String?  @db.VarChar(100)
   major          String?  @db.VarChar(100)
   grade          String?  @db.VarChar(20)
+  advisor_user_id Int?
+  status          String   @default("active") @db.VarChar(20)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
-  students UserProfile[]
+  students             UserProfile[]
+  college_entity       College?                  @relation(fields: [college_id], references: [college_id], onDelete: SetNull)
+  major_entity         Major?                    @relation(fields: [major_id], references: [major_id], onDelete: SetNull)
+  advisor              User?                     @relation("AdminClassAdvisor", fields: [advisor_user_id], references: [user_id], onDelete: SetNull)
+  teaching_class_links TeachingClassAdminClass[]
 
   @@unique([class_name, grade])
+  @@index([college_id])
+  @@index([major_id])
+  @@index([advisor_user_id])
+  @@index([status])
   @@map("admin_classes")
+}
+
+model College {
+  college_id Int      @id @default(autoincrement())
+  name       String   @unique @db.VarChar(120)
+  code       String?  @unique @db.VarChar(50)
+  status     String   @default("active") @db.VarChar(20)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  majors        Major[]
+  admin_classes AdminClass[]
+
+  @@map("colleges")
+}
+
+model Major {
+  major_id   Int      @id @default(autoincrement())
+  college_id Int
+  name       String   @db.VarChar(120)
+  code       String?  @unique @db.VarChar(50)
+  status     String   @default("active") @db.VarChar(20)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  college       College      @relation(fields: [college_id], references: [college_id], onDelete: Cascade)
+  admin_classes AdminClass[]
+
+  @@unique([college_id, name])
+  @@index([college_id])
+  @@map("majors")
+}
+
+model AcademicSemester {
+  semester_id Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(50)
+  name        String   @db.VarChar(100)
+  start_date  DateTime
+  end_date    DateTime
+  status      String   @default("active") @db.VarChar(20)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  course_offerings CourseOffering[]
+
+  @@index([status])
+  @@map("academic_semesters")
 }
 
 // ========================
@@ -590,9 +710,38 @@ model Course {
   generated_artifacts          GeneratedArtifact[]
   learning_flow_resource_links LearningFlowResourceLink[]
   student_learning_contexts    StudentLearningContext[]
+  student_learning_plans       StudentLearningPlan[]
+  course_offerings             CourseOffering[]
+  lesson_plans                 LessonPlan[]
+  analytics_snapshots          TeacherAnalyticsSnapshot[]
+  teacher_interventions        TeacherStudentIntervention[]
+  resource_distributions       ResourceDistribution[]
+  editable_documents           EditableTeachingDocument[]
 
   @@index([status])
   @@map("courses")
+}
+
+model CourseOffering {
+  course_offering_id Int      @id @default(autoincrement())
+  course_id          Int
+  semester_id        Int
+  start_date         DateTime?
+  end_date           DateTime?
+  teaching_progress  Json?
+  status             String   @default("active") @db.VarChar(20)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  course           Course           @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  semester         AcademicSemester @relation(fields: [semester_id], references: [semester_id], onDelete: Restrict)
+  teaching_classes TeachingClass[]
+  lesson_plans     LessonPlan[]
+
+  @@unique([course_id, semester_id])
+  @@index([semester_id])
+  @@index([status])
+  @@map("course_offerings")
 }
 
 model CourseTeacherRelation {
@@ -613,13 +762,25 @@ model CourseTeacherRelation {
 model TeachingClass {
   teaching_class_id   Int      @id @default(autoincrement())
   course_id           Int
+  course_offering_id  Int?
+  teacher_user_id     Int?
   teaching_class_name String   @db.VarChar(100)
+  code                String?  @unique @db.VarChar(80)
   semester            String?  @db.VarChar(50)
   description         String?  @db.Text
+  schedule            Json?
+  location            String?  @db.VarChar(200)
+  capacity            Int?
+  status              String   @default("active") @db.VarChar(20)
+  archived_at         DateTime?
   created_at          DateTime @default(now())
   updated_at          DateTime @updatedAt
 
   course                      Course                      @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  course_offering             CourseOffering?             @relation(fields: [course_offering_id], references: [course_offering_id], onDelete: SetNull)
+  primary_teacher             User?                       @relation("TeachingClassPrimaryTeacher", fields: [teacher_user_id], references: [user_id], onDelete: SetNull)
+  teacher_authorizations      TeachingClassTeacherAuthorization[]
+  admin_class_links           TeachingClassAdminClass[]
   enrollments                 StudentCourseEnrollment[]
   knowledge_bases             KnowledgeBase[]
   knowledge_documents         KnowledgeDocument[]
@@ -628,9 +789,49 @@ model TeachingClass {
   ai_question_generation_logs AiQuestionGenerationLog[]
   learning_tasks              LearningTask[]
   practice_sessions           PracticeSession[]
+  lesson_plans                LessonPlan[]
+  analytics_snapshots         TeacherAnalyticsSnapshot[]
+  teacher_interventions       TeacherStudentIntervention[]
+  resource_distributions      ResourceDistribution[]
+  editable_documents          EditableTeachingDocument[]
 
   @@unique([course_id, teaching_class_name])
+  @@index([course_offering_id])
+  @@index([teacher_user_id])
+  @@index([status])
   @@map("teaching_classes")
+}
+
+model TeachingClassTeacherAuthorization {
+  authorization_id Int      @id @default(autoincrement())
+  teaching_class_id Int
+  teacher_user_id   Int
+  role              String   @default("assistant") @db.VarChar(30)
+  status            String   @default("active") @db.VarChar(20)
+  granted_by_user_id Int?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  teaching_class TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+  teacher        User          @relation(fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([teaching_class_id, teacher_user_id])
+  @@index([teacher_user_id, status])
+  @@map("teaching_class_teacher_authorizations")
+}
+
+model TeachingClassAdminClass {
+  link_id           Int      @id @default(autoincrement())
+  teaching_class_id Int
+  admin_class_id    Int
+  created_at        DateTime @default(now())
+
+  teaching_class TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+  admin_class    AdminClass    @relation(fields: [admin_class_id], references: [admin_class_id], onDelete: Cascade)
+
+  @@unique([teaching_class_id, admin_class_id])
+  @@index([admin_class_id])
+  @@map("teaching_class_admin_classes")
 }
 
 model StudentCourseEnrollment {
@@ -639,14 +840,15 @@ model StudentCourseEnrollment {
   course_id         Int
   teaching_class_id Int
   enrollment_status String   @default("active") @db.VarChar(20)
+  joined_at         DateTime @default(now())
   created_at        DateTime @default(now())
 
   student       User          @relation("StudentEnrollments", fields: [student_user_id], references: [user_id], onDelete: Cascade)
   course        Course        @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
   teachingClass TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
 
-  @@unique([student_user_id, course_id])
   @@unique([student_user_id, course_id, teaching_class_id])
+  @@index([student_user_id, course_id])
   @@index([course_id])
   @@index([teaching_class_id])
   @@map("student_course_enrollments")
@@ -664,6 +866,7 @@ model Chapter {
   course           Course           @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
   knowledge_points KnowledgePoint[]
   wrong_questions  WrongQuestion[]
+  lesson_plans     LessonPlan[]
 
   @@index([course_id])
   @@map("chapters")
@@ -709,6 +912,7 @@ model KnowledgePoint {
   learning_goals               LearningGoal[]
   learning_flow_resource_links LearningFlowResourceLink[]
   student_learning_contexts    StudentLearningContext[]
+  student_learning_plans       StudentLearningPlan[]
 
   @@unique([course_id, knowledge_point_code])
   @@index([chapter_id])
@@ -743,6 +947,13 @@ model KnowledgeBase {
   description            String?   @db.Text
   status                 String    @default("active") @db.VarChar(20)
   dify_dataset_id        String?   @db.VarChar(255)
+  provider               String    @default("DIFY") @db.VarChar(32)
+  ownership_mode         String    @default("LOCAL_MANAGED") @db.VarChar(32)
+  remote_status          String?   @db.VarChar(32)
+  remote_document_count  Int?
+  last_synced_at         DateTime?
+  sync_error             String?   @db.Text
+  remote_documents_json  Json?
   marketplace_visibility String    @default("PRIVATE") @db.VarChar(24)
   marketplace_status     String    @default("DRAFT") @db.VarChar(32)
   document_count         Int       @default(0)
@@ -786,7 +997,22 @@ model KnowledgeDocument {
   visibility         Visibility   @default(PRIVATE)
   course_id          Int?
   teaching_class_id  Int?
+  lesson_plan_id     Int?
+  source_artifact_id Int?
   owner_user_id      Int
+  is_teaching_resource Boolean @default(false)
+  resource_kind      String?      @db.VarChar(50)
+  resource_category  String?      @db.VarChar(100)
+  external_url       String?      @db.VarChar(1000)
+  metadata_json      Json?
+  resource_group_id  String?      @db.VarChar(64)
+  resource_version   Int          @default(1)
+  version_source     String       @default("LOCAL_IMPORT") @db.VarChar(32)
+  folder_path        String?      @db.VarChar(500)
+  tags_json          Json?
+  is_favorite        Boolean      @default(false)
+  resource_status    String       @default("ACTIVE") @db.VarChar(24)
+  last_used_at       DateTime?
   parse_status       ParseStatus  @default(UPLOADED)
   review_status      ReviewStatus @default(PENDING)
   reviewer_user_id   Int?
@@ -799,12 +1025,25 @@ model KnowledgeDocument {
   operation_id       String?      @unique @db.VarChar(64)
   deleted_at         DateTime?
   error_message      String?      @db.Text
+  error_code         String?      @db.VarChar(100)
+  error_stage        String?      @db.VarChar(32)
+  retryable          Boolean      @default(true)
+  failed_at          DateTime?
+  attempt_count      Int          @default(0)
+  processing_state   String       @default("uploaded") @db.VarChar(32)
+  cleaned_text       String?      @db.LongText
+  page_count         Int?
+  chunk_size         Int          @default(800)
+  chunk_overlap      Int          @default(120)
+  separator_strategy String       @default("structure") @db.VarChar(32)
   created_at         DateTime     @default(now())
   updated_at         DateTime     @updatedAt
 
   knowledge_base      KnowledgeBase?            @relation(fields: [knowledge_base_id], references: [knowledge_base_id], onDelete: SetNull)
   course              Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
   teaching_class      TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  lesson_plan         LessonPlan?                @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: SetNull)
+  source_artifact     GeneratedArtifact?          @relation(fields: [source_artifact_id], references: [id], onDelete: SetNull)
   owner               User                      @relation("DocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
   reviewer            User?                     @relation("DocumentReviewer", fields: [reviewer_user_id], references: [user_id], onDelete: SetNull)
   chunks              KnowledgeDocumentChunk[]
@@ -812,17 +1051,74 @@ model KnowledgeDocument {
   message_sources     MessageSource[]
   summaries           DocumentSummaryRecord[]
   marketplace_sources AgentMessageSource[]
+  task_attachments     TeachingTaskAttachment[]
+  distributions        ResourceDistribution[]
+  editable_documents   EditableTeachingDocument[] @relation("EditableDocumentSourceResource")
 
   @@unique([knowledge_base_id, file_checksum])
   @@index([knowledge_base_id])
   @@index([owner_user_id])
   @@index([course_id])
   @@index([teaching_class_id])
+  @@index([lesson_plan_id])
+  @@index([source_artifact_id], map: "kd_source_artifact_idx")
+  @@index([owner_user_id, is_teaching_resource])
+  @@unique([resource_group_id, resource_version], map: "kd_resource_group_version_key")
+  @@index([owner_user_id, resource_status, last_used_at], map: "kd_owner_status_used_idx")
   @@index([parse_status])
   @@index([review_status])
   @@index([marketplace_status])
   @@index([deleted_at])
   @@map("knowledge_documents")
+}
+
+model ResourceDistribution {
+  distribution_id  Int       @id @default(autoincrement())
+  resource_id       Int
+  sender_user_id    Int
+  course_id         Int?
+  teaching_class_id Int?
+  title             String    @db.VarChar(200)
+  description       String?   @db.Text
+  distribution_type String    @db.VarChar(40)
+  resource_version  Int       @default(1)
+  publish_at        DateTime  @default(now())
+  due_at            DateTime?
+  status            String    @default("PUBLISHED") @db.VarChar(24)
+  operation_id      String    @unique(map: "rd_operation_key") @db.VarChar(80)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  resource      KnowledgeDocument @relation(fields: [resource_id], references: [document_id], onDelete: Restrict)
+  sender        User              @relation("ResourceDistributionSender", fields: [sender_user_id], references: [user_id], onDelete: Restrict)
+  course        Course?           @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teachingClass TeachingClass?    @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  recipients    ResourceRecipient[]
+
+  @@index([resource_id, resource_version], map: "rd_resource_version_idx")
+  @@index([sender_user_id, created_at], map: "rd_sender_created_idx")
+  @@index([course_id, teaching_class_id, publish_at], map: "rd_course_class_publish_idx")
+  @@index([status, publish_at], map: "rd_status_publish_idx")
+  @@map("resource_distributions")
+}
+
+model ResourceRecipient {
+  recipient_id    Int       @id @default(autoincrement())
+  distribution_id Int
+  student_user_id Int
+  read_at          DateTime?
+  downloaded_at    DateTime?
+  completed_at     DateTime?
+  status           String    @default("UNREAD") @db.VarChar(24)
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  distribution ResourceDistribution @relation(fields: [distribution_id], references: [distribution_id], onDelete: Cascade)
+  student      User                 @relation("ResourceRecipientStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([distribution_id, student_user_id], map: "rr_distribution_student_key")
+  @@index([student_user_id, status, created_at], map: "rr_student_status_created_idx")
+  @@map("resource_recipients")
 }
 
 model KnowledgeDocumentChunk {
@@ -835,6 +1131,11 @@ model KnowledgeDocumentChunk {
   embedding_id      String?  @db.VarChar(255)
   vector_store_type String?  @db.VarChar(50)
   dify_segment_id   String?  @db.VarChar(255)
+  title_path        String?  @db.VarChar(500)
+  char_count        Int?
+  chunk_hash        String?  @db.VarChar(64)
+  metadata_json     Json?
+  status            String   @default("ready") @db.VarChar(24)
   created_at        DateTime @default(now())
 
   document        KnowledgeDocument @relation(fields: [document_id], references: [document_id], onDelete: Cascade)
@@ -872,11 +1173,14 @@ model AiConversation {
   mode      AiChatMode @default(GENERAL)
   subject   String?    @db.VarChar(64)
   agentType String?    @map("agent_type") @db.VarChar(64)
+  agentRuntimeStateJson Json? @map("agent_runtime_state_json")
   createdAt DateTime   @default(now()) @map("created_at")
   updatedAt DateTime   @updatedAt @map("updated_at")
 
-  user     User        @relation("AiConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  user     User             @relation("AiConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
   messages AiMessage[]
+  runs     SubjectChatRun[]
+  marketplaceAgentInvocations MarketplaceAgentInvocation[]
 
   @@index([userId])
   @@index([mode])
@@ -885,18 +1189,157 @@ model AiConversation {
 }
 
 model AiMessage {
-  id             Int         @id @default(autoincrement())
-  conversationId Int         @map("conversation_id")
-  role           MessageRole
-  content        String      @db.Text
-  attachments    Json?
-  createdAt      DateTime    @default(now()) @map("created_at")
+  id                    Int         @id @default(autoincrement())
+  conversationId        Int         @map("conversation_id")
+  clientRequestId       String?     @map("client_request_id") @db.VarChar(80)
+  role                  MessageRole
+  content               String      @db.LongText
+  attachments           Json?
+  knowledgeBaseRefsJson Json?       @map("knowledge_base_refs_json")
+  agentRefsJson         Json?       @map("agent_refs_json")
+  sourcesJson           Json?       @map("sources_json")
+  createdAt             DateTime    @default(now()) @map("created_at")
 
-  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation                AiConversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  marketplaceAgentInvocations MarketplaceAgentInvocation[]
 
   @@index([conversationId])
   @@index([role])
+  @@unique([conversationId, clientRequestId])
   @@map("ai_messages")
+}
+
+model AiChatAttachment {
+  id             String   @id @default(uuid()) @db.VarChar(36)
+  userId         Int      @map("user_id")
+  conversationId Int?     @map("conversation_id")
+  messageId      Int?     @map("message_id")
+  fileName       String   @map("file_name") @db.VarChar(255)
+  mimeType       String   @map("mime_type") @db.VarChar(120)
+  fileExtension  String   @map("file_extension") @db.VarChar(16)
+  sizeBytes      BigInt   @map("size_bytes")
+  storagePath    String   @map("storage_path") @db.VarChar(1000)
+  checksum       String   @db.VarChar(64)
+  status         String   @default("READY") @db.VarChar(24)
+  extractedText  String?  @map("extracted_text") @db.LongText
+  metadataJson   Json?    @map("metadata_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@index([conversationId, messageId])
+  @@map("ai_chat_attachments")
+}
+
+// 学科答疑工作台的一次可恢复运行。运行、步骤、事件和来源独立于消息，
+// 因而旧会话无需回填也能继续按原聊天结构读取。
+model SubjectChatRun {
+  id                 String    @id @default(uuid()) @db.VarChar(36)
+  conversationId     Int       @map("conversation_id")
+  userId             Int       @map("user_id")
+  assistantMode      String    @default("subject") @map("assistant_mode") @db.VarChar(32)
+  courseId           Int?      @map("course_id")
+  knowledgePointId   Int?      @map("knowledge_point_id")
+  status             String    @default("pending") @db.VarChar(24)
+  progress           Int       @default(0)
+  currentTask        String?   @map("current_task") @db.VarChar(160)
+  totalTaskCount     Int       @default(0) @map("total_task_count")
+  completedTaskCount Int       @default(0) @map("completed_task_count")
+  pendingTaskCount   Int       @default(0) @map("pending_task_count")
+  userMessageId      Int?      @map("user_message_id")
+  finalMessageId     Int?      @map("final_message_id")
+  finalAnswer        String?   @map("final_answer") @db.LongText
+  errorMessage       String?   @map("error_message") @db.Text
+  graphVersion       String    @default("agent-orchestration-v1") @map("graph_version") @db.VarChar(64)
+  currentNode        String?   @map("current_node") @db.VarChar(64)
+  stateJson          Json?     @map("state_json")
+  operationId        String?   @unique @map("operation_id") @db.VarChar(96)
+  startedAt          DateTime? @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  conversation AiConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User                @relation("SubjectChatRunUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  tasks        SubjectChatTask[]
+  events       SubjectChatEvent[]
+  sources      SubjectChatSource[]
+
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([status])
+  @@map("subject_chat_runs")
+}
+
+model SubjectChatTask {
+  id            String    @id @default(uuid()) @db.VarChar(36)
+  runId         String    @map("run_id") @db.VarChar(36)
+  taskType      String    @map("task_type") @db.VarChar(64)
+  title         String    @db.VarChar(160)
+  description   String?   @db.Text
+  status        String    @default("pending") @db.VarChar(24)
+  orderIndex    Int       @map("order_index")
+  progress      Int       @default(0)
+  inputSummary  String?   @map("input_summary") @db.Text
+  outputSummary String?   @map("output_summary") @db.Text
+  errorMessage  String?   @map("error_message") @db.Text
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  run     SubjectChatRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  events  SubjectChatEvent[]
+  sources SubjectChatSource[]
+
+  @@unique([runId, orderIndex])
+  @@index([runId, status])
+  @@index([taskType])
+  @@map("subject_chat_tasks")
+}
+
+model SubjectChatEvent {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  runId     String   @map("run_id") @db.VarChar(36)
+  taskId    String?  @map("task_id") @db.VarChar(36)
+  sequence  Int
+  eventType String   @map("event_type") @db.VarChar(64)
+  title     String?  @db.VarChar(160)
+  message   String?  @db.Text
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  run  SubjectChatRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  task SubjectChatTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
+  @@index([taskId])
+  @@index([eventType])
+  @@map("subject_chat_events")
+}
+
+model SubjectChatSource {
+  id             String   @id @default(uuid()) @db.VarChar(36)
+  runId          String   @map("run_id") @db.VarChar(36)
+  taskId         String?  @map("task_id") @db.VarChar(36)
+  sourceType     String   @map("source_type") @db.VarChar(48)
+  title          String   @db.VarChar(255)
+  summary        String?  @db.Text
+  url            String?  @db.VarChar(1000)
+  documentId     String?  @map("document_id") @db.VarChar(255)
+  datasetId      String?  @map("dataset_id") @db.VarChar(255)
+  relevanceScore Float?   @map("relevance_score")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  run  SubjectChatRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  task SubjectChatTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([runId, createdAt])
+  @@index([taskId])
+  @@index([sourceType])
+  @@map("subject_chat_sources")
 }
 
 model ChatConversation {
@@ -1263,6 +1706,27 @@ model LearningTask {
   start_time         DateTime?
   deadline           DateTime?
   allow_late_submit  Boolean    @default(false)
+  duration_minutes   Int?
+  allowed_attempts   Int        @default(1)
+  allow_pause        Boolean    @default(false)
+  save_draft         Boolean    @default(true)
+  randomize_questions Boolean   @default(false)
+  randomize_options  Boolean    @default(false)
+  show_score_policy  String     @default("after_submit") @db.VarChar(30)
+  show_answer_policy String     @default("after_deadline") @db.VarChar(30)
+  show_analysis_policy String   @default("after_deadline") @db.VarChar(30)
+  auto_grade         Boolean    @default(true)
+  ai_grade_subjective Boolean   @default(false)
+  full_screen_mode   Boolean    @default(false)
+  source_mode        String     @default("question_bank") @db.VarChar(30)
+  total_score        Float?
+  pass_score         Float?
+  instructions       String?    @db.Text
+  rules              String?    @db.Text
+  configuration_json Json?
+  published_at       DateTime?
+  score_release_at   DateTime?
+  analysis_release_at DateTime?
   status             TaskStatus @default(DRAFT)
   created_at         DateTime   @default(now())
   updated_at         DateTime   @updatedAt
@@ -1274,6 +1738,8 @@ model LearningTask {
   knowledge_point_links TaskKnowledgePoint[]
   submissions           TaskSubmission[]
   answer_records        AnswerRecord[]
+  recipients            LearningTaskRecipient[]
+  attachments           TeachingTaskAttachment[]
 
   @@index([course_id])
   @@index([teaching_class_id])
@@ -1288,12 +1754,46 @@ model TaskQuestion {
   task_id          Int
   question_id      Int
   question_order   Int @default(0)
+  score            Float?
 
   task     LearningTask @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
   question Question     @relation(fields: [question_id], references: [question_id], onDelete: Cascade)
 
   @@unique([task_id, question_id])
   @@map("task_questions")
+}
+
+model LearningTaskRecipient {
+  recipient_id      Int      @id @default(autoincrement())
+  task_id           Int
+  student_user_id   Int
+  teaching_class_id Int
+  delivery_status   String   @default("delivered") @db.VarChar(20)
+  viewed_at         DateTime?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  task    LearningTask @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
+  student User         @relation("TaskRecipientStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([task_id, student_user_id])
+  @@index([student_user_id, delivery_status])
+  @@index([teaching_class_id])
+  @@map("learning_task_recipients")
+}
+
+model TeachingTaskAttachment {
+  attachment_id Int      @id @default(autoincrement())
+  task_id       Int
+  document_id   Int
+  created_at    DateTime @default(now())
+
+  task     LearningTask      @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
+  document KnowledgeDocument @relation(fields: [document_id], references: [document_id], onDelete: Cascade)
+
+  @@unique([task_id, document_id])
+  @@index([document_id])
+  @@map("teaching_task_attachments")
 }
 
 model TaskKnowledgePoint {
@@ -2226,8 +2726,13 @@ model Notification {
   content           String?          @db.Text
   target_type       String?          @db.VarChar(50)
   target_id         Int?
+  business_type     String?          @db.VarChar(50)
+  business_id       Int?
+  idempotency_key   String?          @unique @db.VarChar(160)
   is_read           Boolean          @default(false)
   read_at           DateTime?
+  expires_at        DateTime?
+  deleted_at        DateTime?
   created_at        DateTime         @default(now())
 
   receiver User  @relation("NotificationReceiver", fields: [receiver_user_id], references: [user_id], onDelete: Cascade)
@@ -2236,7 +2741,39 @@ model Notification {
   @@index([receiver_user_id])
   @@index([notification_type])
   @@index([is_read])
+  @@index([receiver_user_id, deleted_at, created_at])
+  @@index([business_type, business_id])
   @@map("notifications")
+}
+
+model TeacherReminder {
+  id               Int      @id @default(autoincrement())
+  teacherUserId    Int      @map("teacher_user_id")
+  title            String   @db.VarChar(200)
+  description      String?  @db.Text
+  reminderType     String   @default("manual") @map("reminder_type") @db.VarChar(40)
+  priority         String   @default("normal") @db.VarChar(20)
+  courseId         Int?     @map("course_id")
+  teachingClassId  Int?     @map("teaching_class_id")
+  businessType     String?  @map("business_type") @db.VarChar(50)
+  businessId       Int?     @map("business_id")
+  startAt          DateTime @map("start_at")
+  remindAt         DateTime @map("remind_at")
+  endAt            DateTime? @map("end_at")
+  recurrenceRule   Json?    @map("recurrence_rule")
+  advanceMinutes   Int      @default(0) @map("advance_minutes")
+  status           String   @default("pending") @db.VarChar(20)
+  snoozedUntil     DateTime? @map("snoozed_until")
+  completedAt      DateTime? @map("completed_at")
+  dismissedAt      DateTime? @map("dismissed_at")
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([teacherUserId, status, remindAt])
+  @@index([courseId, teachingClassId])
+  @@index([businessType, businessId])
+  @@map("teacher_reminders")
 }
 
 model OperationLog {
@@ -2354,6 +2891,11 @@ model UserAgent {
   status                 String               @default("PRIVATE") @db.VarChar(24)
   agentType              MarketplaceAgentType @default(CHAT) @map("agent_type")
   visibility             String               @default("PRIVATE") @db.VarChar(24)
+  subjectScope           String               @default("GENERAL") @map("subject_scope") @db.VarChar(24)
+  courseId               Int?                 @map("course_id")
+  subjectCode            String?              @map("subject_code") @db.VarChar(64)
+  allowedCourseIdsJson   Json?                 @map("allowed_course_ids_json")
+  isCrossSubjectUtility  Boolean              @default(false) @map("is_cross_subject_utility")
   categoryId             Int?                 @map("category_id")
   usageCount             Int                  @default(0) @map("usage_count")
   favoriteCount          Int                  @default(0) @map("favorite_count")
@@ -2363,6 +2905,11 @@ model UserAgent {
   operationId            String?              @unique @map("operation_id") @db.VarChar(64)
   systemKey              String?              @unique @map("system_key") @db.VarChar(100)
   isSystem               Boolean              @default(false) @map("is_system")
+  iconKey                String?              @map("icon_key") @db.VarChar(64)
+  iconColor              String?              @map("icon_color") @db.VarChar(16)
+  iconBackground         String?              @map("icon_background") @db.VarChar(16)
+  avatarUrl              String?              @map("avatar_url") @db.VarChar(500)
+  iconUpdatedAt          DateTime?            @map("icon_updated_at")
   createdAt              DateTime             @default(now()) @map("created_at")
   updatedAt              DateTime             @updatedAt @map("updated_at")
   deletedAt              DateTime?            @map("deleted_at")
@@ -2381,11 +2928,14 @@ model UserAgent {
   reports              AgentReport[]
   reviews              AgentReviewRecord[]
   generatedArtifacts   GeneratedArtifact[]
+  asyncTasks           AsyncTask[]                     @relation("AsyncTaskAgent")
+  invocations          MarketplaceAgentInvocation[]
 
   @@index([creatorUserId, status])
   @@index([status, visibility, deletedAt])
   @@index([agentType, status, visibility, deletedAt])
   @@index([isSystem, agentType])
+  @@index([subjectScope, courseId])
   @@index([categoryId])
   @@index([copiedFromAgentId])
   @@map("user_agents")
@@ -2409,6 +2959,8 @@ model UserAgentVersion {
   maxOutputTokens         Int       @default(1200) @map("max_output_tokens")
   memoryEnabledByDefault  Boolean   @default(false) @map("memory_enabled_by_default")
   fileGeneratorConfigJson Json?     @map("file_generator_config_json")
+  runtimeProvider         String    @default("MODEL") @map("runtime_provider") @db.VarChar(32)
+  runtimeConfigJson       Json?     @map("runtime_config_json")
   reviewStatus            String    @default("DRAFT") @map("review_status") @db.VarChar(24)
   reviewReason            String?   @map("review_reason") @db.Text
   changeSummary           String?   @map("change_summary") @db.VarChar(500)
@@ -2468,6 +3020,9 @@ model MarketplaceAgentConversation {
   memoryEnabled        Boolean   @default(false) @map("memory_enabled")
   operationId          String?   @unique @map("operation_id") @db.VarChar(64)
   activeGenerationId   String?   @map("active_generation_id") @db.VarChar(64)
+  difyConversationId   String?   @map("dify_conversation_id") @db.VarChar(255)
+  mode                 String    @default("AGENT") @db.VarChar(32)
+  subject              String?   @db.VarChar(64)
   requirementDraftJson Json?     @map("requirement_draft_json")
   requirementStatus    String    @default("COLLECTING") @map("requirement_status") @db.VarChar(24)
   createdAt            DateTime  @default(now()) @map("created_at")
@@ -2479,9 +3034,12 @@ model MarketplaceAgentConversation {
   agentVersion       UserAgentVersion          @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
   messages           MarketplaceAgentMessage[]
   generatedArtifacts GeneratedArtifact[]
+  asyncTasks          AsyncTask[]                    @relation("AsyncTaskConversation")
+  invocations         MarketplaceAgentInvocation[]
 
   @@index([userId, updatedAt])
   @@index([agentId])
+  @@index([userId, agentId, mode, updatedAt], map: "agent_market_conversations_filter_idx")
   @@map("agent_market_conversations")
 }
 
@@ -2513,8 +3071,11 @@ enum GeneratedArtifactExportStatus {
 model GeneratedArtifact {
   id                    Int                     @id @default(autoincrement())
   ownerUserId           Int                     @map("owner_user_id")
-  agentId               Int                     @map("agent_id")
-  conversationId        Int                     @map("conversation_id")
+  agentId               Int?                    @map("agent_id")
+  conversationId        Int?                    @map("conversation_id")
+  lessonPlanId          Int?                    @map("lesson_plan_id")
+  parentArtifactId      Int?                    @map("parent_artifact_id")
+  artifactRole          String                  @default("PRIMARY") @map("artifact_role") @db.VarChar(32)
   taskId                Int?                    @unique @map("task_id")
   operationId           String                  @map("operation_id") @db.VarChar(64)
   artifactType          String                  @map("artifact_type") @db.VarChar(32)
@@ -2527,26 +3088,38 @@ model GeneratedArtifact {
   previewHtml           String?                 @map("preview_html") @db.LongText
   fileFormat            String                  @default("DOCX") @map("file_format") @db.VarChar(16)
   storagePath           String?                 @map("storage_path") @db.VarChar(1000)
+  fileName              String?                 @map("file_name") @db.VarChar(255)
+  mimeType              String?                 @map("mime_type") @db.VarChar(120)
   fileSizeBytes         BigInt?                 @map("file_size_bytes")
+  checksum              String?                 @db.VarChar(64)
+  downloadCount         Int                     @default(0) @map("download_count")
   status                GeneratedArtifactStatus @default(DRAFT)
   errorCode             String?                 @map("error_code") @db.VarChar(100)
   lastAccessedAt        DateTime?               @map("last_accessed_at")
   createdAt             DateTime                @default(now()) @map("created_at")
   updatedAt             DateTime                @updatedAt @map("updated_at")
+  expiresAt             DateTime?               @map("expires_at")
   deletedAt             DateTime?               @map("deleted_at")
 
   owner         User                         @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
-  agent         UserAgent                    @relation(fields: [agentId], references: [id], onDelete: Restrict)
-  conversation  MarketplaceAgentConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  agent         UserAgent?                   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  conversation  MarketplaceAgentConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  lessonPlan    LessonPlan?                  @relation(fields: [lessonPlanId], references: [lesson_plan_id], onDelete: SetNull)
   task          AsyncTask?                   @relation("GeneratedArtifactTask", fields: [taskId], references: [id], onDelete: SetNull)
   course        Course?                      @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
   resourceLinks LearningFlowResourceLink[]
   exports       GeneratedArtifactExport[]
+  parentArtifact GeneratedArtifact?            @relation("GeneratedArtifactVariants", fields: [parentArtifactId], references: [id], onDelete: SetNull)
+  variants       GeneratedArtifact[]            @relation("GeneratedArtifactVariants")
+  teachingResources KnowledgeDocument[]
+  editableDocuments EditableTeachingDocument[]  @relation("EditableDocumentSourceArtifact")
 
   @@unique([ownerUserId, conversationId, operationId], map: "generated_artifacts_owner_conversation_operation_key")
   @@index([ownerUserId, status, updatedAt])
   @@index([agentId])
   @@index([conversationId])
+  @@index([lessonPlanId])
+  @@index([parentArtifactId, artifactRole])
   @@index([courseId])
   @@map("generated_artifacts")
 }
@@ -2560,6 +3133,8 @@ model GeneratedArtifactExport {
   storagePath    String?                       @map("storage_path") @db.VarChar(1000)
   fileSizeBytes  BigInt?                       @map("file_size_bytes")
   mimeType       String?                       @map("mime_type") @db.VarChar(120)
+  checksum       String?                       @db.VarChar(64)
+  downloadCount  Int                           @default(0) @map("download_count")
   errorCode      String?                       @map("error_code") @db.VarChar(100)
   errorMessage   String?                       @map("error_message") @db.VarChar(500)
   lastAccessedAt DateTime?                     @map("last_accessed_at")
@@ -2584,6 +3159,7 @@ model LearningFlowResourceLink {
   learningGoalId     Int?                     @map("learning_goal_id")
   workflowTemplateId Int?                     @map("workflow_template_id")
   learningSessionId  Int?                     @map("learning_session_id")
+  learningPlanId     Int?                     @map("learning_plan_id")
   resourceRole       LearningFlowResourceRole @map("resource_role")
   linkKey            String                   @unique @map("link_key") @db.VarChar(64)
   createdBy          Int                      @map("created_by")
@@ -2599,6 +3175,7 @@ model LearningFlowResourceLink {
   learningGoal     LearningGoal?             @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict, map: "lf_resource_goal_fkey")
   workflowTemplate LearningWorkflowTemplate? @relation(fields: [workflowTemplateId], references: [template_id], onDelete: Restrict, map: "lf_resource_template_fkey")
   learningSession  LearningSession?          @relation(fields: [learningSessionId], references: [session_id], onDelete: Restrict, map: "lf_resource_session_fkey")
+  learningPlan     StudentLearningPlan?      @relation(fields: [learningPlanId], references: [id], onDelete: SetNull, map: "lf_resource_plan_fkey")
 
   @@index([ownerUserId, createdAt], map: "learning_flow_resource_links_owner_created_idx")
   @@index([artifactId, deletedAt], map: "learning_flow_resource_links_artifact_deleted_idx")
@@ -2606,6 +3183,7 @@ model LearningFlowResourceLink {
   @@index([learningGoalId], map: "learning_flow_resource_links_goal_idx")
   @@index([workflowTemplateId], map: "learning_flow_resource_links_template_idx")
   @@index([learningSessionId], map: "learning_flow_resource_links_session_idx")
+  @@index([learningPlanId], map: "learning_flow_resource_links_plan_idx")
   @@map("learning_flow_resource_links")
 }
 
@@ -2615,6 +3193,7 @@ model LearningFlowPreload {
   workflowTemplateId   Int                       @map("workflow_template_id")
   learningGoalId       Int                       @map("learning_goal_id")
   learningSessionId    Int?                      @map("learning_session_id")
+  learningPlanId       Int?                      @map("learning_plan_id")
   workflowVersion      Int                       @map("workflow_version")
   goalSnapshotHash     String                    @map("goal_snapshot_hash") @db.VarChar(64)
   studentContextHash   String                    @map("student_context_hash") @db.VarChar(64)
@@ -2643,11 +3222,13 @@ model LearningFlowPreload {
   workflowTemplate LearningWorkflowTemplate @relation(fields: [workflowTemplateId], references: [template_id], onDelete: Restrict, map: "lf_preload_template_fkey")
   learningGoal     LearningGoal             @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict, map: "lf_preload_goal_fkey")
   learningSession  LearningSession?         @relation(fields: [learningSessionId], references: [session_id], onDelete: Restrict, map: "lf_preload_session_fkey")
+  learningPlan     StudentLearningPlan?      @relation(fields: [learningPlanId], references: [id], onDelete: SetNull, map: "lf_preload_plan_fkey")
 
   @@index([userId, status, updatedAt], map: "learning_flow_preloads_user_status_updated_idx")
   @@index([userId, preloadKey, expiresAt], map: "learning_flow_preloads_user_key_expires_idx")
   @@index([workflowTemplateId, learningGoalId], map: "learning_flow_preloads_template_goal_idx")
   @@index([learningSessionId], map: "learning_flow_preloads_session_idx")
+  @@index([learningPlanId], map: "learning_flow_preloads_plan_idx")
   @@index([expiresAt, status], map: "learning_flow_preloads_expires_status_idx")
   @@map("learning_flow_preloads")
 }
@@ -2681,6 +3262,70 @@ model StudentLearningContext {
   @@map("student_learning_contexts")
 }
 
+enum StudentLearningPlanCreationMode {
+  GOAL_BASED   @map("goal_based")
+  AI_GENERATED @map("ai_generated")
+  CUSTOM       @map("custom")
+}
+
+enum StudentLearningPlanStatus {
+  DRAFT     @map("draft")
+  READY     @map("ready")
+  RUNNING   @map("running")
+  PAUSED    @map("paused")
+  COMPLETED @map("completed")
+  FAILED    @map("failed")
+  ARCHIVED  @map("archived")
+}
+
+model StudentLearningPlan {
+  id                    Int                             @id @default(autoincrement())
+  studentUserId         Int                             @map("student_user_id")
+  courseId              Int                             @map("course_id")
+  knowledgePointId      Int?                            @map("knowledge_point_id")
+  knowledgePointIdsJson Json                            @map("knowledge_point_ids_json")
+  learningGoalId        Int                             @map("learning_goal_id")
+  goalSnapshot          Json                            @map("goal_snapshot")
+  workflowTemplateId    Int?                            @map("workflow_template_id")
+  workflowVersionId     Int                             @map("workflow_version_id")
+  graphSnapshot         Json                            @map("graph_snapshot")
+  settingsSnapshot      Json                            @map("settings_snapshot")
+  creationMode          StudentLearningPlanCreationMode @map("creation_mode")
+  status                StudentLearningPlanStatus       @default(DRAFT)
+  currentNodeId         String?                         @map("current_node_id") @db.VarChar(100)
+  progress              Int                             @default(0)
+  targetMastery         Int?                            @map("target_mastery")
+  completionMode        String?                         @map("completion_mode") @db.VarChar(32)
+  estimatedMinutes      Int?                            @map("estimated_minutes")
+  learningSessionId     Int?                            @unique @map("learning_session_id")
+  activeKey             String?                         @unique @map("active_key") @db.VarChar(64)
+  errorCode             String?                         @map("error_code") @db.VarChar(100)
+  errorMessage          String?                         @map("error_message") @db.VarChar(500)
+  readyAt               DateTime?                       @map("ready_at")
+  startedAt             DateTime?                       @map("started_at")
+  pausedAt              DateTime?                       @map("paused_at")
+  completedAt           DateTime?                       @map("completed_at")
+  archivedAt            DateTime?                       @map("archived_at")
+  createdAt             DateTime                        @default(now()) @map("created_at")
+  updatedAt             DateTime                        @updatedAt @map("updated_at")
+
+  student          User                     @relation(fields: [studentUserId], references: [user_id], onDelete: Cascade)
+  course           Course                   @relation(fields: [courseId], references: [course_id], onDelete: Restrict)
+  knowledgePoint   KnowledgePoint?           @relation(fields: [knowledgePointId], references: [knowledge_point_id], onDelete: SetNull)
+  learningGoal     LearningGoal              @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict)
+  workflowTemplate LearningWorkflowTemplate? @relation(fields: [workflowTemplateId], references: [template_id], onDelete: SetNull)
+  workflowVersion  LearningWorkflowVersion   @relation(fields: [workflowVersionId], references: [version_id], onDelete: Restrict)
+  learningSession  LearningSession?          @relation(fields: [learningSessionId], references: [session_id], onDelete: SetNull)
+  preloads         LearningFlowPreload[]
+  resourceLinks    LearningFlowResourceLink[]
+
+  @@index([studentUserId, status, updatedAt], map: "student_learning_plans_user_status_updated_idx")
+  @@index([courseId, knowledgePointId], map: "student_learning_plans_scope_idx")
+  @@index([learningGoalId], map: "student_learning_plans_goal_idx")
+  @@index([workflowTemplateId, workflowVersionId], map: "student_learning_plans_workflow_idx")
+  @@map("student_learning_plans")
+}
+
 model MarketplaceAgentMessage {
   id                    Int      @id @default(autoincrement())
   conversationId        Int      @map("conversation_id")
@@ -2693,11 +3338,15 @@ model MarketplaceAgentMessage {
   generationStatus      String   @default("COMPLETED") @map("generation_status") @db.VarChar(24)
   generationId          String?  @unique @map("generation_id") @db.VarChar(64)
   metadataJson          Json?    @map("metadata_json")
+  knowledgeBaseRefsJson Json?    @map("knowledge_base_refs_json")
+  agentRefsJson         Json?    @map("agent_refs_json")
+  attachmentsJson       Json?    @map("attachments_json")
   createdAt             DateTime @default(now()) @map("created_at")
 
   conversation MarketplaceAgentConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sources      AgentMessageSource[]
   memories     AgentMemory[]                @relation("MarketplaceMemorySource")
+  invocations  MarketplaceAgentInvocation[]
 
   @@index([conversationId, createdAt])
   @@index([conversationId, role, generationStatus, createdAt])
@@ -2714,6 +3363,7 @@ model AgentMessageSource {
   pageNumber      Int?     @map("page_number")
   quote           String   @db.Text
   score           Float?
+  externalUrl     String?   @map("external_url") @db.VarChar(1000)
   createdAt       DateTime @default(now()) @map("created_at")
 
   message       MarketplaceAgentMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
@@ -2735,6 +3385,8 @@ model AgentMemory {
   content         String    @db.Text
   sourceMessageId Int?      @map("source_message_id")
   confirmed       Boolean   @default(true)
+  enabled         Boolean   @default(true)
+  lastUsedAt      DateTime? @map("last_used_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
@@ -2745,6 +3397,42 @@ model AgentMemory {
 
   @@index([userId, agentId, deletedAt])
   @@map("agent_memories")
+}
+
+model MarketplaceAgentInvocation {
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  conversationId   Int?      @map("conversation_id")
+  sourceMessageId  Int?      @map("source_message_id")
+  aiConversationId Int?      @map("ai_conversation_id")
+  aiMessageId      Int?      @map("ai_message_id")
+  agentId          Int       @map("agent_id")
+  sequence         Int       @default(0)
+  status           String    @default("QUEUED") @db.VarChar(24)
+  inputJson        Json?     @map("input_json")
+  outputText       String?   @map("output_text") @db.LongText
+  errorMessage     String?   @map("error_message") @db.Text
+  durationMs       Int?      @map("duration_ms")
+  taskIdsJson      Json?     @map("task_ids_json")
+  artifactIdsJson  Json?     @map("artifact_ids_json")
+  startedAt        DateTime? @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user           User                          @relation("MarketplaceInvocationUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  conversation   MarketplaceAgentConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sourceMessage  MarketplaceAgentMessage?      @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  aiConversation AiConversation?                @relation(fields: [aiConversationId], references: [id], onDelete: Cascade)
+  aiMessage      AiMessage?                     @relation(fields: [aiMessageId], references: [id], onDelete: SetNull)
+  agent          UserAgent                      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([conversationId, sequence])
+  @@index([aiConversationId, sequence])
+  @@index([aiMessageId])
+  @@index([agentId, status])
+  @@map("agent_market_invocations")
 }
 
 model AgentFavorite {
@@ -2966,6 +3654,7 @@ model LearningWorkflowTemplate {
   resource_links            LearningFlowResourceLink[]
   preloads                  LearningFlowPreload[]
   student_learning_contexts StudentLearningContext[]
+  student_learning_plans    StudentLearningPlan[]
 
   @@index([owner_type])
   @@index([owner_user_id])
@@ -2992,6 +3681,7 @@ model LearningWorkflowVersion {
   creator        User?                    @relation(fields: [created_by], references: [user_id], onDelete: SetNull)
   sessions       LearningSession[]
   learning_goals LearningGoal[]
+  learning_plans StudentLearningPlan[]
 
   @@index([template_id])
   @@index([template_id, version_number])
@@ -3045,6 +3735,7 @@ model LearningGoal {
   resource_links            LearningFlowResourceLink[]
   preloads                  LearningFlowPreload[]
   student_learning_contexts StudentLearningContext[]
+  learning_plans           StudentLearningPlan[]
 
   @@unique([student_user_id, operation_id], map: "lg_student_operation_key")
   @@index([student_user_id, created_at], map: "lg_student_created_idx")
@@ -3099,6 +3790,7 @@ model LearningSession {
   learning_goal     LearningGoal?              @relation(fields: [learning_goal_id], references: [goal_id], onDelete: SetNull)
   resource_links    LearningFlowResourceLink[]
   preloads          LearningFlowPreload[]
+  learning_plan     StudentLearningPlan?
 
   @@index([student_user_id])
   @@index([student_user_id, status])
@@ -3222,7 +3914,241 @@ model AiFlowGenerationJob {
 }
 
 // ========================
-// Homework / 作业模块（纯新增，不改原有模型）
+// Teacher lesson planning, analytics snapshots and interventions
+// ========================
+
+model LessonPlan {
+  lesson_plan_id      Int              @id @default(autoincrement())
+  teacher_user_id    Int
+  course_id          Int
+  course_offering_id Int?
+  teaching_class_id  Int?
+  chapter_id         Int?
+  topic              String           @db.VarChar(240)
+  teaching_date      DateTime?
+  duration_minutes   Int              @default(45)
+  lesson_type        String?          @db.VarChar(50)
+  location           String?          @db.VarChar(200)
+  textbook           String?          @db.VarChar(500)
+  input_json         Json?
+  source_snapshot_json Json?
+  status             LessonPlanStatus @default(DRAFT)
+  current_version    Int              @default(0)
+  progress           Int              @default(0)
+  errors_json        Json?
+  generation_task_id Int?
+  published_at       DateTime?
+  archived_at        DateTime?
+  created_at         DateTime         @default(now())
+  updated_at         DateTime         @updatedAt
+
+  teacher         User            @relation("LessonPlanCreator", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+  course          Course          @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  course_offering CourseOffering? @relation(fields: [course_offering_id], references: [course_offering_id], onDelete: SetNull)
+  teaching_class  TeachingClass?  @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  chapter         Chapter?        @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
+  versions        LessonPlanVersion[]
+  agent_executions LessonPlanAgentExecution[]
+  resources       KnowledgeDocument[]
+  artifacts       GeneratedArtifact[]
+  editable_documents EditableTeachingDocument[]
+
+  @@index([teacher_user_id, status, updated_at])
+  @@index([course_id, teaching_class_id])
+  @@index([course_offering_id])
+  @@index([chapter_id])
+  @@map("lesson_plans")
+}
+
+model LessonPlanVersion {
+  lesson_plan_version_id Int      @id @default(autoincrement())
+  lesson_plan_id         Int
+  version_number         Int
+  created_by_user_id     Int
+  change_summary         String?  @db.VarChar(500)
+  ai_content_json        Json?
+  teacher_content_json   Json?
+  merged_content_json    Json
+  locked_blocks_json     Json?
+  data_range_json        Json?
+  agents_json            Json?
+  data_sources_json      Json?
+  created_at             DateTime @default(now())
+
+  lesson_plan LessonPlan @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: Cascade)
+  creator     User       @relation("LessonPlanVersionCreator", fields: [created_by_user_id], references: [user_id], onDelete: Restrict)
+
+  @@unique([lesson_plan_id, version_number])
+  @@index([created_by_user_id])
+  @@map("lesson_plan_versions")
+}
+
+model EditableTeachingDocument {
+  id                 Int       @id @default(autoincrement())
+  owner_user_id      Int
+  lesson_plan_id     Int?
+  course_id          Int?
+  teaching_class_id  Int?
+  title              String    @db.VarChar(240)
+  document_type      String    @default("LESSON_PLAN") @db.VarChar(40)
+  source_type        String    @default("BLANK") @db.VarChar(40)
+  source_resource_id Int?
+  source_artifact_id Int?
+  current_version_id Int?      @unique
+  revision           Int       @default(0)
+  status             String    @default("DRAFT") @db.VarChar(24)
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  deleted_at         DateTime?
+
+  owner           User                             @relation("EditableDocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  lesson_plan     LessonPlan?                      @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: SetNull)
+  course          Course?                          @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class  TeachingClass?                   @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  source_resource KnowledgeDocument?               @relation("EditableDocumentSourceResource", fields: [source_resource_id], references: [document_id], onDelete: SetNull)
+  source_artifact GeneratedArtifact?               @relation("EditableDocumentSourceArtifact", fields: [source_artifact_id], references: [id], onDelete: SetNull)
+  current_version EditableTeachingDocumentVersion? @relation("EditableDocumentCurrentVersion", fields: [current_version_id], references: [id], onDelete: SetNull)
+  versions        EditableTeachingDocumentVersion[] @relation("EditableDocumentVersions")
+  revisions       DocumentRevision[]
+
+  @@index([owner_user_id, status, updated_at])
+  @@index([lesson_plan_id, updated_at])
+  @@index([course_id, teaching_class_id])
+  @@index([source_resource_id])
+  @@index([source_artifact_id])
+  @@map("editable_teaching_documents")
+}
+
+model EditableTeachingDocumentVersion {
+  id                Int       @id @default(autoincrement())
+  document_id       Int
+  version_number    Int
+  parent_version_id Int?
+  title             String    @db.VarChar(240)
+  content_json      Json
+  sanitized_html    String    @db.LongText
+  plain_text        String    @db.LongText
+  outline_json      Json
+  metadata_json     Json?
+  source_type       String    @default("TEACHER_MANUAL") @db.VarChar(40)
+  change_summary    String?   @db.VarChar(500)
+  created_by_user_id Int
+  created_at        DateTime  @default(now())
+  published_at      DateTime?
+
+  document         EditableTeachingDocument          @relation("EditableDocumentVersions", fields: [document_id], references: [id], onDelete: Cascade)
+  current_for      EditableTeachingDocument?         @relation("EditableDocumentCurrentVersion")
+  parent           EditableTeachingDocumentVersion?  @relation("EditableDocumentVersionParents", fields: [parent_version_id], references: [id], onDelete: SetNull)
+  children         EditableTeachingDocumentVersion[] @relation("EditableDocumentVersionParents")
+  creator          User                              @relation("EditableDocumentVersionCreator", fields: [created_by_user_id], references: [user_id], onDelete: Restrict)
+  revisions        DocumentRevision[]
+
+  @@unique([document_id, version_number])
+  @@index([parent_version_id])
+  @@index([created_by_user_id])
+  @@map("editable_teaching_document_versions")
+}
+
+model DocumentRevision {
+  id                Int      @id @default(autoincrement())
+  document_id       Int
+  version_id        Int
+  operation_id      String   @unique @db.VarChar(80)
+  revision_type     String   @db.VarChar(40)
+  instruction       String?  @db.Text
+  before_content    Json?
+  after_content     Json
+  source_context    Json?
+  created_by_user_id Int
+  created_at        DateTime @default(now())
+
+  document EditableTeachingDocument        @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  version  EditableTeachingDocumentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  creator  User                            @relation("DocumentRevisionCreator", fields: [created_by_user_id], references: [user_id], onDelete: Restrict)
+
+  @@index([document_id, created_at])
+  @@index([version_id])
+  @@index([created_by_user_id])
+  @@map("document_revisions")
+}
+
+model LessonPlanAgentExecution {
+  execution_id    Int      @id @default(autoincrement())
+  lesson_plan_id  Int
+  teacher_user_id Int
+  agent_key       String   @db.VarChar(80)
+  stage_key       String   @db.VarChar(80)
+  status          String   @default("queued") @db.VarChar(24)
+  input_hash      String?  @db.VarChar(128)
+  input_json      Json?
+  output_json     Json?
+  data_sources_json Json?
+  error_message   String?  @db.Text
+  started_at      DateTime?
+  completed_at    DateTime?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  lesson_plan LessonPlan @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: Cascade)
+  teacher     User       @relation("LessonPlanAgentExecutionTeacher", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([lesson_plan_id, status])
+  @@index([teacher_user_id, created_at])
+  @@index([input_hash])
+  @@map("lesson_plan_agent_executions")
+}
+
+model TeacherAnalyticsSnapshot {
+  snapshot_id       Int      @id @default(autoincrement())
+  teacher_user_id   Int
+  course_id         Int
+  teaching_class_id Int?
+  analysis_type     String   @db.VarChar(80)
+  range_start       DateTime?
+  range_end         DateTime?
+  filter_json       Json?
+  result_json       Json
+  data_sources_json Json
+  cache_key         String?  @unique @db.VarChar(160)
+  generated_at      DateTime @default(now())
+  expires_at        DateTime?
+
+  teacher        User           @relation(fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+  course         Course         @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class TeachingClass? @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+
+  @@index([teacher_user_id, generated_at])
+  @@index([course_id, teaching_class_id, analysis_type])
+  @@map("teacher_analytics_snapshots")
+}
+
+model TeacherStudentIntervention {
+  intervention_id   Int      @id @default(autoincrement())
+  teacher_user_id   Int
+  student_user_id   Int
+  course_id         Int
+  teaching_class_id Int?
+  intervention_type String   @db.VarChar(50)
+  content            String   @db.Text
+  status             String   @default("open") @db.VarChar(20)
+  follow_up_at       DateTime?
+  closed_at          DateTime?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  teacher        User           @relation("TeacherInterventionTeacher", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+  student        User           @relation("TeacherInterventionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
+  course         Course         @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class TeachingClass? @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+
+  @@index([teacher_user_id, status])
+  @@index([student_user_id, created_at])
+  @@index([course_id, teaching_class_id])
+  @@map("teacher_student_interventions")
+}
+
+// ========================
+// Legacy homework compatibility tables. New publishing uses LearningTask.
 // ========================
 
 enum HomeworkSubmitStatus {
@@ -3257,15 +4183,15 @@ model Homework {
 }
 
 model HomeworkSubmission {
-  submission_id   Int                @id @default(autoincrement())
-  homework_id     Int
-  student_id      Int
-  submit_content  Json?
-  submit_time     DateTime?
-  score           Float?
-  submit_status   HomeworkSubmitStatus @default(UNSUBMIT)
-  created_at      DateTime           @default(now())
-  updated_at      DateTime           @updatedAt
+  submission_id  Int                  @id @default(autoincrement())
+  homework_id    Int
+  student_id     Int
+  submit_content Json?
+  submit_time    DateTime?
+  score          Float?
+  submit_status  HomeworkSubmitStatus @default(UNSUBMIT)
+  created_at     DateTime             @default(now())
+  updated_at     DateTime             @updatedAt
 
   @@unique([homework_id, student_id])
   @@index([homework_id])
@@ -3275,18 +4201,18 @@ model HomeworkSubmission {
 }
 
 model HomeworkMarkRecord {
-  mark_id          Int              @id @default(autoincrement())
-  submission_id    Int              @unique
-  teacher_id       Int?
-  ai_score         Float?
-  manual_score     Float?
-  final_score      Float?
-  comment          String?          @db.Text
-  wrong_keywords   Json?
-  mark_type        HomeworkMarkType @default(AI_AUTO)
-  mark_time        DateTime         @default(now())
-  created_at       DateTime         @default(now())
-  updated_at       DateTime         @updatedAt
+  mark_id        Int              @id @default(autoincrement())
+  submission_id  Int              @unique
+  teacher_id     Int?
+  ai_score       Float?
+  manual_score   Float?
+  final_score    Float?
+  comment        String?          @db.Text
+  wrong_keywords Json?
+  mark_type      HomeworkMarkType @default(AI_AUTO)
+  mark_time      DateTime         @default(now())
+  created_at     DateTime         @default(now())
+  updated_at     DateTime         @updatedAt
 
   @@index([submission_id])
   @@index([teacher_id])

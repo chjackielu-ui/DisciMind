@@ -237,6 +237,113 @@ async function listAllTeachingClasses(req, res) {
   }
 }
 
+async function listSemesters(req, res) {
+  try {
+    const data = await teacherCourseService.listSemesters(req.user, req.query || {});
+    return success(res, data, '获取学期列表成功');
+  } catch (err) {
+    return handleError(res, 'listSemesters', err);
+  }
+}
+
+async function createSemester(req, res) {
+  try {
+    const data = await teacherCourseService.createSemester(req.user, req.body || {});
+    return success(res, data, '保存学期成功');
+  } catch (err) {
+    return handleError(res, 'createSemester', err);
+  }
+}
+
+async function listCourseOfferings(req, res) {
+  try {
+    const courseId = parsePositiveInt(req.params.course_id, 'course_id');
+    const data = await teacherCourseService.listCourseOfferings(req.user, courseId, req.query || {});
+    return success(res, data, '获取课程开设列表成功');
+  } catch (err) {
+    return handleError(res, 'listCourseOfferings', err);
+  }
+}
+
+async function createCourseOffering(req, res) {
+  try {
+    const courseId = parsePositiveInt(req.params.course_id, 'course_id');
+    const data = await teacherCourseService.createCourseOffering(req.user, courseId, req.body || {});
+    return success(res, data, '创建课程开设成功');
+  } catch (err) {
+    return handleError(res, 'createCourseOffering', err);
+  }
+}
+
+async function listAdministrativeClasses(req, res) {
+  try {
+    const data = await teacherCourseService.listAdministrativeClasses(req.user, req.query || {});
+    return success(res, data, '获取行政班列表成功');
+  } catch (err) {
+    return handleError(res, 'listAdministrativeClasses', err);
+  }
+}
+
+async function listAdministrativeClassStudents(req, res) {
+  try {
+    const classId = parsePositiveInt(req.params.class_id, 'class_id');
+    const data = await teacherCourseService.listAdministrativeClassStudents(req.user, classId);
+    return success(res, data, '获取行政班学生成功');
+  } catch (err) {
+    return handleError(res, 'listAdministrativeClassStudents', err);
+  }
+}
+
+async function importAdministrativeClasses(req, res) {
+  try {
+    const classId = parsePositiveInt(req.params.class_id, 'class_id');
+    const data = await teacherCourseService.importAdministrativeClasses(req.user, classId, req.body || {});
+    return success(res, data, '从行政班导入成功');
+  } catch (err) {
+    return handleError(res, 'importAdministrativeClasses', err);
+  }
+}
+
+async function batchRemoveClassStudents(req, res) {
+  try {
+    const classId = parsePositiveInt(req.params.class_id, 'class_id');
+    const data = await teacherCourseService.batchRemoveClassStudents(req.user, classId, req.body || {});
+    return success(res, data, '批量移除成功');
+  } catch (err) {
+    return handleError(res, 'batchRemoveClassStudents', err);
+  }
+}
+
+async function importClassRosterRows(req, res) {
+  try {
+    const classId = parsePositiveInt(req.params.class_id, 'class_id');
+    const data = await teacherCourseService.importClassRosterRows(req.user, classId, req.body || {});
+    return success(res, data, '导入名单成功');
+  } catch (err) {
+    return handleError(res, 'importClassRosterRows', err);
+  }
+}
+
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+async function exportClassRoster(req, res) {
+  try {
+    const classId = parsePositiveInt(req.params.class_id, 'class_id');
+    const rows = await teacherCourseService.getClassRoster(req.user, classId);
+    const csv = [
+      ['student_no', 'student_name', 'college', 'major', 'enrollment_status'].join(','),
+      ...rows.map((row) => [row.student_no, row.student_name, row.college, row.major, row.enrollment_status].map(csvCell).join(',')),
+    ].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="teaching-class-${classId}.csv"`);
+    return res.send(`\ufeff${csv}`);
+  } catch (err) {
+    return handleError(res, 'exportClassRoster', err);
+  }
+}
+
 module.exports = {
   listCourses,
   createCourse,
@@ -259,4 +366,14 @@ module.exports = {
   createKnowledgePoint,
   updateKnowledgePoint,
   deleteKnowledgePoint,
+  listSemesters,
+  createSemester,
+  listCourseOfferings,
+  createCourseOffering,
+  listAdministrativeClasses,
+  listAdministrativeClassStudents,
+  importAdministrativeClasses,
+  batchRemoveClassStudents,
+  importClassRosterRows,
+  exportClassRoster,
 };

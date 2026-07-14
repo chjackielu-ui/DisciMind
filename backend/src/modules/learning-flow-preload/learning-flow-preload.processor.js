@@ -98,7 +98,7 @@ async function processPreload(preloadId, { taskId, signal } = {}) {
   try {
     await prisma.learningFlowPreload.update({ where: { id: preload.id }, data: { status: 'PRELOADING', stage: '正在生成学习基础包', progress: 10, startedAt: preload.startedAt || new Date(), errorCode: null, errorMessage: null } });
     if (taskId) await tasks.updateTask(taskId, { status: 'RUNNING', stage: '正在生成学习基础包', progress: 10 });
-    const context = await preloadService.contextFor(preload.userId, { workflowTemplateId: preload.workflowTemplateId, learningGoalId: preload.learningGoalId, learningSessionId: preload.learningSessionId });
+    const context = await preloadService.contextFor(preload.userId, { learningPlanId: preload.learningPlanId, workflowTemplateId: preload.workflowTemplateId, learningGoalId: preload.learningGoalId, learningSessionId: preload.learningSessionId });
     if (context.preloadKey !== preload.preloadKey) throw Object.assign(new Error('学习准备依赖已变化'), { code: 'PRELOAD_KEY_STALE', permanent: true });
     const manifest = await buildBaseManifest(preload, context);
     await prisma.learningFlowPreload.update({ where: { id: preload.id }, data: { manifestJson: manifest, stage: '学习基础包已完成', progress: 40 } });

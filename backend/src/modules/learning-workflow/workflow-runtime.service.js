@@ -104,7 +104,7 @@ function toAdjustmentMode(v) { const r = ADJUSTMENT_MODE_VALUES[v || 'auto_adjus
 // 会话管理
 // ========================
 
-async function createSession({ userId, courseId, knowledgePointId, templateId, versionId, completionMode, targetMastery, adjustmentMode, estimatedMinutes }) {
+async function createSession({ userId, courseId, knowledgePointId, templateId, versionId, graphSnapshot, settingsSnapshot, completionMode, targetMastery, adjustmentMode, estimatedMinutes, learningGoalId, goalSnapshot }) {
   const nc = Number(courseId), nkp = Number(knowledgePointId);
   if (!Number.isInteger(nc) || nc < 1 || !Number.isInteger(nkp) || nkp < 1) {
     throw createAgentError('INVALID_INPUT', '开始学习前请选择课程和知识点', 400);
@@ -128,12 +128,14 @@ async function createSession({ userId, courseId, knowledgePointId, templateId, v
   const version = template.versions[0];
   if (!version) throw createAgentError('VERSION_NOT_FOUND', '模板没有可用版本', 404);
 
-  const graph = sanitizeGraphJson(version.graph_json || {});
-  const settings = sanitizeSettingsJson(version.settings_json || {});
+  const graph = sanitizeGraphJson(graphSnapshot || version.graph_json || {});
+  const settings = sanitizeSettingsJson(settingsSnapshot || version.settings_json || {});
+  const validation = validateGraphJson(graph);
+  if (!validation.valid) throw createAgentError('INVALID_GRAPH_SNAPSHOT', `学习计划图快照无效：${validation.errors.join('；')}`, 409);
 
   // 复用未完成会话
   const existing = await prisma.learningSession.findFirst({
-    where: { student_user_id: Number(userId), workflow_template_id: template.template_id, course_id: nc, knowledge_point_id: nkp, status: { in: ['CREATED', 'RUNNING', 'PAUSED'] } },
+    where: { student_user_id: Number(userId), workflow_template_id: template.template_id, course_id: nc, knowledge_point_id: nkp, ...(learningGoalId ? { learning_goal_id: Number(learningGoalId) } : {}), status: { in: ['CREATED', 'RUNNING', 'PAUSED'] } },
     orderBy: { updated_at: 'desc' },
   });
   if (existing) return getSession(existing.session_id, userId);
@@ -150,13 +152,15 @@ async function createSession({ userId, courseId, knowledgePointId, templateId, v
     data: {
       student_user_id: Number(userId), course_id: nc, knowledge_point_id: nkp,
       workflow_template_id: template.template_id, workflow_version_id: version.version_id,
-      workflow_snapshot_json: version.graph_json, runtime_graph_json: graph,
+      workflow_snapshot_json: graph, runtime_graph_json: graph,
       status: 'CREATED', current_node_id: graph.entryNodeId || null,
       completion_mode: toCompletionMode(completionMode || settings.completion_mode),
       target_mastery: targetMastery || settings.target_mastery || 80,
       adjustment_mode: toAdjustmentMode(adjustmentMode || settings.adjustment_mode),
       mastery_before: masteryBefore, mastery_current: masteryBefore,
       estimated_minutes: estimatedMinutes || settings.estimated_minutes || 25,
+      learning_goal_id: learningGoalId ? Number(learningGoalId) : null,
+      goal_snapshot: goalSnapshot || null,
     },
   });
   await addSessionEvent(session.session_id, 'SESSION_PAUSED', null, '学习会话已创建');
@@ -171,6 +175,7 @@ async function getSession(sessionId, userId) {
       course: { select: { course_id: true, course_name: true, course_code: true } },
       knowledge_point: { select: { knowledge_point_id: true, knowledge_point_name: true } },
       workflow_template: { select: { template_id: true, title: true } },
+      learning_plan: { select: { id: true } },
     },
   });
   if (!session) throw createAgentError('SESSION_NOT_FOUND', '学习会话不存在', 404);
@@ -322,7 +327,7 @@ async function getPublicSession(sessionId, userId, snapshot = null) {
 async function startSession(sessionId, userId) {
   const session = await getSession(sessionId, userId);
   if (session.status === 'RUNNING') return session;
-  if (session.status !== 'CREATED' && session.status !== 'PAUSED') {
+  if (!['CREATED', 'PAUSED', 'FAILED'].includes(session.status)) {
     throw createAgentError('INVALID_SESSION_STATUS', `无法从 ${session.status} 状态启动会话`, 400);
   }
 
@@ -332,6 +337,7 @@ async function startSession(sessionId, userId) {
   });
   await ensureCurrentNodeExecution(Number(sessionId), session.runtime_graph_json || {});
   await addSessionEvent(sessionId, 'SESSION_RESUMED', null, '学习会话已启动');
+  await syncLearningPlanFromSession(sessionId);
 
   // ---- LangGraph 模式: Graph 由 executeCurrentNode 调用 ----
   return getSession(sessionId, userId);
@@ -344,6 +350,7 @@ async function pauseSession(sessionId, userId) {
   const dur = startedAt ? Math.round((Date.now() - startedAt.getTime()) / 1000) : session.actual_duration_seconds || 0;
   await prisma.learningSession.update({ where: { session_id: Number(sessionId) }, data: { status: 'PAUSED', paused_at: new Date(), actual_duration_seconds: dur } });
   await addSessionEvent(sessionId, 'SESSION_PAUSED', null, '学习会话已暂停');
+  await syncLearningPlanFromSession(sessionId);
   return getSession(sessionId, userId);
 }
 
@@ -763,6 +770,7 @@ async function advanceLearningSession({ sessionId, userId, expectedNodeExecution
     }
   }
 
+  await syncLearningPlanFromSession(nid);
   return { ...transition, session: await getSession(nid, userId) };
 }
 
@@ -1010,6 +1018,7 @@ async function completeSession(sessionId, userId) {
   }
   await prisma.learningSession.update({ where: { session_id: Number(sessionId) }, data: { status: 'COMPLETED', completed_at: new Date(), mastery_after: ma, actual_duration_seconds: dur } });
   await addSessionEvent(sessionId, 'SESSION_COMPLETED', null, '学习会话已完成');
+  await syncLearningPlanFromSession(sessionId);
   if (session.learning_goal_id) {
     await require('../learning-goal/services/learning-goal-completion.service')
       .completeFromSession(session.learning_goal_id, userId).catch((error) => {
@@ -1055,8 +1064,30 @@ async function syncGraphStateToDb(sessionId, graphResult, nodeRun) {
         await require('../learning-goal/services/learning-goal-completion.service')
           .completeFromSession(completedSession.learning_goal_id, completedSession.student_user_id).catch(() => null);
       }
+      await syncLearningPlanFromSession(sessionId);
     }
   } catch (err) { console.warn(`[Runtime] syncGraphStateToDb error: ${err.message}`); }
+}
+
+async function syncLearningPlanFromSession(sessionId) {
+  if (!prisma.studentLearningPlan) return null;
+  const session = await prisma.learningSession.findUnique({
+    where: { session_id: Number(sessionId) },
+    select: { status: true, current_node_id: true, runtime_graph_json: true, started_at: true, paused_at: true, completed_at: true, node_runs: { select: { node_id: true, status: true } } },
+  });
+  if (!session) return null;
+  const total = Array.isArray(session.runtime_graph_json?.nodes) ? session.runtime_graph_json.nodes.length : 0;
+  const completed = new Set((session.node_runs || []).filter(item => ['COMPLETED', 'SKIPPED'].includes(item.status)).map(item => item.node_id)).size;
+  const status = ({ CREATED: 'READY', RUNNING: 'RUNNING', PAUSED: 'PAUSED', COMPLETED: 'COMPLETED', FAILED: 'FAILED', ABANDONED: 'ARCHIVED' })[session.status] || 'READY';
+  return prisma.studentLearningPlan.updateMany({
+    where: { learningSessionId: Number(sessionId) },
+    data: {
+      status, currentNodeId: session.current_node_id,
+      progress: status === 'COMPLETED' ? 100 : (total ? Math.min(99, Math.round((completed / total) * 100)) : 0),
+      startedAt: session.started_at, pausedAt: session.paused_at, completedAt: session.completed_at,
+      ...(status !== 'FAILED' ? { errorCode: null, errorMessage: null } : {}),
+    },
+  });
 }
 
 async function checkKnowledgeBase(courseId) {
@@ -1097,4 +1128,5 @@ module.exports = {
   addSessionEvent, checkKnowledgeBase, getPracticeConfig,
   currentRunForSession, ensureCurrentNodeExecution,
   reconcileSessionGraphState, buildLangGraphResponse, isLangGraphMode,
+  syncLearningPlanFromSession,
 };

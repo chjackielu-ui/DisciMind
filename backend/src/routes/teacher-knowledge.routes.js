@@ -15,7 +15,10 @@ const router = Router();
 const uploadDir = path.join(__dirname, '../../../storage/uploads/documents');
 fs.mkdirSync(uploadDir, { recursive: true });
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.md'];
+const ALLOWED_EXTENSIONS = [
+  '.pdf', '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls', '.txt', '.md',
+  '.png', '.jpg', '.jpeg', '.webp', '.gif',
+];
 
 const documentUpload = multer({
   storage: multer.diskStorage({
@@ -26,20 +29,31 @@ const documentUpload = multer({
       cb(null, safeName);
     },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
     if (ALLOWED_EXTENSIONS.includes(ext)) {
       cb(null, true);
       return;
     }
-    cb(new Error('不支持的文件类型，仅支持 PDF、DOCX、DOC、TXT、MD 格式'));
+    cb(new Error('不支持的文件类型'));
   },
 });
 
 // ---- 路由 ----
 
 router.get('/knowledge-documents', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listDocuments);
+router.get('/resources', authMiddleware, roleMiddleware(['teacher', 'admin']), (req, _res, next) => { req.query.resource_only = true; next(); }, controller.listDocuments);
+router.post('/resources/external', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.createExternalResource);
+router.put('/resources/:document_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.updateResource);
+router.delete('/resources/:document_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.deleteResource);
+router.post('/resources/:document_id/share', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.shareResource);
+router.get('/resources/:document_id/distributions', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.getResourceDistributionStats);
+router.get('/resources/:document_id/download', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.downloadResource);
+router.get('/knowledge-base-applications', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listKnowledgeBaseApplications);
+router.post('/knowledge-base-applications/batch-review', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.batchReviewKnowledgeBaseApplications);
+router.post('/knowledge-base-applications/:review_id/review', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.reviewKnowledgeBaseApplication);
+router.post('/knowledge-bases/:knowledge_base_id/revoke-public', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.revokeKnowledgeBasePublic);
 router.get('/knowledge-documents/:document_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.getDocument);
 router.put('/knowledge-documents/:document_id/review', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.reviewDocument);
 

@@ -2,6 +2,8 @@
 
 const { success, fail } = require('../utils/response');
 const teacherKnowledgeService = require('../services/teacher-knowledge.service');
+const path = require('path');
+const fs = require('fs');
 
 function parsePositiveInt(value, name) {
   const parsed = Number.parseInt(value, 10);
@@ -58,9 +60,100 @@ async function uploadDocument(req, res) {
   }
 }
 
+async function createExternalResource(req, res) {
+  try {
+    return success(res, await teacherKnowledgeService.createExternalResource(req.user, req.body || {}), '创建链接资源成功');
+  } catch (err) { return handleError(res, 'createExternalResource', err); }
+}
+
+async function updateResource(req, res) {
+  try {
+    const documentId = parsePositiveInt(req.params.document_id, 'document_id');
+    return success(res, await teacherKnowledgeService.updateResource(req.user, documentId, req.body || {}), '更新资源成功');
+  } catch (err) { return handleError(res, 'updateResource', err); }
+}
+
+async function deleteResource(req, res) {
+  try {
+    const documentId = parsePositiveInt(req.params.document_id, 'document_id');
+    return success(res, await teacherKnowledgeService.deleteResource(req.user, documentId), '删除资源成功');
+  } catch (err) { return handleError(res, 'deleteResource', err); }
+}
+
+async function shareResource(req, res) {
+  try {
+    const documentId = parsePositiveInt(req.params.document_id, 'document_id');
+    return success(res, await teacherKnowledgeService.shareResource(req.user, documentId, req.body || {}), '资源已发送');
+  } catch (err) { return handleError(res, 'shareResource', err); }
+}
+
+async function getResourceDistributionStats(req, res) {
+  try {
+    const documentId = parsePositiveInt(req.params.document_id, 'document_id');
+    return success(res, await teacherKnowledgeService.getResourceDistributionStats(req.user, documentId), '获取资源下发状态成功');
+  } catch (err) { return handleError(res, 'getResourceDistributionStats', err); }
+}
+
+async function downloadResource(req, res) {
+  try {
+    const documentId = parsePositiveInt(req.params.document_id, 'document_id');
+    const doc = await teacherKnowledgeService.getDocument(req.user, documentId);
+    if (doc.file_url?.startsWith('http://') || doc.file_url?.startsWith('https://')) return res.redirect(doc.file_url);
+    const projectStorageRoot = path.resolve(__dirname, '../../../storage');
+    const backendStorageRoot = path.resolve(__dirname, '../../storage');
+    const relative = String(doc.file_url || '').replace(/^\/+/, '').replace(/\//g, path.sep);
+    const candidates = [
+      path.resolve(projectStorageRoot, relative),
+      path.resolve(backendStorageRoot, relative),
+    ];
+    const absolute = candidates.find((candidate) => (
+      (candidate.startsWith(`${projectStorageRoot}${path.sep}`) || candidate.startsWith(`${backendStorageRoot}${path.sep}`))
+      && fs.existsSync(candidate)
+    ));
+    if (!absolute) return fail(res, 40002, '文件不存在');
+    return res.download(absolute, doc.original_filename);
+  } catch (err) { return handleError(res, 'downloadResource', err); }
+}
+
+async function listKnowledgeBaseApplications(req, res) {
+  try {
+    return success(res, await teacherKnowledgeService.listKnowledgeBaseApplications(req.user, req.query || {}), '获取知识库申请成功');
+  } catch (err) { return handleError(res, 'listKnowledgeBaseApplications', err); }
+}
+
+async function reviewKnowledgeBaseApplication(req, res) {
+  try {
+    const reviewId = parsePositiveInt(req.params.review_id, 'review_id');
+    return success(res, await teacherKnowledgeService.reviewKnowledgeBaseApplication(req.user, reviewId, req.body || {}), '知识库审核完成');
+  } catch (err) { return handleError(res, 'reviewKnowledgeBaseApplication', err); }
+}
+
+async function batchReviewKnowledgeBaseApplications(req, res) {
+  try {
+    return success(res, await teacherKnowledgeService.batchReviewKnowledgeBaseApplications(req.user, req.body || {}), '批量审核完成');
+  } catch (err) { return handleError(res, 'batchReviewKnowledgeBaseApplications', err); }
+}
+
+async function revokeKnowledgeBasePublic(req, res) {
+  try {
+    const knowledgeBaseId = parsePositiveInt(req.params.knowledge_base_id, 'knowledge_base_id');
+    return success(res, await teacherKnowledgeService.revokeKnowledgeBasePublic(req.user, knowledgeBaseId, req.body || {}), '已撤销公开');
+  } catch (err) { return handleError(res, 'revokeKnowledgeBasePublic', err); }
+}
+
 module.exports = {
   listDocuments,
   getDocument,
   reviewDocument,
   uploadDocument,
+  createExternalResource,
+  updateResource,
+  deleteResource,
+  shareResource,
+  getResourceDistributionStats,
+  downloadResource,
+  listKnowledgeBaseApplications,
+  reviewKnowledgeBaseApplication,
+  batchReviewKnowledgeBaseApplications,
+  revokeKnowledgeBasePublic,
 };

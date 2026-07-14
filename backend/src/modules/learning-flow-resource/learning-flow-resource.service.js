@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const prisma = require('../../config/prisma');
 const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const templateService = require('../learning-workflow/workflow-template.service');
+const { exportFileExists } = require('../file-generator/generated-artifact.service');
 
 const USABLE_ARTIFACT_STATUSES = ['CONTENT_READY', 'EXPORTING', 'READY', 'FAILED'];
 
@@ -12,12 +13,12 @@ function id(value) {
 function makeLinkKey(input) {
   const material = [
     input.artifactId, input.courseId, input.knowledgePointId, input.learningGoalId,
-    input.workflowTemplateId, input.learningSessionId, input.resourceRole,
+    input.workflowTemplateId, input.learningSessionId, input.learningPlanId, input.resourceRole,
   ].map((value) => value == null ? '-' : String(value)).join('|');
   return crypto.createHash('sha256').update(material).digest('hex');
 }
 
-function serialize(link) {
+function serialize(link, downloadAvailable = false) {
   return {
     id: link.id,
     artifactId: link.artifactId,
@@ -26,11 +27,13 @@ function serialize(link) {
     learningGoalId: link.learningGoalId,
     workflowTemplateId: link.workflowTemplateId,
     learningSessionId: link.learningSessionId,
+    learningPlanId: link.learningPlanId,
     resourceRole: link.resourceRole,
     artifact: link.artifact ? {
       id: link.artifact.id, title: link.artifact.title, artifactType: link.artifact.artifactType,
       status: link.artifact.status, fileFormat: link.artifact.fileFormat,
       fileSizeBytes: link.artifact.fileSizeBytes == null ? null : Number(link.artifact.fileSizeBytes),
+      downloadAvailable,
       createdAt: link.artifact.createdAt,
     } : null,
     course: link.course ? { id: link.course.course_id, name: link.course.course_name } : null,
@@ -43,12 +46,19 @@ function serialize(link) {
 }
 
 const include = {
-  artifact: true,
+  artifact: { include: { exports: { where: { deletedAt: null } } } },
   course: { select: { course_id: true, course_name: true } },
   knowledgePoint: { select: { knowledge_point_id: true, knowledge_point_name: true } },
   learningGoal: { select: { goal_id: true, normalized_title: true } },
   workflowTemplate: { select: { template_id: true, title: true } },
 };
+
+async function serializeWithAvailability(link) {
+  if (!link.artifact) return serialize(link, false);
+  const candidates = [link.artifact, ...(link.artifact.exports || [])];
+  const availability = await Promise.all(candidates.map((record) => exportFileExists(record)));
+  return serialize(link, availability.some(Boolean));
+}
 
 async function assertCourseAccess(userId, courseId) {
   if (!courseId) return null;
@@ -63,8 +73,18 @@ async function assertCourseAccess(userId, courseId) {
 async function validateTargets(userId, raw) {
   const input = {
     courseId: id(raw.courseId), knowledgePointId: id(raw.knowledgePointId), learningGoalId: id(raw.learningGoalId),
-    workflowTemplateId: id(raw.workflowTemplateId), learningSessionId: id(raw.learningSessionId), resourceRole: raw.resourceRole,
+    workflowTemplateId: id(raw.workflowTemplateId), learningSessionId: id(raw.learningSessionId), learningPlanId: id(raw.learningPlanId), resourceRole: raw.resourceRole,
   };
+  if (input.learningPlanId) {
+    const plan = await prisma.studentLearningPlan.findFirst({ where: { id: input.learningPlanId, studentUserId: userId } });
+    assert(plan, '学习计划不存在或无权访问', 40301, 403);
+    assert(!input.courseId || plan.courseId === input.courseId, '资料课程与学习计划不一致', 40001, 400);
+    assert(!input.knowledgePointId || plan.knowledgePointId === input.knowledgePointId || (plan.knowledgePointIdsJson || []).map(Number).includes(input.knowledgePointId), '资料知识点与学习计划不一致', 40001, 400);
+    assert(!input.learningGoalId || plan.learningGoalId === input.learningGoalId, '资料目标与学习计划不一致', 40001, 400);
+    assert(!input.workflowTemplateId || plan.workflowTemplateId === input.workflowTemplateId, '资料工作流与学习计划不一致', 40001, 400);
+    input.courseId ||= plan.courseId; input.knowledgePointId ||= plan.knowledgePointId; input.learningGoalId ||= plan.learningGoalId;
+    input.workflowTemplateId ||= plan.workflowTemplateId; input.learningSessionId ||= plan.learningSessionId;
+  }
   await assertCourseAccess(userId, input.courseId);
   if (input.knowledgePointId) {
     const point = await prisma.knowledgePoint.findFirst({ where: { knowledge_point_id: input.knowledgePointId, course_id: input.courseId }, select: { knowledge_point_id: true } });
@@ -123,20 +143,20 @@ async function createLink(user, artifactId, raw) {
 
 async function listResources(user, query) {
   const where = { ownerUserId: Number(user.user_id), deletedAt: null };
-  for (const field of ['courseId', 'knowledgePointId', 'learningGoalId', 'workflowTemplateId', 'learningSessionId', 'resourceRole']) {
+  for (const field of ['courseId', 'knowledgePointId', 'learningGoalId', 'workflowTemplateId', 'learningSessionId', 'learningPlanId', 'resourceRole']) {
     if (query[field] != null) where[field] = query[field];
   }
   const [records, total] = await Promise.all([
     prisma.learningFlowResourceLink.findMany({ where, include, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
     prisma.learningFlowResourceLink.count({ where }),
   ]);
-  return { list: records.map(serialize), total, page: query.page, pageSize: query.pageSize };
+  return { list: await Promise.all(records.map(serializeWithAvailability)), total, page: query.page, pageSize: query.pageSize };
 }
 
 async function getResource(user, linkId) {
   const link = await prisma.learningFlowResourceLink.findFirst({ where: { id: Number(linkId), ownerUserId: Number(user.user_id), deletedAt: null }, include });
   assert(link, '学习资料关联不存在或无权访问', 40301, 403);
-  return serialize(link);
+  return serializeWithAvailability(link);
 }
 
 async function unlink(user, linkId) {
@@ -146,4 +166,4 @@ async function unlink(user, linkId) {
   return { unlinked: true, artifactDeleted: false };
 }
 
-module.exports = { USABLE_ARTIFACT_STATUSES, makeLinkKey, serialize, validateTargets, createLink, listResources, getResource, unlink };
+module.exports = { USABLE_ARTIFACT_STATUSES, makeLinkKey, serialize, serializeWithAvailability, validateTargets, createLink, listResources, getResource, unlink };

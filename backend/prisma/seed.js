@@ -81,7 +81,7 @@ async function upsertCourse(data) {
   })
 }
 
-async function upsertTeachingClass(course, adminClass) {
+async function upsertTeachingClass(course, adminClass, teacherUserId, courseOfferingId) {
   return prisma.teachingClass.upsert({
     where: {
       course_id_teaching_class_name: {
@@ -90,13 +90,27 @@ async function upsertTeachingClass(course, adminClass) {
       },
     },
     update: {
+      course_offering_id: courseOfferingId,
+      teacher_user_id: teacherUserId,
+      code: `${course.course_code}-${adminClass.class_name}`.replace(/[^A-Za-z0-9\u4e00-\u9fa5-]/g, '-'),
       semester: '2025-2026-2',
+      schedule: { weekday: adminClass.class_name === '软件2403班' ? 2 : 4, periods: '1-2' },
+      location: adminClass.class_name === '软件2403班' ? '博学楼 A201' : '博学楼 A203',
+      capacity: 60,
+      status: 'active',
       description: `${course.course_name}课程教学班，面向${adminClass.major || '相关专业'}${adminClass.grade || ''}级${adminClass.class_name}学生。`,
     },
     create: {
       course_id: course.course_id,
+      course_offering_id: courseOfferingId,
+      teacher_user_id: teacherUserId,
       teaching_class_name: adminClass.class_name,
+      code: `${course.course_code}-${adminClass.class_name}`.replace(/[^A-Za-z0-9\u4e00-\u9fa5-]/g, '-'),
       semester: '2025-2026-2',
+      schedule: { weekday: adminClass.class_name === '软件2403班' ? 2 : 4, periods: '1-2' },
+      location: adminClass.class_name === '软件2403班' ? '博学楼 A201' : '博学楼 A203',
+      capacity: 60,
+      status: 'active',
       description: `${course.course_name}课程教学班，面向${adminClass.major || '相关专业'}${adminClass.grade || ''}级${adminClass.class_name}学生。`,
     },
   })
@@ -153,6 +167,8 @@ async function main() {
     teacher_no: 'T2024001',
     college: '计算机与软件工程学院',
     major: '计算机科学与技术',
+    professional_title: '副教授',
+    teacher_preferences: { message_notifications: true, ai_style: 'structured', analytics_range: '30d' },
   })
 
   log('2/15 创建行政班级')
@@ -174,6 +190,7 @@ async function main() {
   const adminClasses = {}
   for (const def of adminClassDefs) {
     adminClasses[def.class_name] = await upsertAdminClass(def)
+    await prisma.adminClass.update({ where: { admin_class_id: adminClasses[def.class_name].admin_class_id }, data: { advisor_user_id: teacherUser.user_id, status: 'active' } })
   }
 
   await upsertProfile(studentUser.user_id, {
@@ -216,6 +233,11 @@ async function main() {
 
   const courses = {}
   const teachingClasses = {}
+  const semester = await prisma.academicSemester.upsert({
+    where: { code: '2025-2026-2' },
+    update: { name: '2025-2026 学年第二学期', start_date: new Date('2026-02-23T00:00:00+08:00'), end_date: new Date('2026-07-19T23:59:59+08:00'), status: 'active' },
+    create: { code: '2025-2026-2', name: '2025-2026 学年第二学期', start_date: new Date('2026-02-23T00:00:00+08:00'), end_date: new Date('2026-07-19T23:59:59+08:00'), status: 'active' },
+  })
   for (const def of courseDefs) {
     const course = await upsertCourse(def)
     courses[def.course_code] = course
@@ -235,25 +257,43 @@ async function main() {
       },
     })
 
+    const offering = await prisma.courseOffering.upsert({
+      where: { course_id_semester_id: { course_id: course.course_id, semester_id: semester.semester_id } },
+      update: { start_date: semester.start_date, end_date: semester.end_date, status: 'active', teaching_progress: { week: 20, topic: '课程总结与综合实践', completion: 0.86 } },
+      create: { course_id: course.course_id, semester_id: semester.semester_id, start_date: semester.start_date, end_date: semester.end_date, status: 'active', teaching_progress: { week: 20, topic: '课程总结与综合实践', completion: 0.86 } },
+    })
+
     teachingClasses[def.course_code] = {}
     for (const adminClass of Object.values(adminClasses)) {
-      teachingClasses[def.course_code][adminClass.class_name] = await upsertTeachingClass(course, adminClass)
+      const teachingClass = await upsertTeachingClass(course, adminClass, teacherUser.user_id, offering.course_offering_id)
+      teachingClasses[def.course_code][adminClass.class_name] = teachingClass
+      await prisma.teachingClassTeacherAuthorization.upsert({
+        where: { teaching_class_id_teacher_user_id: { teaching_class_id: teachingClass.teaching_class_id, teacher_user_id: teacherUser.user_id } },
+        update: { role: 'owner', status: 'active' },
+        create: { teaching_class_id: teachingClass.teaching_class_id, teacher_user_id: teacherUser.user_id, role: 'owner', status: 'active', granted_by_user_id: adminUser.user_id },
+      })
+      await prisma.teachingClassAdminClass.upsert({
+        where: { teaching_class_id_admin_class_id: { teaching_class_id: teachingClass.teaching_class_id, admin_class_id: adminClass.admin_class_id } },
+        update: {},
+        create: { teaching_class_id: teachingClass.teaching_class_id, admin_class_id: adminClass.admin_class_id },
+      })
     }
   }
 
   const mlCourse = courses.ML001
+  await prisma.userProfile.update({ where: { user_id: teacherUser.user_id }, data: { default_course_id: mlCourse.course_id } })
   const mlClass2403 = teachingClasses.ML001['软件2403班']
   const mlClass2404 = teachingClasses.ML001['软件2404班']
 
   await prisma.studentCourseEnrollment.upsert({
     where: {
-      student_user_id_course_id: {
+      student_user_id_course_id_teaching_class_id: {
         student_user_id: studentUser.user_id,
         course_id: mlCourse.course_id,
+        teaching_class_id: mlClass2403.teaching_class_id,
       },
     },
     update: {
-      teaching_class_id: mlClass2403.teaching_class_id,
       enrollment_status: 'active',
     },
     create: {
@@ -263,6 +303,39 @@ async function main() {
       enrollment_status: 'active',
     },
   })
+
+  const analyticsStudents = [studentUser]
+  const analyticsStudentDefs = [
+    ['student_240302', '林晓雨', 'S2024002', '软件2403班'],
+    ['student_240303', '周明远', 'S2024003', '软件2403班'],
+    ['student_240304', '陈思琪', 'S2024004', '软件2403班'],
+    ['student_240305', '王子涵', 'S2024005', '软件2403班'],
+    ['student_240306', '赵一凡', 'S2024006', '软件2403班'],
+    ['student_240401', '孙嘉宁', 'S2024007', '软件2404班'],
+    ['student_240402', '何宇航', 'S2024008', '软件2404班'],
+  ]
+  for (let index = 0; index < analyticsStudentDefs.length; index += 1) {
+    const [username, realName, studentNo, className] = analyticsStudentDefs[index]
+    const demoStudent = await upsertUser(username, { role: 'STUDENT', email: `${username}@discimind.demo`, phone: `138000001${String(index + 1).padStart(2, '0')}` })
+    const adminClass = adminClasses[className]
+    await upsertProfile(demoStudent.user_id, { real_name: realName, student_no: studentNo, college: '计算机与软件工程学院', major: '软件工程', grade: '2024', admin_class_id: adminClass.admin_class_id })
+    const targetClass = className === '软件2403班' ? mlClass2403 : mlClass2404
+    await prisma.studentCourseEnrollment.upsert({
+      where: { student_user_id_course_id_teaching_class_id: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, teaching_class_id: targetClass.teaching_class_id } },
+      update: { enrollment_status: 'active' },
+      create: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, teaching_class_id: targetClass.teaching_class_id, enrollment_status: 'active' },
+    })
+    if (index < 3) {
+      const dbCourse = courses.OS001
+      const dbClass = teachingClasses.OS001[className]
+      await prisma.studentCourseEnrollment.upsert({
+        where: { student_user_id_course_id_teaching_class_id: { student_user_id: demoStudent.user_id, course_id: dbCourse.course_id, teaching_class_id: dbClass.teaching_class_id } },
+        update: { enrollment_status: 'active' },
+        create: { student_user_id: demoStudent.user_id, course_id: dbCourse.course_id, teaching_class_id: dbClass.teaching_class_id, enrollment_status: 'active' },
+      })
+    }
+    analyticsStudents.push(demoStudent)
+  }
 
   log('4/15 创建机器学习章节与知识点')
   const chapterDefs = [
@@ -1468,7 +1541,127 @@ async function main() {
     }
   }
 
-  log('15/15 种子数据摘要')
+  log('15/16 创建教师端闭环演示数据')
+  const now = new Date()
+  const ago = (days, hours = 0) => new Date(now.getTime() - (days * 24 + hours) * 60 * 60 * 1000)
+  const later = (days) => new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
+  const class2403Students = analyticsStudents.slice(0, 6)
+
+  for (let studentIndex = 0; studentIndex < analyticsStudents.length; studentIndex += 1) {
+    const demoStudent = analyticsStudents[studentIndex]
+    for (let kpIndex = 0; kpIndex < Math.min(8, Object.keys(knowledgePoints).length); kpIndex += 1) {
+      const kp = knowledgePoints[`ML-KP-${String(kpIndex + 1).padStart(3, '0')}`]
+      if (!kp) continue
+      const score = Math.max(32, Math.min(96, 91 - studentIndex * 7 - ((kpIndex * 9 + studentIndex * 3) % 26)))
+      const level = score >= 85 ? 'EXCELLENT' : score >= 70 ? 'GOOD' : score >= 55 ? 'GENERAL' : 'WEAK'
+      await prisma.studentMasteryRecord.upsert({
+        where: { student_user_id_course_id_knowledge_point_id: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, knowledge_point_id: kp.knowledge_point_id } },
+        update: { mastery_score: score, mastery_level: level, quiz_score: score * 0.6, question_score: score * 0.25, study_progress_score: score * 0.15 },
+        create: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, knowledge_point_id: kp.knowledge_point_id, mastery_score: score, mastery_level: level, quiz_score: score * 0.6, question_score: score * 0.25, study_progress_score: score * 0.15 },
+      })
+    }
+    for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+      const startedAt = ago(dayOffset, 2 + studentIndex)
+      const existingStudy = await prisma.studyRecord.findFirst({ where: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, resource_type: 'teacher_analytics_seed', resource_id: dayOffset + 1 } })
+      const studyData = { knowledge_point_id: knowledgePoints[`ML-KP-${String((dayOffset % 8) + 1).padStart(3, '0')}`]?.knowledge_point_id, action_type: 'FINISH', started_at: startedAt, finished_at: new Date(startedAt.getTime() + (18 + studentIndex * 3 + dayOffset) * 60 * 1000), duration_seconds: (18 + studentIndex * 3 + dayOffset) * 60, progress_percent: 100, created_at: startedAt }
+      if (existingStudy) await prisma.studyRecord.update({ where: { study_record_id: existingStudy.study_record_id }, data: studyData })
+      else await prisma.studyRecord.create({ data: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, resource_type: 'teacher_analytics_seed', resource_id: dayOffset + 1, ...studyData } })
+    }
+    const questionTexts = [
+      '决策树剪枝为什么能缓解过拟合？', '逻辑回归输出是概率还是分类标签？', '交叉验证和测试集有什么区别？',
+      '支持向量机的最大间隔应该怎样理解？', '训练集准确率很高为什么测试效果仍然差？', 'PCA 降维后特征还能解释吗？',
+    ]
+    const rawQuestion = questionTexts[studentIndex % questionTexts.length]
+    let questionRecord = await prisma.studentQuestionRecord.findFirst({ where: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, raw_question: rawQuestion } })
+    if (!questionRecord) questionRecord = await prisma.studentQuestionRecord.create({ data: { student_user_id: demoStudent.user_id, course_id: mlCourse.course_id, raw_question: rawQuestion, created_at: ago(studentIndex % 6) } })
+    else questionRecord = await prisma.studentQuestionRecord.update({ where: { student_question_id: questionRecord.student_question_id }, data: { created_at: ago(studentIndex % 6) } })
+    let analysis = await prisma.questionAnalysisRecord.findFirst({ where: { student_question_id: questionRecord.student_question_id } })
+    if (!analysis) analysis = await prisma.questionAnalysisRecord.create({ data: { student_question_id: questionRecord.student_question_id, raw_question: rawQuestion, question_summary: rawQuestion, knowledge_point_id: knowledgePoints[`ML-KP-${String((studentIndex % 8) + 1).padStart(3, '0')}`]?.knowledge_point_id, normalized_question_type: 'concept_understanding', confidence: 0.88, need_teacher_review: studentIndex % 3 === 0 } })
+    const keyword = ['过拟合', '逻辑回归', '交叉验证', '最大间隔', '泛化能力', 'PCA'][studentIndex % 6]
+    if (!await prisma.questionKeyword.findFirst({ where: { analysis_id: analysis.analysis_id, keyword } })) await prisma.questionKeyword.create({ data: { analysis_id: analysis.analysis_id, keyword, weight: 0.9 } })
+    if (studentIndex % 3 === 0 && !await prisma.questionConfusionTag.findFirst({ where: { analysis_id: analysis.analysis_id, tag: '概念边界混淆' } })) await prisma.questionConfusionTag.create({ data: { analysis_id: analysis.analysis_id, tag: '概念边界混淆' } })
+  }
+
+  async function upsertTeachingTask(title, taskType, startTime, deadline, questionSlice, settings = {}) {
+    const totalScore = questionSlice.reduce((sum, item) => sum + Number(item.score || 0), 0)
+    const data = { course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, created_by_user_id: teacherUser.user_id, task_type: taskType, title, description: settings.description, start_time: startTime, deadline, allow_late_submit: !!settings.allowLate, duration_minutes: settings.duration || null, allowed_attempts: settings.attempts || 1, randomize_questions: !!settings.randomize, randomize_options: !!settings.randomize, auto_grade: true, ai_grade_subjective: true, full_screen_mode: taskType === 'EXAM', source_mode: 'mixed', total_score: totalScore, pass_score: totalScore * 0.6, instructions: settings.instructions || '请在规定时间内完成并提交。', rules: taskType === 'EXAM' ? '独立作答，离开全屏时系统将提示。' : null, configuration_json: { question_bank_ratio: 0.7, ai_ratio: 0.3, seed: 'teacher-platform-v1' }, status: 'PUBLISHED', published_at: startTime, score_release_at: deadline, analysis_release_at: deadline }
+    let row = await prisma.learningTask.findFirst({ where: { teaching_class_id: mlClass2403.teaching_class_id, title } })
+    row = row ? await prisma.learningTask.update({ where: { task_id: row.task_id }, data }) : await prisma.learningTask.create({ data })
+    for (let index = 0; index < questionSlice.length; index += 1) await prisma.taskQuestion.upsert({ where: { task_id_question_id: { task_id: row.task_id, question_id: questionSlice[index].question_id } }, update: { question_order: index + 1, score: questionSlice[index].score }, create: { task_id: row.task_id, question_id: questionSlice[index].question_id, question_order: index + 1, score: questionSlice[index].score } })
+    await prisma.learningTaskRecipient.createMany({ data: class2403Students.map(student => ({ task_id: row.task_id, student_user_id: student.user_id, teaching_class_id: mlClass2403.teaching_class_id, delivery_status: 'delivered' })), skipDuplicates: true })
+    for (const student of class2403Students) await prisma.notification.upsert({ where: { idempotency_key: `seed:task:${row.task_id}:student:${student.user_id}` }, update: { title: `${taskType === 'EXAM' ? '考试' : '作业'}：${title}`, content: settings.description, deleted_at: null }, create: { receiver_user_id: student.user_id, sender_user_id: teacherUser.user_id, notification_type: 'TASK_PUBLISHED', title: `${taskType === 'EXAM' ? '考试' : '作业'}：${title}`, content: settings.description, target_type: 'learning_task', target_id: row.task_id, business_type: taskType === 'EXAM' ? 'exam' : 'homework', business_id: row.task_id, idempotency_key: `seed:task:${row.task_id}:student:${student.user_id}` } })
+    return row
+  }
+
+  const recentHomework = await upsertTeachingTask('模型评估与过拟合巩固作业', 'HOMEWORK', ago(3), later(4), allQuestions.slice(0, 8), { description: '围绕交叉验证、过拟合与泛化能力完成分层练习。', allowLate: true, attempts: 2 })
+  const upcomingExam = await upsertTeachingTask('机器学习期末综合测验', 'EXAM', later(6), later(6.08), allQuestions.slice(5, 15), { description: '覆盖监督学习、无监督学习与模型评估。', duration: 120, randomize: true })
+  for (let index = 0; index < 4; index += 1) {
+    const demoStudent = class2403Students[index]
+    const submissionData = { started_at: ago(1, index), submitted_at: ago(1, index - 1), duration_seconds: 2100 + index * 180, is_late: false, total_score: Math.max(45, 92 - index * 11), objective_score: Math.max(30, 67 - index * 8), ai_score: Math.max(10, 25 - index * 3), submission_status: 'GRADED', grading_status: 'AI_GRADED' }
+    let recentSubmission = await prisma.taskSubmission.findFirst({ where: { task_id: recentHomework.task_id, student_user_id: demoStudent.user_id } })
+    recentSubmission = recentSubmission ? await prisma.taskSubmission.update({ where: { submission_id: recentSubmission.submission_id }, data: submissionData }) : await prisma.taskSubmission.create({ data: { task_id: recentHomework.task_id, student_user_id: demoStudent.user_id, ...submissionData } })
+    const answerQuestion = allQuestions[index % allQuestions.length]
+    await findOrCreateAnswerRecord(demoStudent.user_id, answerQuestion.question_id, recentHomework.task_id, 1, { student_user_id: demoStudent.user_id, question_id: answerQuestion.question_id, task_id: recentHomework.task_id, submission_id: recentSubmission.submission_id, answer_content: { answer: index % 2 ? '错误示例答案' : '正确示例答案' }, started_at: ago(1, index), submitted_at: ago(1, index - 1), duration_seconds: 240, attempt_no: 1, is_correct: index % 2 === 0, score: index % 2 === 0 ? answerQuestion.score : 0, max_score: answerQuestion.score, grading_status: 'AUTO_GRADED', feedback: index % 2 === 0 ? '回答正确' : '需要重新理解该知识点', auto_added_wrong_book: index % 2 !== 0 })
+    if (index % 2 !== 0) await prisma.wrongQuestion.upsert({ where: { student_user_id_question_id: { student_user_id: demoStudent.user_id, question_id: answerQuestion.question_id } }, update: { status: 'UNRESOLVED', last_wrong_at: ago(1), knowledge_point_id: answerQuestion.knowledge_point_id, course_id: mlCourse.course_id }, create: { student_user_id: demoStudent.user_id, question_id: answerQuestion.question_id, course_id: mlCourse.course_id, knowledge_point_id: answerQuestion.knowledge_point_id, status: 'UNRESOLVED', last_wrong_at: ago(1) } })
+    await prisma.notification.upsert({ where: { idempotency_key: `seed:submission:${recentHomework.task_id}:${demoStudent.user_id}:teacher` }, update: { read_at: null, is_read: false }, create: { receiver_user_id: teacherUser.user_id, sender_user_id: demoStudent.user_id, notification_type: 'TASK_SUBMITTED', title: `${demoStudent.username} 已提交作业`, content: recentHomework.title, target_type: 'learning_task', target_id: recentHomework.task_id, business_type: 'homework_submission', business_id: recentSubmission.submission_id, idempotency_key: `seed:submission:${recentHomework.task_id}:${demoStudent.user_id}:teacher` } })
+  }
+
+  const publicKb = await prisma.knowledgeBase.upsert({
+    where: { operation_id: 'seed-teacher-kb-public-review' },
+    update: { name: '机器学习错题共建知识库', course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, owner_user_id: studentUser.user_id, marketplace_visibility: 'PUBLIC_PENDING', marketplace_status: 'PENDING_REVIEW', deleted_at: null },
+    create: { name: '机器学习错题共建知识库', scope_type: 'CLASS', course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, owner_user_id: studentUser.user_id, description: '学生整理的模型评估错题、辨析笔记与复习提示，申请在课程范围公开。', provider: 'LOCAL', ownership_mode: 'LOCAL_MANAGED', marketplace_visibility: 'PUBLIC_PENDING', marketplace_status: 'PENDING_REVIEW', operation_id: 'seed-teacher-kb-public-review' },
+  })
+  await prisma.knowledgeBaseReviewRecord.upsert({ where: { operationId: 'seed-kb-submit-ml-wrong' }, update: { action: 'SUBMITTED', reason: '希望与教学班同学共享模型评估错题总结。', reviewerUserId: null }, create: { knowledgeBaseId: publicKb.knowledge_base_id, action: 'SUBMITTED', reason: '希望与教学班同学共享模型评估错题总结。', operationId: 'seed-kb-submit-ml-wrong' } })
+  await prisma.knowledgeDocument.upsert({ where: { operation_id: 'seed-kb-doc-ml-wrong' }, update: { knowledge_base_id: publicKb.knowledge_base_id, deleted_at: null }, create: { knowledge_base_id: publicKb.knowledge_base_id, title: '模型评估错题总结', original_filename: '模型评估错题总结.md', file_ext: 'md', file_size_bytes: 2048, mime_type: 'text/markdown', file_url: '/seed/knowledge/model-evaluation-errors.md', scope_type: 'CLASS', visibility: 'CLASS', course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, owner_user_id: studentUser.user_id, parse_status: 'PARSED', review_status: 'PENDING', marketplace_status: 'READY', operation_id: 'seed-kb-doc-ml-wrong', cleaned_text: '交叉验证用于模型选择；测试集用于最终泛化评估。过拟合表现为训练集指标显著高于验证集与测试集。' } })
+  const teachingResource = await prisma.knowledgeDocument.upsert({
+    where: { operation_id: 'seed-teaching-resource-model-eval' },
+    update: { deleted_at: null, course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, resource_group_id: 'seed-resource-model-eval', resource_version: 1, version_source: 'TEACHER_EDIT', resource_status: 'ACTIVE' },
+    create: { title: '模型评估课堂补充材料', original_filename: '模型评估课堂补充材料.md', file_ext: 'md', file_size_bytes: 4096, mime_type: 'text/markdown', file_url: '/seed/resources/model-evaluation.md', scope_type: 'CLASS', visibility: 'CLASS', course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, owner_user_id: teacherUser.user_id, is_teaching_resource: true, resource_kind: 'MARKDOWN', resource_category: '课堂讲义', metadata_json: { tags: ['模型评估', '交叉验证', '过拟合'] }, resource_group_id: 'seed-resource-model-eval', resource_version: 1, version_source: 'TEACHER_EDIT', folder_path: '机器学习/模型评估', tags_json: ['模型评估', '交叉验证', '过拟合'], resource_status: 'ACTIVE', parse_status: 'PARSED', review_status: 'APPROVED', marketplace_status: 'READY', operation_id: 'seed-teaching-resource-model-eval', cleaned_text: '本材料包含交叉验证、偏差方差分解、过拟合诊断和正则化的课堂示例。' },
+  })
+  const resourceDistribution = await prisma.resourceDistribution.upsert({
+    where: { operation_id: 'seed-resource-distribution-model-eval' },
+    update: { resource_id: teachingResource.document_id, title: teachingResource.title, status: 'PUBLISHED', publish_at: ago(2), due_at: later(5) },
+    create: { resource_id: teachingResource.document_id, sender_user_id: teacherUser.user_id, course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, title: teachingResource.title, description: '课前阅读模型评估案例，课堂将结合学习曲线进行诊断。', distribution_type: 'pre_class_material', resource_version: 1, publish_at: ago(2), due_at: later(5), status: 'PUBLISHED', operation_id: 'seed-resource-distribution-model-eval' },
+  })
+  await prisma.resourceRecipient.createMany({ data: class2403Students.map(student => ({ distribution_id: resourceDistribution.distribution_id, student_user_id: student.user_id })), skipDuplicates: true })
+  for (let index = 0; index < class2403Students.length; index += 1) {
+    const demoStudent = class2403Students[index]
+    const readAt = index < 4 ? ago(1, index) : null
+    const downloadedAt = index < 2 ? ago(1, index - 1) : null
+    const completedAt = index === 0 ? ago(0, 6) : null
+    await prisma.resourceRecipient.update({ where: { distribution_id_student_user_id: { distribution_id: resourceDistribution.distribution_id, student_user_id: demoStudent.user_id } }, data: { read_at: readAt, downloaded_at: downloadedAt, completed_at: completedAt, status: completedAt ? 'COMPLETED' : downloadedAt ? 'DOWNLOADED' : readAt ? 'READ' : 'UNREAD' } })
+    await prisma.notification.upsert({ where: { idempotency_key: `resource-distribution:${resourceDistribution.distribution_id}:student:${demoStudent.user_id}` }, update: { deleted_at: null, is_read: Boolean(readAt), read_at: readAt }, create: { receiver_user_id: demoStudent.user_id, sender_user_id: teacherUser.user_id, notification_type: 'RESOURCE_SHARED', title: `教学资源：${teachingResource.title}`, content: resourceDistribution.description, target_type: 'resource_distribution', target_id: resourceDistribution.distribution_id, business_type: 'resource_distribution', business_id: resourceDistribution.distribution_id, idempotency_key: `resource-distribution:${resourceDistribution.distribution_id}:student:${demoStudent.user_id}`, is_read: Boolean(readAt), read_at: readAt } })
+  }
+
+  let lessonPlan = await prisma.lessonPlan.findFirst({ where: { teacher_user_id: teacherUser.user_id, teaching_class_id: mlClass2403.teaching_class_id, topic: '模型评估与过拟合诊断' } })
+  const seededVersionMaximum = lessonPlan
+    ? await prisma.lessonPlanVersion.aggregate({ where: { lesson_plan_id: lessonPlan.lesson_plan_id }, _max: { version_number: true } })
+    : { _max: { version_number: null } }
+  const lessonPlanData = { course_id: mlCourse.course_id, course_offering_id: mlClass2403.course_offering_id, teaching_class_id: mlClass2403.teaching_class_id, chapter_id: chapters['模型评估与优化']?.chapter_id, teaching_date: later(2), duration_minutes: 90, lesson_type: '新授课', location: '博学楼 A201', textbook: '机器学习（周志华）', input_json: { use_case: true, discussion: true, in_class_practice: true, include_homework: true, analytics_range: '30d' }, source_snapshot_json: { student_count: class2403Students.length, average_mastery: 64.2, weak_knowledge_points: ['交叉验证', '过拟合与欠拟合'] }, status: 'READY', current_version: Math.max(1, lessonPlan?.current_version || 0, seededVersionMaximum._max.version_number || 0), progress: 100 }
+  lessonPlan = lessonPlan ? await prisma.lessonPlan.update({ where: { lesson_plan_id: lessonPlan.lesson_plan_id }, data: lessonPlanData }) : await prisma.lessonPlan.create({ data: { teacher_user_id: teacherUser.user_id, topic: '模型评估与过拟合诊断', ...lessonPlanData } })
+  const lessonContent = { classProfile: '软件2403班共 6 名演示学生，平均掌握度存在明显分层。', studentAnalytics: '交叉验证、过拟合诊断与泛化能力是当前薄弱点。', teachingObjectives: ['能区分训练集、验证集与测试集', '能用学习曲线判断过拟合与欠拟合'], keyPoints: ['交叉验证', '模型泛化'], difficultPoints: ['偏差与方差权衡'], lessonIntroduction: '从训练准确率 99% 但线上效果差的真实情境引入。', activities: [{ minutes: 15, teacher: '展示案例并提问', student: '观察指标差异' }, { minutes: 45, teacher: '讲解并演示学习曲线', student: '分组诊断模型' }, { minutes: 20, teacher: '组织分层练习', student: '完成诊断题' }], questions: ['训练准确率高是否一定意味着模型好？', '验证集可以替代测试集吗？'], exercises: ['识别三条学习曲线对应的问题', '为过拟合模型选择改进策略'], assessments: ['随堂投票', '出口卡'], homework: '完成模型评估巩固作业并订正错题。', resources: ['模型评估课堂补充材料'], reviewResult: { alignment: 92, time_reasonable: true, complete: true } }
+  await prisma.lessonPlanVersion.upsert({ where: { lesson_plan_id_version_number: { lesson_plan_id: lessonPlan.lesson_plan_id, version_number: 1 } }, update: { merged_content_json: lessonContent, teacher_content_json: lessonContent, change_summary: '教师端演示基线版本' }, create: { lesson_plan_id: lessonPlan.lesson_plan_id, version_number: 1, created_by_user_id: teacherUser.user_id, change_summary: '教师端演示基线版本', ai_content_json: lessonContent, teacher_content_json: lessonContent, merged_content_json: lessonContent, locked_blocks_json: ['teachingObjectives'], data_range_json: { range: '30d' }, agents_json: ['StudentAnalyticsAgent', 'CurriculumPlannerAgent', 'LessonQualityReviewAgent'], data_sources_json: ['mastery', 'tasks', 'dialogue', 'wrong_questions'] } })
+  await prisma.teacherStudentIntervention.upsert({ where: { intervention_id: (await prisma.teacherStudentIntervention.findFirst({ where: { teacher_user_id: teacherUser.user_id, student_user_id: analyticsStudents[4].user_id, course_id: mlCourse.course_id, status: 'open' }, select: { intervention_id: true } }))?.intervention_id || -1 }, update: { content: '连续两次作业完成度偏低，建议本周完成交叉验证专项练习。', follow_up_at: later(3) }, create: { teacher_user_id: teacherUser.user_id, student_user_id: analyticsStudents[4].user_id, course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, intervention_type: 'learning_risk', content: '连续两次作业完成度偏低，建议本周完成交叉验证专项练习。', status: 'open', follow_up_at: later(3) } })
+  await prisma.teacherAnalyticsSnapshot.upsert({ where: { cache_key: 'seed:teacher:ml:2403:30d' }, update: { result_json: { overview: { student_count: class2403Students.length, average_mastery: 64.2, task_completion_rate: 66.7 }, weak_knowledge_points: ['交叉验证', '过拟合与欠拟合'] }, data_sources_json: { models: ['StudentMasteryRecord', 'TaskSubmission', 'StudyRecord', 'StudentQuestionRecord'], seed: true }, generated_at: now, expires_at: later(1) }, create: { teacher_user_id: teacherUser.user_id, course_id: mlCourse.course_id, teaching_class_id: mlClass2403.teaching_class_id, analysis_type: 'workbench', filter_json: { range: '30d' }, result_json: { overview: { student_count: class2403Students.length, average_mastery: 64.2, task_completion_rate: 66.7 }, weak_knowledge_points: ['交叉验证', '过拟合与欠拟合'] }, data_sources_json: { models: ['StudentMasteryRecord', 'TaskSubmission', 'StudyRecord', 'StudentQuestionRecord'], seed: true }, cache_key: 'seed:teacher:ml:2403:30d', generated_at: now, expires_at: later(1) } })
+  const artifactPayload = { lessonPlanId: lessonPlan.lesson_plan_id, artifactType: 'LESSON_PLAN', title: '模型评估与过拟合诊断教案', description: '智慧备课演示产物', courseId: mlCourse.course_id, requirementsJson: { lesson_plan_id: lessonPlan.lesson_plan_id }, previewHtml: '<h1>模型评估与过拟合诊断</h1><p>教师端智慧备课演示产物，可在备课工作台重新导出 DOCX/PDF。</p>', fileFormat: 'DOCX', status: 'DRAFT', deletedAt: null }
+  const existingArtifact = await prisma.generatedArtifact.findFirst({ where: { ownerUserId: teacherUser.user_id, operationId: 'seed-lesson-plan-artifact' } })
+  if (existingArtifact) await prisma.generatedArtifact.update({ where: { id: existingArtifact.id }, data: artifactPayload })
+  else await prisma.generatedArtifact.create({ data: { ownerUserId: teacherUser.user_id, operationId: 'seed-lesson-plan-artifact', ...artifactPayload } })
+  const reminderSeeds = [
+    { businessId: 9101, title: '课前检查：模型评估与过拟合诊断', description: '检查课件转换状态、教案版本和课堂任务单。', startAt: later(1), remindAt: new Date(later(1).getTime() - 30 * 60000), priority: 'high', reminderType: 'lesson_preparation', recurrenceRule: null },
+    { businessId: 9102, title: '批改机器学习阶段作业', description: '优先处理高风险学生和待回复疑问。', startAt: later(2), remindAt: new Date(later(2).getTime() - 60 * 60000), priority: 'normal', reminderType: 'homework_review', recurrenceRule: null },
+    { businessId: 9103, title: '每周教学复盘', description: '结合学情分析词云、薄弱知识点和任务完成率调整下一周教学。', startAt: later(3), remindAt: new Date(later(3).getTime() - 15 * 60000), priority: 'normal', reminderType: 'weekly_review', recurrenceRule: { frequency: 'weekly', interval: 1 } },
+  ]
+  for (const reminder of reminderSeeds) {
+    const existing = await prisma.teacherReminder.findFirst({ where: { teacherUserId: teacherUser.user_id, businessType: 'seed_teacher_reminder', businessId: reminder.businessId } })
+    const data = { ...reminder, teacherUserId: teacherUser.user_id, courseId: mlCourse.course_id, teachingClassId: mlClass2403.teaching_class_id, businessType: 'seed_teacher_reminder', status: 'pending', advanceMinutes: Math.max(0, Math.round((reminder.startAt.getTime() - reminder.remindAt.getTime()) / 60000)), snoozedUntil: null, completedAt: null, dismissedAt: null }
+    if (existing) await prisma.teacherReminder.update({ where: { id: existing.id }, data })
+    else await prisma.teacherReminder.create({ data })
+  }
+  await prisma.notification.upsert({ where: { idempotency_key: 'seed:teacher:kb-review-pending' }, update: { is_read: false, read_at: null, deleted_at: null }, create: { receiver_user_id: teacherUser.user_id, sender_user_id: studentUser.user_id, notification_type: 'KNOWLEDGE_APPLICATION', title: '新的知识库公开申请', content: '机器学习错题共建知识库等待审核。', target_type: 'knowledge_base_review', target_id: (await prisma.knowledgeBaseReviewRecord.findUnique({ where: { operationId: 'seed-kb-submit-ml-wrong' } })).id, business_type: 'knowledge_base_review', business_id: publicKb.knowledge_base_id, idempotency_key: 'seed:teacher:kb-review-pending' } })
+  void upcomingExam
+
+  log('16/16 种子数据摘要')
   const questionTypeStats = await prisma.question.groupBy({
     by: ['question_type'],
     where: { course_id: mlCourse.course_id },

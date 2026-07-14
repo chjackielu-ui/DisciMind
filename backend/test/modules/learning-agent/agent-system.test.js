@@ -14,6 +14,12 @@ const fs = require('fs');
 
 // 加载环境变量
 require('dotenv').config({ path: path.resolve(__dirname, '../../../.env') });
+const RUN_LIVE_AGENT_TESTS = process.env.RUN_LIVE_AGENT_TESTS === 'true' && Boolean(process.env.BAILIAN_API_KEY);
+
+after(async () => {
+  const checkpointerService = require('../../../src/modules/learning-agent/graph/checkpointer.service');
+  await checkpointerService.closeCheckpointer();
+});
 
 // ---------------------------------------------------------------------------
 // 测试 1: 模型适配器
@@ -34,8 +40,8 @@ describe('Bailian Model Adapter', () => {
   });
 
   it('should create a model instance with defaults', () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const model = bailianAdapter.createBailianModel();
@@ -52,8 +58,8 @@ describe('Bailian Model Adapter', () => {
   });
 
   it('text-only call with qwen3.7-plus', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const result = await bailianAdapter.bailianModelCall([
@@ -65,8 +71,8 @@ describe('Bailian Model Adapter', () => {
   });
 
   it('image + text multimodal call', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     // 读取预生成的有效 PNG 测试图片 (16x16 白色)
@@ -93,8 +99,8 @@ describe('Bailian Model Adapter', () => {
   });
 
   it('should handle AbortSignal', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const controller = new AbortController();
@@ -315,8 +321,8 @@ describe('Explainer Agent Structured Output', () => {
   });
 
   it('full explainer run with direct strategy', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const result = await explainerAgent.runExplainer({
@@ -329,8 +335,8 @@ describe('Explainer Agent Structured Output', () => {
   });
 
   it('full explainer run with analogy strategy', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const result = await explainerAgent.runExplainer({
@@ -385,8 +391,8 @@ describe('Trainer Agent Structured Output', () => {
   });
 
   it('full trainer: basic_practice', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const result = await trainerAgent.runTrainer({
@@ -399,8 +405,8 @@ describe('Trainer Agent Structured Output', () => {
   });
 
   it('full trainer: evaluate answer', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const result = await trainerAgent.evaluateAnswer({
@@ -489,8 +495,8 @@ describe('Diagnostician Agent Structured Output', () => {
   });
 
   it('full diagnostician: diagnostic_decision', async () => {
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent tests disabled');
       return;
     }
     const result = await diagnosticianAgent.runDiagnostician({
@@ -527,26 +533,27 @@ describe('LangGraph Interrupt/Resume', () => {
     assert.ok(cp, 'checkpointer should be initialized');
 
     const threadId = `test_thread_${Date.now()}`;
-    const testCheckpoint = { test: true, value: 42 };
+    const { emptyCheckpoint } = require('@langchain/langgraph-checkpoint');
+    const testCheckpoint = emptyCheckpoint();
+    testCheckpoint.channel_values = { test: true, value: 42 };
 
     // Put
-    await cp.put(
-      { configurable: { thread_id: threadId, checkpoint_id: 'test_ckpt_1' } },
+    const savedConfig = await cp.put(
+      { configurable: { thread_id: threadId } },
       testCheckpoint,
       { source: 'test' },
     );
 
     // Get
-    const retrieved = await cp.getTuple({
-      configurable: { thread_id: threadId },
-    });
+    const retrieved = await cp.getTuple(savedConfig);
     assert.ok(retrieved, 'should retrieve checkpoint');
-    assert.strictEqual(retrieved.checkpoint.test, true);
-    assert.strictEqual(retrieved.checkpoint.value, 42);
+    assert.strictEqual(retrieved.checkpoint.channel_values.test, true);
+    assert.strictEqual(retrieved.checkpoint.channel_values.value, 42);
     assert.strictEqual(retrieved.metadata.source, 'test');
 
     // List
-    const list = await cp.list(threadId);
+    const list = [];
+    for await (const item of cp.list({ configurable: { thread_id: threadId } })) list.push(item);
     assert.ok(list.length >= 1);
 
     // Cleanup
@@ -556,21 +563,22 @@ describe('LangGraph Interrupt/Resume', () => {
   it('backend restart checkpoint recovery', async () => {
     const cp = checkpointerService.getCheckpointer();
     const threadId = `recovery_test_${Date.now()}`;
+    const { emptyCheckpoint } = require('@langchain/langgraph-checkpoint');
+    const checkpoint = emptyCheckpoint();
+    checkpoint.channel_values = { state: 'in_progress', currentNode: { id: 'node2', type: 'basic_practice' } };
 
     // Simulate saving a checkpoint
-    await cp.put(
-      { configurable: { thread_id: threadId, checkpoint_id: 'recovery_1' } },
-      { state: 'in_progress', currentNode: { id: 'node2', type: 'basic_practice' } },
+    const savedConfig = await cp.put(
+      { configurable: { thread_id: threadId } },
+      checkpoint,
       { savedAt: new Date().toISOString() },
     );
 
     // Simulate restart by re-initializing
     const cp2 = await checkpointerService.initCheckpointer();
-    const recovered = await cp2.getTuple({
-      configurable: { thread_id: threadId },
-    });
+    const recovered = await cp2.getTuple(savedConfig);
     assert.ok(recovered, 'should recover checkpoint after "restart"');
-    assert.strictEqual(recovered.checkpoint.state, 'in_progress');
+    assert.strictEqual(recovered.checkpoint.channel_values.state, 'in_progress');
 
     await cp2.deleteThread(threadId);
   });
@@ -583,8 +591,8 @@ describe('LangGraph Interrupt/Resume', () => {
   it('graph should process a simple node list', async () => {
     // LangGraph 1.4.x 编译需要特定的 checkpointer 实现
     // 验证 graph 可以编译成功（compile 已验证通过）
-    if (!process.env.BAILIAN_API_KEY) {
-      console.log('  [SKIP] BAILIAN_API_KEY not configured (graph run needs model)');
+    if (!RUN_LIVE_AGENT_TESTS) {
+      console.log('  [SKIP] live Agent graph test disabled');
       return;
     }
     try {

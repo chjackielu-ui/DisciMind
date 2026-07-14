@@ -3,6 +3,7 @@ const { TAG_GROUPS } = require('./agent-marketplace.constants');
 const { assert } = require('./agent-marketplace.errors');
 const { scopedOperationId } = require('./operation-id');
 const { generateAgentConfig } = require('./agent-prompt.service');
+const { resolveAgentIcon } = require('./agent-icon.service');
 
 const versionInclude = {
   tags: { include: { tag: true } },
@@ -46,6 +47,7 @@ function serializeVersion(version, { includePrompt = false } = {}) {
     topK: version.topK,
     scoreThreshold: version.scoreThreshold,
     maxOutputTokens: version.maxOutputTokens,
+    runtimeProvider: version.runtimeProvider || 'MODEL',
     memoryEnabledByDefault: version.memoryEnabledByDefault,
     fileGeneratorConfig: version.fileGeneratorConfigJson || null,
     reviewStatus: version.reviewStatus,
@@ -68,6 +70,11 @@ function serializeAgent(agent, userId, { detail = false } = {}) {
     agentType: agent.agentType || 'CHAT',
     status: agent.status,
     visibility: agent.visibility,
+    subjectScope: agent.subjectScope || 'GENERAL',
+    courseId: agent.courseId || null,
+    subjectCode: agent.subjectCode || null,
+    allowedCourseIds: Array.isArray(agent.allowedCourseIdsJson) ? agent.allowedCourseIdsJson : [],
+    isCrossSubjectUtility: Boolean(agent.isCrossSubjectUtility),
     category: agent.category?.name || null,
     usageCount: agent.usageCount,
     favoriteCount: agent.favoriteCount,
@@ -76,6 +83,7 @@ function serializeAgent(agent, userId, { detail = false } = {}) {
     copiedFromAgentId: agent.copiedFromAgentId,
     isSystem: Boolean(agent.isSystem),
     systemKey: agent.systemKey || null,
+    icon: resolveAgentIcon(agent, activeVersion),
     creator: publicUser(agent.creator),
     isOwner: own,
     isFavorite: Boolean(agent.favorites?.length),
@@ -124,6 +132,9 @@ async function createAgent(userId, input) {
   const existing = await prisma.userAgent.findUnique({ where: { operationId } });
   if (existing) return getAgent(userId, existing.id);
   const knowledgeBases = await loadBindingKnowledgeBases(userId, input.knowledgeBaseIds);
+  if (input.subjectScope === 'SUBJECT' && input.courseId) {
+    await require('../agent-chat/agent-context.service').loadAgentCallContext(userId, { assistantMode: 'subject', courseId: input.courseId, subjectCode: input.subjectCode });
+  }
   const config = await generateAgentConfig(input, knowledgeBases);
   const category = await prisma.agentCategory.upsert({
     where: { name: input.category }, update: {}, create: { name: input.category, slug: `category-${Buffer.from(input.category).toString('hex').slice(0, 40)}` },
@@ -131,7 +142,13 @@ async function createAgent(userId, input) {
 
   const created = await prisma.$transaction(async (tx) => {
     const agent = await tx.userAgent.create({
-      data: { creatorUserId: userId, agentType: input.agentType, status: 'PRIVATE', visibility: 'PRIVATE', categoryId: category.id, operationId },
+      data: {
+        creatorUserId: userId, agentType: input.agentType, status: 'PRIVATE', visibility: 'PRIVATE', categoryId: category.id, operationId,
+        subjectScope: input.subjectScope, courseId: input.courseId || null, subjectCode: input.subjectCode || null,
+        allowedCourseIdsJson: input.allowedCourseIds, isCrossSubjectUtility: input.agentType === 'FILE_GENERATOR',
+        iconKey: input.iconKey || null, iconColor: input.iconColor || null, iconBackground: input.iconBackground || null,
+        iconUpdatedAt: input.iconKey || input.iconColor || input.iconBackground ? new Date() : null,
+      },
     });
     const version = await tx.userAgentVersion.create({
       data: {
@@ -196,11 +213,12 @@ async function listAgents(userId, query = {}, mode = 'public') {
   return { list: serialized.slice((page - 1) * pageSize, page * pageSize), total, page, pageSize };
 }
 
-async function listAvailableChatAgents(userId) {
+async function listCallableAgents(userId, options = {}) {
+  const includeFileGenerators = options.includeFileGenerators !== false && options.includeFileGenerators !== 'false';
   const records = await prisma.userAgent.findMany({
     where: {
       deletedAt: null, status: { notIn: ['PUBLIC_PENDING', 'REJECTED', 'OFFLINE', 'DELETED'] },
-      agentType: 'CHAT',
+      ...(includeFileGenerators ? { agentType: { in: ['CHAT', 'FILE_GENERATOR'] } } : { agentType: 'CHAT' }),
       creator: { status: 'ACTIVE' },
       OR: [
         { creatorUserId: userId, currentDraftVersionId: { not: null } },
@@ -211,7 +229,12 @@ async function listAvailableChatAgents(userId) {
     include: { creator: { include: { profile: true } }, category: true, currentPublicVersion: { include: versionInclude }, currentDraftVersion: { include: versionInclude }, favorites: { where: { userId }, take: 1 }, ratings: { where: { userId }, take: 1 } },
     orderBy: [{ favoriteCount: 'desc' }, { updatedAt: 'desc' }],
   });
-  return { list: records.map(item => serializeAgent(item, userId)) };
+  const context = await require('../agent-chat/agent-context.service').loadAgentCallContext(userId, options);
+  return { list: records.filter(item => require('../agent-chat/agent-context.service').canCallAgentInContext(item, context)).map(item => serializeAgent(item, userId)), context: { assistantMode: context.assistantMode, courseId: context.courseId, subjectCode: context.subjectCode } };
+}
+
+async function listAvailableChatAgents(userId) {
+  return listCallableAgents(userId, { includeFileGenerators: false });
 }
 
 async function getAgent(userId, agentId) {
@@ -235,6 +258,9 @@ async function updateAgent(userId, agentId, input) {
   const agent = await prisma.userAgent.findFirst({ where: { id: Number(agentId), creatorUserId: userId, deletedAt: null }, include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } } });
   assert(agent, '智能体不存在或无权编辑', 40301, 403);
   assert(agent.agentType === input.agentType, '不能修改既有智能体类型');
+  if (input.subjectScope === 'SUBJECT' && input.courseId) {
+    await require('../agent-chat/agent-context.service').loadAgentCallContext(userId, { assistantMode: 'subject', courseId: input.courseId, subjectCode: input.subjectCode });
+  }
   const knowledgeBases = await loadBindingKnowledgeBases(userId, input.knowledgeBaseIds);
   const config = await generateAgentConfig(input, knowledgeBases);
   const category = await prisma.agentCategory.findUnique({ where: { name: input.category } });
@@ -250,7 +276,17 @@ async function updateAgent(userId, agentId, input) {
       fileGeneratorConfigJson: input.agentType === 'FILE_GENERATOR' ? input.fileGeneratorConfig : null,
     } });
     await saveVersionRelations(tx, version.id, input.tags, knowledgeBases);
-    await tx.userAgent.update({ where: { id: agent.id }, data: { currentDraftVersionId: version.id, categoryId: category.id } });
+    const iconUpdate = {};
+    if (input.iconKey !== undefined) iconUpdate.iconKey = input.iconKey || null;
+    if (input.iconColor !== undefined) iconUpdate.iconColor = input.iconColor || null;
+    if (input.iconBackground !== undefined) iconUpdate.iconBackground = input.iconBackground || null;
+    if (Object.keys(iconUpdate).length) iconUpdate.iconUpdatedAt = new Date();
+    await tx.userAgent.update({ where: { id: agent.id }, data: {
+      currentDraftVersionId: version.id, categoryId: category.id,
+      subjectScope: input.subjectScope, courseId: input.courseId || null, subjectCode: input.subjectCode || null,
+      allowedCourseIdsJson: input.allowedCourseIds, isCrossSubjectUtility: input.agentType === 'FILE_GENERATOR' || Boolean(agent.isSystem),
+      ...iconUpdate,
+    } });
   });
   return getAgent(userId, agent.id);
 }
@@ -296,7 +332,11 @@ async function copyAgent(userId, agentId, operationId) {
   const publicKbs = source.currentPublicVersion.knowledgeBases.filter((item) => item.knowledgeBase.marketplace_visibility === 'PUBLIC' && item.knowledgeBase.marketplace_status === 'PUBLIC').map((item) => item.knowledgeBase);
   const omittedPrivateKnowledgeBases = source.currentPublicVersion.knowledgeBases.length - publicKbs.length;
   const createdId = await prisma.$transaction(async (tx) => {
-    const agent = await tx.userAgent.create({ data: { creatorUserId: userId, agentType: source.agentType, status: 'PRIVATE', visibility: 'PRIVATE', categoryId: source.categoryId, copiedFromAgentId: source.id, operationId: operationKey } });
+    const agent = await tx.userAgent.create({ data: {
+      creatorUserId: userId, agentType: source.agentType, status: 'PRIVATE', visibility: 'PRIVATE', categoryId: source.categoryId,
+      copiedFromAgentId: source.id, operationId: operationKey, iconKey: source.iconKey, iconColor: source.iconColor,
+      iconBackground: source.iconBackground, avatarUrl: source.avatarUrl, iconUpdatedAt: source.iconUpdatedAt,
+    } });
     const v = source.currentPublicVersion;
     const version = await tx.userAgentVersion.create({ data: {
       agentId: agent.id, versionNumber: 1, name: `${v.name}（副本）`.slice(0, 100), shortDescription: v.shortDescription,
@@ -353,5 +393,5 @@ async function report(userId, agentId, input) {
 
 module.exports = {
   versionInclude, serializeAgent, serializeVersion, serializeKnowledgeBase, createAgent, listAgents, getAgent,
-  updateAgent, deleteAgent, applyPublic, copyAgent, favorite, rate, report, loadBindingKnowledgeBases, listAvailableChatAgents,
+  updateAgent, deleteAgent, applyPublic, copyAgent, favorite, rate, report, loadBindingKnowledgeBases, listAvailableChatAgents, listCallableAgents,
 };

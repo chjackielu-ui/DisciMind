@@ -56,9 +56,29 @@ async function getUnreadCount(req, res) {
   }
 }
 
+async function deleteNotifications(req, res) {
+  try {
+    const data = await teacherNotificationService.deleteNotifications(req.user, req.body?.notification_ids || []);
+    return success(res, data, '删除消息成功');
+  } catch (err) {
+    return handleError(res, 'deleteNotifications', err);
+  }
+}
+
+async function getSentStats(req, res) {
+  try {
+    const data = await teacherNotificationService.getSentStats(req.user, req.query || {});
+    return success(res, data, '获取发送统计成功');
+  } catch (err) {
+    return handleError(res, 'getSentStats', err);
+  }
+}
+
 module.exports = {
   listNotifications,
   markRead,
   markAllRead,
   getUnreadCount,
+  deleteNotifications,
+  getSentStats,
 };

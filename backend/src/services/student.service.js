@@ -826,6 +826,10 @@ async function getStudentTasks(userId, query) {
   const where = {
     course_id: course_id ? parseInt(course_id, 10) : { in: enrolledCourseIds },
     teaching_class_id: { in: uniqueIds(enrollments.map((e) => e.teaching_class_id)) },
+    OR: [
+      { recipients: { some: { student_user_id: userId } } },
+      { recipients: { none: {} } },
+    ],
   };
   if (task_type) {
     const prismaTaskType = task_type.toUpperCase();
@@ -834,6 +838,8 @@ async function getStudentTasks(userId, query) {
   if (status) {
     const prismaStatus = status.toUpperCase();
     where.status = prismaStatus;
+  } else {
+    where.status = { in: ['PUBLISHED', 'CLOSED'] };
   }
 
   const [tasks, total] = await Promise.all([
@@ -845,6 +851,7 @@ async function getStudentTasks(userId, query) {
       include: {
         course: true,
         _count: { select: { question_links: true } },
+        recipients: { where: { student_user_id: userId }, select: { viewed_at: true, delivery_status: true } },
       },
     }),
     prisma.learningTask.count({ where }),
@@ -876,9 +883,11 @@ async function getStudentTasks(userId, query) {
       deadline: t.deadline ? t.deadline.toISOString() : null,
       question_count: t._count.question_links,
       total_score: null, // 需要汇总题目分数，暂不计算
+      configured_total_score: t.total_score,
       submission_status: sub ? toLower(sub.submission_status) : null,
       submitted_at: sub?.submitted_at ? sub.submitted_at.toISOString() : null,
       score: sub?.total_score ?? null,
+      viewed_at: t.recipients[0]?.viewed_at?.toISOString() || null,
     };
   });
 
@@ -915,8 +924,22 @@ async function getStudentTaskDetail(userId, taskId) {
     throw Object.assign(new Error('任务不存在'), { code: 40002 });
   }
 
-  // 校验学生是否在该课程
-  await ensureStudentInCourse(userId, task.course_id);
+  // 必须是该教学班学生且为任务接收人；旧任务没有接收人记录时兼容教学班成员。
+  const enrollment = await prisma.studentCourseEnrollment.findFirst({
+    where: { student_user_id: userId, teaching_class_id: task.teaching_class_id, enrollment_status: 'active' },
+  });
+  if (!enrollment) throw Object.assign(new Error('未加入该教学班或任务不可访问'), { code: 40301 });
+  const recipientCount = await prisma.learningTaskRecipient.count({ where: { task_id: taskId } });
+  if (recipientCount > 0) {
+    const recipient = await prisma.learningTaskRecipient.findUnique({
+      where: { task_id_student_user_id: { task_id: taskId, student_user_id: userId } },
+    });
+    if (!recipient) throw Object.assign(new Error('该任务未发布给当前学生'), { code: 40301 });
+    if (!recipient.viewed_at) {
+      await prisma.learningTaskRecipient.update({ where: { recipient_id: recipient.recipient_id }, data: { viewed_at: new Date() } });
+    }
+  }
+  if (task.status === 'DRAFT') throw Object.assign(new Error('任务未发布'), { code: 40301 });
 
   // 获取学生提交状态
   const submission = await prisma.taskSubmission.findFirst({
@@ -963,6 +986,20 @@ async function getStudentTaskDetail(userId, taskId) {
     start_time: task.start_time ? task.start_time.toISOString() : null,
     status: toLower(task.status),
     allow_late_submit: task.allow_late_submit,
+    duration_minutes: task.duration_minutes,
+    allowed_attempts: task.allowed_attempts,
+    allow_pause: task.allow_pause,
+    save_draft: task.save_draft,
+    randomize_questions: task.randomize_questions,
+    randomize_options: task.randomize_options,
+    show_score_policy: task.show_score_policy,
+    show_answer_policy: task.show_answer_policy,
+    show_analysis_policy: task.show_analysis_policy,
+    full_screen_mode: task.full_screen_mode,
+    total_score: task.total_score,
+    pass_score: task.pass_score,
+    instructions: task.instructions,
+    rules: task.rules,
     knowledge_points: task.knowledge_point_links.map((link) => ({
       knowledge_point_id: link.knowledge_point_id,
       knowledge_point_name: link.knowledge_point.knowledge_point_name,
@@ -1588,6 +1625,65 @@ async function getCourseAbilityProfile(userId, courseId) {
   };
 }
 
+async function getSharedResources(userId, query = {}) {
+  const enrollments = await prisma.studentCourseEnrollment.findMany({
+    where: { student_user_id: userId, enrollment_status: 'active' },
+    select: { teaching_class_id: true, course_id: true },
+  });
+  const classIds = enrollments.map((item) => item.teaching_class_id);
+  const courseIds = enrollments.map((item) => item.course_id);
+  const where = {
+    deleted_at: null,
+    is_teaching_resource: true,
+    OR: [
+      { visibility: 'CLASS', teaching_class_id: { in: classIds } },
+      { visibility: { in: ['COLLEGE', 'SCHOOL'] }, course_id: { in: courseIds } },
+    ],
+  };
+  if (query.course_id) where.AND = [{ course_id: Number(query.course_id) }];
+  if (query.keyword) where.AND = [...(where.AND || []), { OR: [{ title: { contains: query.keyword } }, { original_filename: { contains: query.keyword } }] }];
+  const rows = await prisma.knowledgeDocument.findMany({
+    where,
+    include: { course: true, teaching_class: true, owner: { include: { profile: true } } },
+    orderBy: { updated_at: 'desc' },
+    take: 100,
+  });
+  return rows.map((item) => ({
+    document_id: item.document_id,
+    title: item.title,
+    filename: item.original_filename,
+    file_ext: item.file_ext,
+    mime_type: item.mime_type,
+    size_bytes: item.file_size_bytes,
+    resource_kind: item.resource_kind,
+    category: item.resource_category,
+    course_id: item.course_id,
+    course_name: item.course?.course_name || null,
+    teaching_class_id: item.teaching_class_id,
+    teaching_class_name: item.teaching_class?.teaching_class_name || null,
+    teacher_name: item.owner?.profile?.real_name || item.owner?.username || null,
+    is_external: Boolean(item.external_url || /^https?:\/\//.test(item.file_url || '')),
+    download_url: `/api/student/resources/${item.document_id}/download`,
+    updated_at: item.updated_at,
+  }));
+}
+
+async function getSharedResourceForDownload(userId, documentId) {
+  const document = await prisma.knowledgeDocument.findFirst({
+    where: {
+      document_id: Number(documentId),
+      deleted_at: null,
+      is_teaching_resource: true,
+      OR: [
+        { visibility: 'CLASS', teaching_class: { enrollments: { some: { student_user_id: userId, enrollment_status: 'active' } } } },
+        { visibility: { in: ['COLLEGE', 'SCHOOL'] }, course: { enrollments: { some: { student_user_id: userId, enrollment_status: 'active' } } } },
+      ],
+    },
+  });
+  if (!document) throw Object.assign(new Error('资源不存在或无权访问'), { code: 40301 });
+  return document;
+}
+
 // ========================
 // 导出
 // ========================
@@ -1610,4 +1706,6 @@ module.exports = {
   getStudentPortraitReport,
   getCourseMasteryDistribution,
   getCourseAbilityProfile,
+  getSharedResources,
+  getSharedResourceForDownload,
 };

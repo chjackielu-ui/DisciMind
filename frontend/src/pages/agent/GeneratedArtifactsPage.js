@@ -4,6 +4,7 @@ import {
   exportGeneratedArtifact,
   getGeneratedArtifact,
   listGeneratedArtifacts,
+  bulkDeleteGeneratedArtifacts,
   createLearningFlowResourceLink,
 } from '../../api/marketplace.js'
 import { learningWorkflowApi } from '../../api/learning-workflows.js'
@@ -12,12 +13,13 @@ import { getStudentCourses, getStudentCourseKnowledgePoints } from '../../api/st
 import DOMPurify from 'dompurify'
 import { escapeHtml } from '../../utils/format.js'
 import { errorHTML, loadingHTML, notify, operationId, renderMarketplaceLayout, setButtonBusy } from './marketplace-shared.js'
+import { agentIconHTML } from '../../components/agent-icon.js'
 
 const ACTIVE_STATUSES = new Set(['DRAFT', 'GENERATING', 'EXPORTING'])
 const typeLabel = value => value === 'STUDY_HANDOUT' ? '学习讲义' : '试卷'
 const statusLabel = value => ({
-  DRAFT: '准备中', GENERATING: '正在生成内容', CONTENT_READY: '内容已完成', EXPORTING: '正在导出 DOCX', READY: '可下载',
-  FAILED: '生成失败', EXPIRED: '已过期', DELETING: '正在删除', DELETED: '已删除',
+  DRAFT: '生成中', GENERATING: '生成中', CONTENT_READY: '生成中', EXPORTING: '生成中', READY: '可下载',
+  DOWNLOADABLE: '可下载', CANCELLED: '已取消', FAILED: '生成失败', EXPIRED: '已过期', DELETING: '正在删除', DELETED: '已删除',
 }[value] || value)
 const formatDate = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 const formatSize = value => value == null ? '—' : value < 1024 * 1024 ? `${Math.max(1, Math.round(value / 1024))} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`
@@ -81,35 +83,40 @@ function artifactCard(item) {
   const byFormat = new Map((item.exports || []).map(entry => [entry.format, entry]))
   const formatState = format => exportStatusLabel(byFormat.get(format)?.status)
   const linked = (item.learningFlowLinks || []).length > 0
-  return `<article class="artifact-card" data-artifact-id="${item.id}"><div class="artifact-card-top"><span class="artifact-type">${typeLabel(item.artifactType)}</span><span class="artifact-status is-${String(item.status).toLowerCase()}">${statusLabel(item.status)}</span></div><h2>${escapeHtml(item.title)}</h2><p>${escapeHtml(item.description || '由文件生成智能体创建的学习资料')}</p><div class="artifact-card-context"><span>${escapeHtml(item.sourceAgent?.name || '文件生成智能体')}</span><span>${escapeHtml(item.course?.name || '未限定课程')}</span><span>${escapeHtml((item.knowledgePoints || []).map(point => point.name).join('、') || '未限定知识点')}</span></div><dl><div><dt>生成时间</dt><dd>${formatDate(item.createdAt)}</dd></div><div><dt>DOCX</dt><dd class="is-${String(byFormat.get('DOCX')?.status || 'empty').toLowerCase()}">${formatState('DOCX')}</dd></div><div><dt>PDF</dt><dd class="is-${String(byFormat.get('PDF')?.status || 'empty').toLowerCase()}">${formatState('PDF')}</dd></div><div><dt>学习流</dt><dd>${linked ? '已加入' : '未关联'}</dd></div></dl><div class="artifact-card-actions"><a class="complex-btn-secondary" href="#/student/artifacts/${item.id}">预览</a>${['DOCX','PDF'].map(format => byFormat.get(format)?.status === 'READY' ? `<button data-list-download="${format}">下载 ${format}</button>` : byFormat.get(format)?.status === 'FAILED' ? `<button data-list-retry="${format}">重导 ${format}</button>` : '').join('')}<button data-list-link>${linked ? '再次关联' : '加入学习流'}</button>${item.sourceConversation ? `<a href="#/student/agents/${item.agentId}/chat/${item.sourceConversation.id}">来源对话</a>` : ''}<button class="danger" data-list-delete>删除</button></div></article>`
+  const publicStatus = item.publicStatus || 'GENERATING'
+  return `<article class="artifact-card" data-artifact-id="${item.id}"><label class="artifact-select"><input type="checkbox" data-artifact-select value="${item.id}"><span>选择</span></label><div class="artifact-card-top"><span class="artifact-type">${typeLabel(item.artifactType)}</span><span class="artifact-status is-${String(publicStatus).toLowerCase()}">${statusLabel(publicStatus)}</span></div><div class="artifact-card-title">${agentIconHTML(item.sourceAgent || { iconKey: item.artifactType === 'STUDY_HANDOUT' ? 'lecture' : 'exam' }, { size: 38 })}<h2>${escapeHtml(item.title)}</h2></div><p>${escapeHtml(item.description || '由文件生成智能体创建的学习资料')}</p><div class="artifact-card-context"><span>${escapeHtml(item.sourceAgent?.name || '文件生成智能体')}</span><span>${escapeHtml(item.course?.name || '未限定课程')}</span><span>${escapeHtml((item.knowledgePoints || []).map(point => point.name).join('、') || '未限定知识点')}</span></div><dl><div><dt>生成时间</dt><dd>${formatDate(item.createdAt)}</dd></div><div><dt>DOCX</dt><dd class="is-${String(byFormat.get('DOCX')?.status || 'empty').toLowerCase()}">${formatState('DOCX')}</dd></div><div><dt>PDF</dt><dd class="is-${String(byFormat.get('PDF')?.status || 'empty').toLowerCase()}">${formatState('PDF')}</dd></div><div><dt>学习流</dt><dd>${linked ? '已加入' : '未关联'}</dd></div></dl><div class="artifact-card-actions"><a class="complex-btn-secondary" href="#/student/artifacts/${item.id}">预览</a>${['DOCX','PDF'].map(format => byFormat.get(format)?.status === 'READY' && byFormat.get(format)?.downloadAvailable === true ? `<button data-list-download="${format}">下载 ${format}</button>` : byFormat.get(format)?.status === 'FAILED' ? `<button data-list-retry="${format}">重导 ${format}</button>` : '').join('')}<button data-list-link>${linked ? '再次关联' : '加入学习流'}</button>${item.sourceConversation ? `<a href="#/student/agents/${item.agentId}/chat/${item.sourceConversation.id}">来源对话</a>` : ''}<button class="danger" data-list-delete>删除</button></div></article>`
 }
 
 export async function renderGeneratedArtifacts(app) {
-  renderMarketplaceLayout(app, `<section class="agent-market-hero artifact-hero"><div><h1>我的产物</h1><p>统一管理智能体生成的学习资料和文件。</p></div><a class="complex-btn" href="#/student/agents?agentType=FILE_GENERATOR">使用生成助手</a></section><section class="artifact-list-toolbar"><div class="artifact-filter-tabs" id="artifact-filter-tabs"></div><label class="artifact-search"><input id="artifact-search" placeholder="搜索标题、课程、知识点或来源智能体"></label><select id="artifact-sort"><option value="recent">最近生成</option><option value="accessed">最近访问</option><option value="size">文件大小</option><option value="title">标题</option></select></section><div id="artifact-list-root">${loadingHTML('正在读取产物...')}</div>`, '#/student/artifacts')
+  renderMarketplaceLayout(app, `<section class="agent-market-hero artifact-hero"><div><h1>我的产物</h1><p>统一管理智能体生成的学习资料和文件。</p></div><a class="complex-btn" href="#/student/agents?agentType=FILE_GENERATOR">使用生成助手</a></section><section class="artifact-list-toolbar"><div class="artifact-filter-tabs" id="artifact-filter-tabs"></div><label class="artifact-search"><input id="artifact-search" placeholder="搜索标题、课程、知识点或来源智能体"></label><select id="artifact-agent-filter"><option value="">全部智能体</option></select><input type="date" id="artifact-date-filter" title="生成日期"><select id="artifact-sort"><option value="recent">最近生成</option><option value="accessed">最近访问</option><option value="size">文件大小</option><option value="title">标题</option></select><button type="button" id="artifact-bulk-delete" disabled>批量删除</button></section><div id="artifact-list-root">${loadingHTML('正在读取产物...')}</div>`, '#/student/artifacts')
   const root = document.getElementById('artifact-list-root')
   try {
     const result = await listGeneratedArtifacts({ pageSize: 100 })
     const records = result.data.list || []
     const params = new URLSearchParams(location.hash.split('?')[1] || '')
-    const state = { filter: params.get('filter') || 'all', q: params.get('q') || '', sort: params.get('sort') || 'recent' }
-    const tabs = [['all','全部'],['handout','学习讲义'],['exam','考试试卷'],['generating','生成中'],['ready','可下载'],['failed','失败'],['linked','已加入学习流']]
-    const persist = () => { const query = new URLSearchParams(); if (state.filter !== 'all') query.set('filter', state.filter); if (state.q) query.set('q', state.q); if (state.sort !== 'recent') query.set('sort', state.sort); history.replaceState(null, '', `#/student/artifacts${query.toString() ? `?${query}` : ''}`) }
+    const state = { filter: params.get('filter') || 'all', q: params.get('q') || '', sort: params.get('sort') || 'recent', agentId: params.get('agentId') || '', date: params.get('date') || '', selected: new Set() }
+    const tabs = [['all','全部'],['handout','学习讲义'],['exam','考试试卷'],['generating','生成中'],['ready','可下载'],['failed','失败'],['cancelled','已取消'],['linked','已加入学习流']]
+    const persist = () => { const query = new URLSearchParams(); if (state.filter !== 'all') query.set('filter', state.filter); if (state.q) query.set('q', state.q); if (state.sort !== 'recent') query.set('sort', state.sort); if (state.agentId) query.set('agentId', state.agentId); if (state.date) query.set('date', state.date); history.replaceState(null, '', `#/student/artifacts${query.toString() ? `?${query}` : ''}`) }
     const renderList = () => {
       document.getElementById('artifact-filter-tabs').innerHTML = tabs.map(([key,label]) => `<button class="${state.filter === key ? 'active' : ''}" data-artifact-filter="${key}">${label}</button>`).join('')
       let visible = records.filter(item => {
-        const exports = item.exports || []; const linked = (item.learningFlowLinks || []).length > 0
+        const linked = (item.learningFlowLinks || []).length > 0
         if (state.filter === 'handout' && item.artifactType !== 'STUDY_HANDOUT') return false
         if (state.filter === 'exam' && item.artifactType !== 'EXAM_PAPER') return false
-        if (state.filter === 'generating' && !ACTIVE_STATUSES.has(item.status) && !exports.some(entry => ['QUEUED','EXPORTING'].includes(entry.status))) return false
-        if (state.filter === 'ready' && !exports.some(entry => entry.status === 'READY')) return false
-        if (state.filter === 'failed' && item.status !== 'FAILED' && !exports.some(entry => entry.status === 'FAILED')) return false
+        if (state.filter === 'generating' && item.publicStatus !== 'GENERATING') return false
+        if (state.filter === 'ready' && item.publicStatus !== 'DOWNLOADABLE') return false
+        if (state.filter === 'failed' && item.publicStatus !== 'FAILED') return false
+        if (state.filter === 'cancelled' && item.publicStatus !== 'CANCELLED') return false
         if (state.filter === 'linked' && !linked) return false
+        if (state.agentId && Number(item.agentId) !== Number(state.agentId)) return false
+        if (state.date && String(item.createdAt || '').slice(0, 10) !== state.date) return false
         const haystack = [item.title, item.course?.name, item.sourceAgent?.name, ...(item.knowledgePoints || []).map(point => point.name)].join(' ').toLowerCase()
         return !state.q || haystack.includes(state.q.toLowerCase())
       })
       const readySize = item => Math.max(0, ...(item.exports || []).map(entry => Number(entry.fileSizeBytes || 0)))
       visible.sort((a,b) => state.sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : state.sort === 'size' ? readySize(b) - readySize(a) : state.sort === 'accessed' ? new Date(b.lastAccessedAt || 0) - new Date(a.lastAccessedAt || 0) : new Date(b.createdAt) - new Date(a.createdAt))
       root.innerHTML = visible.length ? `<div class="artifact-grid">${visible.map(artifactCard).join('')}</div>` : '<div class="agent-market-empty"><h2>没有匹配的产物</h2><p>可以调整筛选，或使用文件生成智能体创建学习讲义和试卷。</p><a class="complex-btn" href="#/student/agents?agentType=FILE_GENERATOR">使用生成助手</a></div>'
+      root.querySelectorAll('[data-artifact-select]').forEach(input => { input.checked = state.selected.has(Number(input.value)); input.onchange = () => { input.checked ? state.selected.add(Number(input.value)) : state.selected.delete(Number(input.value)); document.getElementById('artifact-bulk-delete').disabled = !state.selected.size } })
       document.querySelectorAll('[data-artifact-filter]').forEach(button => button.onclick = () => { state.filter = button.dataset.artifactFilter; persist(); renderList() })
       root.querySelectorAll('.artifact-card').forEach(card => {
         const artifact = records.find(item => Number(item.id) === Number(card.dataset.artifactId)); if (!artifact) return
@@ -120,8 +127,14 @@ export async function renderGeneratedArtifacts(app) {
       })
     }
     document.getElementById('artifact-search').value = state.q; document.getElementById('artifact-sort').value = state.sort
+    const agentOptions = new Map(records.filter(item => item.agentId).map(item => [item.agentId, item.sourceAgent?.name || `智能体 ${item.agentId}`]))
+    const agentFilter = document.getElementById('artifact-agent-filter'); agentFilter.innerHTML += [...agentOptions].map(([id, name]) => `<option value="${id}">${escapeHtml(name)}</option>`).join(''); agentFilter.value = state.agentId
+    document.getElementById('artifact-date-filter').value = state.date
     let timer; document.getElementById('artifact-search').oninput = event => { clearTimeout(timer); timer = setTimeout(() => { state.q = event.target.value.trim(); persist(); renderList() }, 220) }
     document.getElementById('artifact-sort').onchange = event => { state.sort = event.target.value; persist(); renderList() }
+    agentFilter.onchange = event => { state.agentId = event.target.value; persist(); renderList() }
+    document.getElementById('artifact-date-filter').onchange = event => { state.date = event.target.value; persist(); renderList() }
+    document.getElementById('artifact-bulk-delete').onclick = async event => { if (!state.selected.size || !confirm(`确定删除选中的 ${state.selected.size} 个产物吗？`)) return; setButtonBusy(event.currentTarget, true, '删除中...'); try { await bulkDeleteGeneratedArtifacts([...state.selected]); for (let index = records.length - 1; index >= 0; index -= 1) if (state.selected.has(Number(records[index].id))) records.splice(index, 1); state.selected.clear(); notify('已批量删除产物'); renderList() } catch (error) { notify(error.message, true); setButtonBusy(event.currentTarget, false) } }
     renderList()
   } catch (error) {
     root.innerHTML = errorHTML(error.message)
@@ -153,6 +166,7 @@ export async function renderGeneratedArtifactDetail(app, params) {
   const root = document.getElementById('artifact-detail-root')
   try {
     const artifact = (await getGeneratedArtifact(params.id)).data
+    artifact.status = artifact.publicStatus || artifact.status
     const highlightFormat = new URLSearchParams(location.hash.split('?')[1] || '').get('format') || ''
     const requirements = artifact.requirements || {}
     root.innerHTML = `<section class="artifact-detail"><header><div><a href="#/student/artifacts">← 返回我的产物</a><h1>${escapeHtml(artifact.title)}</h1><p>${typeLabel(artifact.artifactType)} · ${statusLabel(artifact.status)}</p></div><div class="artifact-actions">${artifact.sourceConversation ? `<a class="complex-btn-secondary" href="#/student/agents/${artifact.agentId}/chat/${artifact.sourceConversation.id}">查看来源对话</a>` : ''}<button id="artifact-link" class="complex-btn-secondary" ${artifact.content ? '' : 'disabled'}>加入学习流</button><button id="artifact-delete" class="complex-btn-ghost">删除</button></div></header>${artifact.errorCode ? `<div class="artifact-error">内容任务状态：${escapeHtml(artifact.errorCode)}。已生成的结构化内容会保留，各格式可单独重新导出。</div>` : ''}${metadata(artifact)}<section class="artifact-requirements"><h2>生成要求</h2><p>${escapeHtml(requirements.specialRequirements || requirements.generationStyle || artifact.description || '按当前课程与学习目标生成结构化学习资料。')}</p></section>${exportPanel(artifact, highlightFormat)}<section class="artifact-preview-card"><div><h2>HTML 安全预览</h2><span>sandbox iframe</span></div>${artifact.previewHtml ? '<iframe id="artifact-preview" title="生成文件安全预览" sandbox=""></iframe>' : '<div class="agent-market-empty"><p>预览正在生成，请稍候。</p></div>'}</section><section class="artifact-notices"><div><h3>AI 声明</h3><p>${escapeHtml(artifact.aiNotice || '本产物由 AI 辅助生成，请核对后使用。')}</p></div><div><h3>知识库来源说明</h3><p>${escapeHtml(artifact.knowledgeSourceNotice || '未提供知识库来源说明。')}</p></div></section></section>`

@@ -75,6 +75,15 @@ function isPlainObject(value) {
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
+function edgeSource(edge) { return String(edge?.source ?? edge?.sourceNodeId ?? ''); }
+function edgeTarget(edge) { return String(edge?.target ?? edge?.targetNodeId ?? ''); }
+const ALLOWED_SOURCE_PORTS = Object.freeze(['output', 'pass', 'fail']);
+function edgeSourcePort(edge) {
+  if (ALLOWED_SOURCE_PORTS.includes(edge?.sourcePort)) return edge.sourcePort;
+  if (edge?.condition?.type === 'mastery_gte') return 'pass';
+  if (edge?.condition?.type === 'mastery_lt') return 'fail';
+  return 'output';
+}
 
 /**
  * 校验 graph_json 结构合法性
@@ -162,12 +171,15 @@ function validateGraphJson(graph, options = {}) {
       }
       edgeIds.add(edge.id);
 
-      if (!edge.source || !nodeIds.has(edge.source)) {
-        errors.push(`edge "${edge.id}" source "${edge.source}" 不在 nodes 中`);
+      const source = edgeSource(edge); const target = edgeTarget(edge);
+      if (!source || !nodeIds.has(source)) {
+        errors.push(`edge "${edge.id}" source "${source}" 不在 nodes 中`);
       }
-      if (!edge.target || !nodeIds.has(edge.target)) {
-        errors.push(`edge "${edge.id}" target "${edge.target}" 不在 nodes 中`);
+      if (!target || !nodeIds.has(target)) {
+        errors.push(`edge "${edge.id}" target "${target}" 不在 nodes 中`);
       }
+      if (edge.sourcePort && !ALLOWED_SOURCE_PORTS.includes(edge.sourcePort)) errors.push(`edge "${edge.id}" sourcePort 不合法`);
+      if (edge.targetPort && edge.targetPort !== 'input') errors.push(`edge "${edge.id}" targetPort 不合法`);
 
       // 校验 condition
       if (edge.condition) {
@@ -193,7 +205,7 @@ function validateGraphJson(graph, options = {}) {
   if (graph.nodes && graph.edges && errors.length === 0) {
     const edgePairs = new Set();
     for (const edge of graph.edges) {
-      const pair = `${edge.source}->${edge.target}`;
+      const pair = `${edgeSource(edge)}:${edgeSourcePort(edge)}->${edgeTarget(edge)}:${edge.targetPort || 'input'}`;
       if (edgePairs.has(pair)) errors.push(`检测到重复连线: ${pair}`);
       edgePairs.add(pair);
     }
@@ -231,9 +243,10 @@ function detectCycle(graph) {
   }
 
   for (const edge of graph.edges) {
-    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
-    adjacency[edge.source].push(edge.target);
-    inDegree[edge.target] = (inDegree[edge.target] || 0) + 1;
+    const source = edgeSource(edge); const target = edgeTarget(edge);
+    if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+    adjacency[source].push(target);
+    inDegree[target] = (inDegree[target] || 0) + 1;
   }
 
   const queue = [];
@@ -296,8 +309,9 @@ function checkReachableEnd(graph) {
   for (const id of nodeIds) adjacency[id] = [];
 
   for (const edge of graph.edges) {
-    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
-    adjacency[edge.source].push(edge.target);
+    const source = edgeSource(edge); const target = edgeTarget(edge);
+    if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+    adjacency[source].push(target);
   }
 
   // 从 entryNodeId BFS，检查是否有出度为 0 的可达节点
@@ -374,7 +388,7 @@ function validateSettingsJson(settings) {
 function sanitizeGraphJson(graph) {
   if (!isPlainObject(graph)) return graph;
 
-  const nodeIds = new Set((graph.nodes || []).map((n) => n.id));
+  const nodeIds = new Set((graph.nodes || []).map((n) => String(n.id)));
 
   return {
     entryNodeId: String(graph.entryNodeId || ''),
@@ -389,11 +403,15 @@ function sanitizeGraphJson(graph) {
         : { x: 0, y: 0 },
     })),
     edges: (graph.edges || [])
-      .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+      .filter((e) => nodeIds.has(edgeSource(e)) && nodeIds.has(edgeTarget(e)))
       .map((edge) => ({
         id: String(edge.id || ''),
-        source: String(edge.source || ''),
-        target: String(edge.target || ''),
+        source: edgeSource(edge),
+        target: edgeTarget(edge),
+        sourceNodeId: edgeSource(edge),
+        targetNodeId: edgeTarget(edge),
+        sourcePort: edgeSourcePort(edge),
+        targetPort: 'input',
         label: String(edge.label || '').slice(0, 100),
         condition: isPlainObject(edge.condition)
           ? {
@@ -463,7 +481,7 @@ function evaluateCondition(condition, context) {
  */
 function getNextNodeIds(graph, currentNodeId, context) {
   const normalizedCurrentId = String(currentNodeId);
-  const outgoingEdges = (graph.edges || []).filter((e) => String(e.source) === normalizedCurrentId);
+  const outgoingEdges = (graph.edges || []).filter((e) => edgeSource(e) === normalizedCurrentId);
 
   if (outgoingEdges.length === 0) return [];
 
@@ -471,14 +489,14 @@ function getNextNodeIds(graph, currentNodeId, context) {
   const conditionalEdges = outgoingEdges.filter((e) => e.condition && e.condition.type !== 'always');
   for (const edge of conditionalEdges) {
     if (evaluateCondition(edge.condition, context)) {
-      return [String(edge.target)];
+      return [edgeTarget(edge)];
     }
   }
 
   // Fall back to always edges
   const alwaysEdges = outgoingEdges.filter((e) => !e.condition || e.condition.type === 'always');
   if (alwaysEdges.length > 0) {
-    return alwaysEdges.map((e) => String(e.target));
+    return alwaysEdges.map(edgeTarget);
   }
 
   return [];

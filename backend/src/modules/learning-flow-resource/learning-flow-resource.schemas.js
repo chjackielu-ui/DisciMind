@@ -15,9 +15,10 @@ const createSchema = z.object({
   learningGoalId: optionalId,
   workflowTemplateId: optionalId,
   learningSessionId: optionalId,
+  learningPlanId: optionalId,
   resourceRole,
 }).strict().superRefine((value, ctx) => {
-  if (![value.courseId, value.knowledgePointId, value.learningGoalId, value.workflowTemplateId, value.learningSessionId].some(Boolean)) {
+  if (![value.courseId, value.knowledgePointId, value.learningGoalId, value.workflowTemplateId, value.learningSessionId, value.learningPlanId].some(Boolean)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '请至少选择一个有效的学习流关联目标' });
   }
   if (value.knowledgePointId && !value.courseId) {
@@ -31,6 +32,7 @@ const listSchema = z.object({
   learningGoalId: optionalId,
   workflowTemplateId: optionalId,
   learningSessionId: optionalId,
+  learningPlanId: optionalId,
   resourceRole: resourceRole.optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
