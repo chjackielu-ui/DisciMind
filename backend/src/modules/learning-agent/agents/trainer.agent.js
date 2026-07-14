@@ -292,7 +292,12 @@ function parseAndValidate(rawContent, expectedMode) {
     const validated = TrainerOutput.parse(parsed);
     return { valid: true, data: validated, rawContent };
   } catch (validationError) {
-    return { valid: false, error: validationError.message, rawContent, parsed };
+    try {
+      const fallback = TrainerFallbackOutput.parse(parsed);
+      return { valid: true, data: fallback, fallback: true, rawContent };
+    } catch {
+      return { valid: false, error: validationError.message, rawContent, parsed };
+    }
   }
 }
 

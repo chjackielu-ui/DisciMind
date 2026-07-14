@@ -30,7 +30,7 @@ async function exportFormat(artifactId, format, options = {}) {
       const exported = await docx.exportArtifact(artifact.id, options);
       updated = await prisma.generatedArtifactExport.update({
         where: { id: record.id },
-        data: { status: 'READY', storagePath: exported.storagePath, fileSizeBytes: exported.fileSizeBytes, mimeType: docx.WORD_MIME, lastAccessedAt: new Date(), errorCode: null, errorMessage: null, deletedAt: null },
+        data: { status: 'READY', storagePath: exported.storagePath, fileSizeBytes: exported.fileSizeBytes, checksum: exported.checksum, mimeType: docx.WORD_MIME, lastAccessedAt: new Date(), errorCode: null, errorMessage: null, deletedAt: null },
       });
     }
     await reconcileArtifactStatus(artifact.id);
@@ -41,10 +41,16 @@ async function exportFormat(artifactId, format, options = {}) {
     return updated;
   } catch (error) {
     const errorCode = String(error.code || `${normalized}_EXPORT_FAILED`).slice(0, 100);
-    await prisma.generatedArtifactExport.updateMany({ where: { artifactId: artifact.id, format: normalized }, data: { status: 'FAILED', errorCode, errorMessage: `${normalized} 导出失败，请稍后重试。` } }).catch(() => {});
+    const cancelled = options.signal?.aborted || error.name === 'AbortError' || errorCode === 'TASK_CANCELLED';
+    await prisma.generatedArtifactExport.updateMany({ where: { artifactId: artifact.id, format: normalized }, data: {
+      status: 'FAILED', errorCode: cancelled ? 'TASK_CANCELLED' : errorCode,
+      errorMessage: cancelled ? `${normalized} 导出已取消，可重新生成。` : `${normalized} 导出失败，请稍后重试。`,
+    } }).catch(() => {});
     await reconcileArtifactStatus(artifact.id).catch(() => {});
     if (options.taskId) await tasks.updateTask(options.taskId, {
-      status: 'FAILED', stage: `${normalized} 导出失败`, errorCode, errorMessage: `${normalized} 导出失败，请稍后重试。`,
+      status: 'FAILED', stage: cancelled ? `${normalized} 导出已取消` : `${normalized} 导出失败`,
+      errorCode: cancelled ? 'TASK_CANCELLED' : errorCode,
+      errorMessage: cancelled ? `${normalized} 导出已取消，可重新生成。` : `${normalized} 导出失败，请稍后重试。`,
       resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=${normalized}`,
     }).catch(() => {});
     throw error;

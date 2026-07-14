@@ -1,14 +1,21 @@
 const crypto = require('crypto');
+const fs = require('fs/promises');
 const prisma = require('../../config/prisma');
 
 const ACTIVE_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
 const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
-const CANCELLABLE_STATUSES = ['RUNNING'];
+const CANCELLABLE_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
 const TASK_TYPES = ['KNOWLEDGE_INDEXING', 'FILE_GENERATION', 'DOCUMENT_EXPORT', 'ARTIFACT_CLEANUP', 'LEARNING_FLOW_PRELOAD', 'VOICE_PRELOAD', 'LESSON_PLAN_GENERATION'];
 const PROGRESS_MODES = ['DETERMINATE', 'INDETERMINATE', 'STAGE_ONLY'];
 
 function taskError(message, code = 40001, status = 400) {
   return Object.assign(new Error(message), { code, status });
+}
+
+function normalizeTaskId(value) {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) throw taskError('任务 ID 不合法');
+  return id;
 }
 
 function operationKey(taskType, operationId) {
@@ -46,8 +53,27 @@ function sanitizeErrorMessage(value) {
   return looksInternal ? '后台任务执行失败，可以稍后重试。' : message.slice(0, 1000);
 }
 
+function publicTaskMetadata(task) {
+  if (!task?.metadataJson || typeof task.metadataJson !== 'object' || Array.isArray(task.metadataJson)) return null;
+  if (task.taskType === 'LESSON_PLAN_GENERATION') {
+    const safe = {};
+    for (const key of ['result_json', 'docx_file_name', 'docx_size_bytes']) {
+      if (task.metadataJson[key] !== undefined) safe[key] = task.metadataJson[key];
+    }
+    return Object.keys(safe).length ? safe : null;
+  }
+  if (task.taskType === 'ARTIFACT_CLEANUP') {
+    const safe = {};
+    for (const key of ['scanned', 'expired', 'failed']) {
+      if (Number.isFinite(Number(task.metadataJson[key]))) safe[key] = Number(task.metadataJson[key]);
+    }
+    return Object.keys(safe).length ? safe : null;
+  }
+  return null;
+}
+
 function serialize(task) {
-  return {
+  const data = {
     id: task.id,
     taskType: task.taskType,
     title: task.title,
@@ -67,13 +93,27 @@ function serialize(task) {
     requiresUserAction: task.requiresUserAction,
     attemptCount: task.attemptCount,
     maxAttempts: task.maxAttempts,
-    metadataJson: task.metadataJson || null,
+    agentId: task.agentId || null,
+    conversationId: task.conversationId || null,
+    parentTaskId: task.parentTaskId || null,
+    rootTaskId: task.rootTaskId || null,
+    taskGroupId: task.taskGroupId || null,
+    sourceAgent: task.agent ? {
+      id: task.agent.id,
+      name: task.agent.currentDraftVersion?.name || task.agent.currentPublicVersion?.name || '智能体',
+      icon: require('../agent-marketplace/agent-icon.service').resolveAgentIcon(task.agent, task.agent.currentDraftVersion || task.agent.currentPublicVersion),
+    } : null,
+    artifactDownloads: task.artifactDownloads || [],
     dismissedAt: task.dismissedAt,
     startedAt: task.startedAt,
     completedAt: task.completedAt,
+    cancelledAt: task.cancelledAt,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
+  const metadataJson = publicTaskMetadata(task);
+  if (metadataJson) data.metadataJson = metadataJson;
+  return data;
 }
 
 async function assertResultAccess(userId, task) {
@@ -119,6 +159,11 @@ async function createTask(userId, input) {
   if (!String(input.operationId || '').trim()) throw taskError('operationId 不能为空');
   const progressMode = PROGRESS_MODES.includes(input.progressMode) ? input.progressMode : 'STAGE_ONLY';
   const key = operationKey(input.taskType, input.operationId);
+  const dedupeKey = input.dedupeKey ? String(input.dedupeKey).trim().slice(0, 128) : null;
+  if (dedupeKey) {
+    const duplicate = await prisma.asyncTask.findFirst({ where: { userId, taskType: input.taskType, dedupeKey, status: { in: ACTIVE_STATUSES } }, orderBy: { createdAt: 'desc' } });
+    if (duplicate) return serialize(duplicate);
+  }
   const existing = await prisma.asyncTask.findUnique({ where: { userId_operationId: { userId, operationId: key } } });
   if (existing) return serialize(existing);
   const status = input.status || 'QUEUED';
@@ -145,6 +190,14 @@ async function createTask(userId, input) {
       requiresUserAction: Boolean(input.requiresUserAction),
       maxAttempts: Math.max(1, Math.min(10, Number(input.maxAttempts || 3))),
       metadataJson: input.metadataJson || null,
+      requestPayloadJson: input.requestPayload || input.requestPayloadJson || null,
+      agentId: input.agentId ? Number(input.agentId) : null,
+      conversationId: input.conversationId ? Number(input.conversationId) : null,
+      parentTaskId: input.parentTaskId ? Number(input.parentTaskId) : null,
+      rootTaskId: input.rootTaskId ? Number(input.rootTaskId) : null,
+      taskGroupId: input.taskGroupId ? String(input.taskGroupId).slice(0, 64) : null,
+      dedupeKey,
+      userVisible: input.userVisible !== false,
       nextRunAt: input.nextRunAt ? new Date(input.nextRunAt) : now,
       startedAt: ['RUNNING', 'WAITING_EXTERNAL'].includes(status) ? now : null,
       completedAt: TERMINAL_STATUSES.includes(status) ? now : null,
@@ -161,20 +214,51 @@ async function createTask(userId, input) {
 async function listTasks(userId, query = {}, activeOnly = false) {
   const page = query.page || 1;
   const pageSize = query.pageSize || 20;
-  const where = { userId };
+  const where = { userId, userVisible: true };
   if (activeOnly) where.status = { in: ACTIVE_STATUSES };
   else if (query.status) where.status = query.status;
   if (query.taskType) where.taskType = query.taskType;
+  if (query.agentId) where.agentId = Number(query.agentId);
+  if (query.conversationId) where.conversationId = Number(query.conversationId);
+  if (query.q) where.OR = [{ title: { contains: query.q } }, { description: { contains: query.q } }, { stage: { contains: query.q } }];
+  if (query.dateFrom || query.dateTo) where.createdAt = {
+    ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+    ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+  };
   if (!query.includeDismissed) where.dismissedAt = null;
   const [items, total] = await Promise.all([
-    prisma.asyncTask.findMany({ where, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+    prisma.asyncTask.findMany({ where, include: { agent: { include: { currentDraftVersion: true, currentPublicVersion: true } } }, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
     prisma.asyncTask.count({ where }),
   ]);
+  const artifactIds = [...new Set(items.filter(item => item.resultType === 'ARTIFACT').map(item => Number(item.resultId)).filter(Number.isInteger))];
+  if (artifactIds.length) {
+    const artifacts = await prisma.generatedArtifact.findMany({
+      where: { id: { in: artifactIds }, ownerUserId: Number(userId), deletedAt: null },
+      select: { id: true, exports: { where: { status: 'READY', deletedAt: null }, select: { format: true, storagePath: true } } },
+    });
+    const downloads = new Map();
+    const { resolveStoredPath } = require('../file-generator/document-export.service');
+    await Promise.all(artifacts.map(async artifact => {
+      const formats = [];
+      for (const record of artifact.exports) {
+        try {
+          const stat = await fs.stat(resolveStoredPath(record.storagePath));
+          if (stat.isFile() && stat.size > 0) formats.push(record.format);
+        } catch {}
+      }
+      downloads.set(artifact.id, formats);
+    }));
+    items.forEach(item => {
+      const artifactId = Number(item.resultId);
+      item.artifactDownloads = (downloads.get(artifactId) || []).map(format => ({ artifactId, format }));
+    });
+  }
   return { list: items.map(serialize), total, page, pageSize };
 }
 
 async function getTask(userId, id) {
-  const task = await prisma.asyncTask.findFirst({ where: { id: Number(id), userId } });
+  const taskId = normalizeTaskId(id);
+  const task = await prisma.asyncTask.findFirst({ where: { id: taskId, userId, userVisible: true }, include: { agent: { include: { currentDraftVersion: true, currentPublicVersion: true } } } });
   if (!task) throw taskError('任务不存在或无权查看', 40301, 403);
   await assertResultAccess(userId, task);
   return serialize(task);
@@ -183,6 +267,7 @@ async function getTask(userId, id) {
 async function updateTask(id, patch) {
   const existing = await prisma.asyncTask.findUnique({ where: { id: Number(id) } });
   if (!existing) throw taskError('任务不存在', 40002, 404);
+  if (existing.status === 'CANCELLED' && patch.status && patch.status !== 'CANCELLED') return serialize(existing);
   const status = patch.status || existing.status;
   const progressMode = patch.progressMode || existing.progressMode;
   if (patch.resultUrl !== undefined && sanitizeResultUrl(patch.resultUrl)) {
@@ -222,14 +307,60 @@ async function updateRelatedTask(userId, relatedResourceType, relatedResourceId,
 }
 
 async function cancelTask(userId, id) {
-  const task = await prisma.asyncTask.findFirst({ where: { id: Number(id), userId } });
+  const taskId = normalizeTaskId(id);
+  const task = await prisma.asyncTask.findFirst({ where: { id: taskId, userId, userVisible: true } });
   if (!task) throw taskError('任务不存在或无权取消', 40301, 403);
   if (!CANCELLABLE_STATUSES.includes(task.status) || !task.cancellable) throw taskError('该任务当前不可取消', 40901, 409);
-  return updateTask(task.id, { status: 'CANCELLED', stage: 'CANCELLED', errorCode: null, errorMessage: null });
+  const updated = await updateTask(task.id, { status: 'CANCELLED', stage: 'CANCELLED', errorCode: null, errorMessage: null, cancelledAt: new Date(), lockedBy: null, lockedAt: null });
+  if (task.taskType === 'KNOWLEDGE_INDEXING' && task.relatedResourceId) {
+    const doc = await prisma.knowledgeDocument.updateMany({
+      where: { document_id: Number(task.relatedResourceId), owner_user_id: Number(userId), deleted_at: null },
+      data: { processing_state: 'cancelled', marketplace_status: 'CANCELLED' },
+    });
+    if (doc.count) {
+      const record = await prisma.knowledgeDocument.findUnique({ where: { document_id: Number(task.relatedResourceId) }, select: { knowledge_base_id: true } });
+      if (record?.knowledge_base_id) await require('../knowledge-base/knowledge-document-pipeline.service').recalculateKnowledgeBaseStatus(record.knowledge_base_id).catch(() => {});
+    }
+  }
+  return updated;
+}
+
+async function retryTask(userId, id) {
+  const taskId = normalizeTaskId(id);
+  const task = await prisma.asyncTask.findFirst({ where: { id: taskId, userId, userVisible: true } });
+  if (!task) throw taskError('任务不存在或无权重试', 40301, 403);
+  if (!['FAILED', 'CANCELLED'].includes(task.status)) throw taskError('只有失败或已取消任务可以重试', 40901, 409);
+  const updated = await prisma.asyncTask.update({ where: { id: task.id }, data: {
+    status: 'QUEUED', stage: '等待重试', progress: task.progressMode === 'DETERMINATE' ? 0 : null,
+    errorCode: null, errorMessage: null, attemptCount: 0, nextRunAt: new Date(),
+    startedAt: null, completedAt: null, cancelledAt: null, dismissedAt: null, lockedBy: null, lockedAt: null,
+    metadataJson: { ...(task.metadataJson || {}), manuallyRetriedAt: new Date().toISOString() },
+  } });
+  if (task.taskType === 'FILE_GENERATION' && task.relatedResourceId) {
+    await prisma.generatedArtifact.updateMany({
+      where: { id: Number(task.relatedResourceId), ownerUserId: userId, deletedAt: null },
+      data: { status: 'GENERATING', errorCode: null },
+    });
+  }
+  if (task.taskType === 'KNOWLEDGE_INDEXING' && task.relatedResourceId) {
+    const document = await prisma.knowledgeDocument.findFirst({
+      where: { document_id: Number(task.relatedResourceId), owner_user_id: Number(userId), deleted_at: null },
+      select: { document_id: true, knowledge_base_id: true, cleaned_text: true, chunks: { take: 1, select: { chunk_id: true } } },
+    });
+    if (document) {
+      const resumeState = document.chunks.length ? 'chunked' : document.cleaned_text ? 'parsed' : 'uploaded';
+      await prisma.$transaction([
+        prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: { processing_state: resumeState, marketplace_status: 'PROCESSING' } }),
+        prisma.knowledgeBase.update({ where: { knowledge_base_id: document.knowledge_base_id }, data: { marketplace_status: 'PROCESSING' } }),
+      ]);
+    }
+  }
+  return serialize(updated);
 }
 
 async function dismissTask(userId, id) {
-  const task = await prisma.asyncTask.findFirst({ where: { id: Number(id), userId } });
+  const taskId = normalizeTaskId(id);
+  const task = await prisma.asyncTask.findFirst({ where: { id: taskId, userId, userVisible: true } });
   if (!task) throw taskError('任务不存在或无权关闭', 40301, 403);
   if (!TERMINAL_STATUSES.includes(task.status)) throw taskError('运行中的任务卡只能在本地隐藏，不能从任务记录中关闭', 40901, 409);
   return serialize(await prisma.asyncTask.update({ where: { id: task.id }, data: { dismissedAt: new Date() } }));
@@ -239,14 +370,61 @@ async function dismissTerminalTasks(userId, statuses = TERMINAL_STATUSES) {
   const selected = [...new Set(statuses)].filter(status => TERMINAL_STATUSES.includes(status));
   if (!selected.length) throw taskError('至少选择一种终态任务');
   const result = await prisma.asyncTask.updateMany({
-    where: { userId: Number(userId), status: { in: selected }, dismissedAt: null },
+    where: { userId: Number(userId), userVisible: true, status: { in: selected }, dismissedAt: null },
     data: { dismissedAt: new Date() },
   });
   return { dismissedCount: result.count };
 }
 
+async function bulkCancel(userId, ids = []) {
+  const selected = [...new Set(ids.map(Number).filter(Number.isInteger))].slice(0, 100);
+  const results = [];
+  for (const id of selected) {
+    try { results.push({ id, ok: true, task: await cancelTask(userId, id) }); }
+    catch (error) { results.push({ id, ok: false, message: error.message }); }
+  }
+  return { affected: results.filter(item => item.ok).length, results };
+}
+
+async function bulkDismiss(userId, ids = []) {
+  const selected = [...new Set(ids.map(Number).filter(Number.isInteger))].slice(0, 100);
+  return prisma.$transaction(async tx => {
+    const owned = await tx.asyncTask.findMany({ where: { id: { in: selected }, userId: Number(userId), userVisible: true }, select: { id: true, status: true } });
+    const byId = new Map(owned.map(task => [task.id, task]));
+    const allowed = owned.filter(task => TERMINAL_STATUSES.includes(task.status)).map(task => task.id);
+    if (allowed.length) await tx.asyncTask.updateMany({ where: { id: { in: allowed } }, data: { dismissedAt: new Date() } });
+    const results = selected.map(id => {
+      const task = byId.get(id);
+      if (!task) return { id, ok: false, message: '任务不存在或无权操作' };
+      if (!TERMINAL_STATUSES.includes(task.status)) return { id, ok: false, message: '运行中的任务不能隐藏' };
+      return { id, ok: true };
+    });
+    return { affected: allowed.length, results };
+  });
+}
+
+async function bulkDelete(userId, ids = []) {
+  const selected = [...new Set(ids.map(Number).filter(Number.isInteger))].slice(0, 100);
+  return prisma.$transaction(async tx => {
+    const owned = await tx.asyncTask.findMany({
+      where: { id: { in: selected }, userId: Number(userId), userVisible: true },
+      select: { id: true, status: true, generatedArtifact: { select: { id: true } } },
+    });
+    const byId = new Map(owned.map(task => [task.id, task]));
+    const allowed = owned.filter(task => TERMINAL_STATUSES.includes(task.status)).map(task => task.id);
+    if (allowed.length) await tx.asyncTask.deleteMany({ where: { id: { in: allowed } } });
+    const results = selected.map(id => {
+      const task = byId.get(id);
+      if (!task) return { id, ok: false, message: '任务不存在或无权操作' };
+      if (!TERMINAL_STATUSES.includes(task.status)) return { id, ok: false, message: '运行中的任务必须先取消，不能直接删除' };
+      return { id, ok: true, artifactPreserved: Boolean(task.generatedArtifact?.id), artifactId: task.generatedArtifact?.id || null };
+    });
+    return { affected: allowed.length, results, artifactsPreserved: results.filter(item => item.ok && item.artifactPreserved).length };
+  });
+}
+
 module.exports = {
   ACTIVE_STATUSES, TERMINAL_STATUSES, CANCELLABLE_STATUSES, TASK_TYPES, PROGRESS_MODES,
-  operationKey, sanitizeResultUrl, sanitizeErrorMessage, serialize,
-  createTask, listTasks, getTask, updateTask, updateRelatedTask, cancelTask, dismissTask, dismissTerminalTasks,
+  operationKey, sanitizeResultUrl, sanitizeErrorMessage, publicTaskMetadata, serialize, normalizeTaskId,
+  createTask, listTasks, getTask, updateTask, updateRelatedTask, cancelTask, retryTask, dismissTask, dismissTerminalTasks, bulkCancel, bulkDismiss, bulkDelete,
 };

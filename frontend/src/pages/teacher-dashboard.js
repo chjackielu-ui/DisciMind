@@ -1,432 +1,229 @@
-// 教师端首页 — 紧凑工作台总览（对齐学生端布局结构）
-// 布局参考学生端 student-dashboard.js，保持教师端琥珀色调与内容不变
-
+import * as echarts from 'echarts'
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
+import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
-import { getTeacherDashboard, getNotifications, markNotificationRead, markAllNotificationsRead, getUnreadNotificationCount } from '../api/teacher.js'
-import { escapeHtml, formatPercent, formatDate } from '../utils/format.js'
+import { getTeacherDashboard, getTeacherProfile, getAnalyticsWorkbench, createTeacherReminder, updateTeacherReminder, deleteTeacherReminder } from '../api/teacher.js'
+import { escapeHtml, formatRelativeTime } from '../utils/format.js'
+import { normalizeWeakKnowledgePoints, normalizeKeywords } from '../utils/analytics-contract.js'
+import { showToast } from '../utils/toast.js'
 
-const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace(/\/api\/?$/, '')
+const charts = []
+let dashboardLifecycle = null
+const calendarState = { view: 'month', cursor: new Date() }
+const WEEKDAYS = ['一','二','三','四','五','六','日']
+function disposeCharts() { charts.splice(0).forEach(chart => { try { chart.dispose() } catch {} }) }
 
-function safeNumber(value, fallback = 0) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
-}
-
-function getAvatarUrl(user) {
-  const url = user?.profile?.avatar_url || user?.avatar_url
-  if (!url) return ''
-  if (/^https?:\/\//i.test(url) || url.startsWith('data:')) return url
-  return `${API_ORIGIN}${url.startsWith('/') ? url : '/' + url}`
-}
-
-function getInitial(name) {
-  return String(name || '师').trim().slice(0, 1).toUpperCase()
-}
-
-function buildMetricGrid(overview = {}) {
-  const metrics = [
-    { label: '我的课程', value: safeNumber(overview.course_count), hint: '负责课程数', tone: 'blue' },
-    { label: '教学班级', value: safeNumber(overview.teaching_class_count), hint: '当前学期', tone: 'green' },
-    { label: '学生人数', value: safeNumber(overview.student_count), hint: '在读学生', tone: 'green' },
-    { label: '平均成绩', value: overview.average_test_score != null ? `${overview.average_test_score}%` : '-', hint: '测试均分', tone: 'blue' },
-    { label: '平均掌握度', value: overview.average_mastery_score != null ? `${overview.average_mastery_score}%` : '-', hint: '知识点掌握', tone: 'amber' },
-    { label: '待审文档', value: safeNumber(overview.pending_review_document_count), hint: '需审核', tone: 'red' },
+function metricCards(data) {
+  const items = [
+    ['负责课程', data.course_count, '门'], ['教学班', data.teaching_class_count, '个'], ['学生人数', data.student_count, '人'],
+    ['平均掌握度', data.average_mastery_score, '%'], ['作业完成率', data.task_completion_rate, '%'], ['待处理事项', data.pending_count, '项'],
   ]
-
-  return `
-    <div class="home-metric-grid">
-      ${metrics.map(item => `
-        <article class="home-metric-card ${item.tone}">
-          <span>${item.label}</span>
-          <b>${escapeHtml(String(item.value))}</b>
-          <em>${escapeHtml(item.hint)}</em>
-        </article>
-      `).join('')}
-    </div>`
+  return items.map(([label,value,unit]) => `<article><span>${label}</span><b data-count-value="${Number(value)||0}">${Number(value)||0}<i>${unit}</i></b></article>`).join('')
 }
 
-function buildQuickEntries() {
-  const entries = [
-    { label: '课程管理', sub: '管理课程与章节', hash: '#/teacher/courses' },
-    { label: '学生管理', sub: '学生与班级', hash: '#/teacher/students' },
-    { label: '作业任务', sub: '发布与批改', hash: '#/teacher/tasks' },
-    { label: '学情分析', sub: '数据看板', hash: '#/teacher/analytics' },
-    { label: '题库管理', sub: '建设题库', hash: '#/teacher/questions' },
-    { label: '智能教案', sub: 'AI 备课', hash: '#/teacher/lesson-plan' },
-  ]
-
-  return `
-    <div class="home-quick-grid">
-      ${entries.map((item, idx) => `
-        <button type="button" class="home-quick-card${idx === 0 ? ' primary' : ''}" data-teacher-nav="${item.hash}">
-          <span>${escapeHtml(item.label)}</span>
-          <b>${escapeHtml(item.sub)}</b>
-        </button>
-      `).join('')}
-    </div>`
+function quickEntries() {
+  return [
+    ['智慧备课','#/teacher/preparation'],['学情分析','#/teacher/analytics'],['发布作业','#/teacher/tasks/create?type=homework'],
+    ['发布考试','#/teacher/tasks/create?type=exam'],['班级管理','#/teacher/system?tab=classes'],['教学资源','#/teacher/knowledge'],
+  ].map(([label,hash]) => `<button data-teacher-nav="${hash}">${label}<span>→</span></button>`).join('')
 }
 
-function buildProfileCard(user, displayName, overview = {}) {
-  const avatarUrl = getAvatarUrl(user)
-  const profile = user?.profile || {}
-  const info = [
-    { label: '姓名', value: displayName },
-    { label: '学院', value: profile.college || '未填写' },
-    { label: '工号', value: profile.teacher_no || '未填写' },
-    { label: '邮箱', value: user.email || '未填写' },
-  ]
-
-  return `
-    <aside class="home-student-card">
-      <div class="home-student-avatar">
-        ${avatarUrl
-          ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(displayName)}">`
-          : `<span>${escapeHtml(getInitial(displayName))}</span>`}
-      </div>
-      <div class="home-student-name">${escapeHtml(displayName)}</div>
-      <div class="home-student-role">教师工作台</div>
-      <div class="home-student-info-list">
-        ${info.map(item => `
-          <div class="home-student-info-row">
-            <span>${escapeHtml(item.label)}</span>
-            <b>${escapeHtml(item.value)}</b>
-          </div>
-        `).join('')}
-      </div>
-      <div class="home-student-progress">
-        <div>
-          <span>课程数量</span>
-          <b>${safeNumber(overview.course_count)} 门</b>
-        </div>
-        <div class="home-progress-bar">
-          <i style="width:${Math.min(100, safeNumber(overview.course_count) * 20)}%"></i>
-        </div>
-      </div>
-    </aside>`
+function scheduleText(schedule) {
+  if (!schedule) return '时间待安排'
+  if (typeof schedule === 'string') return schedule
+  if (Array.isArray(schedule)) return schedule.map(item => item.label || item.time || JSON.stringify(item)).join('、')
+  return schedule.label || schedule.time || Object.values(schedule).filter(value => typeof value === 'string').join(' · ') || '时间待安排'
 }
 
-function buildOverviewPanel(overview = {}) {
-  return `
-    <section class="home-panel home-recommend-panel">
-      <div class="home-panel-head">
-        <div>
-          <h3>教学概览</h3>
-          <p>教学班级与学生的整体状态。</p>
-        </div>
-      </div>
-      <div class="home-rec-list">
-        <div class="home-rec-item">
-          <span class="home-rec-tag green">教学班</span>
-          <b>${safeNumber(overview.teaching_class_count)} 个教学班级</b>
-          <em>当前学期负责的教学组织</em>
-        </div>
-        <div class="home-rec-item">
-          <span class="home-rec-tag blue">学生</span>
-          <b>${safeNumber(overview.student_count)} 名在读学生</b>
-          <em>覆盖所有教学班级</em>
-        </div>
-        <div class="home-rec-item">
-          <span class="home-rec-tag amber">文档</span>
-          <b>${safeNumber(overview.pending_review_document_count)} 份待审核文档</b>
-          <em>知识库文档审核队列</em>
-        </div>
-      </div>
-    </section>`
+function profileCard(profile, dashboard) {
+  const classes = dashboard.classes || []
+  const courseGroups = [...classes.reduce((groups, item) => {
+    const current = groups.get(item.course_id) || { ...item, names: new Set(), schedules: new Set(), locations: new Set() }
+    current.names.add(item.name)
+    current.schedules.add(scheduleText(item.schedule))
+    if (item.location) current.locations.add(item.location)
+    groups.set(item.course_id, current)
+    return groups
+  }, new Map()).values()]
+  return `<aside class="teacher-summary-card">
+    <div class="teacher-summary-person"><div>${escapeHtml((profile.name || '师').slice(0,1))}</div><span><b>${escapeHtml(profile.name || '教师')}</b><em>${escapeHtml([profile.college,profile.professional_title].filter(Boolean).join(' · ') || '教师工作台')}</em></span></div>
+    <div class="teacher-summary-counts"><span><b>${profile.statistics?.course_count || 0}</b>课程</span><span><b>${profile.statistics?.teaching_class_count || 0}</b>教学班</span></div>
+    <h3>本周教学安排</h3><div class="teacher-summary-schedule">${courseGroups.slice(0,4).map(item => {
+      const classNames = [...item.names]
+      const detail = [`${classNames.length} 个教学班`, classNames.join('、'), [...item.schedules].join(' / '), [...item.locations].join(' / ')].filter(Boolean).join(' · ')
+      return `<button data-teacher-nav="#/teacher/courses/${item.course_id}"><b>${escapeHtml(item.course_name)}</b><span>${escapeHtml(detail)}</span></button>`
+    }).join('') || '<p>暂无已配置课程安排</p>'}</div>
+  </aside>`
 }
 
-function buildNotificationSection() {
-  return `
-    <section class="home-panel home-task-panel" id="notification-section">
-      <div class="home-panel-head">
-        <div>
-          <h3>消息通知</h3>
-          <span id="unread-badge" style="display:none;background:#dc2626;color:#fff;font-size:0.72rem;padding:1px 8px;border-radius:10px;font-weight:600;margin-left:8px;"></span>
-        </div>
-        <button class="home-panel-link" id="notif-mark-all-read" style="display:none;">全部标记已读</button>
-      </div>
-      <div id="notification-list" style="min-height:60px;">
-        <div class="home-empty-inline">加载中...</div>
-      </div>
-    </section>`
+function localDateKey(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value || '').slice(0,10)
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
 }
 
-function buildErrorContent(message) {
-  return `
-    <div class="dashboard-content">
-      <div class="error-state">
-        <div class="error-icon">!</div>
-        <p class="error-message">${escapeHtml(message || '教师工作台数据加载失败')}</p>
-        <button class="btn-retry" onclick="window.location.reload()">重新加载</button>
-      </div>
-    </div>`
+function eventsForDate(events, date) { const key=localDateKey(date);return events.filter(item=>localDateKey(item.start_at)===key) }
+function mondayOf(value) { const date=new Date(value);date.setHours(0,0,0,0);const day=date.getDay()||7;date.setDate(date.getDate()-day+1);return date }
+function addDays(value, amount) { const date=new Date(value);date.setDate(date.getDate()+amount);return date }
+function eventTime(item) { if(item.all_day)return item.time_label||'全天';const date=new Date(item.start_at);return Number.isNaN(date.getTime())?'':date.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) }
+function calendarEvent(item, compact=false) { const reminderId=item.reminder?.id||String(item.id||'').replace('reminder-','');return `<button class="teacher-calendar-event ${escapeHtml(item.type||'event')}" ${item.type==='reminder'?`data-reminder-edit="${escapeHtml(reminderId)}"`:`data-calendar-nav="${escapeHtml(item.action_url||'#/teacher/dashboard')}"`} title="${escapeHtml([item.title,item.subtitle,item.location].filter(Boolean).join(' · '))}"><i></i><span>${compact?'':`<em>${escapeHtml(eventTime(item))}</em>`}${escapeHtml(item.title||'教学事项')}</span></button>` }
+
+function monthCalendar(events) {
+  const monthStart=new Date(calendarState.cursor.getFullYear(),calendarState.cursor.getMonth(),1)
+  const gridStart=mondayOf(monthStart)
+  const cells=Array.from({length:42},(_,index)=>addDays(gridStart,index))
+  return `<div class="teacher-calendar-weekdays">${WEEKDAYS.map(day=>`<span>周${day}</span>`).join('')}</div><div class="teacher-calendar-month">${cells.map(date=>{const dayEvents=eventsForDate(events,date);const outside=date.getMonth()!==calendarState.cursor.getMonth();return `<div class="teacher-calendar-day ${outside?'outside':''} ${localDateKey(date)===localDateKey(new Date())?'today':''}"><button class="teacher-calendar-date" data-calendar-empty="${localDateKey(date)}">${date.getDate()}</button><div>${dayEvents.slice(0,3).map(item=>calendarEvent(item,true)).join('')}${dayEvents.length>3?`<button class="teacher-calendar-more" data-calendar-list-date="${localDateKey(date)}">另 ${dayEvents.length-3} 项</button>`:''}</div></div>`}).join('')}</div>`
 }
 
-function buildHomeContent({ user, displayName, dashboardData }) {
-  const overview = dashboardData || {}
-
-  return `
-    <div class="dashboard-content teacher-home-shell">
-      <section class="student-home-top">
-        <div class="student-home-primary">
-          <div class="student-home-title-row">
-            <div>
-              <span class="home-eyebrow">教学工作台</span>
-              <h2>欢迎回来，${escapeHtml(displayName)}</h2>
-              <p>这里汇总您的课程、班级、学生数据和教学快捷入口。</p>
-            </div>
-            <span class="home-sync-time">同步 ${formatDate(new Date().toISOString(), 'time')}</span>
-          </div>
-          ${buildMetricGrid(overview)}
-          ${buildQuickEntries()}
-        </div>
-        ${buildProfileCard(user, displayName, overview)}
-      </section>
-
-      <section class="home-two-column">
-        ${buildOverviewPanel(overview)}
-        ${buildNotificationSection()}
-      </section>
-    </div>`
+function weekCalendar(events) {
+  const start=mondayOf(calendarState.cursor)
+  return `<div class="teacher-calendar-week">${Array.from({length:7},(_,index)=>{const date=addDays(start,index);const items=eventsForDate(events,date);return `<section class="${localDateKey(date)===localDateKey(new Date())?'today':''}"><header><span>周${WEEKDAYS[index]}</span><b>${date.getMonth()+1}/${date.getDate()}</b></header><div>${items.slice(0,5).map(item=>calendarEvent(item)).join('')||`<button class="teacher-calendar-empty" data-calendar-empty="${localDateKey(date)}">+ 安排教学事项</button>`}${items.length>5?`<button class="teacher-calendar-more" data-calendar-list-date="${localDateKey(date)}">另 ${items.length-5} 项</button>`:''}</div></section>`}).join('')}</div>`
 }
+
+function listCalendar(events) {
+  const start=new Date(calendarState.cursor);start.setHours(0,0,0,0)
+  const visible=events.filter(item=>new Date(item.start_at)>=addDays(start,-7)&&new Date(item.start_at)<=addDays(start,45))
+  const groups=new Map();visible.forEach(item=>{const key=localDateKey(item.start_at);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item)})
+  return `<div class="teacher-calendar-list">${[...groups.entries()].map(([date,items])=>`<section><header><b>${new Date(`${date}T00:00:00`).toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'short'})}</b><button data-calendar-empty="${date}">+ 新建</button></header><div>${items.map(item=>`<article>${calendarEvent(item)}<span>${escapeHtml(item.subtitle||item.source?.type||'真实教学事件')}</span></article>`).join('')}</div></section>`).join('')||'<div class="teacher-inline-empty">当前日期范围暂无教学事件，可点击“新建安排”。</div>'}</div>`
+}
+
+function calendarTitle() {
+  if(calendarState.view==='week'){const start=mondayOf(calendarState.cursor);const end=addDays(start,6);return `${start.getFullYear()}年${start.getMonth()+1}月${start.getDate()}日 — ${end.getMonth()+1}月${end.getDate()}日`}
+  if(calendarState.view==='list')return `${calendarState.cursor.getFullYear()}年${calendarState.cursor.getMonth()+1}月起的教学日程`
+  return `${calendarState.cursor.getFullYear()}年 ${calendarState.cursor.getMonth()+1}月`
+}
+
+function renderCalendar(dashboard) {
+  const node=document.getElementById('teacher-calendar-body');if(!node)return
+  const events=dashboard.calendar_events||[]
+  document.getElementById('teacher-calendar-title').textContent=calendarTitle()
+  document.querySelectorAll('[data-calendar-view]').forEach(button=>button.classList.toggle('active',button.dataset.calendarView===calendarState.view))
+  node.innerHTML=calendarState.view==='week'?weekCalendar(events):calendarState.view==='list'?listCalendar(events):monthCalendar(events)
+}
+
+function positionCalendarDialog(dialog, trigger) {
+  const anchor=trigger.closest('.teacher-calendar-day,.teacher-calendar-week>section,.teacher-calendar-list>section')||trigger
+  dialog.classList.add('is-anchored')
+  if(!dialog.open)dialog.show()
+  const gap=10,edge=12,anchorRect=anchor.getBoundingClientRect(),dialogRect=dialog.getBoundingClientRect()
+  let left=anchorRect.right+gap
+  if(left+dialogRect.width>window.innerWidth-edge)left=anchorRect.left-dialogRect.width-gap
+  left=Math.max(edge,Math.min(left,window.innerWidth-dialogRect.width-edge))
+  const top=Math.max(edge,Math.min(anchorRect.top,window.innerHeight-dialogRect.height-edge))
+  dialog.style.left=`${Math.round(left)}px`
+  dialog.style.top=`${Math.round(top)}px`
+}
+
+function localDateTime(value) { const date=new Date(value);if(Number.isNaN(date.getTime()))return '';const local=new Date(date.getTime()-date.getTimezoneOffset()*60000);return local.toISOString().slice(0,16) }
+function reminderCalendarEvent(row) { return { id:`reminder-${row.id}`,type:'reminder',title:row.title,subtitle:row.description||`提醒 · ${row.status}`,start_at:row.start_at,status:row.status,action_url:`#/teacher/dashboard?reminder_id=${row.id}`,course_id:row.course_id,teaching_class_id:row.teaching_class_id,reminder:{id:row.id,remind_at:row.remind_at,end_at:row.end_at,priority:row.priority,reminder_type:row.reminder_type,advance_minutes:row.advance_minutes,notes:row.notes,recurrence_rule:row.recurrence_rule} } }
+
+function populateReminderContext(dashboard,courseId='',classId='') {
+  const form=document.getElementById('teacher-reminder-form');if(!form)return
+  const courses=[...new Map((dashboard.classes||[]).map(item=>[String(item.course_id),{id:item.course_id,name:item.course_name}])).values()]
+  form.elements.course_id.innerHTML='<option value="">不关联课程</option>'+courses.map(item=>`<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')
+  form.elements.course_id.value=courseId?String(courseId):''
+  const classes=(dashboard.classes||[]).filter(item=>!courseId||String(item.course_id)===String(courseId))
+  form.elements.teaching_class_id.innerHTML='<option value="">不关联教学班</option>'+classes.map(item=>`<option value="${item.teaching_class_id}">${escapeHtml(item.name)}</option>`).join('')
+  form.elements.teaching_class_id.value=classId?String(classId):''
+}
+
+function openReminderDialog(dashboard, item=null, dateKey='') {
+  const dialog=document.getElementById('teacher-reminder-dialog');const form=document.getElementById('teacher-reminder-form');if(!dialog||!form)return
+  form.reset();form.elements.id.value=item?.reminder?.id||'';form.elements.title.value=item?.title||'';populateReminderContext(dashboard,item?.course_id,item?.teaching_class_id)
+  const defaultStart=dateKey?`${dateKey}T09:00`:new Date(Date.now()+60*60000);const start=item?.start_at||defaultStart;form.elements.start_at.value=localDateTime(start);form.elements.remind_at.value=localDateTime(item?.reminder?.remind_at||new Date(new Date(start).getTime()-30*60000));form.elements.end_at.value=localDateTime(item?.reminder?.end_at||'');form.elements.description.value=item?.type==='reminder'&&!/^提醒 · /.test(item.subtitle||'')?item.subtitle:'';form.elements.notes.value=item?.reminder?.notes||'';form.elements.priority.value=item?.reminder?.priority||'normal';form.elements.reminder_type.value=item?.reminder?.reminder_type||'manual';form.elements.advance_minutes.value=String(item?.reminder?.advance_minutes??30);form.elements.recurrence.value=item?.reminder?.recurrence_rule?.frequency||'';document.getElementById('teacher-reminder-delete').hidden=!item;dialog.showModal()
+}
+
+function bindCalendar(dashboard) {
+  const section=document.getElementById('teacher-calendar-section');if(!section)return
+  const dialog=document.getElementById('teacher-calendar-create')
+  section.addEventListener('click',event=>{
+    if(event.target.closest('[data-calendar-reminder-new]')){openReminderDialog(dashboard);return}
+    const view=event.target.closest('[data-calendar-view]');if(view){calendarState.view=view.dataset.calendarView;renderCalendar(dashboard);return}
+    const move=event.target.closest('[data-calendar-move]');if(move){const direction=Number(move.dataset.calendarMove);calendarState.cursor=calendarState.view==='week'?addDays(calendarState.cursor,direction*7):new Date(calendarState.cursor.getFullYear(),calendarState.cursor.getMonth()+direction,1);renderCalendar(dashboard);return}
+    if(event.target.closest('[data-calendar-today]')){calendarState.cursor=new Date();renderCalendar(dashboard);return}
+    const reminder=event.target.closest('[data-reminder-edit]');if(reminder){const item=(dashboard.calendar_events||[]).find(row=>String(row.reminder?.id)===reminder.dataset.reminderEdit);openReminderDialog(dashboard,item);return}
+    const nav=event.target.closest('[data-calendar-nav]');if(nav){window.location.hash=nav.dataset.calendarNav;return}
+    const listDate=event.target.closest('[data-calendar-list-date]');if(listDate){calendarState.cursor=new Date(`${listDate.dataset.calendarListDate}T00:00:00`);calendarState.view='list';renderCalendar(dashboard);return}
+    const empty=event.target.closest('[data-calendar-empty]');if(empty){dialog.dataset.date=empty.dataset.calendarEmpty;dialog.querySelector('strong').textContent=empty.dataset.calendarEmpty;positionCalendarDialog(dialog,empty)}
+  })
+  dialog.addEventListener('click',event=>{if(event.target.closest('[data-calendar-reminder]')){const date=dialog.dataset.date;dialog.close();openReminderDialog(dashboard,null,date);return}const action=event.target.closest('[data-calendar-create]');if(action){const date=dialog.dataset.date;window.location.hash=`${action.dataset.calendarCreate}${action.dataset.calendarCreate.includes('?')?'&':'?'}date=${date}`;dialog.close()}if(event.target.closest('[data-calendar-close]'))dialog.close()})
+  document.addEventListener('pointerdown',event=>{if(dialog.open&&!dialog.contains(event.target)&&!event.target.closest('[data-calendar-empty]'))dialog.close()},{signal:dashboardLifecycle.signal})
+  window.addEventListener('resize',()=>{if(dialog.open)dialog.close()},{signal:dashboardLifecycle.signal})
+  window.addEventListener('scroll',()=>{if(dialog.open)dialog.close()},{capture:true,signal:dashboardLifecycle.signal})
+  dialog.addEventListener('close',()=>{dialog.classList.remove('is-anchored');dialog.style.removeProperty('left');dialog.style.removeProperty('top')},{signal:dashboardLifecycle.signal})
+  const reminderDialog=document.getElementById('teacher-reminder-dialog');const form=document.getElementById('teacher-reminder-form')
+  form.elements.course_id.addEventListener('change',event=>populateReminderContext(dashboard,event.target.value,''),{signal:dashboardLifecycle.signal})
+  form.addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(form);const reminderId=data.get('id');const recurrence=data.get('recurrence');const payload={title:data.get('title'),description:data.get('description'),notes:data.get('notes'),start_at:new Date(data.get('start_at')).toISOString(),remind_at:new Date(data.get('remind_at')).toISOString(),end_at:data.get('end_at')?new Date(data.get('end_at')).toISOString():null,priority:data.get('priority'),reminder_type:data.get('reminder_type'),course_id:data.get('course_id')?Number(data.get('course_id')):null,teaching_class_id:data.get('teaching_class_id')?Number(data.get('teaching_class_id')):null,advance_minutes:Number(data.get('advance_minutes')||0),recurrence_rule:recurrence?{frequency:recurrence,interval:1}:null};try{const result=reminderId?await updateTeacherReminder(reminderId,payload):await createTeacherReminder(payload);dashboard.calendar_events=(dashboard.calendar_events||[]).filter(row=>String(row.reminder?.id)!==String(result.data.id));dashboard.calendar_events.push(reminderCalendarEvent(result.data));reminderDialog.close();renderCalendar(dashboard);showToast(reminderId?'提醒已更新':'提醒已创建','success')}catch(error){showToast(error.message||'提醒保存失败','error')}},{signal:dashboardLifecycle.signal})
+  document.getElementById('teacher-reminder-delete').addEventListener('click',async()=>{const reminderId=form.elements.id.value;if(!reminderId||!confirm('确认取消这条提醒？'))return;try{await deleteTeacherReminder(reminderId);dashboard.calendar_events=(dashboard.calendar_events||[]).filter(row=>String(row.reminder?.id)!==String(reminderId));reminderDialog.close();renderCalendar(dashboard);showToast('提醒已取消','success')}catch(error){showToast(error.message||'提醒取消失败','error')}},{signal:dashboardLifecycle.signal})
+  reminderDialog.querySelector('[data-reminder-close]').addEventListener('click',()=>reminderDialog.close(),{signal:dashboardLifecycle.signal})
+  renderCalendar(dashboard)
+}
+
+function recentRows(data) {
+  const rows = [
+    ...(data.recent?.tasks || []).map(item => ({ label:item.type==='exam'?'考试':'作业',title:item.title,status:item.status,time:item.created_at,hash:`#/teacher/tasks/${item.task_id}` })),
+    ...(data.recent?.lesson_plans || []).map(item => ({ label:'备课',title:item.topic,status:item.status,time:item.updated_at,hash:'#/teacher/preparation' })),
+    ...(data.recent?.resources || []).map(item => ({ label:'资源',title:item.title,status:item.resource_kind||'文件',time:item.created_at,hash:'#/teacher/knowledge' })),
+    ...(data.recent?.notifications || []).map(item => ({ label:'消息',title:item.title,status:item.is_read?'已读':'未读',time:item.created_at,hash:'#/teacher/dashboard' })),
+  ].sort((a,b)=>new Date(b.time)-new Date(a.time))
+  const seen = new Set()
+  const groups = rows.filter(item => {
+    const key = `${item.label}|${item.title}|${item.status}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0,8)
+  return groups.map(item => `<button data-teacher-nav="${item.hash}"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(item.title)}</b><em>${escapeHtml(item.status)} · ${formatRelativeTime(item.time)}</em></button>`).join('') || '<div class="teacher-inline-empty">暂无近期教学动态</div>'
+}
+
+function content(user, dashboard, profile) {
+  const focus = dashboard.today_focus || {}
+  return `<div class="teacher-dashboard-page">
+    <section class="teacher-focus-card"><div><span>今日教学重点</span><h2>${escapeHtml(focus.title || '开始下一课次智慧备课')}</h2><p>${escapeHtml(focus.description || '系统将自动读取班级学情与高频问题')}</p></div><button data-teacher-nav="${escapeHtml(focus.action_url || '#/teacher/preparation')}">${escapeHtml(focus.action_label || '开始备课')}</button></section>
+    <div class="teacher-dashboard-grid"><main>
+      <section class="teacher-dashboard-section compact teacher-quick-section"><header><div><h3>快捷入口</h3><p>围绕教师日常流程的六个主要入口</p></div></header><div class="teacher-quick-grid">${quickEntries()}</div></section>
+      <section class="teacher-metric-grid">${metricCards(dashboard)}</section>
+      <section class="teacher-dashboard-section teacher-calendar-section" id="teacher-calendar-section"><header><div><h3>教学日历与课表</h3><p id="teacher-calendar-title"></p></div><div class="teacher-calendar-controls"><button class="primary" data-calendar-reminder-new>新建提醒</button><button data-calendar-move="-1" aria-label="上一时段">‹</button><button data-calendar-today>今天</button><button data-calendar-move="1" aria-label="下一时段">›</button><span><button data-calendar-view="month">月</button><button data-calendar-view="week">周</button><button data-calendar-view="list">列表</button></span></div></header><div id="teacher-calendar-body"></div></section>
+      <section class="teacher-dashboard-section"><header><div><h3>教学数据概览</h3><p id="teacher-chart-scope">基于当前授权教学数据</p></div><a href="#/teacher/analytics">查看完整分析</a></header><div class="teacher-chart-grid"><article><b>本周学习活跃趋势</b><div id="teacher-chart-activity"></div></article><article><b>班级掌握度分布</b><div id="teacher-chart-mastery"></div></article><article><b>高频疑问 Top 5</b><div id="teacher-chart-keywords"></div></article><article><b>薄弱知识点 Top 5</b><div id="teacher-chart-weak"></div></article></div></section>
+      <section class="teacher-dashboard-section compact"><header><div><h3>近期教学动态</h3><p>作业、考试、备课、资源与消息统一汇总</p></div></header><div class="teacher-recent-list">${recentRows(dashboard)}</div></section>
+    </main>${profileCard(profile,dashboard)}</div>
+    <dialog id="teacher-calendar-create" class="teacher-calendar-dialog" aria-label="日期快捷创建菜单"><form method="dialog"><header><div><span>安排日期</span><strong></strong></div><button type="button" data-calendar-close>×</button></header><p>选择要创建的真实教学事项，日期将自动带入下一页。</p><div><button type="button" data-calendar-reminder>新建提醒</button><button type="button" data-calendar-create="#/teacher/preparation">创建备课</button><button type="button" data-calendar-create="#/teacher/tasks/create">发布任务</button><button type="button" data-calendar-create="#/teacher/system?tab=courses">安排课程</button></div></form></dialog>
+    <dialog id="teacher-reminder-dialog" class="teacher-dialog teacher-reminder-dialog"><form id="teacher-reminder-form"><input type="hidden" name="id"><header><h3>教师提醒</h3><button type="button" data-reminder-close>×</button></header><div class="teacher-form-grid"><label class="wide">标题<input name="title" maxlength="200" required></label><label>提醒类型<select name="reminder_type"><option value="manual">通用提醒</option><option value="lesson_preparation">备课提醒</option><option value="class">上课提醒</option><option value="review">课后复盘</option><option value="homework_release">作业发布</option><option value="exam">考试提醒</option></select></label><label>优先级<select name="priority"><option value="normal">普通</option><option value="high">重要</option><option value="urgent">紧急</option><option value="low">低</option></select></label><label>课程<select name="course_id"><option value="">不关联课程</option></select></label><label>教学班<select name="teaching_class_id"><option value="">不关联教学班</option></select></label><label>开始时间<input name="start_at" type="datetime-local" required></label><label>提醒时间<input name="remind_at" type="datetime-local" required></label><label>结束时间（可空）<input name="end_at" type="datetime-local"></label><label>提前提醒（分钟）<input name="advance_minutes" type="number" min="0" max="10080" value="30"></label><label>重复<select name="recurrence"><option value="">不重复</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label><label class="wide">描述<textarea name="description" rows="2" maxlength="4000"></textarea></label><label class="wide">备注<textarea name="notes" rows="2" maxlength="4000"></textarea></label></div><footer><button type="button" id="teacher-reminder-delete">取消提醒</button><button class="teacher-btn primary" type="submit">保存提醒</button></footer></form></dialog>
+  </div>`
+}
+
+function initChart(id, option) {
+  const node = document.getElementById(id); if (!node) return
+  const chart = echarts.init(node); chart.setOption({ animationDuration:500, color:['#b76d20','#6d8b71','#d2a350'], tooltip:{trigger:'axis'}, grid:{top:24,left:36,right:14,bottom:32,containLabel:true}, ...option }); charts.push(chart)
+}
+
+function emptyChart(title='暂无真实数据') { return { title:{text:title,left:'center',top:'middle',textStyle:{color:'#9b8b7c',fontSize:12,fontWeight:'normal'}}, xAxis:{show:false},yAxis:{show:false},series:[] } }
+
+function renderCharts(dashboard, analytics) {
+  disposeCharts()
+  const trend = dashboard.weekly_activity_trend || []
+  initChart('teacher-chart-activity', trend.length ? { xAxis:{type:'category',data:trend.map(item=>item.date.slice(5)),axisLabel:{color:'#806f5e'}},yAxis:{type:'value',splitLine:{lineStyle:{color:'#eee6da'}}},series:[{type:'line',smooth:true,areaStyle:{opacity:.1},symbolSize:5,data:trend.map(item=>item.study_minutes)}] } : emptyChart())
+  const mastery = analytics?.mastery_distribution || []
+  initChart('teacher-chart-mastery', mastery.length ? { xAxis:{type:'category',data:mastery.map(item=>item.label),axisLabel:{color:'#806f5e'}},yAxis:{type:'value',splitLine:{lineStyle:{color:'#eee6da'}}},series:[{type:'bar',barMaxWidth:30,itemStyle:{borderRadius:[5,5,0,0]},data:mastery.map(item=>item.count)}] } : emptyChart())
+  const keywords = normalizeKeywords(analytics?.dialogue?.keywords).slice(0,5)
+  initChart('teacher-chart-keywords', keywords.length ? { grid:{top:12,left:62,right:16,bottom:20,containLabel:true},xAxis:{type:'value',splitLine:{show:false}},yAxis:{type:'category',inverse:true,data:keywords.map(item=>item.text),axisLabel:{color:'#806f5e'}},series:[{type:'bar',barMaxWidth:16,itemStyle:{borderRadius:[0,5,5,0]},data:keywords.map(item=>item.value)}] } : emptyChart())
+  const weak = normalizeWeakKnowledgePoints(analytics?.weak_knowledge_points).slice(0,5)
+  initChart('teacher-chart-weak', weak.length ? { grid:{top:12,left:80,right:24,bottom:20,containLabel:true},xAxis:{type:'value',max:100,splitLine:{lineStyle:{color:'#eee6da'}}},yAxis:{type:'category',inverse:true,data:weak.map(item=>item.name),axisLabel:{color:'#806f5e',width:80,overflow:'truncate'}},series:[{type:'bar',barMaxWidth:16,itemStyle:{borderRadius:[0,5,5,0]},data:weak.map(item=>item.mastery)}] } : emptyChart())
+}
+
+function bindNavigation() { document.querySelectorAll('[data-teacher-nav]').forEach(button=>button.addEventListener('click',()=>{window.location.hash=button.dataset.teacherNav})) }
 
 export async function renderTeacherDashboard(app) {
-  let user = getUser()
-
+  dashboardLifecycle?.abort(); dashboardLifecycle = new AbortController()
+  let user=getUser(); try { const result=await getMe(); user=result.data.user; setAuth(getToken(),user) } catch { if(!user){clearAuth();window.location.hash='#/login';return} }
   try {
-    const result = await getMe()
-    user = result.data.user
-    setAuth(getUser() ? getToken() : '', user)
-  } catch {
-    if (!user) {
-      clearAuth()
-      window.location.hash = '#/login'
-      return
-    }
-  }
-
-  // Loading 状态
-  renderDashboardLayout(app, {
-    menuItems: TEACHER_MENU_ITEMS,
-    contentHTML: `
-      <div class="dashboard-content teacher-home-shell">
-        <div class="loading-state">
-          <div class="loading-spinner"></div>
-          <p class="loading-text">正在加载教学工作台数据...</p>
-        </div>
-      </div>`,
-    user,
-  });
-
-  // 加载真实数据
-  let dashboardData = {}
-  try {
-    const res = await getTeacherDashboard()
-    dashboardData = res.data || {}
-  } catch (err) {
-    console.error('加载概览数据失败', err)
-    renderDashboardLayout(app, {
-      menuItems: TEACHER_MENU_ITEMS,
-      contentHTML: buildErrorContent(err.message),
-      user,
-    })
-    return
-  }
-
-  const displayName = getUserDisplayName()
-  const contentHTML = buildHomeContent({ user, displayName, dashboardData })
-
-  renderDashboardLayout(app, {
-    menuItems: TEACHER_MENU_ITEMS,
-    contentHTML,
-    user,
-  })
-
-  // 快捷入口点击
-  bindTeacherHomeEvents()
-
-  // 加载通知
-  loadNotifications()
-
-  // ========================
-  // 快捷入口事件绑定
-  // ========================
-  function bindTeacherHomeEvents() {
-    const main = document.getElementById('student-main')
-    if (!main) return
-    if (main._teacherHomeClickHandler) {
-      main.removeEventListener('click', main._teacherHomeClickHandler)
-    }
-
-    const handler = (event) => {
-      const nav = event.target.closest('[data-teacher-nav]')
-      if (!nav) return
-      const hash = nav.dataset.teacherNav
-      if (hash && hash !== '#') {
-        window.location.hash = hash
-      }
-    }
-
-    main._teacherHomeClickHandler = handler
-    main.addEventListener('click', handler)
-  }
-
-  // ========================
-  // 消息通知
-  // ========================
-  async function loadNotifications() {
-    const notifListEl = document.getElementById('notification-list')
-    const badgeEl = document.getElementById('unread-badge')
-    const markAllBtn = document.getElementById('notif-mark-all-read')
-    if (!notifListEl) return
-
-    try {
-      // 获取未读数量
-      const countRes = await getUnreadNotificationCount()
-      const unreadCount = countRes.data?.unread_count || 0
-      if (badgeEl) {
-        if (unreadCount > 0) {
-          badgeEl.textContent = unreadCount
-          badgeEl.style.display = 'inline'
-        } else {
-          badgeEl.style.display = 'none'
-        }
-      }
-
-      // 获取最近 5 条消息
-      const res = await getNotifications({ page: 1, page_size: 5 })
-      const list = res.data?.list || []
-
-      if (markAllBtn) {
-        markAllBtn.style.display = unreadCount > 0 ? 'inline-block' : 'none'
-        // 移除旧监听避免重复绑定
-        const handler = async () => {
-          try {
-            await markAllNotificationsRead()
-            loadNotifications()
-          } catch (err) { alert('操作失败: ' + err.message) }
-        }
-        markAllBtn.removeEventListener('click', handler)
-        markAllBtn.addEventListener('click', handler)
-      }
-
-      if (list.length === 0) {
-        notifListEl.innerHTML = '<div class="home-empty-inline">暂无消息通知</div>'
-        return
-      }
-
-      const typeLabels = {
-        task_published: '任务发布', task_deadline: '任务截止',
-        document_review: '文档审核', document_parsed: '文档解析',
-        ai_grading_done: 'AI批改', system_notice: '系统通知',
-      }
-
-      notifListEl.innerHTML = `<div class="home-task-list">${
-        list.map((n) => {
-          const time = n.created_at ? new Date(n.created_at).toLocaleString('zh-CN') : ''
-          const typeLabel = typeLabels[n.notification_type] || n.notification_type
-          return `<div class="home-task-item${n.is_read ? '' : ' unread'}" data-id="${n.notification_id}">
-            <div>
-              <b>${escapeHtml(n.title)}</b>
-              <span>${typeLabel} · ${time}${!n.is_read ? ' · <em style="color:#dc2626;">未读</em>' : ''}</span>
-            </div>
-            <button type="button" class="notif-read-btn" data-id="${n.notification_id}" data-is-read="${n.is_read}">${n.is_read ? '已读' : '标为已读'}</button>
-          </div>`
-        }).join('')
-      }</div>`
-
-      // 绑定事件：点击通知项阅读详情
-      notifListEl.querySelectorAll('.home-task-item').forEach((item) => {
-        item.addEventListener('click', (e) => {
-          if (e.target.closest('.notif-read-btn')) return
-          const nid = parseInt(item.dataset.id, 10)
-          const notif = list.find((n) => n.notification_id === nid)
-          if (notif) showNotificationDetail(notif)
-        })
-      })
-
-      // 绑定标记已读/已读按钮
-      notifListEl.querySelectorAll('.notif-read-btn').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation()
-          const nid = parseInt(btn.dataset.id, 10)
-          const isRead = btn.dataset.isRead === 'true'
-          if (isRead) {
-            // 已读状态→打开详情
-            const notif = list.find((n) => n.notification_id === nid)
-            if (notif) showNotificationDetail(notif)
-            return
-          }
-          try {
-            await markNotificationRead(nid)
-            loadNotifications()
-          } catch (err) { alert('操作失败: ' + err.message) }
-        })
-      })
-    } catch (err) {
-      console.error('[teacher] 加载消息通知失败:', err.message)
-      notifListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:0.85rem;">消息通知加载失败</div>'
-    }
-  }
-
-  // 显示通知详情弹窗
-  function showNotificationDetail(notif) {
-    // 若未读则自动标记已读
-    if (!notif.is_read) {
-      markNotificationRead(notif.notification_id).catch(() => {})
-    }
-
-    const typeLabels = {
-      task_published: '任务发布', task_deadline: '任务截止',
-      document_review: '文档审核', document_parsed: '文档解析',
-      ai_grading_done: 'AI批改', system_notice: '系统通知',
-    }
-    const time = notif.created_at ? new Date(notif.created_at).toLocaleString('zh-CN') : ''
-    const typeLabel = typeLabels[notif.notification_type] || notif.notification_type
-
-    // 锁定滚动
-    const scrollY = window.scrollY
-    document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollY}px`
-    document.body.style.width = '100%'
-
-    const overlay = document.createElement('div')
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);'
-    overlay.innerHTML = `
-      <div style="background:#fff;border-radius:22px;box-shadow:0 24px 64px rgba(0,0,0,0.15);padding:32px;width:90%;max-width:520px;max-height:80vh;overflow-y:auto;border:1px solid var(--border);">
-        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
-          <div>
-            <span style="font-size:0.8rem;color:var(--text-muted);">${typeLabel}</span>
-            <span style="font-size:0.75rem;color:var(--text-muted);margin-left:10px;">${time}</span>
-          </div>
-          <button id="notif-close-btn" style="width:28px;height:28px;border:none;background:rgba(0,0,0,0.05);border-radius:50%;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-muted);">✕</button>
-        </div>
-        <h3 style="font-size:1.15rem;font-weight:700;color:var(--text);margin:0 0 12px;">${notif.title}</h3>
-        ${notif.content ? `<div style="font-size:0.92rem;color:var(--text-secondary);line-height:1.8;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:12px;white-space:pre-wrap;">${notif.content}</div>` : ''}
-        ${notif.sender_name ? `<div style="font-size:0.8rem;color:var(--text-muted);">发送者：${notif.sender_name}</div>` : ''}
-        <div style="text-align:right;margin-top:18px;">
-          <button id="notif-close-btn2" style="padding:8px 24px;border-radius:10px;font-size:0.9rem;border:1px solid var(--border);background:transparent;cursor:pointer;color:var(--text-secondary);">关闭</button>
-        </div>
-      </div>
-    `
-
-    const container = document.querySelector('.student-dashboard-wrapper') || document.getElementById('app')
-    container.appendChild(overlay)
-
-    function closeNotifModal() {
-      overlay.remove()
-      document.body.style.position = ''
-      document.body.style.top = ''
-      document.body.style.width = ''
-      window.scrollTo(0, scrollY)
-      // 刷新列表反映已读状态
-      loadNotifications()
-    }
-
-    overlay.querySelector('#notif-close-btn').addEventListener('click', closeNotifModal)
-    overlay.querySelector('#notif-close-btn2').addEventListener('click', closeNotifModal)
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeNotifModal() })
-  }
+    const [dashboardResult,profileResult]=await Promise.all([getTeacherDashboard(),getTeacherProfile()]); const dashboard=dashboardResult.data||{}; const profile=profileResult.data||{}
+    renderDashboardLayout(app,{title:'教师工作台',menuItems:TEACHER_MENU_ITEMS,contentHTML:content(user,dashboard,profile),user}); bindNavigation(); bindCalendar(dashboard)
+    let analytics=null; const courseId=profile.default_course_id||dashboard.classes?.[0]?.course_id; const classId=dashboard.classes?.find(item=>item.course_id===courseId)?.teaching_class_id
+    if(courseId){ try { const result=await getAnalyticsWorkbench({course_id:courseId,...(classId?{teaching_class_id:classId}:{}),range:'7d'});analytics=result.data; document.getElementById('teacher-chart-scope').textContent=`${analytics.filters?.course_name||'所选课程'} · 最近7天真实数据` } catch {} }
+    renderCharts(dashboard,analytics)
+    window.addEventListener('resize',()=>charts.forEach(chart=>chart.resize()),{passive:true,signal:dashboardLifecycle.signal})
+    window.addEventListener('hashchange',()=>{if(!window.location.hash.startsWith('#/teacher/dashboard')){disposeCharts();dashboardLifecycle?.abort()}},{signal:dashboardLifecycle.signal})
+  } catch(error) { renderDashboardLayout(app,{title:'教师工作台',menuItems:TEACHER_MENU_ITEMS,contentHTML:`<div class="teacher-dashboard-error"><b>教师工作台加载失败</b><p>${escapeHtml(error.message||'请稍后重试')}</p><button onclick="location.reload()">重新加载</button></div>`,user}) }
 }

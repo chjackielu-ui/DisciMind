@@ -1,309 +1,58 @@
-// 教师端 - 知识库管理页
-
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
+import {
+  getTeacherCourses,getTeachingClasses,getTeachingResources,uploadKnowledgeDocument,createExternalResource,
+  deleteTeachingResource,shareTeachingResource,getTeachingResourceDistributions,downloadTeachingResource,getKnowledgeBaseApplications,reviewKnowledgeBaseApplication,batchReviewKnowledgeBaseApplications,
+} from '../api/teacher.js'
+import { getUser,getToken,setAuth,clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
-import { getKnowledgeDocuments, reviewKnowledgeDocument, uploadKnowledgeDocument } from '../api/teacher.js'
-import { iconSearch, iconRefresh } from '../utils/icons.js'
-import { initAllAutoResize } from '../utils/auto-resize.js'
+import { escapeHtml,formatRelativeTime } from '../utils/format.js'
+import { showToast } from '../utils/toast.js'
 
-export async function renderTeacherKnowledge(app) {
-  let user = getUser()
-
-  try {
-    const result = await getMe()
-    user = result.data.user
-    setAuth(getUser() ? getToken() : '', user)
-  } catch {
-    if (!user) {
-      clearAuth()
-      window.location.hash = '#/login'
-      return
-    }
-  }
-
-  const contentHTML = `
-    <div class="dashboard-content">
-      <div class="page-header">
-        <h2 class="page-title">知识库管理</h2>
-        <p class="page-subtitle">管理与审核课程相关的知识库文档</p>
-      </div>
-
-      <div class="card" style="margin-bottom:20px;">
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-          <input type="text" id="search-keyword" placeholder="搜索文档标题..." style="flex:1;min-width:160px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
-          <select id="filter-status" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
-            <option value="">全部状态</option>
-            <option value="pending">待审核</option>
-            <option value="approved">已通过</option>
-            <option value="rejected">已拒绝</option>
-          </select>
-          <select id="filter-parse" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
-            <option value="">全部解析状态</option>
-            <option value="uploaded">已上传</option>
-            <option value="parsing">解析中</option>
-            <option value="parsed">已解析</option>
-            <option value="failed">失败</option>
-          </select>
-          <button class="btn btn-primary" id="btn-search">${iconSearch()} 搜索</button>
-          <button class="btn" id="btn-refresh" style="border:1px solid var(--border);">${iconRefresh()}</button>
-          <button class="btn btn-primary" id="btn-upload-doc" style="margin-left:auto;">＋ 上传文档</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div id="document-list-container">
-          <div class="empty-hint">正在加载文档数据...</div>
-        </div>
-      </div>
-    </div>
-
-    <div id="review-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
-      <div style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-        <h3 style="margin-bottom:16px;">审核文档</h3>
-        <p id="review-doc-title" style="margin-bottom:16px;color:var(--text-secondary);font-size:0.9rem;"></p>
-        <div class="form-group" style="margin-bottom:16px;">
-          <label>审核结果</label>
-          <select id="review-status" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
-            <option value="approved">✅ 通过</option>
-            <option value="rejected">❌ 拒绝</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-bottom:16px;">
-          <label>审核意见</label>
-          <textarea id="review-comment" class="auto-resize-ta" rows="3" placeholder="请输入审核意见..." style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;"></textarea>
-        </div>
-        <div style="display:flex;gap:10px;justify-content:flex-end;">
-          <button class="btn" id="btn-review-cancel" style="border:1px solid var(--border);">取消</button>
-          <button class="btn btn-primary" id="btn-review-submit">提交审核</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 上传文档弹窗 -->
-    <div id="upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
-      <div style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-        <h3 style="margin-bottom:20px;">上传知识库文档</h3>
-        <form id="upload-form">
-          <div class="form-group" style="margin-bottom:14px;">
-            <label>选择文件 <span class="required">*</span></label>
-            <input type="file" id="upload-file" accept=".pdf,.docx,.doc,.txt,.md" required style="padding:8px;border:1px solid var(--border);border-radius:8px;width:100%;">
-            <span style="font-size:0.8rem;color:var(--text-muted);">支持 PDF、DOCX、DOC、TXT、MD，最大 20MB</span>
-          </div>
-          <div class="form-group" style="margin-bottom:14px;">
-            <label>文档标题</label>
-            <input type="text" id="upload-title" placeholder="默认使用文件名" style="padding:10px;border:1px solid var(--border);border-radius:8px;width:100%;">
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
-            <div class="form-group">
-              <label>范围</label>
-              <select id="upload-scope" style="padding:10px;border:1px solid var(--border);border-radius:8px;">
-                <option value="course">课程知识库</option>
-                <option value="personal">个人知识库</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>可见性</label>
-              <select id="upload-visibility" style="padding:10px;border:1px solid var(--border);border-radius:8px;">
-                <option value="class">班级可见</option>
-                <option value="college">学院可见</option>
-                <option value="private">仅自己可见</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:14px;">
-            <label>所属课程</label>
-            <select id="upload-course" style="padding:10px;border:1px solid var(--border);border-radius:8px;width:100%;">
-              <option value="">请选择课程（可选）</option>
-            </select>
-          </div>
-          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
-            <button type="button" class="btn" id="upload-cancel" style="border:1px solid var(--border);">取消</button>
-            <button type="submit" class="btn btn-primary">上传</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `
-
-  renderDashboardLayout(app, {
-    title: '知识库管理',
-    menuItems: TEACHER_MENU_ITEMS,
-    contentHTML,
-    user,
-  })
-
-  let currentDocId = null
-  let documents = []
-
-  async function loadDocuments(params = {}) {
-    const container = document.getElementById('document-list-container')
-    if (!container) return
-    container.innerHTML = '<div class="empty-hint">加载中...</div>'
-    try {
-      const res = await getKnowledgeDocuments(params)
-      documents = res.data.list || []
-      renderDocuments(documents)
-    } catch (err) {
-      container.innerHTML = `<div class="error-state"><div class="error-icon">⚠️</div><div class="error-message">${err.message}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
-    }
-  }
-
-  function renderDocuments(docs) {
-    const container = document.getElementById('document-list-container')
-    if (!container) return
-
-    if (!docs || docs.length === 0) {
-      container.innerHTML = '<div class="empty-hint" style="padding:40px 0;">暂无知识库文档</div>'
-      return
-    }
-
-    const parseLabels = { uploaded: '已上传', parsing: '解析中', parsed: '已解析', chunking: '切片中', chunked: '已切片', embedding: '向量化中', embedded: '已向量化', failed: '失败' }
-    const reviewLabels = { pending: '待审核', approved: '已通过', rejected: '已拒绝' }
-    const reviewColors = { pending: '#fef3c7', approved: '#d1fae5', rejected: '#fee2e2' }
-    const reviewTextColors = { pending: '#92400e', approved: '#065f46', rejected: '#dc2626' }
-    const scopeLabels = { platform: '平台', course: '课程', class: '班级', personal: '个人' }
-
-    container.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:2px solid var(--border);">
-            <th style="text-align:left;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);">文档名称</th>
-            <th style="text-align:center;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);width:70px;">类型</th>
-            <th style="text-align:center;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);width:80px;">范围</th>
-            <th style="text-align:center;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);width:80px;">解析状态</th>
-            <th style="text-align:center;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);width:80px;">审核状态</th>
-            <th style="text-align:center;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);width:100px;">上传者</th>
-            <th style="text-align:right;padding:10px 8px;font-size:0.85rem;color:var(--text-muted);width:100px;">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${docs.map(d => `
-            <tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:12px 8px;">
-                <div style="font-weight:500;font-size:0.9rem;">${d.title}</div>
-                <div style="font-size:0.75rem;color:var(--text-muted);">${d.original_filename || ''} ${d.file_size_bytes ? '· ' + Math.round(d.file_size_bytes / 1024) + 'KB' : ''}</div>
-              </td>
-              <td style="text-align:center;padding:12px 8px;font-size:0.85rem;">.${d.file_ext || '-'}</td>
-              <td style="text-align:center;padding:12px 8px;font-size:0.8rem;">${scopeLabels[d.scope_type] || d.scope_type}</td>
-              <td style="text-align:center;padding:12px 8px;">
-                <span style="background:${d.parse_status === 'failed' ? '#fee2e2' : '#d1fae5'};color:${d.parse_status === 'failed' ? '#dc2626' : '#065f46'};padding:2px 8px;border-radius:8px;font-size:0.75rem;">${parseLabels[d.parse_status] || d.parse_status}</span>
-              </td>
-              <td style="text-align:center;padding:12px 8px;">
-                <span style="background:${reviewColors[d.review_status]};color:${reviewTextColors[d.review_status]};padding:2px 8px;border-radius:8px;font-size:0.75rem;">${reviewLabels[d.review_status] || d.review_status}</span>
-              </td>
-              <td style="text-align:center;padding:12px 8px;font-size:0.85rem;">${d.owner_name || '-'}</td>
-              <td style="text-align:right;padding:12px 8px;">
-                ${d.review_status === 'pending' ? `
-                  <button class="btn-review" data-id="${d.document_id}" data-title="${d.title}" style="padding:4px 12px;border:1px solid var(--primary);border-radius:6px;background:var(--primary-light);color:var(--primary);cursor:pointer;font-size:0.8rem;">审核</button>
-                ` : `
-                  <span style="font-size:0.8rem;color:var(--text-muted);">已处理</span>
-                `}
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    `
-
-    container.querySelectorAll('.btn-review').forEach(btn => {
-      btn.addEventListener('click', () => {
-        currentDocId = parseInt(btn.dataset.id)
-        document.getElementById('review-doc-title').textContent = `文档：${btn.dataset.title}`
-        document.getElementById('review-modal').style.display = 'flex'
-      })
-    })
-  }
-
-  function getFilters() {
-    return {
-      keyword: document.getElementById('search-keyword')?.value || '',
-      review_status: document.getElementById('filter-status')?.value || '',
-      parse_status: document.getElementById('filter-parse')?.value || '',
-    }
-  }
-
-  document.getElementById('btn-search')?.addEventListener('click', () => loadDocuments(getFilters()))
-  document.getElementById('btn-refresh')?.addEventListener('click', () => loadDocuments())
-  document.getElementById('btn-review-cancel')?.addEventListener('click', () => {
-    document.getElementById('review-modal').style.display = 'none'
-  })
-  document.getElementById('btn-review-submit')?.addEventListener('click', async () => {
-    if (!currentDocId) return
-    const status = document.getElementById('review-status').value
-    const comment = document.getElementById('review-comment').value.trim()
-    try {
-      await reviewKnowledgeDocument(currentDocId, { review_status: status, review_comment: comment })
-      document.getElementById('review-modal').style.display = 'none'
-      loadDocuments(getFilters())
-    } catch (err) {
-      alert(err.message)
-    }
-  })
-
-  // ---- 上传文档 ----
-  const uploadModal = document.getElementById('upload-modal')
-
-  document.getElementById('btn-upload-doc')?.addEventListener('click', async () => {
-    uploadModal.style.display = 'flex'
-    initAllAutoResize()
-    try {
-      const { getTeacherCourses } = await import('../api/teacher.js')
-      const res = await getTeacherCourses()
-      const select = document.getElementById('upload-course')
-      select.innerHTML = '<option value="">请选择课程（可选）</option>'
-      ;(res.data.list || []).forEach(c => {
-        const opt = document.createElement('option')
-        opt.value = c.course_id
-        opt.textContent = c.course_name
-        select.appendChild(opt)
-      })
-    } catch (err) {
-      console.error('加载课程失败', err)
-    }
-  })
-
-  document.getElementById('upload-cancel')?.addEventListener('click', () => {
-    uploadModal.style.display = 'none'
-    document.getElementById('upload-form').reset()
-  })
-  uploadModal?.addEventListener('click', (e) => {
-    if (e.target === uploadModal) {
-      uploadModal.style.display = 'none'
-      document.getElementById('upload-form').reset()
-    }
-  })
-
-  document.getElementById('upload-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault()
-    const fileInput = document.getElementById('upload-file')
-    if (!fileInput.files || fileInput.files.length === 0) {
-      alert('请选择要上传的文件')
-      return
-    }
-    const formData = new FormData()
-    formData.append('file', fileInput.files[0])
-    formData.append('title', document.getElementById('upload-title').value.trim() || fileInput.files[0].name)
-    formData.append('scope_type', document.getElementById('upload-scope').value)
-    formData.append('visibility', document.getElementById('upload-visibility').value)
-    const courseId = parseInt(document.getElementById('upload-course').value)
-    if (courseId) formData.append('course_id', courseId)
-
-    try {
-      await uploadKnowledgeDocument(formData)
-      alert('上传成功')
-      uploadModal.style.display = 'none'
-      document.getElementById('upload-form').reset()
-      loadDocuments(getFilters())
-    } catch (err) {
-      alert(err.message)
-    }
-  })
-
-  initAllAutoResize()
-  loadDocuments()
+const state={tab:'resources',courses:[],classes:[],resources:[],applications:[],selected:new Set(),selectedResourceId:null}
+function queryTab(){return new URLSearchParams(window.location.hash.split('?')[1]||'').get('tab')||'resources'}
+function shell(){return `<div class="teacher-resource-page"><header class="teacher-page-head compact"><div><span class="teacher-eyebrow">教学资源与知识库</span><h2>资源与审核中心</h2><p>课程资源、班级分发和学生知识库公开申请统一管理。</p></div><div><button class="teacher-btn" id="resource-external">添加链接</button><button class="teacher-btn primary" id="resource-upload">上传资源</button></div></header>
+  <nav class="resource-tabs"><button data-resource-tab="resources" class="active">教学资源</button><button data-resource-tab="reviews">知识库审核 <span id="review-count">0</span></button></nav>
+  <section class="resource-filter"><input id="resource-search" placeholder="搜索资源、知识库或学生"><select id="resource-course"><option value="">全部课程</option></select><select id="resource-class"><option value="">全部教学班</option></select><select id="resource-status"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已驳回</option></select><button class="teacher-btn" id="resource-refresh">刷新</button></section>
+  <div id="resource-content"></div>
+  <dialog id="resource-upload-dialog" class="teacher-dialog"><form id="resource-upload-form"><header><h3>上传教学资源</h3><button type="button" data-close-dialog>×</button></header><div class="teacher-form-grid"><label class="wide">文件<input name="file" type="file" required accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.png,.jpg,.jpeg,.webp"></label><label>课程<select name="course_id" required></select></label><label>教学班<select name="teaching_class_id"></select></label><label>资源分类<input name="resource_category" placeholder="课件 / 案例 / 阅读材料"></label><label>资源类型<select name="resource_kind"><option value="courseware">课件</option><option value="reference">参考资料</option><option value="worksheet">任务单</option><option value="image">图片</option></select></label><label>可见范围<select name="visibility"><option value="private">仅自己</option><option value="class" selected>教学班</option><option value="college">学院</option></select></label></div><footer><button type="button" class="teacher-btn" data-close-dialog>取消</button><button class="teacher-btn primary" type="submit">上传</button></footer></form></dialog>
+  <dialog id="resource-external-dialog" class="teacher-dialog"><form id="resource-external-form"><header><h3>添加外部资源</h3><button type="button" data-close-dialog>×</button></header><div class="teacher-form-grid"><label class="wide">标题<input name="title" required></label><label class="wide">HTTP/HTTPS 链接<input name="external_url" type="url" required></label><label>课程<select name="course_id"></select></label><label>教学班<select name="teaching_class_id"></select></label><label>类型<select name="resource_kind"><option value="video_link">视频链接</option><option value="reference_link">参考链接</option></select></label></div><footer><button type="button" class="teacher-btn" data-close-dialog>取消</button><button class="teacher-btn primary" type="submit">保存</button></footer></form></dialog>
+  <dialog id="resource-distribution-dialog" class="teacher-dialog"><form id="resource-distribution-form"><header><h3>下发教学资源</h3><button type="button" data-close-dialog>×</button></header><div class="teacher-form-grid"><label class="wide">资源<strong id="distribution-resource-title"></strong></label><label>教学班<select name="teaching_class_id" required></select></label><label>下发类型<select name="distribution_type"><option value="course_material">课程资料</option><option value="pre_class_material">课前资料</option><option value="classroom_task">课堂任务单</option><option value="homework_attachment">作业附件</option><option value="exam_attachment">考试附件</option><option value="announcement">教学公告</option></select></label><label>发布时间<input name="publish_at" type="datetime-local"></label><label>截止时间<input name="due_at" type="datetime-local"></label><label class="wide">说明<textarea name="message" placeholder="向学生说明资料用途"></textarea></label></div><footer><button type="button" class="teacher-btn" data-close-dialog>取消</button><button class="teacher-btn primary" type="submit">确认下发</button></footer></form></dialog>
+  <dialog id="resource-stats-dialog" class="teacher-dialog"><header><h3>阅读与下载回流</h3><button type="button" data-close-dialog>×</button></header><div id="resource-stats-content"></div></dialog>
+  <dialog id="resource-review-dialog" class="teacher-dialog review-dialog"><header><h3>知识库公开申请</h3><button type="button" data-close-dialog>×</button></header><div id="review-detail"></div><footer><textarea id="review-comment" placeholder="审核意见；驳回时必填"></textarea><button class="teacher-btn" data-review-action="rejected">驳回</button><button class="teacher-btn primary" data-review-action="approved">通过</button></footer></dialog>
+  </div>`}
+function filters(){return{keyword:document.getElementById('resource-search').value.trim(),course_id:document.getElementById('resource-course').value||undefined,teaching_class_id:document.getElementById('resource-class').value||undefined,review_status:document.getElementById('resource-status').value||undefined,page_size:100}}
+function renderResources(){
+  const c=document.getElementById('resource-content')
+  c.innerHTML=state.resources.length?`<div class="resource-card-grid">${state.resources.map(item=>`<article><div class="resource-file-type">${escapeHtml((item.file_ext||item.resource_kind||'FILE').slice(0,5).toUpperCase())}</div><div class="resource-card-body"><span>${escapeHtml(item.resource_category||item.resource_kind||'教学资源')} · v${item.resource_version||1}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml([item.course_name,item.teaching_class_name].filter(Boolean).join(' · ')||'个人资源')}</p><em>${escapeHtml(item.owner_name||'')} · ${formatRelativeTime(item.created_at)}</em>${item.recipient_count?`<div class="resource-readback"><b>${item.read_count}/${item.recipient_count}</b> 已读 <b>${item.download_count}</b> 下载 <b>${item.completed_count}</b> 完成</div>`:''}</div><footer>${item.external_url?`<a href="${escapeHtml(item.external_url)}" target="_blank" rel="noopener">打开</a>`:`<button data-download-resource="${item.document_id}" data-download-name="${escapeHtml(item.original_filename||item.title||'teaching-resource')}">下载</button>`}<button data-share-resource="${item.document_id}">下发学生</button>${item.distribution_count?`<button data-resource-stats="${item.document_id}">查看回流</button>`:''}<button data-delete-resource="${item.document_id}">删除</button></footer></article>`).join('')}</div>`:'<div class="analytics-empty"><b>暂无教学资源</b><p>可上传文件或添加视频/参考链接。</p></div>'
+  c.querySelectorAll('[data-share-resource]').forEach(button=>button.addEventListener('click',()=>openDistribution(Number(button.dataset.shareResource))))
+  c.querySelectorAll('[data-resource-stats]').forEach(button=>button.addEventListener('click',()=>void openDistributionStats(Number(button.dataset.resourceStats))))
+  c.querySelectorAll('[data-download-resource]').forEach(button=>button.addEventListener('click',async()=>{button.disabled=true;try{await downloadTeachingResource(Number(button.dataset.downloadResource),button.dataset.downloadName)}catch(error){showToast(error.message||'资源下载失败','error')}finally{button.disabled=false}}))
+  c.querySelectorAll('[data-delete-resource]').forEach(button=>button.addEventListener('click',async()=>{await deleteTeachingResource(Number(button.dataset.deleteResource));await loadCurrent()}))
 }
-
-
-
+function openDistribution(documentId){
+  if(!state.classes.length)return showToast('请先选择课程，以加载可下发的教学班','warning')
+  const resource=state.resources.find(item=>item.document_id===documentId)
+  state.selectedResourceId=documentId
+  document.getElementById('distribution-resource-title').textContent=resource?.title||'教学资源'
+  const select=document.querySelector('#resource-distribution-form [name="teaching_class_id"]')
+  select.innerHTML=state.classes.map(item=>`<option value="${item.teaching_class_id}">${escapeHtml(item.teaching_class_name)}</option>`).join('')
+  const selected=document.getElementById('resource-class').value;if(selected)select.value=selected
+  document.getElementById('resource-distribution-dialog').showModal()
+}
+async function openDistributionStats(documentId){
+  const result=await getTeachingResourceDistributions(documentId)
+  const rows=result.data?.list||[]
+  document.getElementById('resource-stats-content').innerHTML=rows.length?`<div class="resource-distribution-list">${rows.map(item=>`<article><div><b>${escapeHtml(item.teaching_class_name||'教学班')} · v${item.resource_version}</b><span>${escapeHtml(item.distribution_type)} · ${new Date(item.publish_at).toLocaleString('zh-CN')}</span></div><dl><div><dt>接收</dt><dd>${item.recipient_count}</dd></div><div><dt>已读</dt><dd>${item.read_count}</dd></div><div><dt>下载</dt><dd>${item.download_count}</dd></div><div><dt>完成</dt><dd>${item.completed_count}</dd></div></dl></article>`).join('')}</div>`:'<div class="analytics-empty">暂无下发记录</div>'
+  document.getElementById('resource-stats-dialog').showModal()
+}
+function renderApplications(){const c=document.getElementById('resource-content');c.innerHTML=`<div class="resource-batch-bar"><label><input id="review-select-all" type="checkbox"> 全选</label><span>已选 ${state.selected.size} 项</span><button data-batch-review="approved">批量通过</button><button data-batch-review="rejected">批量驳回</button></div><div class="review-application-list">${state.applications.map(item=>`<article><input type="checkbox" data-review-select="${item.review_id}" ${state.selected.has(item.review_id)?'checked':''}><div><span>${escapeHtml(item.knowledge_base.course_name||'未关联课程')}</span><h3>${escapeHtml(item.knowledge_base.name)}</h3><p>${escapeHtml(item.knowledge_base.description||'无描述')}</p><em>申请人 ${escapeHtml(item.applicant.name||'学生')} · ${item.knowledge_base.document_count} 个文档 · ${item.knowledge_base.agent_count} 个智能体 · ${formatRelativeTime(item.submitted_at)}</em></div><button data-review-detail="${item.review_id}">审核</button></article>`).join('')||'<div class="analytics-empty"><b>暂无待审核申请</b></div>'}</div>`;c.querySelectorAll('[data-review-select]').forEach(box=>box.addEventListener('change',()=>{const id=Number(box.dataset.reviewSelect);box.checked?state.selected.add(id):state.selected.delete(id);renderApplications()}));c.querySelector('#review-select-all')?.addEventListener('change',event=>{state.selected=new Set(event.target.checked?state.applications.map(item=>item.review_id):[]);renderApplications()});c.querySelectorAll('[data-review-detail]').forEach(button=>button.addEventListener('click',()=>openReview(Number(button.dataset.reviewDetail))));c.querySelectorAll('[data-batch-review]').forEach(button=>button.addEventListener('click',async()=>{if(!state.selected.size)return;const action=button.dataset.batchReview;const reason=action==='rejected'?prompt('请输入批量驳回意见'):'';if(action==='rejected'&&!reason)return;await batchReviewKnowledgeBaseApplications({review_ids:[...state.selected],action,reason});state.selected.clear();await loadApplications();showToast('批量审核完成','success')}))}
+function openReview(id){const item=state.applications.find(row=>row.review_id===id);if(!item)return;const kb=item.knowledge_base;document.getElementById('review-detail').innerHTML=`<div class="review-detail-grid"><p><b>申请人</b>${escapeHtml(item.applicant.name||'')} ${escapeHtml(item.applicant.student_no||'')}</p><p><b>知识库</b>${escapeHtml(kb.name)}</p><p><b>课程</b>${escapeHtml(kb.course_name||'未关联')}</p><p><b>创建时间</b>${new Date(kb.created_at).toLocaleString('zh-CN')}</p><p class="wide"><b>申请原因</b>${escapeHtml(item.application_reason||'未填写')}</p><p class="wide"><b>描述</b>${escapeHtml(kb.description||'未填写')}</p><p><b>敏感内容</b>${kb.sensitive_content_flag?'需要关注':'未检测到标记'}</p><p><b>使用智能体</b>${kb.agent_count}</p></div><h4>文档列表（${kb.document_count}）</h4><div class="review-documents">${kb.documents.map(doc=>`<span>${escapeHtml(doc.name)}<i>${escapeHtml(doc.mime_type||'')}</i></span>`).join('')||'<span>无文档</span>'}</div>`;const dialog=document.getElementById('resource-review-dialog');dialog.dataset.reviewId=id;document.getElementById('review-comment').value='';dialog.showModal()}
+async function loadResources(){const result=await getTeachingResources(filters());state.resources=result.data?.list||[];renderResources()}
+async function loadApplications(){const result=await getKnowledgeBaseApplications(filters());state.applications=result.data?.list||[];document.getElementById('review-count').textContent=state.applications.length;renderApplications()}
+async function loadCurrent(){return state.tab==='resources'?loadResources():loadApplications()}
+async function loadCourses(){const result=await getTeacherCourses({page_size:100});state.courses=result.data?.list||[];const html='<option value="">全部课程</option>'+state.courses.map(item=>`<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('');document.getElementById('resource-course').innerHTML=html;document.querySelectorAll('[name="course_id"]').forEach(select=>select.innerHTML=html.replace('全部课程','请选择课程'))}
+async function loadClasses(courseId){state.classes=[];if(courseId){const result=await getTeachingClasses(courseId,{page_size:100});state.classes=result.data?.list||result.data||[]}const html='<option value="">全部教学班</option>'+state.classes.map(item=>`<option value="${item.teaching_class_id}">${escapeHtml(item.teaching_class_name)}</option>`).join('');document.getElementById('resource-class').innerHTML=html;document.querySelectorAll('[name="teaching_class_id"]').forEach(select=>select.innerHTML=html)}
+function bind(){document.querySelectorAll('[data-resource-tab]').forEach(button=>button.addEventListener('click',()=>{state.tab=button.dataset.resourceTab;document.querySelectorAll('[data-resource-tab]').forEach(item=>item.classList.toggle('active',item===button));document.getElementById('resource-status').style.display=state.tab==='reviews'?'block':'none';void loadCurrent()}));document.getElementById('resource-course').addEventListener('change',async event=>{await loadClasses(event.target.value);await loadCurrent()});document.getElementById('resource-class').addEventListener('change',()=>void loadCurrent());document.getElementById('resource-status').addEventListener('change',()=>void loadCurrent());document.getElementById('resource-search').addEventListener('change',()=>void loadCurrent());document.getElementById('resource-refresh').addEventListener('click',()=>void loadCurrent());document.getElementById('resource-upload').addEventListener('click',()=>document.getElementById('resource-upload-dialog').showModal());document.getElementById('resource-external').addEventListener('click',()=>document.getElementById('resource-external-dialog').showModal());document.querySelectorAll('[data-close-dialog]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));document.querySelectorAll('#resource-upload-form [name="course_id"],#resource-external-form [name="course_id"]').forEach(select=>select.addEventListener('change',event=>void loadClasses(event.target.value)));document.getElementById('resource-upload-form').addEventListener('submit',async event=>{event.preventDefault();const form=new FormData(event.target);form.set('scope_type',form.get('teaching_class_id')?'class':'course');form.set('is_teaching_resource','true');await uploadKnowledgeDocument(form);event.target.closest('dialog').close();event.target.reset();await loadResources();showToast('资源已上传','success')});document.getElementById('resource-external-form').addEventListener('submit',async event=>{event.preventDefault();await createExternalResource(Object.fromEntries(new FormData(event.target).entries()));event.target.closest('dialog').close();event.target.reset();await loadResources();showToast('外部资源已添加','success')});document.querySelectorAll('[data-review-action]').forEach(button=>button.addEventListener('click',async()=>{const action=button.dataset.reviewAction;const reason=document.getElementById('review-comment').value.trim();if(action==='rejected'&&!reason)return showToast('驳回必须填写审核意见','warning');await reviewKnowledgeBaseApplication(Number(document.getElementById('resource-review-dialog').dataset.reviewId),{action,reason});document.getElementById('resource-review-dialog').close();await loadApplications();showToast('审核完成','success')}))}
+function bindDistributionEvents(){document.getElementById('resource-distribution-form').addEventListener('submit',async event=>{event.preventDefault();if(!state.selectedResourceId)return;const data=Object.fromEntries(new FormData(event.target).entries());if(!data.publish_at)delete data.publish_at;if(!data.due_at)delete data.due_at;data.teaching_class_id=Number(data.teaching_class_id);data.operation_id=globalThis.crypto?.randomUUID?.()||`resource-${Date.now()}`;const button=event.submitter;button.disabled=true;button.textContent='下发中…';try{const result=await shareTeachingResource(state.selectedResourceId,data);event.target.closest('dialog').close();event.target.reset();await loadResources();showToast(result.data?.status==='scheduled'?`已定时下发给 ${result.data.shared_count} 名学生`:`已下发给 ${result.data.shared_count} 名学生，通知已创建`,'success')}catch(error){showToast(error.message||'资源下发失败','error')}finally{button.disabled=false;button.textContent='确认下发'}})}
+export async function renderTeacherKnowledge(app){let user=getUser();try{const result=await getMe();user=result.data.user;setAuth(getToken(),user)}catch{if(!user){clearAuth();window.location.hash='#/login';return}}state.tab=queryTab();renderDashboardLayout(app,{title:'资源审核',menuItems:TEACHER_MENU_ITEMS,contentHTML:shell(),user});bind();bindDistributionEvents();document.querySelectorAll('[data-resource-tab]').forEach(button=>button.classList.toggle('active',button.dataset.resourceTab===state.tab));document.getElementById('resource-status').style.display=state.tab==='reviews'?'block':'none';try{await loadCourses();await loadCurrent();if(state.tab!=='reviews'){const result=await getKnowledgeBaseApplications({});document.getElementById('review-count').textContent=result.data?.total||0}}catch(error){showToast(error.message||'资源中心加载失败','error')}}

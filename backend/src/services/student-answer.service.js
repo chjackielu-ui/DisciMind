@@ -34,6 +34,25 @@ async function ensureStudentInCourse(userId, courseId) {
   return enrollment;
 }
 
+async function ensureStudentInTask(userId, task) {
+  const enrollment = await prisma.studentCourseEnrollment.findFirst({
+    where: {
+      student_user_id: userId,
+      teaching_class_id: task.teaching_class_id,
+      enrollment_status: 'active',
+    },
+  });
+  if (!enrollment) throw Object.assign(new Error('未加入该教学班或任务不可访问'), { code: 40301 });
+  const recipientCount = await prisma.learningTaskRecipient.count({ where: { task_id: task.task_id } });
+  if (recipientCount > 0) {
+    const recipient = await prisma.learningTaskRecipient.findUnique({
+      where: { task_id_student_user_id: { task_id: task.task_id, student_user_id: userId } },
+    });
+    if (!recipient) throw Object.assign(new Error('该任务未发布给当前学生'), { code: 40301 });
+  }
+  return enrollment;
+}
+
 /**
  * 解析分页参数
  */
@@ -79,7 +98,7 @@ async function startQuiz(userId, taskId, mode = 'normal') {
   }
 
   // 校验课程权限
-  await ensureStudentInCourse(userId, task.course_id);
+  await ensureStudentInTask(userId, task);
 
   // 校验任务状态
   if (task.status !== 'PUBLISHED') {
@@ -358,7 +377,7 @@ async function submitTask(userId, taskId, submissionId, answers) {
     throw Object.assign(new Error('任务不存在'), { code: 40002 });
   }
 
-  await ensureStudentInCourse(userId, task.course_id);
+  await ensureStudentInTask(userId, task);
 
   // 校验 submission
   const submission = await prisma.taskSubmission.findUnique({
@@ -571,6 +590,26 @@ async function submitTask(userId, taskId, submissionId, answers) {
       submissionStatus,
       gradingStatus,
     };
+  });
+
+  const studentProfile = await prisma.userProfile.findUnique({ where: { user_id: userId }, select: { real_name: true } });
+  await prisma.notification.upsert({
+    where: { idempotency_key: `task:${taskId}:submission:${submissionId}:teacher` },
+    update: {
+      content: `${studentProfile?.real_name || `学生 ${userId}`}已提交，当前得分 ${transactionResult.totalScore}/${transactionResult.totalPossibleScore}`,
+    },
+    create: {
+      receiver_user_id: task.created_by_user_id,
+      sender_user_id: userId,
+      notification_type: task.task_type === 'EXAM' ? 'EXAM_SUBMITTED' : 'TASK_SUBMITTED',
+      title: `${task.task_type === 'EXAM' ? '考试' : '作业'}提交：${task.title}`,
+      content: `${studentProfile?.real_name || `学生 ${userId}`}已提交，当前得分 ${transactionResult.totalScore}/${transactionResult.totalPossibleScore}`,
+      target_type: 'task_submission',
+      target_id: submissionId,
+      business_type: task.task_type === 'EXAM' ? 'exam_submission' : 'task_submission',
+      business_id: submissionId,
+      idempotency_key: `task:${taskId}:submission:${submissionId}:teacher`,
+    },
   });
 
   // 错题处理

@@ -70,7 +70,7 @@ test('planner rejects database ID injection and preserves explicit fields', asyn
   });
   assert.equal(planned.difficulty, 'BASIC');
   const messages = await prisma.marketplaceAgentMessage.findMany({ where: { conversationId: conversation.id }, orderBy: { createdAt: 'asc' } });
-  assert.deepEqual(messages.map(item => item.role), ['USER', 'ASSISTANT']);
+  assert.deepEqual(messages.map(item => item.role), ['USER', 'USER', 'ASSISTANT']);
   assert.ok(messages.every(item => item.generationStatus === 'COMPLETED'));
 });
 
@@ -93,7 +93,9 @@ test('complete requirements enter confirmation state without creating a task', a
   const course = candidates.publicCourses[0]; const point = candidates.publicKnowledgePoints.find(item => item.courseKey === course.courseKey);
   const ready = await requirements.patchRequirements(studentA.user_id, conversation.id, {
     artifactType: 'EXAM_PAPER', courseKey: course.courseKey, knowledgePointKeys: [point.knowledgePointKey], title: '逻辑回归练习',
-    difficulty: 'BASIC', questionCount: 20, includeAnswers: true, includeAnalysis: true, outputFormat: 'DOCX',
+    difficulty: 'BASIC', examType: 'CUSTOM', questionCount: 20,
+    questionTypes: [{ type: 'SINGLE_CHOICE', count: 20, score: 5 }], totalScore: 100, duration: 60,
+    includeAnswers: true, includeAnalysis: true, includeAnswerSheet: false, outputFormats: ['DOCX', 'PDF'],
   });
   assert.equal(ready.readyForConfirmation, true); assert.deepEqual(ready.missingFields, []); assert.deepEqual(ready.questions, []);
   const persisted = await prisma.marketplaceAgentConversation.findUnique({ where: { id: conversation.id } });
@@ -102,9 +104,14 @@ test('complete requirements enter confirmation state without creating a task', a
   assert.equal(taskCount, 0);
 });
 
-test('requirement schemas reject more than 50 questions and non-DOCX output', () => {
+test('requirement schemas reject more than 50 questions, duplicate types and unsupported output', () => {
   assert.throws(() => schemas.requirementPatchSchema.parse({ questionCount: 51 }));
-  assert.throws(() => schemas.requirementPatchSchema.parse({ outputFormat: 'PDF' }));
+  assert.equal(schemas.requirementPatchSchema.parse({ outputFormat: 'PDF' }).outputFormat, 'PDF');
+  assert.throws(() => schemas.requirementPatchSchema.parse({ outputFormats: ['HTML'] }));
+  assert.throws(() => schemas.requirementPatchSchema.parse({ questionTypes: [
+    { type: 'SINGLE_CHOICE', count: 2, score: 5 },
+    { type: 'SINGLE_CHOICE', count: 2, score: 5 },
+  ] }));
 });
 
 test('confirmation requires a complete draft and atomically creates one artifact and one task', async () => {
@@ -114,7 +121,9 @@ test('confirmation requires a complete draft and atomically creates one artifact
   const course = candidates.publicCourses[0]; const point = candidates.publicKnowledgePoints.find(item => item.courseKey === course.courseKey);
   await requirements.patchRequirements(studentA.user_id, conversation.id, {
     artifactType: 'EXAM_PAPER', courseKey: course.courseKey, knowledgePointKeys: [point.knowledgePointKey], title: '幂等试卷',
-    difficulty: 'BASIC', questionCount: 10, includeAnswers: true, includeAnalysis: true, outputFormat: 'DOCX',
+    difficulty: 'BASIC', examType: 'CUSTOM', questionCount: 10,
+    questionTypes: [{ type: 'SINGLE_CHOICE', count: 10, score: 10 }], totalScore: 100, duration: 60,
+    includeAnswers: true, includeAnalysis: true, includeAnswerSheet: false, outputFormats: ['DOCX'],
   });
   const operationId = crypto.randomUUID();
   const previousLimit = process.env.FILE_GENERATION_MAX_ACTIVE_PER_USER;

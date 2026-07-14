@@ -7,7 +7,7 @@ import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, roleLabel } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 
-const API_ORIGIN = 'http://localhost:3000'
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/api\/?$/, '')
 const AVATAR_SOURCE_MAX_SIZE = 8 * 1024 * 1024
 const AVATAR_OUTPUT_SIZE = 512
 
@@ -53,15 +53,10 @@ function buildContent(user) {
           <input type="file" id="profile-avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
         </div>
         <div class="profile-hero-main">
-          <span class="profile-eyebrow">Student Profile</span>
+          <span class="profile-eyebrow">个人主页</span>
           <h1>${escapeHtml(profile.real_name || user.username)}</h1>
           <p>${escapeHtml(profile.college || '学院未填写')} · ${escapeHtml(profile.major || '专业未填写')} · ${escapeHtml(profile.grade || '年级未填写')}</p>
-          <div class="profile-hero-meta">
-            ${buildInfoPill('用户名', user.username)}
-            ${buildInfoPill('身份', roleLabel(user.role))}
-            ${buildInfoPill('学号', profile.student_no)}
-            ${buildInfoPill('班级', className)}
-          </div>
+          <div class="profile-hero-meta"><span class="profile-status-chip">${escapeHtml(roleLabel(user.role))} · ${String(user.status).toUpperCase() === 'ACTIVE' ? '账号正常' : escapeHtml(user.status)}</span><span>学号 ${escapeHtml(profile.student_no || '-')}</span><span>${escapeHtml(className)}</span></div>
         </div>
       </div>
 
@@ -129,7 +124,7 @@ function buildContent(user) {
               </div>
             </div>
             <div class="profile-account-list">
-              ${buildInfoPill('账号状态', user.status === 'active' ? '正常' : user.status)}
+              ${buildInfoPill('账号状态', String(user.status).toUpperCase() === 'ACTIVE' ? '正常' : user.status)}
               ${buildInfoPill('最近登录', formatDate(user.last_login_at))}
               ${buildInfoPill('创建时间', formatDate(user.created_at))}
               ${buildInfoPill('资料更新', formatDate(profile.updated_at))}

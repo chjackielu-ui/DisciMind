@@ -28,6 +28,7 @@ function isLoopbackHost(host) {
 function withAuthenticationOptions(config) {
   return {
     ...config,
+    charset: 'utf8mb4',
     // MySQL 8 caching_sha2_password needs the server public key when TLS is not
     // configured. Keep this automatic convenience local-only; remote databases
     // must explicitly opt in (or, preferably, configure TLS/a pinned RSA key).

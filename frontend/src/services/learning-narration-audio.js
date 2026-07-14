@@ -9,6 +9,14 @@ export function int16PcmToFloat32(input) {
   return samples;
 }
 
+function withAudioTimeout(promise, timeoutMs, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = window.setTimeout(() => reject(new Error(message)), timeoutMs); }),
+  ]).finally(() => window.clearTimeout(timer));
+}
+
 export class LearningNarrationAudio {
   constructor({ sampleRate = 24000 } = {}) {
     this.sampleRate = sampleRate;
@@ -28,14 +36,16 @@ export class LearningNarrationAudio {
       this.context = new AudioContext({ sampleRate: this.sampleRate, latencyHint: 'interactive' });
       if (this.context.audioWorklet) {
         try {
-          await this.context.audioWorklet.addModule('/learning-narration-worklet.js');
+          await withAudioTimeout(this.context.audioWorklet.addModule('/learning-narration-worklet.js'), 2500, '语音播放器初始化超时');
           this.worklet = new AudioWorkletNode(this.context, 'learning-narration-pcm', { outputChannelCount: [1] });
           this.worklet.connect(this.context.destination);
           this.worklet.port.postMessage({ type: 'rate', value: this.playbackRate });
         } catch { this.worklet = null; }
       }
     }
-    if (this.context.state === 'suspended') await this.context.resume();
+    if (this.context.state === 'suspended') {
+      await withAudioTimeout(this.context.resume(), 2500, '浏览器未允许启动音频，请再次点击播放');
+    }
   }
 
   pushPcm(buffer, remember = true) {
@@ -86,6 +96,12 @@ export class LearningNarrationAudio {
         this.pushPcm(pcm, false);
       }
     }
+  }
+
+  async playBuffers(buffers = []) {
+    await this.unlock();
+    this.stop({ clearHistory: false });
+    for (const buffer of buffers) this.pushPcm(buffer.slice ? buffer.slice(0) : buffer, false);
   }
 
   setPlaybackRate(rate) {

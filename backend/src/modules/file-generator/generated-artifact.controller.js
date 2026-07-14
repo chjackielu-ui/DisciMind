@@ -30,6 +30,11 @@ const exportDocument = wrap(async (req, res) => {
   return success(res, await service.requestExport(req.user, req.params.id, input.operationId, input.formats), '导出任务已创建');
 });
 const remove = wrap(async (req, res) => success(res, await service.deleteArtifact(req.user, req.params.id), '文件已删除'));
+const rename = wrap(async (req, res) => success(res, await service.renameArtifact(req.user, req.params.id, req.body?.title), '产物已重命名'));
+const bulkRemove = wrap(async (req, res) => {
+  const input = schemas.parse(schemas.bulkDeleteSchema, req.body || {});
+  return success(res, await service.bulkDeleteArtifacts(req.user, input.artifactIds), '产物已批量删除');
+});
 
 const download = wrap(async (req, res) => {
   const file = await service.getDownload(req.user, req.params.id);
@@ -43,4 +48,4 @@ const download = wrap(async (req, res) => {
 });
 const downloadExport = wrap(async(req,res)=>{const file=await service.getExportDownload(req.user,req.params.id,req.params.format);const name=safeDownloadName(file.fileName);res.setHeader('Content-Type',file.mimeType);res.setHeader('Content-Length',String(file.size));res.setHeader('Content-Disposition',`attachment; filename="artifact.${file.extension}"; filename*=UTF-8''${encodeURIComponent(name)}`);return res.sendFile(file.absolutePath)});
 
-module.exports = { list, detail, download, downloadExport, exportDocument, remove, safeDownloadName };
+module.exports = { list, detail, download, downloadExport, exportDocument, remove, rename, bulkRemove, safeDownloadName };

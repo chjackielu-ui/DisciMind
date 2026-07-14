@@ -37,8 +37,10 @@ async function buildOutline(state) {
   return { outline, stage: 'generate_sections' };
 }
 
-async function generateSections(state) {
-  const generated = await generation.generateArtifact(state.artifactId, { taskId: state.taskId, queueDefaultExport: false });
+async function generateSections(state, config = {}) {
+  const generated = await generation.generateArtifact(state.artifactId, {
+    taskId: state.taskId, queueDefaultExport: false, signal: config.signal,
+  });
   return { generated, generatedSections: generated.contentSchemaJson?.sections || [], stage: 'validate_schema' };
 }
 
@@ -68,27 +70,44 @@ async function buildPreview(state) {
 }
 
 async function persistArtifact(state) {
-  await prisma.generatedArtifact.update({ where: { id: Number(state.artifactId) }, data: { errorCode: null } });
+  const artifact = await prisma.generatedArtifact.update({ where: { id: Number(state.artifactId) }, data: { errorCode: null } });
+  const prefill = artifact.requirementsJson?.learningFlowPrefill;
+  if (prefill?.learningPlanId) {
+    await require('../../learning-flow-resource/learning-flow-resource.service').createLink(
+      { user_id: artifact.ownerUserId }, artifact.id,
+      {
+        learningPlanId: prefill.learningPlanId, courseId: prefill.courseId, knowledgePointId: prefill.knowledgePointId,
+        learningGoalId: prefill.learningGoalId, workflowTemplateId: prefill.workflowTemplateId,
+        learningSessionId: prefill.learningSessionId, resourceRole: 'PRE_CLASS_HANDOUT',
+      },
+    );
+  }
   return { stage: 'export_docx' };
 }
 
 async function queueFormat(state, format) {
   if (!state.requestedFormats.includes(format)) return { exportResults: state.exportResults };
-  const artifact = state.generated; const mimeType = format === 'PDF' ? PDF_MIME : WORD_MIME;
-  const record = await prisma.generatedArtifactExport.upsert({
-    where: { artifactId_format: { artifactId: artifact.id, format } },
-    create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format, status: 'QUEUED', mimeType },
-    update: { status: 'QUEUED', errorCode: null, errorMessage: null, deletedAt: null },
-  });
-  const task = await tasks.createTask(artifact.ownerUserId, {
-    operationId: `artifact-auto-export-${artifact.id}-${format.toLowerCase()}`,
-    taskType: 'DOCUMENT_EXPORT', title: `导出 ${artifact.title}（${format}）`, description: `从同一份结构化内容生成 ${format}`,
-    status: 'QUEUED', stage: `等待导出 ${format}`, progressMode: 'DETERMINATE', progress: 0,
-    relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: artifact.id,
-    resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=${format}`,
-    cancellable: false, metadataJson: { artifactId: artifact.id, format },
-  });
-  return { exportResults: [...state.exportResults, { format, exportId: record.id, taskId: task.id, status: record.status }] };
+  const root = state.generated; const mimeType = format === 'PDF' ? PDF_MIME : WORD_MIME;
+  const variants = await prisma.generatedArtifact.findMany({ where: { parentArtifactId: root.id, deletedAt: null }, orderBy: { id: 'asc' } });
+  const results = [...state.exportResults];
+  for (const artifact of [root, ...variants]) {
+    const record = await prisma.generatedArtifactExport.upsert({
+      where: { artifactId_format: { artifactId: artifact.id, format } },
+      create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format, status: 'QUEUED', mimeType },
+      update: { status: 'QUEUED', errorCode: null, errorMessage: null, deletedAt: null },
+    });
+    const task = await tasks.createTask(artifact.ownerUserId, {
+      operationId: `artifact-auto-export-${artifact.id}-${format.toLowerCase()}`,
+      taskType: 'DOCUMENT_EXPORT', title: `导出 ${artifact.title}（${format}）`, description: `从同一份结构化内容生成 ${format}`,
+      status: 'QUEUED', stage: `等待导出 ${format}`, progressMode: 'DETERMINATE', progress: 0,
+      relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: artifact.id,
+      resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=${format}`,
+      cancellable: true, metadataJson: { artifactId: artifact.id, format },
+      requestPayload: artifact.requirementsJson, agentId: artifact.agentId, conversationId: artifact.conversationId,
+    });
+    results.push({ artifactId: artifact.id, artifactRole: artifact.artifactRole, format, exportId: record.id, taskId: task.id, status: record.status });
+  }
+  return { exportResults: results };
 }
 
 async function exportDocx(state) { return { ...(await queueFormat(state, 'DOCX')), stage: 'export_pdf' }; }

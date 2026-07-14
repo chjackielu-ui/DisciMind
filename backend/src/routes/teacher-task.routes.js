@@ -10,6 +10,7 @@ const router = Router();
 
 router.get('/tasks', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listTasks);
 router.post('/tasks', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.createTask);
+router.post('/tasks/preview-composition', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.previewTaskComposition);
 router.get('/tasks/:task_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.getTask);
 router.put('/tasks/:task_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.updateTask);
 router.delete('/tasks/:task_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.deleteTask);

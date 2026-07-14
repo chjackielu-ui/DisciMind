@@ -1,7 +1,7 @@
 const { z } = require('zod');
 
 const questionSchema = z.object({
-  id: z.string().trim().min(1).max(40), type: z.enum(['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'TRUE_FALSE', 'FILL_BLANK', 'SHORT_ANSWER']),
+  id: z.string().trim().min(1).max(40), type: z.enum(['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'TRUE_FALSE', 'FILL_BLANK', 'SHORT_ANSWER', 'CALCULATION', 'PROGRAMMING']),
   stem: z.string().trim().min(1).max(3000), options: z.array(z.string().trim().min(1).max(1000)).max(10).default([]),
   answer: z.union([z.string(), z.array(z.string())]), analysis: z.string().trim().min(1).max(5000), score: z.number().nonnegative().max(1000),
   knowledgePoint: z.string().trim().min(1).max(100), difficulty: z.enum(['BASIC', 'INTERMEDIATE', 'ADVANCED']),
@@ -19,8 +19,9 @@ const handoutSectionSchema = z.object({ id: z.string().min(1), title: z.string()
 const studyHandoutSchema = z.object({
   title: z.string().trim().min(1).max(200), course: z.string().trim().min(1).max(100), knowledgePoints: z.array(z.string().trim().min(1)).min(1).max(20),
   learningObjectives: z.array(z.string().trim().min(1)).min(1), prerequisites: z.array(z.string().trim().min(1)).min(1), sections: z.array(handoutSectionSchema).min(1),
-  examples: z.array(z.object({ title: z.string().min(1), content: z.string().min(1) })).min(1), keyPoints: z.array(z.string().min(1)).min(1),
-  commonMistakes: z.array(z.string().min(1)).min(1), practice: z.array(z.object({ question: z.string().min(1), answer: z.string().min(1), analysis: z.string().min(1) })).min(1),
+  examples: z.array(z.object({ title: z.string().min(1), content: z.string().min(1) })).default([]), keyPoints: z.array(z.string().min(1)).min(1),
+  commonMistakes: z.array(z.string().min(1)).min(1), practice: z.array(z.object({ question: z.string().min(1), answer: z.string().min(1), analysis: z.string().min(1) })).default([]),
+  principles: z.array(z.string().min(1)).min(1), references: z.array(z.string().min(1)).min(1),
   summary: z.array(z.string().min(1)).min(1), sourceNotice: z.string().max(1000).optional(),
 }).strict();
 

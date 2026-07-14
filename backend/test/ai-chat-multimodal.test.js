@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 const {
   normalizeImageInputs,
@@ -20,6 +22,14 @@ test('AI chat accepts a validated pasted image without storing the data URL as m
   assert.equal(image.name, '题目截图.png');
   assert.ok(Buffer.isBuffer(image.buffer));
   assert.ok(!Object.keys(image).includes('dataUrl'));
+});
+
+test('floating assistant accepts pasted image files and drags from the main icon', async () => {
+  const source = await fs.readFile(path.resolve(__dirname, '../../frontend/src/utils/dashboard.js'), 'utf8');
+  assert.match(source, /input\.addEventListener\('paste'/);
+  assert.match(source, /clipboardData\?\.items/);
+  assert.match(source, /event\.target\.closest\('\.ai-float-main'\)/);
+  assert.doesNotMatch(source, /if \(!event\.target\.closest\('\.ai-float-grip'\)\) return/);
 });
 
 test('AI chat rejects unsupported image types and excessive image counts', () => {

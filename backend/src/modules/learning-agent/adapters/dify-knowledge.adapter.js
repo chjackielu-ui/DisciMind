@@ -319,6 +319,30 @@ async function getDataset(datasetId) {
   }
 }
 
+async function listDatasetDocuments(datasetId) {
+  if (!datasetId) throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', 'datasetId 不能为空', 400);
+  const client = getClient();
+  const documents = [];
+  let page = 1;
+  do {
+    const response = await withLimitedRetry(() => client.get(
+      `/datasets/${encodeURIComponent(datasetId)}/documents`,
+      { timeout: DEFAULTS.generalTimeout, params: { page, limit: 100 } },
+    ), '(listDatasetDocuments)');
+    const items = Array.isArray(response.data?.data) ? response.data.data : [];
+    documents.push(...items.map((item) => ({
+      id: item.id,
+      name: item.name || '未命名文档',
+      status: item.indexing_status || item.status || 'unknown',
+      wordCount: Number(item.word_count || 0),
+      createdAt: item.created_at || null,
+    })));
+    if (!response.data?.has_more || !items.length) break;
+    page += 1;
+  } while (page <= 20);
+  return documents;
+}
+
 async function withLimitedRetry(operation, context, retries = 1) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -760,6 +784,7 @@ module.exports = {
   // 核心 API
   listDatasets,
   getDataset,
+  listDatasetDocuments,
   createDataset,
   uploadDocumentFile,
   getDocumentIndexingStatus,

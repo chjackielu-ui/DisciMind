@@ -17,12 +17,22 @@ router.delete('/courses/:course_id', authMiddleware, roleMiddleware(['teacher', 
 
 // ---- 教学班级 ----
 router.get('/classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listAllTeachingClasses);
+router.get('/semesters', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listSemesters);
+router.post('/semesters', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.createSemester);
+router.get('/administrative-classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listAdministrativeClasses);
+router.get('/administrative-classes/:class_id/students', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listAdministrativeClassStudents);
+router.get('/courses/:course_id/offerings', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listCourseOfferings);
+router.post('/courses/:course_id/offerings', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.createCourseOffering);
 router.get('/courses/:course_id/teaching-classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listTeachingClasses);
 router.post('/courses/:course_id/teaching-classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.createTeachingClass);
 router.put('/teaching-classes/:class_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.updateTeachingClass);
 router.delete('/teaching-classes/:class_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.deleteTeachingClass);
 router.get('/teaching-classes/:class_id/students', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.listClassStudents);
 router.post('/teaching-classes/:class_id/students', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.addClassStudents);
+router.post('/teaching-classes/:class_id/import-administrative-classes', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.importAdministrativeClasses);
+router.post('/teaching-classes/:class_id/import-roster', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.importClassRosterRows);
+router.post('/teaching-classes/:class_id/students/batch-remove', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.batchRemoveClassStudents);
+router.get('/teaching-classes/:class_id/roster.csv', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.exportClassRoster);
 router.delete('/teaching-classes/:class_id/students/:student_user_id', authMiddleware, roleMiddleware(['teacher', 'admin']), controller.removeClassStudent);
 
 // ---- 章节 ----

@@ -10,11 +10,34 @@ import {
   getTeacherStudents, createTeacherStudent, updateTeacherStudent, deleteTeacherStudent,
   getTeachingClasses, getAllTeachingClasses, createTeachingClass, updateTeachingClass, deleteTeachingClass,
   getClassStudents, addClassStudents, removeClassStudent,
-  batchImportStudents,
+  batchImportStudents, getAdministrativeClasses, getAdministrativeClassStudents, importAdministrativeClasses,
 } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
+
+const WEEKDAY_LABELS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+
+function formatTeachingSchedule(schedule) {
+  if (!schedule) return '未设置上课时间'
+  if (typeof schedule === 'string') {
+    const value = schedule.trim()
+    if (!value) return '未设置上课时间'
+    if (value.startsWith('{') || value.startsWith('[')) {
+      try { return formatTeachingSchedule(JSON.parse(value)) } catch { return value }
+    }
+    return value
+  }
+  if (Array.isArray(schedule)) return schedule.map(formatTeachingSchedule).filter(Boolean).join(' / ')
+  if (typeof schedule === 'object') {
+    const weekday = WEEKDAY_LABELS[Number(schedule.weekday)] || schedule.weekdayLabel || schedule.day || ''
+    const periods = schedule.periods || schedule.period || schedule.time || ''
+    const room = schedule.location || schedule.room || ''
+    const label = [weekday, periods && `${periods} 节`, room].filter(Boolean).join(' ')
+    return label || '未设置上课时间'
+  }
+  return String(schedule)
+}
 
 export async function renderTeacherSystemManagement(app) {
   let user = getUser()
@@ -41,13 +64,15 @@ export async function renderTeacherSystemManagement(app) {
       <div id="systab-content" style="padding-top:${SYSTAB_HEIGHT + 16}px;min-height:60vh;">
         <!-- Tab1: 班级管理 -->
         <div id="tab-classes" class="systab-pane">
+          <div class="class-domain-switch" role="tablist"><button class="active" data-class-domain="teaching">教学班</button><button data-class-domain="administrative">行政班</button><span>教学班用于授课与任务发布；行政班仅表示学生组织归属。</span></div>
           <div class="card" style="margin-bottom:20px;">
             <div class="filter-bar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
               <input type="text" id="cl-search-keyword" class="toolbar-search" placeholder="搜索班级名称..." style="width:180px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
               <select id="cl-filter-course" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;min-width:160px;"><option value="">全部课程</option></select>
+              <select id="cl-filter-status" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;"><option value="">全部状态</option><option value="active">使用中</option><option value="archived">已归档</option></select>
               <button class="btn btn-primary" id="cl-btn-search" style="padding:6px 14px;font-size:0.85rem;">${iconSearch()} 搜索</button>
               <button class="btn" id="cl-btn-refresh" style="border:1px solid var(--border);padding:6px 10px;">${iconRefresh()}</button>
-              <button class="btn btn-primary" id="cl-btn-create" style="margin-left:auto;padding:6px 14px;font-size:0.85rem;">＋ 新建班级</button>
+              <button class="btn btn-primary" id="cl-btn-create" style="margin-left:auto;padding:6px 14px;font-size:0.85rem;">新建教学班</button>
             </div>
           </div>
           <div id="cl-list-container"><div class="empty-hint">加载中...</div></div>
@@ -111,6 +136,12 @@ export async function renderTeacherSystemManagement(app) {
             <label>学期</label>
             <input type="text" id="cl-form-semester" placeholder="例如：2024-2025学年第一学期" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
           </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+            <div class="form-group"><label>教学班编码</label><input type="text" id="cl-form-code" placeholder="例如：ML-2026-01" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"></div>
+            <div class="form-group"><label>容量</label><input type="number" id="cl-form-capacity" min="1" placeholder="例如：60" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"></div>
+            <div class="form-group"><label>上课时间</label><input type="text" id="cl-form-schedule" placeholder="周二 1-2 节" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"></div>
+            <div class="form-group"><label>上课地点</label><input type="text" id="cl-form-location" placeholder="博学楼 A201" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"></div>
+          </div>
           <div class="form-group" style="margin-bottom:14px;">
             <label>班级描述</label>
             <textarea id="cl-form-desc" class="auto-resize-ta" rows="2" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;"></textarea>
@@ -145,7 +176,6 @@ export async function renderTeacherSystemManagement(app) {
     </div>
     <div id="cl-delete-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
       <div style="background:#fff;border-radius:16px;padding:28px;width:380px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-        <div style="font-size:3rem;margin-bottom:12px;">⚠️</div>
         <h3 style="font-size:1.1rem;margin-bottom:8px;">确认删除</h3>
         <p id="cl-delete-text" style="color:var(--text-secondary);margin-bottom:20px;"></p>
         <div style="display:flex;gap:10px;justify-content:center;">
@@ -184,7 +214,6 @@ export async function renderTeacherSystemManagement(app) {
     </div>
     <div id="stu-delete-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
       <div style="background:#fff;border-radius:16px;padding:28px;width:380px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-        <div style="font-size:3rem;margin-bottom:12px;">⚠️</div>
         <h3 style="font-size:1.1rem;margin-bottom:8px;">确认删除学生</h3>
         <p id="stu-delete-text" style="color:var(--text-secondary);margin-bottom:20px;"></p>
         <div style="display:flex;gap:10px;justify-content:center;">
@@ -197,6 +226,7 @@ export async function renderTeacherSystemManagement(app) {
       <div style="background:#fff;border-radius:16px;padding:28px;width:560px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
         <h3 style="margin-bottom:12px;font-size:1.2rem;">批量导入学生</h3>
         <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:16px;">下载模板，按模板填写后上传 CSV 文件。</p>
+        <select id="stu-import-class" style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:12px;"><option value="">请选择要加入的教学班</option></select>
         <button class="btn" id="stu-import-dl" style="border:1px solid var(--border);margin-bottom:16px;">下载模板</button>
         <div style="border:2px dashed var(--border);border-radius:12px;padding:30px;text-align:center;background:var(--bg);margin-bottom:16px;" id="stu-dropzone">
           <div style="font-size:2rem;margin-bottom:8px;"></div>
@@ -293,6 +323,7 @@ export async function renderTeacherSystemManagement(app) {
   let detailStudents = []
   let availableStudents = []
   let selectedAddStudentId = null
+  let classDomain = 'teaching'
 
   async function loadCourseSelects() {
     try {
@@ -320,12 +351,25 @@ export async function renderTeacherSystemManagement(app) {
       const params = {}
       const kw = document.getElementById('cl-search-keyword')?.value
       const cid = document.getElementById('cl-filter-course')?.value
+      const status = document.getElementById('cl-filter-status')?.value
       if (kw) params.keyword = kw
       if (cid) params.course_id = cid
-      const res = await getAllTeachingClasses(params)
+      if (status) params.status = status
+      const res = classDomain === 'teaching' ? await getAllTeachingClasses(params) : await getAdministrativeClasses(params)
       classesData = res.data.list || []
       if (!classesData.length) {
-        container.innerHTML = '<div class="empty-hint" style="padding:60px 0;">暂无班级</div>'; return
+        container.innerHTML = `<div class="empty-hint" style="padding:60px 0;">暂无${classDomain === 'teaching' ? '教学班' : '行政班'}</div>`; return
+      }
+      if (classDomain === 'administrative') {
+        container.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">
+          ${classesData.map(item => `<div class="card" style="padding:18px;border-left:4px solid #9a744b;">
+            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;"><h4 style="font-size:1rem;font-weight:600;margin:0;">${escapeHtml(item.name)}</h4><span style="background:var(--bg);padding:2px 10px;border-radius:12px;border:1px solid var(--border);font-size:.8rem;">${item.student_count || 0} 人</span></div>
+            <div style="color:var(--text-secondary);font-size:.85rem;line-height:1.7;"><div>${escapeHtml(item.college || '未设置学院')} · ${escapeHtml(item.major || '未设置专业')}</div><div>${escapeHtml(item.grade || '未设置年级')} · 辅导员 ${escapeHtml(item.advisor_name || '未指定')}</div></div>
+            <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border);margin-top:10px;"><button class="ad-view" data-id="${item.administrative_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;">查看学生</button><button class="ad-import" data-id="${item.administrative_class_id}" style="flex:1;padding:6px;border:1px solid #d7b889;border-radius:6px;background:#fbf1e1;color:#805422;cursor:pointer;">加入教学班</button></div>
+          </div>`).join('')}</div>`
+        container.querySelectorAll('.ad-view').forEach(button => button.addEventListener('click', () => openAdministrativeClassDetail(Number(button.dataset.id))))
+        container.querySelectorAll('.ad-import').forEach(button => button.addEventListener('click', () => openAdministrativeImport(Number(button.dataset.id))))
+        return
       }
       container.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">
         ${classesData.map(tc => `<div class="card" style="padding:18px;border-left:4px solid var(--primary);">
@@ -335,11 +379,12 @@ export async function renderTeacherSystemManagement(app) {
           </div>
           <div style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">
             <div>${escapeHtml(tc.course_name || '未知课程')}</div>
-            <div>${tc.semester || '未设置学期'}</div>
+            <div>${tc.semester_name || tc.semester || '未设置学期'}${tc.code ? ` · ${escapeHtml(tc.code)}` : ''}</div>
+            <div>${escapeHtml(formatTeachingSchedule(tc.schedule))} · ${escapeHtml(tc.location || '未设置地点')}</div>
             ${tc.description ? `<div style="margin-top:4px;color:var(--text-muted);font-size:0.8rem;">${escapeHtml(tc.description.substring(0, 60))}</div>` : ''}
           </div>
           <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border);">
-            <button class="cl-view" data-id="${tc.teaching_class_id}" style="flex:2;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.85rem;">👥 查看学生</button>
+            <button class="cl-view" data-id="${tc.teaching_class_id}" style="flex:2;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.85rem;">查看学生</button>
             <button class="cl-edit" data-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.85rem;">编辑</button>
             <button class="cl-del" data-id="${tc.teaching_class_id}" data-name="${tc.teaching_class_name}" style="flex:1;padding:6px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.85rem;">删除</button>
           </div>
@@ -356,6 +401,10 @@ export async function renderTeacherSystemManagement(app) {
     document.getElementById('cl-form-course').value = cls?.course_id || ''
     document.getElementById('cl-form-name').value = cls?.teaching_class_name || ''
     document.getElementById('cl-form-semester').value = cls?.semester || ''
+    document.getElementById('cl-form-code').value = cls?.code || ''
+    document.getElementById('cl-form-capacity').value = cls?.capacity || ''
+    document.getElementById('cl-form-schedule').value = cls?.schedule ? formatTeachingSchedule(cls.schedule) : ''
+    document.getElementById('cl-form-location').value = cls?.location || ''
     document.getElementById('cl-form-desc').value = cls?.description || ''
     document.getElementById('cl-modal').style.display = 'flex'
   }
@@ -371,8 +420,9 @@ export async function renderTeacherSystemManagement(app) {
     const name = document.getElementById('cl-form-name').value.trim()
     if (!cid || !name) { alert('请选择课程并填写班级名称'); return }
     try {
-      if (editingClassId) await updateTeachingClass(editingClassId, { teaching_class_name: name, semester: document.getElementById('cl-form-semester').value.trim() || undefined, description: document.getElementById('cl-form-desc').value.trim() || undefined })
-      else await createTeachingClass(cid, { teaching_class_name: name, semester: document.getElementById('cl-form-semester').value.trim() || undefined, description: document.getElementById('cl-form-desc').value.trim() || undefined })
+      const classPayload = { teaching_class_name: name, semester: document.getElementById('cl-form-semester').value.trim() || undefined, code: document.getElementById('cl-form-code').value.trim() || undefined, schedule: document.getElementById('cl-form-schedule').value.trim() || undefined, location: document.getElementById('cl-form-location').value.trim() || undefined, capacity: Number(document.getElementById('cl-form-capacity').value) || undefined, description: document.getElementById('cl-form-desc').value.trim() || undefined }
+      if (editingClassId) await updateTeachingClass(editingClassId, classPayload)
+      else await createTeachingClass(cid, classPayload)
       closeClassModal(); loadClasses()
     } catch (err) { alert(err.message) }
   })
@@ -380,6 +430,34 @@ export async function renderTeacherSystemManagement(app) {
   document.getElementById('cl-btn-refresh')?.addEventListener('click', loadClasses)
   document.getElementById('cl-search-keyword')?.addEventListener('keydown', e => { if (e.key === 'Enter') loadClasses() })
   document.getElementById('cl-filter-course')?.addEventListener('change', loadClasses)
+  document.getElementById('cl-filter-status')?.addEventListener('change', loadClasses)
+  document.querySelectorAll('[data-class-domain]').forEach(button => button.addEventListener('click', () => {
+    classDomain = button.dataset.classDomain
+    document.querySelectorAll('[data-class-domain]').forEach(item => item.classList.toggle('active', item === button))
+    document.getElementById('cl-filter-course').style.display = classDomain === 'teaching' ? '' : 'none'
+    document.getElementById('cl-btn-create').style.display = classDomain === 'teaching' ? '' : 'none'
+    loadClasses()
+  }))
+
+  async function openAdministrativeClassDetail(classId) {
+    const item = classesData.find(row => row.administrative_class_id === classId) || {}
+    currentDetailClassId = null
+    document.getElementById('cl-detail-title').textContent = item.name || '行政班详情'
+    document.getElementById('cl-detail-sub').textContent = `${item.college || ''} · ${item.major || ''} · ${item.student_count || 0} 名学生`
+    document.getElementById('cl-detail-import').style.display = 'none'; document.getElementById('cl-detail-add').style.display = 'none'; document.getElementById('cl-detail-add-form').style.display = 'none'; document.getElementById('cl-detail-modal').style.display = 'flex'
+    const container = document.getElementById('cl-detail-list'); container.innerHTML = '<div class="empty-hint">加载中...</div>'
+    try { const response = await getAdministrativeClassStudents(classId); const rows = response.data.list || []; container.innerHTML = rows.length ? `<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:8px;">姓名</th><th style="text-align:left;padding:8px;">学号</th><th style="text-align:left;padding:8px;">专业/年级</th></tr></thead><tbody>${rows.map(student => `<tr><td style="padding:8px;border-top:1px solid var(--border);">${escapeHtml(student.student_name || '-')}</td><td style="padding:8px;border-top:1px solid var(--border);">${escapeHtml(student.student_no || '-')}</td><td style="padding:8px;border-top:1px solid var(--border);">${escapeHtml(student.major || '-')} · ${escapeHtml(student.grade || '-')}</td></tr>`).join('')}</tbody></table>` : '<div class="empty-hint">该行政班暂无学生</div>' } catch (error) { container.innerHTML = `<div class="empty-hint">${escapeHtml(error.message)}</div>` }
+  }
+
+  async function openAdministrativeImport(adminClassId) {
+    try {
+      const response = await getAllTeachingClasses({ status: 'active' }); const classes = response.data.list || []
+      if (!classes.length) return alert('当前没有可用教学班')
+      const layer = document.createElement('div'); layer.className = 'class-import-layer'; layer.innerHTML = `<div><h3>将行政班加入教学班</h3><p>按稳定 ID 建立关系，并把行政班现有学生加入目标教学班。</p><select>${classes.map(item => `<option value="${item.teaching_class_id}">${escapeHtml(item.course_name || '')} / ${escapeHtml(item.teaching_class_name)}</option>`).join('')}</select><footer><button data-cancel>取消</button><button data-confirm>确认导入</button></footer></div>`; document.body.appendChild(layer)
+      layer.querySelector('[data-cancel]').onclick = () => layer.remove()
+      layer.querySelector('[data-confirm]').onclick = async () => { const target = Number(layer.querySelector('select').value); try { const result = await importAdministrativeClasses(target, { admin_class_ids: [adminClassId] }); layer.remove(); alert(`已导入 ${result.data.imported_count || 0} 名学生`) } catch (error) { alert(error.message) } }
+    } catch (error) { alert(error.message) }
+  }
 
   function openClassDelete(id, name) {
     deleteTargetId = id
@@ -395,6 +473,7 @@ export async function renderTeacherSystemManagement(app) {
 
   async function openClassDetail(classId) {
     currentDetailClassId = classId
+    document.getElementById('cl-detail-import').style.display = ''; document.getElementById('cl-detail-add').style.display = ''
     const tc = classesData.find(c => c.teaching_class_id === classId) || {}
     document.getElementById('cl-detail-title').textContent = tc.teaching_class_name || '班级详情'
     document.getElementById('cl-detail-sub').textContent = `${tc.course_name || ''} · ${tc.student_count || 0} 名学生`
@@ -425,11 +504,26 @@ export async function renderTeacherSystemManagement(app) {
     } catch (err) { container.innerHTML = `<div class="empty-hint">加载失败</div>` }
   }
 
-  // 班级详情 → 一键导入学生（切换到学生管理 Tab 并打开导入窗口）
+  function prepareStudentImport(targetClassId = '') {
+    const select = document.getElementById('stu-import-class')
+    getAllTeachingClasses({ status: 'active' }).then(response => {
+      const list = response.data.list || []
+      select.innerHTML = '<option value="">请选择要加入的教学班</option>' + list.map(item => `<option value="${item.teaching_class_id}">${escapeHtml(item.course_name || '')} / ${escapeHtml(item.teaching_class_name)}</option>`).join('')
+      if (targetClassId) select.value = String(targetClassId)
+    }).catch(error => { select.innerHTML = `<option value="">${escapeHtml(error.message)}</option>` })
+    document.getElementById('stu-import-modal').style.display = 'flex'
+    document.getElementById('stu-file-input').value = ''
+    document.getElementById('stu-file-info').style.display = 'none'
+    document.getElementById('stu-import-preview').style.display = 'none'
+    document.getElementById('stu-import-result').style.display = 'none'
+    document.getElementById('stu-import-submit').disabled = true
+    document.getElementById('stu-import-submit').style.opacity = '0.6'
+  }
+
+  // 班级详情 → 导入学生，显式携带目标教学班稳定 ID
   document.getElementById('cl-detail-import')?.addEventListener('click', () => {
     document.getElementById('cl-detail-modal').style.display = 'none'
-    activateTab('students')
-    setTimeout(() => document.getElementById('stu-import-modal').style.display = 'flex', 300)
+    prepareStudentImport(currentDetailClassId)
   })
 
   document.getElementById('cl-detail-add')?.addEventListener('click', () => {
@@ -492,24 +586,30 @@ export async function renderTeacherSystemManagement(app) {
       stuPage = data.page || stuPage
       stuTotalPages = data.total_pages || Math.ceil((data.total || 0) / stuPageSize) || 1
       if (!studentsData.length) { container.innerHTML = '<div class="empty-hint" style="padding:60px 0;">暂无学生</div>'; updateStuPage(); return }
-      container.innerHTML = `<div class="card" style="overflow:hidden;padding:0;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      container.innerHTML = `<div class="card" style="overflow:auto;padding:0;">
+        <table style="width:100%;min-width:1120px;border-collapse:collapse;font-size:0.85rem;">
           <thead><tr style="background:#f8f9fa;border-bottom:2px solid var(--border);">
-            <th style="padding:12px 16px;text-align:left;">姓名</th><th style="padding:12px 16px;text-align:left;">学号</th><th style="padding:12px 16px;text-align:left;">班级</th><th style="padding:12px 16px;text-align:left;">学院/专业</th><th style="padding:12px 16px;text-align:center;">操作</th>
+            <th style="padding:12px 16px;text-align:left;">姓名</th><th style="padding:12px 16px;text-align:left;">学号</th><th style="padding:12px 16px;text-align:left;">教学班</th><th style="padding:12px 16px;text-align:left;">学院/专业</th><th style="padding:12px 10px;text-align:center;">掌握度</th><th style="padding:12px 10px;text-align:center;">作业完成</th><th style="padding:12px 10px;text-align:center;">活跃度</th><th style="padding:12px 10px;text-align:center;">干预</th><th style="padding:12px 16px;text-align:center;">操作</th>
           </tr></thead><tbody>
           ${studentsData.map(s => {
             const name = s.student_name || s.real_name || s.username || '(未命名)'
-            const classes = (s.courses || []).map(c => c.class_name).filter(Boolean)
+            const classes = [...new Set((s.courses || []).map(c => c.class_name).filter(Boolean))]
+            const metrics = s.metrics || {}
             return `<tr style="border-bottom:1px solid var(--border);">
               <td style="padding:12px 16px;font-weight:500;"><div style="display:flex;align-items:center;gap:10px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:600;">${name[0]}</div>${escapeHtml(name)}</div></td>
               <td style="padding:12px 16px;color:var(--text-secondary);">${s.student_no || '-'}</td>
               <td style="padding:12px 16px;color:var(--text-secondary);">${classes.join('、') || '-'}</td>
               <td style="padding:12px 16px;color:var(--text-secondary);font-size:0.82rem;">${s.college || ''}${s.major ? ' · ' + s.major : ''}</td>
-              <td style="padding:12px 16px;text-align:center;"><button class="stu-edit" data-uid="${s.student_user_id ?? s.user_id}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.8rem;">编辑</button>
+              <td style="padding:12px 10px;text-align:center;">${metrics.mastery_score ?? 0}%</td>
+              <td style="padding:12px 10px;text-align:center;">${metrics.homework_completion_rate ?? 0}%</td>
+              <td style="padding:12px 10px;text-align:center;">${metrics.activity_count ?? 0}</td>
+              <td style="padding:12px 10px;text-align:center;color:${metrics.open_intervention_count ? '#b45309' : 'var(--text-secondary)'};">${metrics.open_intervention_count ? '需关注' : '正常'}</td>
+              <td style="padding:12px 16px;text-align:center;white-space:nowrap;"><button class="stu-view" data-uid="${s.student_user_id ?? s.user_id}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.8rem;">详情</button><button class="stu-edit" data-uid="${s.student_user_id ?? s.user_id}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.8rem;margin-left:4px;">编辑</button>
               <button class="stu-del" data-uid="${s.student_user_id ?? s.user_id}" data-name="${name}" style="padding:4px 10px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;margin-left:4px;">删除</button></td>
             </tr>`
           }).join('')}</tbody></table></div>`
       container.querySelectorAll('.stu-edit').forEach(b => { const uid = parseInt(b.dataset.uid); const s = studentsData.find(x => (x.student_user_id ?? x.user_id) === uid); b.addEventListener('click', () => openStuModal(s)) })
+      container.querySelectorAll('.stu-view').forEach(b => b.addEventListener('click', () => { window.location.hash = `#/teacher/students/${b.dataset.uid}` }))
       container.querySelectorAll('.stu-del').forEach(b => { const uid = parseInt(b.dataset.uid); const name = b.dataset.name; b.addEventListener('click', () => openStuDelete(uid, name)) })
       updateStuPage()
     } catch (err) { container.innerHTML = `<div class="error-state"><div class="error-message">${err.message}</div></div>` }
@@ -598,13 +698,7 @@ export async function renderTeacherSystemManagement(app) {
 
   // 批量导入
   document.getElementById('stu-btn-import')?.addEventListener('click', () => {
-    document.getElementById('stu-import-modal').style.display = 'flex'
-    document.getElementById('stu-file-input').value = ''
-    document.getElementById('stu-file-info').style.display = 'none'
-    document.getElementById('stu-import-preview').style.display = 'none'
-    document.getElementById('stu-import-result').style.display = 'none'
-    document.getElementById('stu-import-submit').disabled = true
-    document.getElementById('stu-import-submit').style.opacity = '0.6'
+    prepareStudentImport()
   })
   document.getElementById('stu-import-cancel')?.addEventListener('click', () => document.getElementById('stu-import-modal').style.display = 'none')
 
@@ -657,19 +751,21 @@ export async function renderTeacherSystemManagement(app) {
 
   document.getElementById('stu-import-submit')?.addEventListener('click', async () => {
     if (!stuImportData.length) return
+    const teachingClassId = Number(document.getElementById('stu-import-class').value)
+    if (!teachingClassId) { alert('请选择目标教学班'); return }
     const btn = document.getElementById('stu-import-submit')
     btn.disabled = true; btn.textContent = '导入中...'
     try {
-      const res = await batchImportStudents({ students: stuImportData })
+      const res = await batchImportStudents({ teaching_class_id: teachingClassId, students: stuImportData })
       const result = res.data || res
       const html = result.fail_count === 0
-        ? `<div style="color:#065f46;background:#d1fae5;padding:12px;border-radius:8px;font-weight:500;">✅ 成功 ${result.success_count} 条${result.fail_count > 0 ? `，失败 ${result.fail_count} 条` : ''}</div>`
-        : `<div style="color:#92400e;background:#fef3c7;padding:12px;border-radius:8px;margin-bottom:8px;">⚠️ 成功 ${result.success_count} 条，失败 ${result.fail_count} 条</div>`
+        ? `<div style="color:#065f46;background:#d1fae5;padding:12px;border-radius:8px;font-weight:500;">成功 ${result.success_count} 条${result.fail_count > 0 ? `，失败 ${result.fail_count} 条` : ''}</div>`
+        : `<div style="color:#92400e;background:#fef3c7;padding:12px;border-radius:8px;margin-bottom:8px;">成功 ${result.success_count} 条，失败 ${result.fail_count} 条</div>`
         + `<div style="max-height:180px;overflow-y:auto;font-size:0.82rem;">${(result.results || []).filter(r => !r.success).map(r => `<div style="color:#dc2626;padding:4px 0;">第${r.row}行: ${r.reason}</div>`).join('')}</div>`
       document.getElementById('stu-import-result').innerHTML = html
       document.getElementById('stu-import-result').style.display = 'block'
-      if (result.success_count > 0) setTimeout(() => { document.getElementById('stu-import-modal').style.display = 'none'; loadStudents() }, 1500)
-    } catch (err) { document.getElementById('stu-import-result').innerHTML = `<div style="color:#dc2626;">❌ ${err.message}</div>`; document.getElementById('stu-import-result').style.display = 'block' }
+      if (result.success_count > 0) { loadStudents(); loadClasses() }
+    } catch (err) { document.getElementById('stu-import-result').innerHTML = `<div style="color:#dc2626;">${escapeHtml(err.message)}</div>`; document.getElementById('stu-import-result').style.display = 'block' }
     finally { btn.disabled = false; btn.textContent = `导入（${stuImportData.length} 条）` }
   })
 

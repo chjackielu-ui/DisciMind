@@ -25,7 +25,7 @@ function formatUser(user) {
     last_login_at: user.last_login_at,
     created_at: user.created_at,
     // 行政班级信息
-    admin_class_id: user.profile?.admin_class?.class_id || null,
+    admin_class_id: user.profile?.admin_class?.admin_class_id || null,
     admin_class_name: user.profile?.admin_class?.class_name || null,
   };
 }
@@ -107,7 +107,7 @@ async function getUserList(query = {}) {
 
   const include = {
     profile: {
-      include: { admin_class: { select: { class_id: true, class_name: true } } },
+      include: { admin_class: { select: { admin_class_id: true, class_name: true } } },
     },
   };
 
@@ -230,7 +230,7 @@ async function updateUser(userId, data) {
   if (data.student_no !== undefined) profileData.student_no = data.student_no || null;
   if (data.teacher_no !== undefined) profileData.teacher_no = data.teacher_no || null;
   if (data.grade !== undefined) profileData.grade = data.grade || null;
-  if (data.admin_class_id !== undefined) profileData.class_id = data.admin_class_id || null;
+  if (data.admin_class_id !== undefined) profileData.admin_class_id = data.admin_class_id || null;
 
   if (Object.keys(profileData).length > 0) {
     if (user.profile) {

@@ -1,313 +1,92 @@
-﻿// 教师端 - 学情分析页
-
+import * as echarts from 'echarts'
 import { getMe } from '../api/auth.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
+import { getTeacherCourses, getTeachingClasses, getChapters, getKnowledgePoints, getAnalyticsWorkbench } from '../api/teacher.js'
+import { getUser, getToken, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
-import { getTeacherCourses, getTeacherDashboard, getAnalyticsProgress, getAnalyticsKnowledgeHeatmap, getAnalyticsScoreDistribution, getAnalyticsQuestionFrequency, getAnalyticsWeakKnowledgePoints } from '../api/teacher.js'
+import { escapeHtml } from '../utils/format.js'
+import { showToast } from '../utils/toast.js'
+import { normalizeWeakKnowledgePoints, normalizeKeywords, percent } from '../utils/analytics-contract.js'
 
-export async function renderTeacherAnalytics(app) {
-  let user = getUser()
+const state = { courses: [], classes: [], chapters: [], knowledgePoints: [], data: null, charts: [], keywordChart: null, keywordMode: 'cloud', keywordFilter: '', expandedChartId: null, lifecycle: null }
+function dispose() { state.charts.splice(0).forEach(item => { try { item.dispose() } catch {} });state.keywordChart=null }
 
-  try {
-    const result = await getMe()
-    user = result.data.user
-    setAuth(getUser() ? getToken() : '', user)
-  } catch {
-    if (!user) {
-      clearAuth()
-      window.location.hash = '#/login'
-      return
-    }
-  }
-
-  const displayName = getUserDisplayName()
-
-  const contentHTML = `
-    <div class="dashboard-content">
-      <div class="page-header">
-        <h2 class="page-title">学情分析</h2>
-        <p class="page-subtitle">查看课程整体学习数据与学生表现统计</p>
-      </div>
-
-      <!-- 概览卡片 + 课程选择（左右两栏） -->
-      <div style="display:flex;gap:20px;margin-bottom:20px;align-items:stretch;">
-        <!-- 左侧：统计卡片 -->
-        <div style="flex:0 0 68%;">
-          <div class="stats-grid" id="overview-stats">
-            <div class="stat-card"><div class="stat-value" id="stat-students">-</div><div class="stat-label">学生总数</div></div>
-            <div class="stat-card"><div class="stat-value" id="stat-mastery">-</div><div class="stat-label">平均掌握度</div></div>
-            <div class="stat-card"><div class="stat-value" id="stat-score">-</div><div class="stat-label">平均成绩</div></div>
-            <div class="stat-card"><div class="stat-value" id="stat-questions">-</div><div class="stat-label">AI 提问数</div></div>
-            <div class="stat-card"><div class="stat-value" id="stat-weak">-</div><div class="stat-label">薄弱知识点</div></div>
-            <div class="stat-card"><div class="stat-value" id="stat-pending">-</div><div class="stat-label">待审文档</div></div>
-          </div>
-        </div>
-        <!-- 右侧：课程选择 + 摘要信息 -->
-        <div style="flex:1;min-width:240px;">
-          <div class="card" style="padding:16px 20px;height:100%;display:flex;flex-direction:column;justify-content:center;gap:12px;">
-            <label for="course-select" style="font-weight:600;font-size:0.85rem;color:var(--text);">选择课程</label>
-            <select id="course-select" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
-              <option value="">全部课程</option>
-            </select>
-            <span id="course-hint" style="font-size:0.78rem;color:var(--text-muted);line-height:1.5;">切换课程后将自动刷新分析数据</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 成绩分布 -->
-      <div class="card" style="margin-bottom:20px;">
-        <h3 class="card-title">成绩分布</h3>
-        <div id="score-distribution-container">
-          <div class="empty-hint">加载中...</div>
-        </div>
-      </div>
-
-      <!-- 关键词词云 -->
-      <div class="card" style="margin-bottom:20px;">
-        <h3 class="card-title">学科对话关键词词云</h3>
-        <p style="font-size:0.8rem;color:var(--text-muted);margin:-8px 0 12px;">基于学生学科对话提取的知识点关键词，词越大表示字数越多/概念越复杂；含停用词过滤与同义归并</p>
-        <div id="word-cloud-container" style="min-height:120px;padding:8px 0;">
-          <div class="empty-hint">加载中...</div>
-        </div>
-      </div>
-
-      <!-- 薄弱知识点、高频提问、混淆标签三栏 -->
-      <div class="content-columns-3" style="margin-bottom:20px;">
-        <div class="card">
-          <h3 class="card-title">薄弱知识点排行</h3>
-          <div id="weak-kp-container">
-            <div class="empty-hint">加载中...</div>
-          </div>
-        </div>
-        <div class="card">
-          <h3 class="card-title">高频提问统计</h3>
-          <div id="question-frequency-container">
-            <div class="empty-hint">加载中...</div>
-          </div>
-        </div>
-        <div class="card">
-          <h3 class="card-title">常见混淆点</h3>
-          <div id="confusion-tags-container" style="min-height:60px;">
-            <div class="empty-hint">加载中...</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `
-
-  renderDashboardLayout(app, {
-    title: '学情分析',
-    menuItems: TEACHER_MENU_ITEMS,
-    contentHTML,
-    user,
-  })
-
-  // ---- 课程选择状态 ----
-  let selectedCourseId = null
-  let courseList = []
-  let isLoadingData = false
-
-  // 加载课程列表
-  async function loadCourses() {
-    const select = document.getElementById('course-select')
-    if (!select) return
-    try {
-      const res = await getTeacherCourses()
-      courseList = res.data?.list || []
-      select.innerHTML = '<option value="">全部课程</option>' +
-        courseList.map(c => `<option value="${c.course_id}">${c.course_name}</option>`).join('')
-    } catch (err) {
-      console.error('加载课程列表失败', err)
-    }
-  }
-
-  // 课程切换事件
-  document.addEventListener('change', (e) => {
-    if (e.target && e.target.id === 'course-select') {
-      selectedCourseId = e.target.value ? parseInt(e.target.value) : null
-      // 更新标题显示
-      const titleEl = document.querySelector('.page-title')
-      if (titleEl) {
-        const courseName = e.target.options[e.target.selectedIndex]?.text || ''
-        titleEl.textContent = courseName
-          ? `学情分析 — ${courseName}`
-          : '学情分析'
-      }
-      loadAll()
-    }
-  })
-
-  // 获取当前课程参数（供各 API 调用使用）
-  function getCourseParams() {
-    return selectedCourseId ? { course_id: selectedCourseId } : {}
-  }
-
-  // 加载概览数据
-  async function loadAll() {
-    if (isLoadingData) return
-    isLoadingData = true
-    try {
-      const dashboardRes = await getTeacherDashboard(getCourseParams())
-      const dashboard = dashboardRes.data || {}
-
-      document.getElementById('stat-students').textContent = dashboard.student_count ?? '-'
-      document.getElementById('stat-mastery').textContent = dashboard.average_mastery_score != null ? `${dashboard.average_mastery_score}%` : '-'
-      document.getElementById('stat-score').textContent = dashboard.average_test_score != null ? `${dashboard.average_test_score}%` : '-'
-      document.getElementById('stat-questions').textContent = dashboard.ai_question_count ?? '-'
-      document.getElementById('stat-weak').textContent = dashboard.weak_knowledge_point_count ?? '-'
-      document.getElementById('stat-pending').textContent = dashboard.pending_review_document_count ?? '-'
-    } catch (err) {
-      console.error('加载概览失败', err)
-    }
-
-    // 成绩分布
-    try {
-      const scoreRes = await getAnalyticsScoreDistribution(getCourseParams())
-      const dist = scoreRes.data?.distribution || {}
-      const total = scoreRes.data?.total_sessions || 0
-      const avg = scoreRes.data?.average_score_rate || 0
-
-      const container = document.getElementById('score-distribution-container')
-      const items = [
-        { key: 'excellent', label: '优秀 (90-100)', color: '#10b981', data: dist.excellent || {} },
-        { key: 'good', label: '良好 (75-89)', color: '#3b82f6', data: dist.good || {} },
-        { key: 'general', label: '一般 (60-74)', color: '#f59e0b', data: dist.general || {} },
-        { key: 'weak', label: '薄弱 (0-59)', color: '#ef4444', data: dist.weak || {} },
-      ]
-
-      container.innerHTML = `
-        <div style="margin-bottom:12px;font-size:0.9rem;color:var(--text-secondary);">
-          共 ${total} 次提交 · 平均得分率 ${avg}%
-        </div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-          ${items.map(item => `
-            <div style="flex:1;min-width:120px;padding:14px;background:rgba(255,255,255,0.6);border-radius:12px;border:1px solid var(--border);text-align:center;">
-              <div style="font-size:1.4rem;font-weight:700;color:${item.color};">${item.data.count || 0}</div>
-              <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">${item.label}</div>
-              <div style="font-size:0.75rem;color:var(--text-muted);">${item.data.percentage || 0}%</div>
-            </div>
-          `).join('')}
-        </div>
-      `
-    } catch (err) {
-      document.getElementById('score-distribution-container').innerHTML = `<div class="empty-hint">加载失败: ${err.message}</div>`
-    }
-
-    // 薄弱知识点
-    try {
-      const weakRes = await getAnalyticsWeakKnowledgePoints(getCourseParams())
-      const weakList = weakRes.data?.list || []
-      const container = document.getElementById('weak-kp-container')
-
-      if (weakList.length === 0) {
-        container.innerHTML = '<div class="empty-hint">暂无薄弱知识点数据</div>'
-      } else {
-        container.innerHTML = weakList.slice(0, 10).map(kp => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
-            <span style="font-size:0.9rem;">${kp.knowledge_point_name}</span>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:0.8rem;color:var(--text-muted);">${kp.student_count} 人</span>
-              <span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:8px;font-size:0.75rem;">${kp.average_score}分</span>
-            </div>
-          </div>
-        `).join('')
-      }
-    } catch (err) {
-      document.getElementById('weak-kp-container').innerHTML = `<div class="empty-hint">加载失败</div>`
-    }
-
-    // 高频提问 + 词云 + 混淆标签（同一个 API 返回）
-    try {
-      const freqRes = await getAnalyticsQuestionFrequency(getCourseParams())
-      const freqList = freqRes.data?.list || []
-      const totalQ = freqRes.data?.total_questions || 0
-      const wordCloud = freqRes.data?.word_cloud || []
-      const topTags = freqRes.data?.top_tags || []
-
-      // 高频提问列表
-      const container = document.getElementById('question-frequency-container')
-      container.innerHTML = `
-        <div style="margin-bottom:10px;font-size:0.8rem;color:var(--text-muted);">共 ${totalQ} 次提问</div>
-        ${freqList.length === 0 ? '<div class="empty-hint">暂无提问数据</div>' : freqList.slice(0, 10).map(item => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
-            <span style="font-size:0.9rem;">${item.knowledge_point_name}</span>
-            <div style="display:flex;gap:12px;font-size:0.8rem;color:var(--text-muted);">
-              <span>${item.question_count} 次</span>
-              <span>${item.student_count} 人</span>
-            </div>
-          </div>
-        `).join('')}
-      `
-
-      // 词云渲染
-      const wcContainer = document.getElementById('word-cloud-container')
-      if (!wordCloud || wordCloud.length === 0) {
-        wcContainer.innerHTML = '<div class="empty-hint">暂无词云数据（学生进行学科对话后将自动生成）</div>'
-      } else {
-        // 词大小按知识点字数长度映射（需求规定）
-        // 2字: 14-18px | 3-4字: 20-26px | 5-6字: 28-34px | 7字+: 36-42px
-        function getFontSizeByLength(len) {
-          if (len >= 7) return 36 + Math.min(len - 7, 3) * 2  // 7字36px, 8字38px, 9字40px, 10字42px
-          if (len >= 5) return 28 + (len - 5) * 3             // 5字28px, 6字31px
-          if (len >= 3) return 20 + (len - 3) * 3             // 3字20px, 4字23px
-          return 14 + (len - 1) * 2                            // 1字14px, 2字16px
-        }
-        function getBgByLength(len) {
-          if (len >= 7) return '#FEF2F2'
-          if (len >= 5) return '#FFFBEB'
-          if (len >= 3) return '#EFF6FF'
-          return '#F0FDF4'
-        }
-        function getColorByLength(len) {
-          if (len >= 7) return '#dc2626'
-          if (len >= 5) return '#d97706'
-          if (len >= 3) return '#2563eb'
-          return '#16a34a'
-        }
-        const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6']
-        wcContainer.innerHTML = `
-          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding:16px;min-height:100px;background:rgba(255,255,255,0.4);border-radius:16px;border:1px solid var(--border);">
-            ${wordCloud.map(w => {
-              const len = w.char_length || w.keyword.length
-              const fontSize = getFontSizeByLength(len)
-              const bg = getBgByLength(len)
-              const color = colors[Math.floor(Math.random() * colors.length)]
-              const count = w.count || 0
-              return `<span style="display:inline-block;font-size:${fontSize}px;font-weight:${len >= 5 ? 700 : 500};color:${color};background:${bg};padding:4px 10px;border-radius:8px;border:1px solid ${color}25;transition:all 0.2s;cursor:default;line-height:1.4;" title="字数:${len} · 出现:${count}次">${w.keyword}</span>`
-            }).join('')}
-          </div>
-        `
-      }
-
-      // 混淆标签渲染
-      const tagContainer = document.getElementById('confusion-tags-container')
-      if (!topTags || topTags.length === 0) {
-        tagContainer.innerHTML = '<div class="empty-hint">暂无标签数据</div>'
-      } else {
-        tagContainer.innerHTML = `
-          <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${topTags.map(t => {
-              const count = t.count || 1
-              return `<span style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;background:#f0f0ff;color:#6366f1;border-radius:16px;font-size:0.85rem;border:1px solid #e0e0ff;">
-                <span>${t.tag}</span>
-                <span style="background:#6366f1;color:#fff;border-radius:10px;padding:0 6px;font-size:0.7rem;font-weight:600;line-height:1.5;">${count}</span>
-              </span>`
-            }).join('')}
-          </div>
-        `
-      }
-    } catch (err) {
-      document.getElementById('question-frequency-container').innerHTML = `<div class="empty-hint">加载失败</div>`
-      const wcEl = document.getElementById('word-cloud-container')
-      if (wcEl) wcEl.innerHTML = '<div class="empty-hint">加载失败</div>'
-    } finally {
-      isLoadingData = false
-    }
-  }
-
-  // 初始化：先加载课程列表，再加载分析数据
-  loadCourses().then(() => loadAll())
+function shell() {
+  return `<div class="analytics-workbench">
+    <header class="teacher-page-head compact"><div><span class="teacher-eyebrow">真实学情聚合</span><h2>学情分析工作台</h2><p>作业、考试、错题、掌握度、学习时长、计划、会话和学科对话统一分析。</p></div><button class="teacher-btn" id="analytics-export">打印 / 导出报告</button></header>
+    <section class="analytics-filter-bar">
+      <label>课程<select id="analytics-course"><option value="">请选择课程</option></select></label><label>教学班<select id="analytics-class"><option value="">全部授权教学班</option></select></label>
+      <label>时间范围<select id="analytics-range"><option value="7d">最近 7 天</option><option value="30d">最近 30 天</option><option value="semester">本学期</option><option value="custom">自定义</option></select></label>
+      <label>章节<select id="analytics-chapter"><option value="">全部章节</option></select></label><label>知识点<select id="analytics-kp"><option value="">全部知识点</option></select></label>
+      <label class="custom-date" hidden>开始<input id="analytics-start" type="date"></label><label class="custom-date" hidden>结束<input id="analytics-end" type="date"></label>
+      <button class="teacher-btn primary" id="analytics-run">开始分析</button>
+    </section>
+    <div id="analytics-content"><div class="analytics-empty"><b>选择课程开始分析</b><p>所有图表均来自教师授权范围内的真实业务记录。</p></div></div>
+  </div>`
 }
 
+function overview(data) {
+  const items=[['学生人数',data.student_count,'人'],['活跃学生',data.active_student_count,'人'],['平均掌握度',data.average_mastery,'%'],['任务完成率',data.task_completion_rate,'%'],['平均成绩',data.average_score,'分'],['学习时长',data.study_minutes,'分钟'],['风险学生',data.risk_student_count,'人'],['待处理疑问',data.pending_question_count,'条']]
+  return items.map(([label,value,unit])=>`<article><span>${label}</span><b>${Number(value)||0}<i>${unit}</i></b></article>`).join('')
+}
 
+function content(data) {
+  const sourceCounts=Object.entries(data.data_sources?.counts||{})
+  const weak=normalizeWeakKnowledgePoints(data.weak_knowledge_points)
+  return `<section class="analytics-overview">${overview(data.overview||{})}</section>
+    <section class="analytics-chart-grid"><article><header><b>学习趋势</b><button data-expand-chart="analytics-trend">展开</button></header><div id="analytics-trend"></div></article><article><header><b>掌握度分布</b><button data-expand-chart="analytics-mastery">展开</button></header><div id="analytics-mastery"></div></article><article><header><b>知识点热力图</b><button data-expand-chart="analytics-heatmap">展开</button></header><div id="analytics-heatmap"></div></article><article><header><b>高频疑问关键词</b><span class="analytics-keyword-actions"><button data-keyword-mode>${state.keywordMode === 'cloud' ? '柱状图' : '词云'}</button><button data-keyword-export>导出</button><button data-expand-chart="analytics-keywords">展开</button></span></header><div id="analytics-keywords"></div></article></section>
+    <section class="analytics-detail-grid">
+      <article><header><h3>薄弱知识点</h3></header><div class="analytics-rank-list">${weak.map((item,index)=>`<div><i>${index+1}</i><span><b>${escapeHtml(item.name)}</b><em>${item.studentCount} 名学生有记录</em></span><strong>${percent(item.mastery)}</strong></div>`).join('')||'<p>暂无数据</p>'}</div></article>
+      <article><header><h3>高频错误</h3></header><div class="analytics-rank-list">${(data.frequent_errors||[]).map((item,index)=>`<div><i>${index+1}</i><span><b>${escapeHtml(item.title||item.content||'题目')}</b><em>${escapeHtml(item.knowledge_point_name||'未关联知识点')}</em></span><strong>${item.student_count} 人</strong></div>`).join('')||'<p>暂无数据</p>'}</div></article>
+      <article><header><h3>常见误解</h3><button data-keyword-reset hidden>清除关键词筛选</button></header><div class="analytics-tag-list">${(data.dialogue?.misconceptions||[]).map(item=>`<span>${escapeHtml(item.tag)}<b>${item.count}</b></span>`).join('')||'<p>暂无已识别误解</p>'}</div><h4 id="analytics-question-title">典型问题</h4><div class="analytics-question-list" id="analytics-question-list">${(data.dialogue?.question_samples||[]).slice(0,6).map(item=>`<p class="${item.unresolved?'unresolved':''}">${escapeHtml(item.question)}</p>`).join('')||'<p>暂无问题样本</p>'}</div></article>
+      <article><header><h3>风险学生</h3><span>${data.risk_students?.length||0} 人</span></header><div class="analytics-risk-list">${(data.risk_students||[]).map(item=>`<button data-student-id="${item.student_user_id}"><span><b>${escapeHtml(item.student_name||'学生')}</b><em>${escapeHtml(item.administrative_class_name||item.student_no||'')}</em></span><i>掌握 ${item.mastery_score}% · 完成 ${item.completion_rate}%</i></button>`).join('')||'<p>当前范围暂无风险学生</p>'}</div></article>
+      <article><header><h3>学生分层</h3></header><div class="analytics-layer-grid">${['advanced','steady','support','risk'].map(layer=>`<div><b>${(data.student_layers||[]).filter(item=>item.layer===layer).length}</b><span>${({advanced:'进阶层',steady:'稳步层',support:'支持层',risk:'风险层'})[layer]}</span></div>`).join('')}</div><div class="analytics-task-comparison"><div><b>${data.homework?.completion_rate||0}%</b><span>作业完成率 · ${data.homework?.task_count||0} 项</span></div><div><b>${data.exams?.average_score||0}</b><span>考试均分 · ${data.exams?.task_count||0} 场</span></div></div></article>
+      <article><header><h3>建议教学重点</h3></header><div class="analytics-focus-list">${(data.teaching_focus||[]).map(item=>`<div data-priority="${item.priority}"><b>${escapeHtml(item.title)}</b><p>${escapeHtml(item.reason)}</p><button data-prep-focus="${item.knowledge_point_id}">生成备课建议</button></div>`).join('')||'<p>数据不足，暂无法生成重点</p>'}</div></article>
+    </section>
+    <section class="analytics-sources"><header><h3>数据来源说明</h3><span>聚合时间 ${new Date(data.data_sources?.generated_at).toLocaleString('zh-CN')}</span></header><div>${Object.entries(data.data_sources?.definitions||{}).map(([key,value])=>`<p><b>${escapeHtml(key)}</b>${escapeHtml(value)}</p>`).join('')}</div><footer>${sourceCounts.map(([key,value])=>`<span>${escapeHtml(key)} <b>${value}</b></span>`).join('')}</footer></section>`
+}
+
+function initChart(id, option) { const node=document.getElementById(id);if(!node)return null;const chart=echarts.init(node);chart.setOption({animationDuration:500,color:['#b66b20','#68866d','#d3a04c','#9c7251'],tooltip:{trigger:'axis'},grid:{top:28,left:42,right:18,bottom:42,containLabel:true},...option});state.charts.push(chart);return chart }
+function intersects(rect, placed) { return placed.some(item => !(rect.right + 5 < item.left || rect.left - 5 > item.right || rect.bottom + 4 < item.top || rect.top - 4 > item.bottom)) }
+function layoutCloud(words, width, height) {
+  const max=Math.max(1,...words.map(item=>item.value));const min=Math.min(...words.map(item=>item.value));const placed=[];const canvas=document.createElement('canvas');const context=canvas.getContext('2d')
+  words.slice(0,36).forEach((item,index)=>{const ratio=max===min?1:(item.value-min)/(max-min);const fontSize=Math.round(13+ratio*25);context.font=`${ratio>.65?700:600} ${fontSize}px sans-serif`;const textWidth=Math.min(width*.72,context.measureText(item.text).width+5);const textHeight=fontSize*1.15;let found=null
+    for(let step=0;step<900;step+=1){const angle=step*.42;const radius=2.15*Math.sqrt(step);const x=width/2+Math.cos(angle)*radius;const y=height/2+Math.sin(angle)*radius*.66;const rect={left:x-textWidth/2,right:x+textWidth/2,top:y-textHeight/2,bottom:y+textHeight/2};if(rect.left<6||rect.right>width-6||rect.top<6||rect.bottom>height-6||intersects(rect,placed))continue;found={...rect,x,y,fontSize,item,index};break}
+    if(found)placed.push(found)
+  });return placed
+}
+function keywordCloudOption(records,node) {
+  const words=normalizeKeywords(records).slice(0,36);if(!words.length)return{title:{text:'当前范围暂无有效关键词',left:'center',top:'middle',textStyle:{color:'#9b8b7c',fontSize:12,fontWeight:'normal'}},series:[]}
+  if(state.keywordMode==='bar')return{tooltip:{trigger:'axis'},grid:{top:10,left:110,right:22,bottom:20,containLabel:true},xAxis:{type:'value',splitLine:{lineStyle:{color:'#eee6dc'}}},yAxis:{type:'category',inverse:true,data:words.slice(0,14).map(item=>item.text)},series:[{type:'bar',barMaxWidth:15,data:words.slice(0,14).map(item=>({value:item.value,keyword:item})),itemStyle:{color:'#b87338',borderRadius:[0,5,5,0]}}]}
+  const placed=layoutCloud(words,Math.max(320,node?.clientWidth||700),Math.max(210,node?.clientHeight||270));const colors=['#9d581d','#5f7e65','#a96e29','#7c624e','#9b5f48','#557568']
+  return{tooltip:{trigger:'item',formatter(params){const item=params.data?.keyword||{};return `<b>${escapeHtml(item.text||'')}</b><br>综合权重：${item.value||0}<br>涉及学生：${item.studentCount||0} 人<br>问题记录：${item.questionCount||0} 条`}},series:[{type:'custom',coordinateSystem:'none',data:placed.map(item=>({value:[item.x,item.y,item.fontSize],keyword:item.item,index:item.index})),renderItem(params,api){const data=placed[params.dataIndex];return{type:'text',x:api.value(0),y:api.value(1),style:{text:data.item.text,fill:colors[data.index%colors.length],fontSize:api.value(2),fontWeight:data.fontSize>27?700:600,textAlign:'center',textVerticalAlign:'middle'},emphasis:{style:{fill:'#7e4318',textShadowBlur:4,textShadowColor:'rgba(126,67,24,.2)'}}}}}]}
+}
+function filterQuestions(keyword='') { state.keywordFilter=keyword;const list=document.getElementById('analytics-question-list');if(!list||!state.data)return;const rows=(state.data.dialogue?.question_samples||[]).filter(item=>!keyword||String(item.question||'').toLowerCase().includes(keyword.toLowerCase()));list.innerHTML=rows.slice(0,8).map(item=>`<p class="${item.unresolved?'unresolved':''}">${escapeHtml(item.question)}</p>`).join('')||`<p>当前样本中没有包含“${escapeHtml(keyword)}”的典型问题</p>`;document.getElementById('analytics-question-title').textContent=keyword?`典型问题 · ${keyword}`:'典型问题';const reset=document.querySelector('[data-keyword-reset]');if(reset)reset.hidden=!keyword }
+function renderCharts(data) {
+  dispose(); const trend=data.learning_trend||[]
+  initChart('analytics-trend',{legend:{top:0,textStyle:{fontSize:10}},xAxis:{type:'category',data:trend.map(item=>item.date.slice(5)),axisLabel:{color:'#806f5e'}},yAxis:[{type:'value',splitLine:{lineStyle:{color:'#eee6dc'}}}],series:[{name:'学习分钟',type:'line',smooth:true,data:trend.map(item=>item.study_minutes)},{name:'提交',type:'bar',barMaxWidth:16,data:trend.map(item=>item.submissions)},{name:'疑问',type:'line',smooth:true,data:trend.map(item=>item.questions)}]})
+  const dist=data.mastery_distribution||[];initChart('analytics-mastery',{xAxis:{type:'category',data:dist.map(item=>item.label)},yAxis:{type:'value',splitLine:{lineStyle:{color:'#eee6dc'}}},series:[{type:'bar',barMaxWidth:30,itemStyle:{borderRadius:[5,5,0,0]},data:dist.map(item=>item.count)}]})
+  const heat=normalizeWeakKnowledgePoints(data.knowledge_heatmap);initChart('analytics-heatmap',{grid:{top:12,left:100,right:20,bottom:28,containLabel:true},xAxis:{type:'value',max:100,splitLine:{lineStyle:{color:'#eee6dc'}}},yAxis:{type:'category',inverse:true,data:heat.slice(0,10).map(item=>item.name),axisLabel:{width:90,overflow:'truncate'}},visualMap:{show:false,min:0,max:100,inRange:{color:['#c2673f','#e0a44e','#66886c']}},series:[{type:'bar',barMaxWidth:15,data:heat.slice(0,10).map(item=>item.mastery)}]})
+  const keywordNode=document.getElementById('analytics-keywords');state.keywordChart=initChart('analytics-keywords',keywordCloudOption(data.dialogue?.keywords,keywordNode));state.keywordChart?.on('click',params=>{const keyword=params.data?.keyword?.text||params.name;if(keyword)filterQuestions(keyword)})
+  requestAnimationFrame(()=>state.charts.forEach(chart=>chart.resize()))
+}
+
+function toggleExpandedChart(id) {
+  const next=state.expandedChartId===id?null:id
+  state.expandedChartId=next
+  document.querySelectorAll('[data-expand-chart]').forEach(button=>{const active=button.dataset.expandChart===next;button.closest('article')?.classList.toggle('expanded',active);button.textContent=active?'关闭':'展开';button.setAttribute('aria-expanded',active?'true':'false')})
+  document.body.classList.toggle('analytics-chart-open',Boolean(next))
+  requestAnimationFrame(()=>requestAnimationFrame(()=>state.charts.forEach(chart=>chart.resize())))
+}
+
+async function loadCourses() { const result=await getTeacherCourses({page_size:100});state.courses=result.data?.list||[];document.getElementById('analytics-course').innerHTML='<option value="">请选择课程</option>'+state.courses.map(item=>`<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('') }
+async function loadCourseOptions(courseId) {
+  const [classes,chapters,kps]=await Promise.all([getTeachingClasses(courseId,{page_size:100}),getChapters(courseId),getKnowledgePoints(courseId,{page_size:200})]);state.classes=classes.data?.list||classes.data||[];state.chapters=chapters.data?.list||chapters.data||[];state.knowledgePoints=kps.data?.list||kps.data||[]
+  document.getElementById('analytics-class').innerHTML='<option value="">全部授权教学班</option>'+state.classes.map(item=>`<option value="${item.teaching_class_id}">${escapeHtml(item.teaching_class_name)}</option>`).join('');document.getElementById('analytics-chapter').innerHTML='<option value="">全部章节</option>'+state.chapters.map(item=>`<option value="${item.chapter_id}">${escapeHtml(item.chapter_name)}</option>`).join('');document.getElementById('analytics-kp').innerHTML='<option value="">全部知识点</option>'+state.knowledgePoints.map(item=>`<option value="${item.knowledge_point_id}">${escapeHtml(item.knowledge_point_name)}</option>`).join('')
+}
+function params() { const range=document.getElementById('analytics-range').value;return {course_id:Number(document.getElementById('analytics-course').value),...(document.getElementById('analytics-class').value?{teaching_class_id:Number(document.getElementById('analytics-class').value)}:{}),range,...(document.getElementById('analytics-chapter').value?{chapter_id:Number(document.getElementById('analytics-chapter').value)}:{}),...(document.getElementById('analytics-kp').value?{knowledge_point_id:Number(document.getElementById('analytics-kp').value)}:{}),...(range==='custom'?{start_at:document.getElementById('analytics-start').value,end_at:document.getElementById('analytics-end').value}:{})} }
+async function run() { const query=params();if(!query.course_id)return showToast('请先选择课程','warning');const container=document.getElementById('analytics-content');state.expandedChartId=null;document.body.classList.remove('analytics-chart-open');container.innerHTML='<div class="analytics-empty"><b>正在聚合真实教学数据…</b></div>';try{const result=await getAnalyticsWorkbench(query);state.data=result.data;container.innerHTML=content(state.data);renderCharts(state.data);window.__discimindTeacherContext=query}catch(error){container.innerHTML=`<div class="analytics-empty error"><b>分析失败</b><p>${escapeHtml(error.message||'请稍后重试')}</p></div>`}}
+
+function bind() { state.lifecycle?.abort();state.lifecycle=new AbortController();const signal=state.lifecycle.signal;document.getElementById('analytics-course').addEventListener('change',event=>void loadCourseOptions(event.target.value),{signal});document.getElementById('analytics-range').addEventListener('change',event=>document.querySelectorAll('.custom-date').forEach(label=>label.hidden=event.target.value!=='custom'),{signal});document.getElementById('analytics-run').addEventListener('click',()=>void run(),{signal});document.getElementById('analytics-export').addEventListener('click',()=>window.print(),{signal});document.getElementById('analytics-content').addEventListener('click',event=>{const mode=event.target.closest('[data-keyword-mode]');if(mode){state.keywordMode=state.keywordMode==='cloud'?'bar':'cloud';mode.textContent=state.keywordMode==='cloud'?'柱状图':'词云';state.keywordChart?.setOption(keywordCloudOption(state.data?.dialogue?.keywords,document.getElementById('analytics-keywords')),true);return}const exportButton=event.target.closest('[data-keyword-export]');if(exportButton&&state.keywordChart){const anchor=document.createElement('a');anchor.href=state.keywordChart.getDataURL({type:'png',pixelRatio:2,backgroundColor:'#fffdfa'});anchor.download='高频疑问关键词.png';anchor.click();return}if(event.target.closest('[data-keyword-reset]')){filterQuestions('');return}const expand=event.target.closest('[data-expand-chart]');if(expand){event.preventDefault();event.stopImmediatePropagation();toggleExpandedChart(expand.dataset.expandChart);return}const student=event.target.closest('[data-student-id]');if(student){window.location.hash=`#/teacher/students/${student.dataset.studentId}`;return}const prep=event.target.closest('[data-prep-focus]');if(prep)window.location.hash=`#/teacher/preparation?knowledge_point_id=${prep.dataset.prepFocus}`},{signal});let resizeFrame=0;window.addEventListener('resize',()=>{if(resizeFrame)return;resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;state.charts.forEach(chart=>chart.resize());if(state.keywordMode==='cloud'&&state.keywordChart)state.keywordChart.setOption(keywordCloudOption(state.data?.dialogue?.keywords,document.getElementById('analytics-keywords')),true)})},{signal,passive:true});window.addEventListener('keydown',event=>{if(event.key==='Escape'&&state.expandedChartId)toggleExpandedChart(state.expandedChartId)},{signal});window.addEventListener('hashchange',()=>{if(!window.location.hash.startsWith('#/teacher/analytics')){state.lifecycle?.abort();state.expandedChartId=null;document.body.classList.remove('analytics-chart-open');dispose()}},{signal}) }
+
+export async function renderTeacherAnalytics(app) { let user=getUser();try{const result=await getMe();user=result.data.user;setAuth(getToken(),user)}catch{if(!user){clearAuth();window.location.hash='#/login';return}}renderDashboardLayout(app,{title:'学情分析',menuItems:TEACHER_MENU_ITEMS,contentHTML:shell(),user});bind();try{await loadCourses();if(state.courses.length){const initialCourse=state.courses.reduce((best,item)=>Number(item.student_count||0)>Number(best.student_count||0)?item:best,state.courses[0]);document.getElementById('analytics-course').value=initialCourse.course_id;await loadCourseOptions(initialCourse.course_id);await run()}}catch(error){showToast(error.message||'分析页面初始化失败','error')} }

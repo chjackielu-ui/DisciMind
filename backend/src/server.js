@@ -78,6 +78,8 @@ function setupGracefulShutdown() {
     generationRegistry.cancelAll();
     await getAsyncTaskWorker().stop().catch((error) => console.error('[tasks] Worker 停止失败:', error.message));
     getLearningNarrationModule().close();
+    await require('./modules/learning-agent/graph/checkpointer.service').closeCheckpointer()
+      .catch((error) => console.error('[checkpointer] 关闭失败:', error.message));
     httpServer?.close();
     // 给正在处理的请求一点时间完成
     setTimeout(() => process.exit(0), 2000);

@@ -168,6 +168,12 @@ export function clearAuth(options = {}) {
   persistSessionId(null)
   ssRemove(LAST_ACTIVITY_KEY)
   ssRemove(SESSION_AUTHENTICATED_KEY)
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index)
+      if (key?.startsWith('discimind:task-island:intro:')) sessionStorage.removeItem(key)
+    }
+  } catch {}
   cleanLegacyStorage()
   stopIdleCheck()
   setStatus(AUTH_STATUS.UNAUTHENTICATED)

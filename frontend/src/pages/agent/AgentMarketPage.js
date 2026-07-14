@@ -5,13 +5,13 @@ import {
 import { escapeHtml } from '../../utils/format.js'
 import { renderMarketplaceLayout, loadingHTML, errorHTML, statusLabel, operationId, setButtonBusy, notify } from './marketplace-shared.js'
 import { openAgentCardMenu } from './agent-card-menu.js'
+import { agentIconHTML } from '../../components/agent-icon.js'
 
 const CAPABILITIES = ['知识库问答','学科答疑','概念讲解','题目解析','试卷生成','学习讲义生成','DOCX 导出','PDF 导出','学习规划','科研辅助','编程学习','写作表达','自定义标签']
 const CATEGORIES = ['课程学习','学科答疑','概念讲解','题目解析','考试复习','学习规划','科研辅助','论文阅读','写作表达','编程学习','职业与生涯规划','校园服务','综合工具','其他']
 
 function avatar(agent) {
-  const name = agent.version?.name || 'AI'
-  return `<div class="agent-card-avatar">${escapeHtml(name.slice(0, 1))}</div>`
+  return agentIconHTML(agent, { size: 44, className: 'agent-card-avatar' })
 }
 
 function agentCard(agent, mode) {
@@ -23,7 +23,7 @@ function agentCard(agent, mode) {
   const knowledgeEnabled = (v.knowledgeBases || []).length > 0 || v.responseMode === 'KNOWLEDGE_FIRST'
   return `<article class="agent-market-card" data-agent-id="${agent.id}">
     <div class="agent-card-head">${avatar(agent)}<div><h3>${escapeHtml(v.name || '未命名智能体')}</h3><p>${escapeHtml(agent.creator?.name || '未知创建者')} · ${escapeHtml(agent.category || '综合工具')}</p><div class="agent-card-identity">${agent.isSystem ? '<span>系统内置</span>' : ''}<span>${isFileGenerator ? '文件生成' : '对话助手'}</span></div></div>
-      <button class="agent-more-trigger" type="button" data-action="more" aria-label="更多操作" aria-haspopup="menu">•••</button>
+      <button class="agent-more-trigger" type="button" data-action="more" aria-label="更多操作" aria-haspopup="menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>
     </div>
     <p class="agent-card-description">${escapeHtml(v.shortDescription || '')}</p>
     <div class="agent-card-tags">${tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}${allTags.length > tags.length ? `<span>+${allTags.length - tags.length}</span>` : ''}</div>
@@ -32,7 +32,7 @@ function agentCard(agent, mode) {
     <div class="agent-card-actions">
       <button class="complex-btn" type="button" data-action="use">${isFileGenerator ? '生成文件' : '立即对话'}</button>
       <button class="complex-btn-secondary" type="button" data-action="detail">详情</button>
-      ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="收藏">${agent.isFavorite ? '★ 已收藏' : '☆ 收藏'}</button>`}
+       ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="收藏"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>${agent.isFavorite ? '已收藏' : '收藏'}</button>`}
     </div>
   </article>`
 }
@@ -137,7 +137,7 @@ export async function renderAgentDetail(app, params) {
           <button id="detail-use" class="complex-btn">立即使用</button>
           ${!agent.isOwner ? `
             <button id="detail-copy" class="complex-btn-secondary">复制到我的智能体</button>
-            <div class="agent-rating-row"><span>评分：</span>${[1,2,3,4,5].map(n => `<button data-rating="${n}" type="button" aria-label="评分${n}星">${n}★</button>`).join('')}</div>
+            <div class="agent-rating-row"><span>评分：</span>${[1,2,3,4,5].map(n => `<button data-rating="${n}" type="button" aria-label="评分 ${n} 分">${n} 分</button>`).join('')}</div>
             <button id="detail-report" class="complex-btn-ghost">举报</button>
           ` : `
             <button id="detail-edit" class="complex-btn-secondary">编辑智能体</button>

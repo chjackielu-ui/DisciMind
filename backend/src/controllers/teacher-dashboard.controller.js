@@ -2,6 +2,7 @@
 
 const { success, fail } = require('../utils/response');
 const teacherDashboardService = require('../services/teacher-dashboard.service');
+const analyticsWorkbenchService = require('../services/teacher-analytics-workbench.service');
 
 function parsePositiveInt(value, name) {
   const parsed = Number.parseInt(value, 10);
@@ -83,6 +84,24 @@ async function getStudentRadar(req, res) {
   }
 }
 
+async function getAnalyticsWorkbench(req, res) {
+  try {
+    const data = await analyticsWorkbenchService.buildWorkbench(req.user, req.query || {});
+    return success(res, data, '获取学情工作台数据成功');
+  } catch (err) {
+    return handleError(res, 'getAnalyticsWorkbench', err);
+  }
+}
+
+async function getDialogueInsights(req, res) {
+  try {
+    const data = await analyticsWorkbenchService.getDialogueInsights(req.user, req.query || {});
+    return success(res, data, '获取学生疑问分析成功');
+  } catch (err) {
+    return handleError(res, 'getDialogueInsights', err);
+  }
+}
+
 module.exports = {
   getDashboard,
   getProgress,
@@ -91,4 +110,6 @@ module.exports = {
   getQuestionFrequency,
   getWeakKnowledgePoints,
   getStudentRadar,
+  getAnalyticsWorkbench,
+  getDialogueInsights,
 };

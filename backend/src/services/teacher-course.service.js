@@ -1,39 +1,19 @@
 // 教师端课程管理服务
 
 const prisma = require('../config/prisma');
+const {
+  getAccessibleCourseIds,
+  ensureCourseAccess,
+  ensureTeachingClassAccess,
+  getAccessibleTeachingClassIds,
+  isAdmin,
+} = require('./teacher-access.service');
 
 // ---------- 辅助函数 ----------
 
 function toLower(value) {
   if (value == null) return null;
   return String(value).toLowerCase();
-}
-
-async function getAccessibleCourseIds(user) {
-  if (user.role === 'admin') return null;
-  const relations = await prisma.courseTeacherRelation.findMany({
-    where: { teacher_user_id: user.user_id },
-    select: { course_id: true },
-  });
-  return relations.map((item) => item.course_id);
-}
-
-async function ensureCourseAccess(user, courseId) {
-  if (user.role === 'admin') return;
-  const accessibleIds = await getAccessibleCourseIds(user);
-  if (!accessibleIds || !accessibleIds.includes(courseId)) {
-    throw Object.assign(new Error('无权访问该课程数据'), { code: 40301 });
-  }
-}
-
-async function ensureTeachingClassAccess(user, classId) {
-  const tc = await prisma.teachingClass.findUnique({
-    where: { teaching_class_id: classId },
-    include: { course: true },
-  });
-  if (!tc) throw Object.assign(new Error('教学班级不存在'), { code: 40002 });
-  await ensureCourseAccess(user, tc.course_id);
-  return tc;
 }
 
 // ---------- 课程 ----------
@@ -193,7 +173,10 @@ async function updateCourse(user, courseId, body) {
 
 async function deleteCourse(user, courseId) {
   await ensureCourseAccess(user, courseId);
-  await prisma.course.delete({ where: { course_id: courseId } });
+  await prisma.course.update({
+    where: { course_id: courseId },
+    data: { status: 'ARCHIVED' },
+  });
 }
 
 // ---------- 教学班级 ----------
@@ -202,13 +185,21 @@ async function listTeachingClasses(user, courseId, query) {
   await ensureCourseAccess(user, courseId);
 
   const where = { course_id: courseId };
+  if (!isAdmin(user)) {
+    const classIds = await getAccessibleTeachingClassIds(user, { course_id: courseId });
+    where.teaching_class_id = { in: classIds };
+  }
   if (query.keyword) where.teaching_class_name = { contains: query.keyword };
+  if (query.status) where.status = query.status;
+  if (query.semester_id) where.course_offering = { semester_id: Number(query.semester_id) };
 
   const classes = await prisma.teachingClass.findMany({
     where,
     orderBy: { created_at: 'desc' },
     include: {
       _count: { select: { enrollments: true } },
+      course_offering: { include: { semester: true } },
+      primary_teacher: { include: { profile: true } },
     },
   });
 
@@ -218,6 +209,16 @@ async function listTeachingClasses(user, courseId, query) {
       teaching_class_name: tc.teaching_class_name,
       semester: tc.semester,
       description: tc.description,
+      code: tc.code,
+      schedule: tc.schedule,
+      location: tc.location,
+      capacity: tc.capacity,
+      status: tc.status,
+      course_offering_id: tc.course_offering_id,
+      semester_id: tc.course_offering?.semester_id || null,
+      semester_name: tc.course_offering?.semester?.name || tc.semester,
+      teacher_user_id: tc.teacher_user_id,
+      teacher_name: tc.primary_teacher?.profile?.real_name || tc.primary_teacher?.username || null,
       student_count: tc._count.enrollments,
       created_at: tc.created_at.toISOString(),
     })),
@@ -228,18 +229,55 @@ async function listTeachingClasses(user, courseId, query) {
 async function createTeachingClass(user, courseId, body) {
   await ensureCourseAccess(user, courseId);
 
-  const { teaching_class_name, semester, description } = body;
+  const {
+    teaching_class_name, code, semester, semester_id, course_offering_id, description,
+    schedule, location, capacity, status, teacher_user_id,
+  } = body;
   if (!teaching_class_name) {
     throw Object.assign(new Error('教学班级名称为必填项'), { code: 40001 });
   }
 
-  const tc = await prisma.teachingClass.create({
-    data: {
-      course_id: courseId,
-      teaching_class_name,
-      semester: semester || null,
-      description: description || null,
-    },
+  let offeringId = course_offering_id ? Number(course_offering_id) : null;
+  if (offeringId) {
+    const offering = await prisma.courseOffering.findFirst({
+      where: { course_offering_id: offeringId, course_id: courseId },
+    });
+    if (!offering) throw Object.assign(new Error('课程开设不存在或不属于该课程'), { code: 40002 });
+  } else if (semester_id) {
+    const semesterId = Number(semester_id);
+    const semesterRow = await prisma.academicSemester.findUnique({ where: { semester_id: semesterId } });
+    if (!semesterRow) throw Object.assign(new Error('学期不存在'), { code: 40002 });
+    const offering = await prisma.courseOffering.upsert({
+      where: { course_id_semester_id: { course_id: courseId, semester_id: semesterId } },
+      update: { status: 'active' },
+      create: { course_id: courseId, semester_id: semesterId, start_date: semesterRow.start_date, end_date: semesterRow.end_date },
+    });
+    offeringId = offering.course_offering_id;
+  }
+
+  const primaryTeacherId = isAdmin(user) && teacher_user_id ? Number(teacher_user_id) : user.user_id;
+  const tc = await prisma.$transaction(async (tx) => {
+    const created = await tx.teachingClass.create({
+      data: {
+        course_id: courseId,
+        course_offering_id: offeringId,
+        teacher_user_id: primaryTeacherId,
+        teaching_class_name,
+        code: code || null,
+        semester: semester || null,
+        description: description || null,
+        schedule: schedule || undefined,
+        location: location || null,
+        capacity: capacity ? Number(capacity) : null,
+        status: status === 'archived' ? 'archived' : 'active',
+      },
+    });
+    await tx.teachingClassTeacherAuthorization.upsert({
+      where: { teaching_class_id_teacher_user_id: { teaching_class_id: created.teaching_class_id, teacher_user_id: primaryTeacherId } },
+      update: { role: 'owner', status: 'active' },
+      create: { teaching_class_id: created.teaching_class_id, teacher_user_id: primaryTeacherId, role: 'owner', granted_by_user_id: user.user_id },
+    });
+    return created;
   });
 
   return {
@@ -250,12 +288,27 @@ async function createTeachingClass(user, courseId, body) {
 
 async function updateTeachingClass(user, classId, body) {
   const tc = await ensureTeachingClassAccess(user, classId);
-  const { teaching_class_name, semester, description } = body;
+  const { teaching_class_name, code, semester, description, schedule, location, capacity, status, course_offering_id } = body;
 
   const data = {};
   if (teaching_class_name !== undefined) data.teaching_class_name = teaching_class_name;
   if (semester !== undefined) data.semester = semester;
   if (description !== undefined) data.description = description;
+  if (code !== undefined) data.code = code || null;
+  if (schedule !== undefined) data.schedule = schedule;
+  if (location !== undefined) data.location = location || null;
+  if (capacity !== undefined) data.capacity = capacity ? Number(capacity) : null;
+  if (status !== undefined) {
+    data.status = status;
+    data.archived_at = status === 'archived' ? new Date() : null;
+  }
+  if (course_offering_id !== undefined) {
+    if (course_offering_id) {
+      const offering = await prisma.courseOffering.findFirst({ where: { course_offering_id: Number(course_offering_id), course_id: tc.course_id } });
+      if (!offering) throw Object.assign(new Error('课程开设不存在或不属于该课程'), { code: 40002 });
+    }
+    data.course_offering_id = course_offering_id ? Number(course_offering_id) : null;
+  }
 
   if (Object.keys(data).length === 0) {
     throw Object.assign(new Error('没有需要更新的字段'), { code: 40001 });
@@ -271,7 +324,19 @@ async function updateTeachingClass(user, classId, body) {
 
 async function deleteTeachingClass(user, classId) {
   await ensureTeachingClassAccess(user, classId);
+  const counts = await prisma.teachingClass.findUnique({
+    where: { teaching_class_id: classId },
+    select: { _count: { select: { enrollments: true, learning_tasks: true } } },
+  });
+  if ((counts?._count?.enrollments || 0) > 0 || (counts?._count?.learning_tasks || 0) > 0) {
+    await prisma.teachingClass.update({
+      where: { teaching_class_id: classId },
+      data: { status: 'archived', archived_at: new Date() },
+    });
+    return { archived: true };
+  }
   await prisma.teachingClass.delete({ where: { teaching_class_id: classId } });
+  return { archived: false };
 }
 
 async function listClassStudents(user, classId, query) {
@@ -318,28 +383,44 @@ async function addClassStudents(user, classId, body) {
     throw Object.assign(new Error('student_user_ids 为必填项，需传入学生 ID 数组'), { code: 40001 });
   }
 
+  const validStudents = await prisma.user.findMany({
+    where: { user_id: { in: student_user_ids.map(Number) }, role: 'STUDENT', status: 'ACTIVE' },
+    select: { user_id: true },
+  });
+  const validStudentIds = new Set(validStudents.map((item) => item.user_id));
+  const currentCount = await prisma.studentCourseEnrollment.count({ where: { teaching_class_id: classId, enrollment_status: 'active' } });
+  if (tc.capacity && currentCount + validStudentIds.size > tc.capacity) {
+    throw Object.assign(new Error(`超过教学班容量上限 ${tc.capacity}`), { code: 40001 });
+  }
+
   const results = [];
   for (const studentUserId of student_user_ids) {
+    const normalizedStudentId = Number(studentUserId);
+    if (!validStudentIds.has(normalizedStudentId)) {
+      results.push({ student_user_id: normalizedStudentId, success: false, reason: '学生不存在或账号不可用' });
+      continue;
+    }
     try {
       await prisma.studentCourseEnrollment.upsert({
         where: {
-          student_user_id_course_id: {
-            student_user_id: studentUserId,
+          student_user_id_course_id_teaching_class_id: {
+            student_user_id: normalizedStudentId,
             course_id: tc.course_id,
+            teaching_class_id: classId,
           },
         },
         update: {
-          teaching_class_id: classId,
           enrollment_status: 'active',
+          joined_at: new Date(),
         },
         create: {
-          student_user_id: studentUserId,
+          student_user_id: normalizedStudentId,
           course_id: tc.course_id,
           teaching_class_id: classId,
           enrollment_status: 'active',
         },
       });
-      results.push({ student_user_id: studentUserId, success: true });
+      results.push({ student_user_id: normalizedStudentId, success: true });
     } catch (err) {
       results.push({ student_user_id: studentUserId, success: false, reason: err.message });
     }
@@ -541,12 +622,18 @@ async function listAllTeachingClasses(user, query) {
   const accessibleIds = await getAccessibleCourseIds(user);
   const where = {};
   if (accessibleIds) where.course_id = { in: accessibleIds };
+  if (!isAdmin(user)) {
+    const classIds = await getAccessibleTeachingClassIds(user);
+    where.teaching_class_id = { in: classIds };
+  }
 
   if (query.keyword) where.teaching_class_name = { contains: query.keyword };
   if (query.course_id) {
     const cid = Number.parseInt(query.course_id, 10) || undefined;
     if (cid) where.course_id = cid;
   }
+  if (query.status) where.status = query.status;
+  if (query.semester_id) where.course_offering = { semester_id: Number(query.semester_id) };
 
   const classes = await prisma.teachingClass.findMany({
     where,
@@ -554,6 +641,8 @@ async function listAllTeachingClasses(user, query) {
     include: {
       course: { select: { course_id: true, course_name: true } },
       _count: { select: { enrollments: true } },
+      course_offering: { include: { semester: true } },
+      primary_teacher: { include: { profile: true } },
     },
   });
 
@@ -563,13 +652,216 @@ async function listAllTeachingClasses(user, query) {
       teaching_class_name: tc.teaching_class_name,
       semester: tc.semester,
       description: tc.description,
+      code: tc.code,
+      schedule: tc.schedule,
+      location: tc.location,
+      capacity: tc.capacity,
+      status: tc.status,
       course_id: tc.course_id,
       course_name: tc.course?.course_name || null,
       student_count: tc._count.enrollments,
+      course_offering_id: tc.course_offering_id,
+      semester_id: tc.course_offering?.semester_id || null,
+      semester_name: tc.course_offering?.semester?.name || tc.semester,
+      teacher_user_id: tc.teacher_user_id,
+      teacher_name: tc.primary_teacher?.profile?.real_name || tc.primary_teacher?.username || null,
       created_at: tc.created_at.toISOString(),
     })),
     total: classes.length,
   };
+}
+
+async function listSemesters(user, query = {}) {
+  const where = {};
+  if (query.status) where.status = query.status;
+  const list = await prisma.academicSemester.findMany({ where, orderBy: { start_date: 'desc' } });
+  return {
+    list: list.map((item) => ({
+      semester_id: item.semester_id,
+      code: item.code,
+      name: item.name,
+      start_date: item.start_date.toISOString(),
+      end_date: item.end_date.toISOString(),
+      status: item.status,
+    })),
+    total: list.length,
+  };
+}
+
+async function createSemester(user, body) {
+  const { code, name, start_date, end_date } = body;
+  if (!code || !name || !start_date || !end_date) {
+    throw Object.assign(new Error('code、name、start_date、end_date 为必填项'), { code: 40001 });
+  }
+  return prisma.academicSemester.upsert({
+    where: { code },
+    update: { name, start_date: new Date(start_date), end_date: new Date(end_date), status: body.status || 'active' },
+    create: { code, name, start_date: new Date(start_date), end_date: new Date(end_date), status: body.status || 'active' },
+  });
+}
+
+async function listCourseOfferings(user, courseId, query = {}) {
+  await ensureCourseAccess(user, courseId);
+  const where = { course_id: courseId };
+  if (query.status) where.status = query.status;
+  if (query.semester_id) where.semester_id = Number(query.semester_id);
+  const list = await prisma.courseOffering.findMany({
+    where,
+    include: { semester: true, _count: { select: { teaching_classes: true } } },
+    orderBy: { created_at: 'desc' },
+  });
+  return {
+    list: list.map((item) => ({
+      course_offering_id: item.course_offering_id,
+      course_id: item.course_id,
+      semester_id: item.semester_id,
+      semester_name: item.semester.name,
+      start_date: item.start_date?.toISOString() || null,
+      end_date: item.end_date?.toISOString() || null,
+      teaching_progress: item.teaching_progress,
+      status: item.status,
+      teaching_class_count: item._count.teaching_classes,
+    })),
+    total: list.length,
+  };
+}
+
+async function createCourseOffering(user, courseId, body) {
+  await ensureCourseAccess(user, courseId);
+  const semesterId = Number(body.semester_id);
+  if (!semesterId) throw Object.assign(new Error('semester_id 为必填项'), { code: 40001 });
+  const semester = await prisma.academicSemester.findUnique({ where: { semester_id: semesterId } });
+  if (!semester) throw Object.assign(new Error('学期不存在'), { code: 40002 });
+  const offering = await prisma.courseOffering.upsert({
+    where: { course_id_semester_id: { course_id: courseId, semester_id: semesterId } },
+    update: {
+      start_date: body.start_date ? new Date(body.start_date) : semester.start_date,
+      end_date: body.end_date ? new Date(body.end_date) : semester.end_date,
+      teaching_progress: body.teaching_progress || undefined,
+      status: body.status || 'active',
+    },
+    create: {
+      course_id: courseId,
+      semester_id: semesterId,
+      start_date: body.start_date ? new Date(body.start_date) : semester.start_date,
+      end_date: body.end_date ? new Date(body.end_date) : semester.end_date,
+      teaching_progress: body.teaching_progress || undefined,
+      status: body.status || 'active',
+    },
+  });
+  return { course_offering_id: offering.course_offering_id, course_id: courseId, semester_id: semesterId };
+}
+
+async function listAdministrativeClasses(user, query = {}) {
+  const classIds = await getAccessibleTeachingClassIds(user);
+  const where = {};
+  if (!isAdmin(user)) {
+    where.students = {
+      some: {
+        user: {
+          student_course_enrollments: {
+            some: { teaching_class_id: { in: classIds }, enrollment_status: 'active' },
+          },
+        },
+      },
+    };
+  }
+  if (query.keyword) where.class_name = { contains: query.keyword };
+  if (query.grade) where.grade = query.grade;
+  if (query.major_id) where.major_id = Number(query.major_id);
+  if (query.status) where.status = query.status;
+  const rows = await prisma.adminClass.findMany({
+    where,
+    include: {
+      college_entity: true,
+      major_entity: true,
+      advisor: { include: { profile: true } },
+      _count: { select: { students: true } },
+    },
+    orderBy: [{ grade: 'desc' }, { class_name: 'asc' }],
+  });
+  return {
+    list: rows.map((item) => ({
+      administrative_class_id: item.admin_class_id,
+      name: item.class_name,
+      college_id: item.college_id,
+      college: item.college_entity?.name || item.college,
+      major_id: item.major_id,
+      major: item.major_entity?.name || item.major,
+      grade: item.grade,
+      advisor_user_id: item.advisor_user_id,
+      advisor_name: item.advisor?.profile?.real_name || item.advisor?.username || null,
+      status: item.status,
+      student_count: item._count.students,
+    })),
+    total: rows.length,
+  };
+}
+
+async function listAdministrativeClassStudents(user, adminClassId) {
+  const classIds = await getAccessibleTeachingClassIds(user);
+  const where = { admin_class_id: adminClassId, user: { role: 'STUDENT', status: 'ACTIVE' } };
+  if (!isAdmin(user)) {
+    where.user.student_course_enrollments = { some: { teaching_class_id: { in: classIds }, enrollment_status: 'active' } };
+  }
+  const rows = await prisma.userProfile.findMany({ where, include: { user: true }, orderBy: { student_no: 'asc' } });
+  return {
+    list: rows.map((item) => ({
+      student_user_id: item.user_id,
+      student_name: item.real_name,
+      student_no: item.student_no,
+      major: item.major,
+      grade: item.grade,
+    })),
+    total: rows.length,
+  };
+}
+
+async function importAdministrativeClasses(user, teachingClassId, body) {
+  await ensureTeachingClassAccess(user, teachingClassId);
+  const adminClassIds = Array.isArray(body.admin_class_ids) ? body.admin_class_ids.map(Number).filter(Boolean) : [];
+  if (!adminClassIds.length) throw Object.assign(new Error('admin_class_ids 为必填项'), { code: 40001 });
+  const profiles = await prisma.userProfile.findMany({
+    where: { admin_class_id: { in: adminClassIds }, user: { role: 'STUDENT', status: 'ACTIVE' } },
+    select: { user_id: true },
+  });
+  const result = await addClassStudents(user, teachingClassId, { student_user_ids: profiles.map((item) => item.user_id) });
+  await prisma.teachingClassAdminClass.createMany({
+    data: adminClassIds.map((adminClassId) => ({ teaching_class_id: teachingClassId, admin_class_id: adminClassId })),
+    skipDuplicates: true,
+  });
+  return { ...result, imported_count: result.results.filter((item) => item.success).length };
+}
+
+async function batchRemoveClassStudents(user, teachingClassId, body) {
+  const tc = await ensureTeachingClassAccess(user, teachingClassId);
+  const studentIds = Array.isArray(body.student_user_ids) ? body.student_user_ids.map(Number).filter(Boolean) : [];
+  if (!studentIds.length) throw Object.assign(new Error('student_user_ids 为必填项'), { code: 40001 });
+  const result = await prisma.studentCourseEnrollment.updateMany({
+    where: { teaching_class_id: teachingClassId, course_id: tc.course_id, student_user_id: { in: studentIds } },
+    data: { enrollment_status: 'removed' },
+  });
+  return { removed_count: result.count };
+}
+
+async function importClassRosterRows(user, teachingClassId, body) {
+  await ensureTeachingClassAccess(user, teachingClassId);
+  const studentNos = (Array.isArray(body.rows) ? body.rows : [])
+    .map((row) => String(row.student_no || '').trim())
+    .filter(Boolean);
+  if (!studentNos.length) throw Object.assign(new Error('CSV 行中缺少 student_no'), { code: 40001 });
+  const profiles = await prisma.userProfile.findMany({
+    where: { student_no: { in: studentNos }, user: { role: 'STUDENT', status: 'ACTIVE' } },
+    select: { user_id: true, student_no: true },
+  });
+  const result = await addClassStudents(user, teachingClassId, { student_user_ids: profiles.map((item) => item.user_id) });
+  const found = new Set(profiles.map((item) => item.student_no));
+  return { ...result, missing_student_nos: studentNos.filter((item) => !found.has(item)) };
+}
+
+async function getClassRoster(user, teachingClassId) {
+  const data = await listClassStudents(user, teachingClassId, {});
+  return data.list;
 }
 
 module.exports = {
@@ -594,4 +886,14 @@ module.exports = {
   createKnowledgePoint,
   updateKnowledgePoint,
   deleteKnowledgePoint,
+  listSemesters,
+  createSemester,
+  listCourseOfferings,
+  createCourseOffering,
+  listAdministrativeClasses,
+  listAdministrativeClassStudents,
+  importAdministrativeClasses,
+  batchRemoveClassStudents,
+  importClassRosterRows,
+  getClassRoster,
 };

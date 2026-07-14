@@ -10,14 +10,17 @@ router.use(['/agents', '/agent-conversations'], auth, roles(['student', 'teacher
 router.post('/agents/:id/conversations', controller.createConversation);
 router.get('/agents/:id/conversations', controller.listConversations);
 router.get('/agent-conversations', controller.listUserConversations);
+router.post('/agent-conversations/bulk', controller.bulkManageConversations);
 router.get('/agent-conversations/:conversationId', controller.getConversation);
 router.put('/agent-conversations/:conversationId', controller.updateConversation);
 router.delete('/agent-conversations/:conversationId', controller.deleteConversation);
+router.delete('/agent-conversations/:conversationId/messages', controller.clearConversationMessages);
 router.get('/agent-conversations/:conversationId/file-requirements', fileRequirements.get);
 router.patch('/agent-conversations/:conversationId/file-requirements', fileRequirements.patch);
 router.post('/agent-conversations/:conversationId/file-prefill', fileRequirements.prefill);
 router.post('/agent-conversations/:conversationId/file-plan', rateLimit({ max: 20, keyPrefix: 'file-plan' }), fileRequirements.plan);
 router.post('/agent-conversations/:conversationId/file-confirm', fileRequirements.confirm);
+router.get('/agent-conversations/:conversationId/messages/:messageId/attachments/:attachmentId', controller.getAttachment);
 router.post('/agent-conversations/:conversationId/messages', rateLimit({ max: 20, keyPrefix: 'agent-chat' }), controller.sendMessage);
 router.post('/agent-conversations/:conversationId/generate', rateLimit({ max: 20, keyPrefix: 'agent-chat-generate' }), controller.generateMessage);
 router.post('/agent-conversations/:conversationId/stream', rateLimit({ max: 20, keyPrefix: 'agent-chat-stream' }), controller.streamMessage);
@@ -27,5 +30,6 @@ router.post('/agents/:id/memories', controller.createMemory);
 router.delete('/agents/:id/memories', controller.clearMemories);
 router.put('/agents/:id/memories/:memoryId', controller.updateMemory);
 router.delete('/agents/:id/memories/:memoryId', controller.deleteMemory);
+router.post('/agents/:id/messages/:messageId/memory-candidate', controller.resolveMemoryCandidate);
 
 module.exports = router;

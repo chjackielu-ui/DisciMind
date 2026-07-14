@@ -1,6 +1,7 @@
 const { z } = require('zod');
 
 const createSchema = z.object({
+  learningPlanId: z.coerce.number().int().positive().optional(),
   workflowTemplateId: z.coerce.number().int().positive().optional(),
   learningGoalId: z.coerce.number().int().positive().optional(),
   learningSessionId: z.coerce.number().int().positive().optional().nullable(),
@@ -8,6 +9,7 @@ const createSchema = z.object({
 }).strict();
 
 const listSchema = z.object({
+  learningPlanId: z.coerce.number().int().positive().optional(),
   workflowTemplateId: z.coerce.number().int().positive().optional(),
   learningGoalId: z.coerce.number().int().positive().optional(),
   status: z.enum(['NOT_STARTED', 'QUEUED', 'PRELOADING', 'PARTIAL', 'READY', 'FAILED', 'EXPIRED']).optional(),

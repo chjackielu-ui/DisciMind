@@ -2,6 +2,8 @@
 
 const { success, fail } = require('../utils/response');
 const aiChatService = require('../services/ai-chat.service');
+const attachmentService = require('../services/ai-chat-attachment.service');
+const { sseError } = require('../utils/public-error');
 
 function getUserId(req) {
   return req.user?.user_id;
@@ -108,6 +110,7 @@ async function streamMessage(req, res) {
   let clientClosed = false;
   let completed = false;
   let fullContent = '';
+  let truncated = false;
 
   req.on('close', () => {
     if (!completed) {
@@ -129,16 +132,23 @@ async function streamMessage(req, res) {
   writeSse(res, 'status', { message: '正在思考中...' });
 
   try {
-    const stream = await aiChatService.createCompletionStream(turn.messages, abortController.signal);
+    const stream = await aiChatService.createCompletionStream(turn.messages, abortController.signal, turn);
 
     for await (const chunk of stream) {
       if (clientClosed) break;
-      const delta = chunk.choices?.[0]?.delta?.content || '';
+      const choice = chunk.choices?.[0] || {};
+      if (choice.finish_reason === 'length') truncated = true;
+      const delta = choice.delta?.content || '';
       if (!delta) continue;
       fullContent += delta;
       writeSse(res, 'delta', { content: delta });
     }
 
+    if (truncated && turn.assistantSurface === 'floating') {
+      const notice = '\n\n> 回答较长，可进入完整对话继续查看。';
+      fullContent += notice;
+      writeSse(res, 'delta', { content: notice });
+    }
     const result = await aiChatService.finalizeAssistantMessage(conversationId, fullContent);
     completed = true;
 
@@ -146,6 +156,7 @@ async function streamMessage(req, res) {
       writeSse(res, 'done', {
         assistant_message: result.assistantMessage,
         conversation: result.conversation,
+        truncated,
       });
       res.end();
     }
@@ -162,7 +173,7 @@ async function streamMessage(req, res) {
 
     console.error('[ai-chat.controller] streamMessage 异常:', err.message);
     completed = true;
-    writeSse(res, 'error', { message: err.message || 'AI 生成失败，请稍后再试' });
+    writeSse(res, 'error', sseError(err, req, 'AI 生成失败，请稍后再试'));
     res.end();
   }
 }
@@ -190,6 +201,39 @@ async function deleteConversation(req, res) {
     return success(res, data, '删除会话成功');
   } catch (err) {
     return handleError(res, err, 'deleteConversation');
+  }
+}
+
+async function uploadAttachment(req, res) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+    const data = await attachmentService.upload(userId, req.file, req.body?.conversationId);
+    return success(res, data, '附件上传成功');
+  } catch (err) {
+    return handleError(res, err, 'uploadAttachment');
+  }
+}
+
+async function renameConversation(req, res) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+    const data = await aiChatService.renameConversation(userId, parseConversationId(req), req.body?.title);
+    return success(res, data, '会话已重命名');
+  } catch (err) {
+    return handleError(res, err, 'renameConversation');
+  }
+}
+
+async function bulkManageConversations(req, res) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+    const data = await aiChatService.bulkManageConversations(userId, req.body || {});
+    return success(res, data, '批量操作完成');
+  } catch (err) {
+    return handleError(res, err, 'bulkManageConversations');
   }
 }
 
@@ -222,5 +266,8 @@ module.exports = {
   streamMessage,
   clearMessages,
   deleteConversation,
+  renameConversation,
+  bulkManageConversations,
   getAttachment,
+  uploadAttachment,
 };

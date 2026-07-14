@@ -135,14 +135,15 @@ test('poller retries exactly three times and manual sync can recover', async () 
   assert.equal(poller.hasTimer(), false);
 });
 
-test('card close handler only persists a local snapshot and never calls task mutations', async () => {
+test('task island collapses locally and never imports task mutation endpoints', async () => {
   const fs = require('node:fs/promises');
   const source = await fs.readFile(path.resolve(__dirname, '../../frontend/src/components/task-center.js'), 'utf8');
-  const start = source.indexOf("querySelectorAll('[data-task-hide]')");
-  const end = source.indexOf("querySelectorAll('[data-task-open]')", start);
-  assert.ok(start >= 0 && end > start, 'task hide handler must exist');
-  const closeHandler = source.slice(start, end);
-  assert.doesNotMatch(closeHandler, /cancelTask\s*\(/);
-  assert.doesNotMatch(closeHandler, /dismissTask\s*\(/);
-  assert.match(closeHandler, /writeCardState\s*\(/);
+  assert.match(source, /collapseNow\(\)/);
+  assert.match(source, /AUTO_COLLAPSE_MS\s*=\s*2500/);
+  assert.match(source, /onOutsidePointer/);
+  assert.match(source, /discimind:task-island:intro:/);
+  assert.doesNotMatch(source, /firstPayload/);
+  assert.doesNotMatch(source, /\|\| changed\).*expand/);
+  assert.doesNotMatch(source, /import\s*\{[^}]*cancelTask/);
+  assert.doesNotMatch(source, /import\s*\{[^}]*dismissTask/);
 });

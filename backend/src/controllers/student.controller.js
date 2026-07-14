@@ -3,6 +3,8 @@
 
 const { success, fail } = require('../utils/response');
 const studentService = require('../services/student.service');
+const fs = require('fs');
+const path = require('path');
 
 // ========================
 // 辅助：从 req 中获取 userId
@@ -358,6 +360,25 @@ async function getPortraitReport(req, res) {
   }
 }
 
+async function getSharedResources(req, res) {
+  try { return success(res, await studentService.getSharedResources(getUserId(req), req.query || {}), '获取教学资源成功'); }
+  catch (err) { return fail(res, err.code || 50001, err.code ? err.message : '服务器错误'); }
+}
+
+async function downloadSharedResource(req, res) {
+  try {
+    const documentId = Number(req.params.document_id);
+    if (!Number.isInteger(documentId)) return fail(res, 40001, 'document_id 参数不合法');
+    const doc = await studentService.getSharedResourceForDownload(getUserId(req), documentId);
+    const external = doc.external_url || (/^https?:\/\//.test(doc.file_url || '') ? doc.file_url : null);
+    if (external) return res.redirect(external);
+    const storageRoot = path.resolve(__dirname, '../../../storage');
+    const absolute = path.resolve(storageRoot, `.${doc.file_url}`);
+    if (!absolute.startsWith(`${storageRoot}${path.sep}`) || !fs.existsSync(absolute)) return fail(res, 40002, '文件不存在');
+    return res.download(absolute, doc.original_filename);
+  } catch (err) { return fail(res, err.code || 50001, err.code ? err.message : '服务器错误'); }
+}
+
 // ========================
 // 导出
 // ========================
@@ -380,4 +401,6 @@ module.exports = {
   getPortraitReport,
   getCourseMasteryDistribution,
   getCourseAbilityProfile,
+  getSharedResources,
+  downloadSharedResource,
 };

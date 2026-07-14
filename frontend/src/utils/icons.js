@@ -186,6 +186,14 @@ export function iconDocument() {
 // 导航图标映射
 // ========================
 
+function iconSparkles() {
+  return svgWrap(`
+    <path d="M12 3l1.25 3.25L16.5 7.5l-3.25 1.25L12 12l-1.25-3.25L7.5 7.5l3.25-1.25L12 3z"/>
+    <path d="M18 13l.8 2.2L21 16l-2.2.8L18 19l-.8-2.2L15 16l2.2-.8L18 13z"/>
+    <path d="M6 13l.8 2.2L9 16l-2.2.8L6 19l-.8-2.2L3 16l2.2-.8L6 13z"/>
+  `)
+}
+
 export const NAV_ICONS = {
   home: iconHome,
   book: iconBook,
@@ -193,6 +201,7 @@ export const NAV_ICONS = {
   star: iconStar,
   user: iconUser,
   message: iconMessage,
+  sparkles: iconSparkles,
   chart: iconChart,
   analytics: iconChart,
   edit: iconEdit,

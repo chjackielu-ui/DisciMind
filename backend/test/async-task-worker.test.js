@@ -77,7 +77,7 @@ test('an expired lease can be recovered without a duplicate execution', async ()
   assert.equal(executions, 1);
 });
 
-test('a fresh running task is not recovered before the five minute stale window', async () => {
+test('a fresh leased running task is not recovered before its lease expires', async () => {
   const userId = await owner();
   const token = crypto.randomUUID();
   const taskType = 'VOICE_PRELOAD';
@@ -85,6 +85,7 @@ test('a fresh running task is not recovered before the five minute stale window'
     operationId: `worker-${token}`, taskType, title: '活跃任务保护测试',
     status: 'RUNNING', progressMode: 'STAGE_ONLY', cancellable: true,
   });
+  await prisma.asyncTask.update({ where: { id: created.id }, data: { lockedBy: 'live-instance', lockedAt: new Date() } });
   let executions = 0;
   const worker = new AsyncTaskWorker({ instanceId: `fresh-${crypto.randomUUID()}`, operationIdContains: token }).register(taskType, async () => {
     executions += 1;
@@ -94,7 +95,26 @@ test('a fresh running task is not recovered before the five minute stale window'
   await new Promise(resolve => setTimeout(resolve, 50));
   const untouched = await prisma.asyncTask.findUnique({ where: { id: created.id } });
   assert.equal(executions, 0);
-  assert.equal(untouched.lockedBy, null);
+  assert.equal(untouched.lockedBy, 'live-instance');
+});
+
+test('an unleased running task is recovered immediately after a backend restart', async () => {
+  const userId = await owner();
+  const token = crypto.randomUUID();
+  const taskType = 'VOICE_PRELOAD';
+  const created = await tasks.createTask(userId, {
+    operationId: `worker-${token}`, taskType, title: '重启恢复测试',
+    status: 'RUNNING', progressMode: 'STAGE_ONLY', cancellable: true,
+  });
+  let executions = 0;
+  const worker = new AsyncTaskWorker({ instanceId: `restart-${crypto.randomUUID()}`, operationIdContains: token }).register(taskType, async task => {
+    executions += 1;
+    await tasks.updateTask(task.id, { status: 'SUCCEEDED', stage: 'READY' });
+    return { terminal: true };
+  });
+  await worker.scanLocal();
+  await waitFor(async () => (await prisma.asyncTask.findUnique({ where: { id: created.id } }))?.status === 'SUCCEEDED');
+  assert.equal(executions, 1);
 });
 
 test('worker lease indexes exist in the live database', async () => {

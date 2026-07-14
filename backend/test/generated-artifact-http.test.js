@@ -48,6 +48,9 @@ test.after(async () => {
   if (artifactId) {
     const artifact = await prisma.generatedArtifact.findUnique({ where: { id: artifactId } }).catch(() => null);
     if (artifact?.storagePath) await fs.unlink(exporter.resolveStoredPath(artifact.storagePath)).catch(() => null);
+    const exports = await prisma.generatedArtifactExport.findMany({ where: { artifactId }, select: { storagePath: true } });
+    for (const item of exports) if (item.storagePath) await fs.unlink(exporter.resolveStoredPath(item.storagePath)).catch(() => null);
+    await prisma.generatedArtifactExport.deleteMany({ where: { artifactId } });
     await prisma.generatedArtifact.deleteMany({ where: { id: artifactId } });
   }
   if (agentId) await prisma.userAgent.deleteMany({ where: { id: agentId } });

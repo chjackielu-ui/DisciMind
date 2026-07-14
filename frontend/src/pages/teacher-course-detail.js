@@ -11,6 +11,7 @@ import {
   getClassStudents,
   getChapters, createChapter, deleteChapter,
   getKnowledgePoints, createKnowledgePoint, deleteKnowledgePoint,
+  getAcademicSemesters, getCourseOfferings, createCourseOffering,
 } from '../api/teacher.js'
 import { iconBook, iconSearch, iconRefresh, iconUser, iconStar } from '../utils/icons.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
@@ -77,15 +78,21 @@ export async function renderTeacherCourseDetail(app, params) {
   // ---- 加载附加数据（教学班级、章节） ----
   let classes = []
   let chapters = []
+  let offerings = []
+  let semesters = []
   let kpCache = {} // chapterId -> knowledgePoints[]
 
   try {
-    const [classRes, chapterRes] = await Promise.all([
+    const [classRes, chapterRes, offeringRes, semesterRes] = await Promise.all([
       getTeachingClasses(courseId),
       getChapters(courseId),
+      getCourseOfferings(courseId),
+      getAcademicSemesters({ status: 'active' }),
     ])
     classes = classRes.data?.list || []
     chapters = chapterRes.data?.list || []
+    offerings = offeringRes.data?.list || []
+    semesters = semesterRes.data?.list || []
   } catch (err) {
     // 非致命：仅显示空白
     classes = course.teaching_classes || []
@@ -118,8 +125,9 @@ export async function renderTeacherCourseDetail(app, params) {
         <div class="tab-content" id="tab-classes" style="display:block;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
             <h3 style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">教学班级（${classes.length}）</h3>
-            <button class="btn btn-primary" id="btn-create-class" style="font-size:0.85rem;padding:6px 14px;">＋ 新建班级</button>
+            <div style="display:flex;gap:8px;"><button class="btn" id="btn-create-offering" style="font-size:0.85rem;padding:6px 14px;border:1px solid var(--border);">创建课程开设</button><button class="btn btn-primary" id="btn-create-class" style="font-size:0.85rem;padding:6px 14px;">新建教学班</button></div>
           </div>
+          <div class="course-offering-strip">${offerings.length ? offerings.map(item => `<article><b>${escapeHtml(item.semester_name)}</b><span>${escapeHtml(item.status)} · ${item.teaching_class_count || 0} 个教学班</span><small>${item.start_date ? formatDate(item.start_date, 'date') : '-'} 至 ${item.end_date ? formatDate(item.end_date, 'date') : '-'}</small></article>`).join('') : '<div class="empty-hint">尚未创建课程开设；教学班仍兼容旧学期字段。</div>'}</div>
           <div id="classes-list-container">
             ${renderClassesList(classes)}
           </div>
@@ -207,10 +215,12 @@ export async function renderTeacherCourseDetail(app, params) {
         <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
           <h3 id="class-modal-title" style="margin-bottom:20px;font-size:1.2rem;">新建教学班级</h3>
           <form id="class-form">
+            <div class="form-group" style="margin-bottom:14px;"><label>课程开设</label><select id="form-class-offering"><option value="">暂不绑定</option>${offerings.map(item => `<option value="${item.course_offering_id}">${escapeHtml(item.semester_name)}</option>`).join('')}</select></div>
             <div class="form-group" style="margin-bottom:14px;">
               <label>班级名称 <span class="required">*</span></label>
               <input type="text" id="form-class-name" required placeholder="例如：2024级计算机科学1班">
             </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;"><div class="form-group"><label>教学班编码</label><input id="form-class-code" placeholder="例如：ML-2026-01"></div><div class="form-group"><label>容量</label><input id="form-class-capacity" type="number" min="1"></div><div class="form-group"><label>上课时间</label><input id="form-class-schedule" placeholder="周二 1-2 节"></div><div class="form-group"><label>上课地点</label><input id="form-class-location" placeholder="博学楼 A201"></div></div>
             <div class="form-group" style="margin-bottom:14px;">
               <label>学期</label>
               <input type="text" id="form-class-semester" placeholder="例如：2024-2025学年第一学期">
@@ -226,6 +236,8 @@ export async function renderTeacherCourseDetail(app, params) {
           </form>
         </div>
       </div>
+
+      <div class="modal-overlay" id="offering-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;"><div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;"><h3>创建课程开设</h3><form id="offering-form"><div class="form-group" style="margin-bottom:14px;"><label>学期 <span class="required">*</span></label><select id="offering-semester" required><option value="">请选择学期</option>${semesters.map(item => `<option value="${item.semester_id}">${escapeHtml(item.name)}</option>`).join('')}</select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div class="form-group"><label>开始日期</label><input id="offering-start" type="date"></div><div class="form-group"><label>结束日期</label><input id="offering-end" type="date"></div></div><div class="form-group" style="margin-top:14px;"><label>教学进度</label><textarea id="offering-progress" rows="3" placeholder="可填写进度说明或 JSON 结构"></textarea></div><footer style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;"><button type="button" class="btn" id="offering-cancel">取消</button><button class="btn btn-primary" type="submit">创建</button></footer></form></div></div>
 
       <!-- 编辑课程弹窗 -->
       <div class="modal-overlay" id="course-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
@@ -339,6 +351,7 @@ export async function renderTeacherCourseDetail(app, params) {
     // ---- 绑定事件 ----
     bindTabEvents()
     bindClassEvents()
+    bindOfferingEvents()
     bindChapterEvents()
     bindCourseEditEvents()
   }
@@ -506,7 +519,12 @@ export async function renderTeacherCourseDetail(app, params) {
       try {
         await createTeachingClass(courseId, {
           teaching_class_name: name,
+          course_offering_id: Number(document.getElementById('form-class-offering').value) || undefined,
           semester: semester || undefined,
+          code: document.getElementById('form-class-code').value.trim() || undefined,
+          capacity: Number(document.getElementById('form-class-capacity').value) || undefined,
+          schedule: document.getElementById('form-class-schedule').value.trim() || undefined,
+          location: document.getElementById('form-class-location').value.trim() || undefined,
           description: description || undefined,
         })
         closeClassModal()
@@ -544,12 +562,36 @@ export async function renderTeacherCourseDetail(app, params) {
     modal.style.display = 'flex'
     document.getElementById('class-modal-title').textContent = '新建教学班级'
     document.getElementById('form-class-name').value = ''
+    document.getElementById('form-class-offering').value = ''
     document.getElementById('form-class-semester').value = ''
+    document.getElementById('form-class-code').value = ''
+    document.getElementById('form-class-capacity').value = ''
+    document.getElementById('form-class-schedule').value = ''
+    document.getElementById('form-class-location').value = ''
     document.getElementById('form-class-desc').value = ''
   }
 
   function closeClassModal() {
     document.getElementById('class-modal').style.display = 'none'
+  }
+
+  function bindOfferingEvents() {
+    const modal = document.getElementById('offering-modal')
+    document.getElementById('btn-create-offering')?.addEventListener('click', () => { modal.style.display = 'flex' })
+    document.getElementById('offering-cancel')?.addEventListener('click', () => { modal.style.display = 'none' })
+    modal?.addEventListener('click', event => { if (event.target === modal) modal.style.display = 'none' })
+    document.getElementById('offering-form')?.addEventListener('submit', async event => {
+      event.preventDefault()
+      const semesterId = Number(document.getElementById('offering-semester').value)
+      if (!semesterId) { alert('请选择学期'); return }
+      try {
+        await createCourseOffering(courseId, { semester_id: semesterId, start_date: document.getElementById('offering-start').value || undefined, end_date: document.getElementById('offering-end').value || undefined, teaching_progress: document.getElementById('offering-progress').value.trim() || undefined })
+        const response = await getCourseOfferings(courseId)
+        offerings = response.data.list || []
+        modal.style.display = 'none'
+        renderFullPage()
+      } catch (error) { alert(error.message || '创建课程开设失败') }
+    })
   }
 
   async function refreshClasses() {
@@ -895,8 +937,6 @@ export async function renderTeacherCourseDetail(app, params) {
     document.getElementById('course-edit-modal').style.display = 'none'
   }
 }
-
-
 
 
 

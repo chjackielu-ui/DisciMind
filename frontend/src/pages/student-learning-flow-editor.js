@@ -1,7 +1,12 @@
 // 学习流可视化编辑器 — DisciMind 专业版
 import { learningWorkflowApi } from '../api/learning-workflows.js';
+import { studentLearningPlanApi } from '../api/student-learning-plans.js';
 import { navigateTo } from '../utils/router.js';
 import { FLOW_DRAFT_STORAGE_KEY, LEARNING_FLOW_NODE_TYPES } from '../config/learning-flow.js';
+import {
+  autoLayoutGraph, canvasPointFromClient, defaultSourcePort, edgeSource, edgeTarget,
+  horizontalEdgePath, nodePortPoint, normalizeGraphPorts, removeNodeFromGraph, zoomAroundCanvasPoint,
+} from '../utils/learning-flow-canvas.js';
 
 // ============================================================
 // SVG icons
@@ -77,6 +82,7 @@ const ES={
   clipboard:null,
   autoSaveTimer:null,
   eventAbort:null,
+  draftPlan:null,learningPlan:null,
 };
 
 // ============================================================
@@ -156,7 +162,7 @@ async function loadTemplate(id){
     const r=await learningWorkflowApi.getTemplate(id);
     ES.template=r.data||r;ES.templateId=id;
     const v=ES.template.latestVersion;
-    ES.graph=v?.graph_json||{entryNodeId:'',nodes:[],edges:[]};
+    ES.graph=normalizeGraphPorts(v?.graph_json||{entryNodeId:'',nodes:[],edges:[]});
     ES.settings=v?.settings_json||ES.settings;
     ES.title=ES.template.title||'';
     ES.description=ES.template.description||'';
@@ -171,9 +177,11 @@ function initEmpty(){
   ES.graph={entryNodeId:'',nodes:[],edges:[]};
   ES.description='';ES.courseId=null;ES.knowledgePointId=null;
   const draft=readDraft();
+  ES.draftPlan=draft?{creationMode:draft.creationMode||'custom',goalText:draft.goalText||draft.title||'',courseId:draft.courseId,knowledgePointId:draft.knowledgePointId}:null;
   ES.title=draft?.title||'';ES.description=draft?.description||'';
   ES.courseId=draft?.courseId||null;ES.knowledgePointId=draft?.knowledgePointId||null;
   ES.settings={...ES.settings,...(draft?.settings||{})};
+  if(draft?.graph?.nodes?.length)ES.graph=normalizeGraphPorts(JSON.parse(JSON.stringify(draft.graph)));
   setVal('lwe-title',ES.title);
   pushUndo();renderCanvas();renderSettingsPanel();
 }
@@ -254,16 +262,16 @@ function renderCanvas(){
   <marker id="lwe-arrow-cond" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#f59e0b"/></marker>`;
   svg.appendChild(defs);
 
-  for(const edge of g.edges||[]){
-    const sn=g.nodes.find(n=>n.id===edge.source);
-    const tn=g.nodes.find(n=>n.id===edge.target);
+  for(const [edgeIndex,edge] of (g.edges||[]).entries()){
+    const sn=g.nodes.find(n=>String(n.id)===edgeSource(edge));
+    const tn=g.nodes.find(n=>String(n.id)===edgeTarget(edge));
     if(!sn||!tn)continue;
-    const sx=(sn.position?.x||0)+N_W/2,sy=(sn.position?.y||0)+N_H;
-    const tx=(tn.position?.x||0)+N_W/2,ty=(tn.position?.y||0);
+    const sourcePoint=nodePortPoint(sn,defaultSourcePort(edge));
+    const targetPoint=nodePortPoint(tn,'input');
+    const sx=sourcePoint.x,sy=sourcePoint.y,tx=targetPoint.x,ty=targetPoint.y;
     const isSel=ES.selEdgeId===edge.id;
     const isCond=edge.condition&&edge.condition.type!=='always';
-    const midY=(sy+ty)/2;
-    const d=`M${sx} ${sy} C${sx} ${midY}, ${tx} ${midY}, ${tx} ${ty}`;
+    const d=horizontalEdgePath(sourcePoint,targetPoint,edgeIndex);
 
     // Hit area (wider invisible)
     const hit=document.createElementNS('http://www.w3.org/2000/svg','path');
@@ -285,7 +293,7 @@ function renderCanvas(){
     // Condition label
     if(isCond){
       const lbl=document.createElementNS('http://www.w3.org/2000/svg','text');
-      lbl.setAttribute('x',(sx+tx)/2);lbl.setAttribute('y',midY-6);
+      lbl.setAttribute('x',(sx+tx)/2);lbl.setAttribute('y',(sy+ty)/2-8);
       lbl.setAttribute('text-anchor','middle');lbl.setAttribute('font-size','10');lbl.setAttribute('fill','#f59e0b');
       lbl.textContent=edge.label||getConditionLabel(edge.condition);
       svg.appendChild(lbl);
@@ -299,9 +307,12 @@ function renderCanvas(){
     const isSel=ES.selNodeId===node.id;
     const el=document.createElement('div');
     el.className='lw-canvas-node'+(isSel?' selected':'');
-    el.style.cssText=`left:${node.position?.x||0}px;top:${node.position?.y||0}px;width:${N_W}px;`;
+    el.style.cssText=`left:${node.position?.x||0}px;top:${node.position?.y||0}px;width:${N_W}px;height:${N_H}px;box-sizing:border-box;`;
     el.dataset.nodeId=node.id;
     const mins=node.config?.estimatedMinutes||ntInfo(node.type)?.mins||5;
+    const isGate=node.type==='mastery_gate';
+    const inputPort=ES.graph.entryNodeId===node.id?'':`<div class="lw-canvas-node-port in-port" data-port="input" data-node="${node.id}" title="输入端口"></div>`;
+    const outputPorts=node.type==='learning_summary'?'':isGate?`<div class="lw-canvas-node-port out-port pass-port" data-port="pass" data-node="${node.id}" title="通过分支"><span>通过</span></div><div class="lw-canvas-node-port out-port fail-port" data-port="fail" data-node="${node.id}" title="未通过分支"><span>未通过</span></div>`:`<div class="lw-canvas-node-port out-port" data-port="output" data-node="${node.id}" title="输出端口"></div>`;
     el.innerHTML=`
     <div class="lw-canvas-node-body">
       <div class="lw-canvas-node-head">
@@ -314,8 +325,7 @@ function renderCanvas(){
         <span style="color:${c.text}">${ntInfo(node.type)?.agent||''}</span>
       </div>
     </div>
-    <div class="lw-canvas-node-port in-port" data-port="in" data-node="${node.id}"></div>
-    <div class="lw-canvas-node-port out-port" data-port="out" data-node="${node.id}"></div>`;
+    ${inputPort}${outputPorts}`;
 
     // Events
     el.addEventListener('mousedown',e=>{if(e.button===0&&!e.ctrlKey){e.stopPropagation();startDragNode(e,node.id);}});
@@ -329,11 +339,11 @@ function renderCanvas(){
     port.addEventListener('mousedown',e=>{
       e.stopPropagation();e.preventDefault();
       const nodeId=port.dataset.node;
-      if(port.dataset.port==='out')startConnection(nodeId,e);
+      if(port.classList.contains('out-port'))startConnection(nodeId,port.dataset.port,e);
     });
     port.addEventListener('mouseup',e=>{
       e.stopPropagation();
-      if(ES.connecting&&port.dataset.port==='in')finishConnection(port.dataset.node);
+      if(ES.connecting&&port.dataset.port==='input')finishConnection(port.dataset.node,'input');
     });
   });
 
@@ -394,9 +404,7 @@ function deleteSelectedNode(){
   if(!ES.selNodeId)return;
   pushUndo();
   const id=ES.selNodeId;
-  ES.graph.nodes=ES.graph.nodes.filter(n=>n.id!==id);
-  ES.graph.edges=ES.graph.edges.filter(e=>e.source!==id&&e.target!==id);
-  if(ES.graph.entryNodeId===id)ES.graph.entryNodeId=ES.graph.nodes[0]?.id||'';
+  ES.graph=removeNodeFromGraph(ES.graph,id);
   ES.selNodeId=null;
   renderCanvas();showPanelEmpty();markDirty();
 }
@@ -420,12 +428,13 @@ function pasteNode(){
 // ============================================================
 // Connection
 // ============================================================
-function startConnection(nodeId,e){
-  ES.connecting={sourceNodeId:nodeId,startX:e.clientX,startY:e.clientY};
+function startConnection(nodeId,sourcePort,e){
+  ES.connecting={sourceNodeId:nodeId,sourcePort:sourcePort||'output',startX:e.clientX,startY:e.clientY};
   // Draw preview
   const overlay=document.createElement('div');overlay.className='lw-connecting-line';overlay.id='lwe-connect-overlay';
   overlay.innerHTML=`<svg><path id="lwe-connect-path" d=""/></svg>`;
   document.body.appendChild(overlay);
+  document.querySelectorAll('.lw-canvas-node').forEach(node=>{if(node.dataset.nodeId!==String(nodeId)&&node.querySelector('.in-port'))node.classList.add('is-connection-target');});
   const signal=ES.eventAbort?.signal;
   document.addEventListener('mousemove',updateConnectionPreview,{signal});
   document.addEventListener('mouseup',endConnectionDrag,{signal});
@@ -435,34 +444,37 @@ function updateConnectionPreview(e){
   const srcNode=ES.graph.nodes.find(n=>n.id===ES.connecting.sourceNodeId);
   if(!srcNode)return;
   const wrap=document.getElementById('lwe-canvas-wrap');const wr=wrap.getBoundingClientRect();
-  const sx=(srcNode.position?.x||0)+N_W/2,sY=(srcNode.position?.y||0)+N_H;
-  const fsx=sx*ES.scale+ES.panX+wr.left,fsy=sY*ES.scale+ES.panY+wr.top;
-  const midY=(fsy+e.clientY)/2;
+  const sourcePoint=nodePortPoint(srcNode,ES.connecting.sourcePort);
+  const fsx=sourcePoint.x*ES.scale+ES.panX+wr.left,fsy=sourcePoint.y*ES.scale+ES.panY+wr.top;
   const path=document.getElementById('lwe-connect-path');
-  if(path)path.setAttribute('d',`M${fsx} ${fsy} C${fsx} ${midY}, ${e.clientX} ${midY}, ${e.clientX} ${e.clientY}`);
+  if(path)path.setAttribute('d',horizontalEdgePath({x:fsx,y:fsy},{x:e.clientX,y:e.clientY}));
 }
 function endConnectionDrag(e){
   document.removeEventListener('mousemove',updateConnectionPreview);
   document.removeEventListener('mouseup',endConnectionDrag);
   const overlay=document.getElementById('lwe-connect-overlay');
   if(overlay)overlay.remove();
+  document.querySelectorAll('.lw-canvas-node.is-connection-target').forEach(node=>node.classList.remove('is-connection-target'));
   ES.connecting=null;
 }
-function finishConnection(targetNodeId){
+function finishConnection(targetNodeId,targetPort='input'){
   if(!ES.connecting)return;
-  const src=ES.connecting.sourceNodeId;
+  const src=ES.connecting.sourceNodeId,sourcePort=ES.connecting.sourcePort||'output';
   if(src===targetNodeId){ES.connecting=null;return;}
-  const dup=ES.graph.edges.some(e=>e.source===src&&e.target===targetNodeId);
+  const dup=ES.graph.edges.some(e=>edgeSource(e)===String(src)&&edgeTarget(e)===String(targetNodeId)&&defaultSourcePort(e)===sourcePort);
   if(dup){ES.connecting=null;return;}
   if (wouldCreateCycle(src, targetNodeId)) { ES.connecting=null;showToast('该连线会形成循环，已阻止','warn');return; }
   pushUndo();
-  ES.graph.edges.push({id:'e'+Date.now(),source:src,target:targetNodeId,condition:{type:'always',params:{}},label:''});
+  const condition=sourcePort==='pass'?{type:'mastery_gte',params:{threshold:ES.settings.target_mastery||80}}:sourcePort==='fail'?{type:'mastery_lt',params:{threshold:ES.settings.target_mastery||80}}:{type:'always',params:{}};
+  ES.graph.edges.push({id:'e'+Date.now(),source:String(src),target:String(targetNodeId),sourceNodeId:String(src),targetNodeId:String(targetNodeId),sourcePort,targetPort,condition,label:sourcePort==='pass'?'达到掌握度':sourcePort==='fail'?'未达到掌握度':''});
   ES.connecting=null;
+  document.getElementById('lwe-connect-overlay')?.remove();
+  document.querySelectorAll('.lw-canvas-node.is-connection-target').forEach(node=>node.classList.remove('is-connection-target'));
   renderCanvas();markDirty();
 }
 function wouldCreateCycle(source,target){
   const seen=new Set([target]);const queue=[target];
-  while(queue.length){const current=queue.shift();if(current===source)return true;for(const edge of ES.graph.edges){if(edge.source===current&&!seen.has(edge.target)){seen.add(edge.target);queue.push(edge.target);}}}
+  while(queue.length){const current=queue.shift();if(String(current)===String(source))return true;for(const edge of ES.graph.edges){const from=edgeSource(edge),to=edgeTarget(edge);if(from===String(current)&&!seen.has(to)){seen.add(to);queue.push(to);}}}
   return false;
 }
 
@@ -679,27 +691,7 @@ function showValidation(){
 function autoLayout(){
   if(ES.graph.nodes.length===0)return;
   pushUndo();
-  const g=ES.graph;const nids=new Set(g.nodes.map(n=>n.id));
-  const adj={};for(const id of nids)adj[id]=[];
-  for(const e of g.edges){if(nids.has(e.source)&&nids.has(e.target))adj[e.source].push(e.target);}
-  const indeg={};for(const id of nids)indeg[id]=0;
-  for(const id of nids){for(const t of adj[id])indeg[t]=(indeg[t]||0)+1;}
-  const layers=[];const remaining=new Set(nids);const col=new Map();
-  while(remaining.size>0){
-    const layer=[];
-    for(const id of remaining){if((indeg[id]||0)===0)layer.push(id);}
-    if(layer.length===0){for(const id of remaining){layer.push(id);break;}}
-    layers.push(layer);
-    for(const id of layer){remaining.delete(id);for(const t of adj[id])indeg[t]=Math.max(0,(indeg[t]||0)-1);}
-  }
-  const SPACING_X=250,SPACING_Y=130,START_X=60,START_Y=40;
-  for(let li=0;li<layers.length;li++){
-    const l=layers[li];
-    for(let ni=0;ni<l.length;ni++){
-      const n=g.nodes.find(x=>x.id===l[ni]);if(!n)continue;
-      n.position={x:START_X+li*SPACING_X,y:START_Y+ni*SPACING_Y};
-    }
-  }
+  ES.graph=autoLayoutGraph(ES.graph);
   renderCanvas();markDirty();
   showToast('自动布局完成','info');
 }
@@ -717,8 +709,9 @@ function setupCanvas(){
     const type=e.dataTransfer.getData('nodeType');
     if(!type)return;
     const r=wrap.getBoundingClientRect();
-    const x=snap((e.clientX-r.left-ES.panX)/ES.scale-N_W/2);
-    const y=snap((e.clientY-r.top-ES.panY)/ES.scale-N_H/2);
+    const point=canvasPointFromClient(e.clientX,e.clientY,r,ES.panX,ES.panY,ES.scale);
+    const x=snap(point.x-N_W/2);
+    const y=snap(point.y-N_H/2);
     addNode(type,x,y);
   });
 
@@ -737,7 +730,7 @@ function setupCanvas(){
     if(ES.dragging){
       const node=ES.graph.nodes.find(n=>n.id===ES.dragging.nodeId);if(!node)return;
       node.position={x:snap(ES.dragging.origX+(e.clientX-ES.dragging.startX)/ES.scale),y:snap(ES.dragging.origY+(e.clientY-ES.dragging.startY)/ES.scale)};
-      renderCanvas();
+      scheduleCanvasRender();
     }
   },{signal:ES.eventAbort?.signal});
   window.addEventListener('mouseup',()=>{
@@ -747,11 +740,16 @@ function setupCanvas(){
 
   // Zoom
   wrap.addEventListener('wheel',e=>{
-    e.preventDefault();const d=e.deltaY>0?-0.08:0.08;
-    ES.scale=Math.max(0.25,Math.min(2.5,ES.scale+d));
+    e.preventDefault();const before=ES.scale,d=e.deltaY>0?-0.08:0.08;
+    const next=Math.max(0.25,Math.min(2.5,before+d));
+    const rect=wrap.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top;
+    const zoomed=zoomAroundCanvasPoint(mx,my,ES.panX,ES.panY,before,next);
+    ES.scale=zoomed.scale;ES.panX=zoomed.panX;ES.panY=zoomed.panY;
     applyTransform();renderMinimap();
   });
 }
+let canvasRenderFrame=0;
+function scheduleCanvasRender(){if(canvasRenderFrame)return;canvasRenderFrame=requestAnimationFrame(()=>{canvasRenderFrame=0;renderCanvas();});}
 function applyTransform(){
   const canvas=document.getElementById('lwe-canvas');
   const svg=document.getElementById('lwe-svg');
@@ -763,8 +761,10 @@ function fitCanvas(){
   const g=ES.graph;if(g.nodes.length===0)return;
   const xs=g.nodes.map(n=>n.position?.x||0),ys=g.nodes.map(n=>n.position?.y||0);
   const wrap=document.getElementById('lwe-canvas-wrap');const w=wrap.clientWidth,h=wrap.clientHeight;
-  ES.panX=(w/2)-((Math.min(...xs)+Math.max(...xs))/2+N_W/2);ES.panY=(h/2)-((Math.min(...ys)+Math.max(...ys))/2+N_H/2);
-  ES.scale=1;applyTransform();renderCanvas();
+  const minX=Math.min(...xs),maxX=Math.max(...xs)+N_W,minY=Math.min(...ys),maxY=Math.max(...ys)+N_H,padding=56;
+  ES.scale=Math.max(.25,Math.min(1.35,(w-padding*2)/Math.max(1,maxX-minX),(h-padding*2)/Math.max(1,maxY-minY)));
+  ES.panX=(w-(minX+maxX)*ES.scale)/2;ES.panY=(h-(minY+maxY)*ES.scale)/2;
+  applyTransform();renderMinimap();
 }
 function snap(v){return Math.round(v/SNAP)*SNAP;}
 
@@ -815,8 +815,17 @@ async function doSave(auto=false){
 
   const data={title:ES.title,description:ES.description||'',course_id:ES.courseId,knowledge_point_id:ES.knowledgePointId,graph_json:ES.graph,settings_json:ES.settings,change_summary:auto?'自动保存':'手动保存'};
   try{
-    if(ES.templateId){await learningWorkflowApi.updateTemplate(ES.templateId,data);}
-    else{const r=await learningWorkflowApi.createTemplate(data);ES.templateId=(r.data||r).template_id;ES.template=r.data||r;sessionStorage.removeItem(FLOW_DRAFT_STORAGE_KEY);}
+    if(ES.templateId){const r=await learningWorkflowApi.updateTemplate(ES.templateId,data);ES.template=r.data||r||ES.template;}
+    else{
+      const r=await learningWorkflowApi.createTemplate(data);ES.templateId=(r.data||r).template_id;ES.template=r.data||r;
+    }
+    if(ES.draftPlan){
+      const versionId=ES.template.latestVersion?.version_id;
+      if(!versionId)throw new Error('学习流已保存，但未返回固定版本，无法创建学习计划');
+      const plan=await studentLearningPlanApi.create({courseId:Number(ES.courseId),knowledgePointId:Number(ES.knowledgePointId),goalText:ES.draftPlan.goalText||ES.title,workflowTemplateId:Number(ES.templateId),workflowVersionId:Number(versionId),creationMode:ES.draftPlan.creationMode||'custom',status:'ready',targetMastery:ES.settings.target_mastery,completionMode:ES.settings.completion_mode,estimatedMinutes:ES.settings.estimated_minutes});
+      ES.learningPlan=plan.data||plan;ES.draftPlan=null;
+    }
+    sessionStorage.removeItem(FLOW_DRAFT_STORAGE_KEY);
     ES.dirty=false;updateSaveStatus('saved');
     return true;
   }catch(e){updateSaveStatus('error');showToast(e.message||'保存失败','error');return false;}
@@ -842,7 +851,8 @@ function addQuickStruct(type){
   }else if(type==='repair'){
     ES.graph={entryNodeId:'n1',nodes:[{id:'n1',type:'wrong_question_repair',title:'错题分析',config:{estimatedMinutes:5},position:{x:baseX,y:baseY}},{id:'n2',type:'analogy_explanation',title:'类比讲解',config:{estimatedMinutes:4,strategy:'analogy_bridge'},position:{x:baseX,y:baseY+140}},{id:'n3',type:'basic_practice',title:'基础练习',config:{estimatedMinutes:5,questionCount:3},position:{x:baseX,y:baseY+280}},{id:'n4',type:'mastery_gate',title:'掌握度判断',config:{},position:{x:baseX,y:baseY+420}},{id:'n5',type:'learning_summary',title:'学习总结',config:{estimatedMinutes:3},position:{x:baseX,y:baseY+560}},{id:'n6',type:'concept_explanation',title:'薄弱点复盘',config:{estimatedMinutes:4,strategy:'misconception_confrontation'},position:{x:baseX+300,y:baseY+420}}],edges:[{id:'e1',source:'n1',target:'n2',condition:{type:'always',params:{}}},{id:'e2',source:'n2',target:'n3',condition:{type:'always',params:{}}},{id:'e3',source:'n3',target:'n4',condition:{type:'always',params:{}}},{id:'e4',source:'n4',target:'n5',condition:{type:'mastery_gte',params:{threshold:75}},label:'掌握度 >= 75'},{id:'e5',source:'n4',target:'n6',condition:{type:'mastery_lt',params:{threshold:75}},label:'掌握度 < 75'},{id:'e6',source:'n6',target:'n5',condition:{type:'always',params:{}}}]};
   }
-  ES.selNodeId=null;ES.selEdgeId=null;pushUndo();renderCanvas();renderSettingsPanel();markDirty();
+  ES.graph=normalizeGraphPorts(ES.graph);
+  ES.selNodeId=null;ES.selEdgeId=null;pushUndo();autoLayout();renderSettingsPanel();markDirty();
   fitCanvas();
 }
 
@@ -883,6 +893,7 @@ function bindAll(){
   },{signal});
   document.addEventListener('keyup',e=>{if(e.code==='Space')ES.spaceDown=false;},{signal});
   window.addEventListener('beforeunload',e=>{if(ES.dirty){e.preventDefault();e.returnValue='学习流尚未保存，确定离开吗？';}},{signal});
+  window.addEventListener('resize',()=>{applyTransform();renderMinimap();},{signal});
 }
 
 async function startLearning(){
@@ -893,7 +904,18 @@ async function startLearning(){
   if(ES.dirty&&!await doSave(false))return;
   if(!ES.templateId){showToast('请先保存学习流','warn');return;}
   if(!ES.courseId||!ES.knowledgePointId){showToast('请先从学习流中心选择课程和知识点','warn');navigateTo(`#/student/learning-flows?flowId=${ES.templateId}`);return;}
-  try{const r=await learningWorkflowApi.quickStart({templateId:ES.templateId,courseId:ES.courseId,knowledgePointId:ES.knowledgePointId});const s=(r.data||r)?.session;if(s)navigateTo(`#/student/learning/session/${s.session_id}`);}
+  try{
+    let plan=ES.learningPlan;
+    if(!plan){const current=await studentLearningPlanApi.current(false);const value=current.data||current;plan=value?.plan||null;}
+    if(!plan||Number(plan.workflowTemplateId)!==Number(ES.templateId)||Number(plan.courseId)!==Number(ES.courseId)||Number(plan.knowledgePointId)!==Number(ES.knowledgePointId)){
+      const template=ES.template?.latestVersion?ES.template:(await learningWorkflowApi.getTemplate(ES.templateId)).data;
+      const versionId=template?.latestVersion?.version_id;
+      if(!versionId)throw new Error('学习流缺少可启动的固定版本');
+      const created=await studentLearningPlanApi.create({courseId:Number(ES.courseId),knowledgePointId:Number(ES.knowledgePointId),goalText:ES.title||ES.description||'自定义学习计划',workflowTemplateId:Number(ES.templateId),workflowVersionId:Number(versionId),creationMode:'custom',status:'ready',targetMastery:ES.settings.target_mastery,completionMode:ES.settings.completion_mode,estimatedMinutes:ES.settings.estimated_minutes});
+      plan=created.data||created;
+    }
+    const r=await studentLearningPlanApi.start(plan.id);const s=(r.data||r)?.session;if(s)navigateTo(`#/student/learning/session/${s.session_id}`);
+  }
   catch(e){showToast(e.message||'启动学习失败','error');}
 }
 

@@ -4,6 +4,7 @@ const path = require('path');
 
 const { loadEnv } = require('./config/env');
 const errorHandler = require('./middlewares/error.middleware');
+const requestIdMiddleware = require('./middlewares/request-id.middleware');
 
 loadEnv();
 
@@ -20,6 +21,8 @@ if ((process.env.AGENT_MODE || 'dify') === 'langgraph' && process.env.LANGGRAPH_
 const app = express();
 
 // ---------- 全局中间件 ----------
+
+app.use(requestIdMiddleware);
 
 function getAllowedOrigins() {
   const configured = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173';
@@ -64,6 +67,10 @@ app.get('/api/health', (req, res) => {
 // ---------- 认证模块 ----------
 const authRoutes = require('./routes/auth.routes');
 app.use('/api/auth', authRoutes);
+
+// ---------- 全角色统一消息中心 ----------
+const notificationRoutes = require('./routes/notification.routes');
+app.use('/api/notifications', notificationRoutes);
 
 // ---------- 学生端基础模块 ----------
 const studentRoutes = require('./routes/student.routes');
@@ -112,6 +119,10 @@ app.use('/api/teacher', teacherKnowledgeRoutes);
 // 教师端消息通知
 const teacherNotificationRoutes = require('./routes/teacher-notification.routes');
 app.use('/api/teacher', teacherNotificationRoutes);
+const teacherReminderRoutes = require('./routes/teacher-reminder.routes');
+app.use('/api/teacher', teacherReminderRoutes);
+const teacherArtifactRoutes = require('./routes/teacher-artifact.routes');
+app.use('/api/teacher', teacherArtifactRoutes);
 
 // 教师端 AI 功能（占位）
 const teacherAiRoutes = require('./routes/teacher-ai.routes');
@@ -120,6 +131,12 @@ app.use('/api/teacher', teacherAiRoutes);
 // 教师端智能教案生成
 const teacherLessonPlanRoutes = require('./routes/teacher-lesson-plan.routes');
 app.use('/api/teacher', teacherLessonPlanRoutes);
+
+const teacherPreparationRoutes = require('./routes/teacher-preparation.routes');
+app.use('/api/teacher', teacherPreparationRoutes);
+
+const teacherProfileRoutes = require('./routes/teacher-profile.routes');
+app.use('/api/teacher', teacherProfileRoutes);
 
 // 教师端作业管理（独立 homework 模块）
 const homeworkRoutes = require('./modules/homework/homework.routes');
@@ -167,6 +184,8 @@ const learningFlowPreloadRoutes = require('./modules/learning-flow-preload/learn
 app.use('/api/learning-flow-preloads', learningFlowPreloadRoutes);
 const studentLearningContextRoutes = require('./modules/student-learning-context/student-learning-context.routes');
 app.use('/api/student-learning-context', studentLearningContextRoutes);
+const studentLearningPlanRoutes = require('./modules/student-learning-plan/student-learning-plan.routes');
+app.use('/api/student-learning-plans', studentLearningPlanRoutes);
 
 // Dify 训练师 Workflow
 const trainerRoutes = require('./modules/dify/trainer.routes');
@@ -187,6 +206,10 @@ app.use('/api/agent/diagnostician', diagnosticianAgentRoutes);
 // 知识库文档模块
 const studentDocumentRoutes = require('./routes/student-document.routes');
 app.use('/api/student', studentDocumentRoutes);
+
+// 教师下发资源：学生接收、阅读、下载与完成状态回流
+const studentResourceRoutes = require('./routes/student-resource.routes');
+app.use('/api/student', studentResourceRoutes);
 
 // 视频推荐模块
 const studentVideoRoutes = require('./routes/student-video.routes');

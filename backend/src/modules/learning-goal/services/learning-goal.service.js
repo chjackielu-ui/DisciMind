@@ -286,7 +286,18 @@ async function createWorkflowPreview(goalId, studentId) {
   let goal = await ownedGoal(goalId, studentId);
   if (goal.status === 'WORKFLOW_READY' && goal.workflow_template_id) {
     const template = await prisma.learningWorkflowTemplate.findUnique({ where: { template_id: goal.workflow_template_id }, include: { versions: { where: { version_id: goal.workflow_version_id }, take: 1 } } });
-    return { goal: publicGoal(goal), preview: { templateId: goal.workflow_template_id, versionId: goal.workflow_version_id, graph: template?.versions?.[0]?.graph_json, settings: template?.versions?.[0]?.settings_json }, idempotentReplay: true };
+    const version = template?.versions?.[0];
+    if (!version) throw createAgentError('WORKFLOW_VERSION_NOT_FOUND', '历史学习目标缺少固定工作流版本，请重新生成', 409);
+    const learningPlan = await require('../../student-learning-plan/student-learning-plan.service').createPlan(
+      { user_id: studentId },
+      {
+        courseId: goal.course_id, knowledgePointId: goal.primary_knowledge_point_id,
+        learningGoalId: goal.goal_id, workflowTemplateId: goal.workflow_template_id, workflowVersionId: goal.workflow_version_id,
+        creationMode: 'goal_based', status: 'ready', targetMastery: goal.target_mastery,
+        completionMode: version.settings_json?.completion_mode || 'mastery_target', estimatedMinutes: goal.estimated_minutes,
+      },
+    );
+    return { goal: publicGoal(goal), preview: { templateId: goal.workflow_template_id, versionId: goal.workflow_version_id, graph: version.graph_json, settings: version.settings_json }, learningPlan, idempotentReplay: true };
   }
   if (!['CONFIRMED', 'GENERATING_WORKFLOW'].includes(goal.status)) throw createAgentError('GOAL_NOT_CONFIRMED', '请先确认学习目标', 409);
   await prisma.learningGoal.update({ where: { goal_id: goal.goal_id }, data: { status: 'GENERATING_WORKFLOW' } });
@@ -304,7 +315,16 @@ async function createWorkflowPreview(goalId, studentId) {
       },
       include: GOAL_INCLUDE,
     });
-    return { goal: publicGoal(goal), preview };
+    const learningPlan = await require('../../student-learning-plan/student-learning-plan.service').createPlan(
+      { user_id: studentId },
+      {
+        courseId: goal.course_id, knowledgePointId: goal.primary_knowledge_point_id,
+        learningGoalId: goal.goal_id, workflowTemplateId: preview.templateId, workflowVersionId: preview.versionId,
+        creationMode: 'goal_based', status: 'ready', targetMastery: goal.target_mastery,
+        completionMode: preview.settings?.completion_mode || 'mastery_target', estimatedMinutes: goal.estimated_minutes,
+      },
+    );
+    return { goal: publicGoal(goal), preview, learningPlan };
   } catch (error) {
     console.error(JSON.stringify({
       event: 'learning_goal_workflow_preview_failed',
@@ -318,12 +338,33 @@ async function createWorkflowPreview(goalId, studentId) {
   }
 }
 
+async function attachSessionToGoalPlan(studentId, goal, session) {
+  const plan = await prisma.studentLearningPlan.findFirst({
+    where: { studentUserId: Number(studentId), learningGoalId: goal.goal_id, workflowVersionId: session.workflow_version_id || goal.workflow_version_id },
+    orderBy: { updatedAt: 'desc' },
+  });
+  if (!plan) return null;
+  return prisma.$transaction(async (tx) => {
+    await tx.studentLearningPlan.updateMany({ where: { studentUserId: Number(studentId), activeKey: { not: null }, id: { not: plan.id } }, data: { activeKey: null } });
+    return tx.studentLearningPlan.update({
+      where: { id: plan.id },
+      data: {
+        learningSessionId: session.session_id,
+        status: session.status === 'COMPLETED' ? 'COMPLETED' : 'RUNNING',
+        activeKey: `student:${Number(studentId)}`,
+        startedAt: plan.startedAt || session.started_at || new Date(),
+      },
+    });
+  });
+}
+
 async function startGoal(goalId, studentId) {
   featureGuard();
   let goal = await ownedGoal(goalId, studentId);
   const existing = await prisma.learningSession.findFirst({ where: { learning_goal_id: goal.goal_id, student_user_id: Number(studentId) } });
   if (existing) {
     if (['CREATED', 'PAUSED'].includes(existing.status)) await runtimeService.startSession(existing.session_id, studentId);
+    await attachSessionToGoalPlan(studentId, goal, existing);
     goal = await prisma.learningGoal.update({ where: { goal_id: goal.goal_id }, data: { status: existing.status === 'COMPLETED' ? 'COMPLETED' : 'STARTED', started_at: goal.started_at || existing.started_at || new Date() }, include: GOAL_INCLUDE });
     return { goal: publicGoal(goal), session: await runtimeService.getPublicSession(existing.session_id, studentId), idempotentReplay: true };
   }
@@ -333,8 +374,9 @@ async function startGoal(goalId, studentId) {
     templateId: goal.workflow_template_id, versionId: goal.workflow_version_id,
     completionMode: 'mastery_target', targetMastery: goal.target_mastery,
     adjustmentMode: 'ask_before_adjust', estimatedMinutes: goal.estimated_minutes,
+    learningGoalId: goal.goal_id, goalSnapshot: goal.goal_snapshot,
   });
-  await prisma.learningSession.update({ where: { session_id: session.session_id }, data: { learning_goal_id: goal.goal_id, goal_snapshot: goal.goal_snapshot } });
+  await attachSessionToGoalPlan(studentId, goal, session);
   await runtimeService.startSession(session.session_id, studentId);
   goal = await prisma.learningGoal.update({ where: { goal_id: goal.goal_id }, data: { status: 'STARTED', started_at: new Date() }, include: GOAL_INCLUDE });
   return { goal: publicGoal(goal), session: await runtimeService.getPublicSession(session.session_id, studentId) };

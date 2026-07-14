@@ -23,7 +23,7 @@ function question(index = 1) {
     id: `Q${index}`,
     type: 'SINGLE_CHOICE',
     stem: `逻辑回归题目 ${index}`,
-    options: ['选项 A', '选项 B', '选项 C'],
+    options: ['选项 A', '选项 B', '选项 C', '选项 D'],
     answer: 'A',
     analysis: `题目 ${index} 的解析`,
     score: 10,
@@ -47,6 +47,7 @@ function handoutContent() {
     title: '逻辑回归学习讲义', course: '机器学习', knowledgePoints: ['逻辑回归'], learningObjectives: ['理解逻辑回归'], prerequisites: ['线性代数'],
     sections: [{ id: 'S1', title: '核心概念', content: ['逻辑回归用于分类。'] }], examples: [{ title: '二分类', content: '预测正类概率。' }],
     keyPoints: ['Sigmoid 函数'], commonMistakes: ['把概率当作类别'], practice: [{ question: '阈值有什么作用？', answer: '将概率映射为类别。', analysis: '阈值控制决策边界。' }],
+    principles: ['$p(y=1|x)=\\sigma(w^Tx)$'], references: ['机器学习 / 讲义.docx'],
     summary: ['逻辑回归是概率分类模型。'], sourceNotice: '参考知识库资料：机器学习 / 讲义.docx。内容由 AI 辅助整理，请核验。',
   };
 }
@@ -93,7 +94,10 @@ test.after(async () => {
     if (record?.storagePath) await fs.unlink(exporter.resolveStoredPath(record.storagePath)).catch(() => null);
   }
   if (createdTaskIds.length) await prisma.asyncTask.deleteMany({ where: { id: { in: createdTaskIds } } });
-  if (createdArtifactIds.length) await prisma.generatedArtifact.deleteMany({ where: { id: { in: createdArtifactIds } } });
+  if (createdArtifactIds.length) {
+    await prisma.generatedArtifactExport.deleteMany({ where: { artifactId: { in: createdArtifactIds } } });
+    await prisma.generatedArtifact.deleteMany({ where: { id: { in: createdArtifactIds } } });
+  }
   if (createdAgentIds.length) await prisma.userAgent.deleteMany({ where: { id: { in: createdAgentIds } } });
   await prisma.$disconnect();
 });
@@ -128,7 +132,8 @@ test('50-question exam generation is split into deterministic batches of at most
   }, null);
   assert.equal(calls, 5);
   assert.equal(result.questions.length, 50);
-  assert.equal(result.sections.length, 5);
+  assert.equal(result.sections.length, 1);
+  assert.equal(result.sections[0].questionIds.length, 50);
   assert.equal(result.questions[49].id, 'Q50');
   assert.equal(quality.validateQuality('EXAM_PAPER', result, { questionCount: 50 }).ok, true);
 });
@@ -174,6 +179,15 @@ test('HTML preview escapes model text and strips active or external content', ()
   const html = generation.renderPreview('STUDY_HANDOUT', content);
   assert.equal(/<script|<img|\sonerror\s*=|javascript:/i.test(html), false);
   assert.match(html, /&lt;script&gt;/);
+});
+
+test('handout and answer-key previews honor answer and analysis visibility independently', () => {
+  const handout = generation.renderPreview('STUDY_HANDOUT', handoutContent(), 'PRIMARY', { includeAnswers: false, includeAnalysis: true });
+  assert.equal(handout.includes('答案：'), false);
+  assert.equal(handout.includes('阈值控制决策边界'), false);
+  const answerOnly = generation.renderPreview('EXAM_PAPER', examContent(2), 'ANSWER_KEY', { includeAnswers: true, includeAnalysis: false });
+  assert.equal(answerOnly.includes('答案：'), true);
+  assert.equal(answerOnly.includes('解析：'), false);
 });
 
 test('DOCX export writes valid OpenXML atomically and serializer never exposes storagePath', async () => {

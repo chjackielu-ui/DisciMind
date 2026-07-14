@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { RESPONSE_MODES, CATEGORIES, TAG_GROUPS } = require('./agent-marketplace.constants');
+const { ICON_KEYS, ICON_COLORS, ICON_BACKGROUNDS } = require('./agent-icon.service');
 
 const noMarkup = (value) => !/[<>]/.test(value) && !/(javascript:|data:text\/html|<script)/i.test(value);
 const sensitiveTag = (value) => !/(暴力|色情|赌博|毒品|仇恨|诈骗)/i.test(value);
@@ -25,6 +26,14 @@ const agentInputSchema = z.object({
   description: z.string().trim().min(10, '请至少用 10 个字描述智能体').max(500),
   name: z.string().trim().max(100).optional().default(''),
   category: z.enum(CATEGORIES).default('综合工具'),
+  subjectScope: z.enum(['GENERAL', 'SUBJECT']).default('GENERAL'),
+  courseId: z.coerce.number().int().positive().nullable().optional(),
+  subjectCode: z.string().trim().max(64).nullable().optional(),
+  allowedCourseIds: z.array(z.coerce.number().int().positive()).max(30).default([]).transform(items => [...new Set(items)]),
+  isCrossSubjectUtility: z.boolean().default(false),
+  iconKey: z.enum(ICON_KEYS).optional(),
+  iconColor: z.enum(ICON_COLORS).optional(),
+  iconBackground: z.enum(ICON_BACKGROUNDS).optional(),
   tags: z.object({
     purpose: tagListSchema,
     style: tagListSchema,
@@ -49,6 +58,9 @@ const agentInputSchema = z.object({
   }
   if (value.responseMode === 'KNOWLEDGE_FIRST' && value.knowledgeBaseIds.length === 0) {
     ctx.addIssue({ code: 'custom', path: ['knowledgeBaseIds'], message: '知识库优先模式请至少绑定一个知识库' });
+  }
+  if (value.subjectScope === 'SUBJECT' && !value.courseId && !value.subjectCode && !value.allowedCourseIds.length) {
+    ctx.addIssue({ code: 'custom', path: ['subjectScope'], message: '学科智能体必须绑定课程或学科代码' });
   }
   for (const [group, items] of Object.entries(value.tags)) {
     const defaults = TAG_GROUPS[group] || [];

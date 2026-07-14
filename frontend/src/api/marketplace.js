@@ -1,10 +1,11 @@
-import { request, get, post, put, del, upload, BASE_URL } from './request.js'
+import { request, get, post, patch, put, del, upload, BASE_URL } from './request.js'
 import { getToken } from '../utils/auth.js'
 
 export const listAgents = params => get('/agents', { params })
 export const listMyAgents = params => get('/agents/mine', { params })
 export const listFavoriteAgents = params => get('/agents/favorites', { params })
 export const listAvailableChatAgents = () => get('/agents/chat/available')
+export const listCallableAgents = (params = {}) => get('/agents/callable', { params })
 export const getHotAgentRankings = (limit = 10) => get('/agents/rankings/hot', { params: { limit } })
 export const getAgent = id => get(`/agents/${id}`)
 export const createAgent = data => post('/agents', data)
@@ -18,13 +19,18 @@ export const rateAgent = (id, rating) => post(`/agents/${id}/rating`, { rating }
 export const reportAgent = (id, reason, detail, operationId) => post(`/agents/${id}/report`, { reason, detail, operationId })
 
 export const listKnowledgeBases = scope => get('/knowledge-bases', { params: { scope } })
+export const listAccessibleKnowledgeBases = params => get('/knowledge-bases/accessible', { params })
 export const getKnowledgeBase = id => get(`/knowledge-bases/${id}`)
 export const createKnowledgeBase = data => post('/knowledge-bases', data)
 export const updateKnowledgeBase = (id, data) => put(`/knowledge-bases/${id}`, data)
 export const deleteKnowledgeBase = id => del(`/knowledge-bases/${id}`)
 export const applyKnowledgeBasePublic = (id, operationId) => post(`/knowledge-bases/${id}/apply-public`, { operationId })
 export const refreshKnowledgeBaseStatus = id => get(`/knowledge-bases/${id}/status`)
+export const listDifyKnowledgeDatasets = () => get('/knowledge-bases/dify/datasets')
+export const bindDifyKnowledgeDatasets = datasetIds => post('/knowledge-bases/dify/bind', { datasetIds })
+export const syncDifyKnowledgeBase = id => post(`/knowledge-bases/${id}/sync-dify`, {})
 export const deleteKnowledgeDocument = (id, documentId) => del(`/knowledge-bases/${id}/documents/${documentId}`)
+export const retryKnowledgeDocument = (id, documentId) => post(`/knowledge-bases/${id}/documents/${documentId}/retry`, {})
 export const uploadKnowledgeDocument = (id, file, operationId) => {
   const form = new FormData()
   form.append('file', file)
@@ -37,8 +43,10 @@ export const listAgentConversations = id => get(`/agents/${id}/conversations`)
 export const getAgentConversation = id => get(`/agent-conversations/${id}`)
 export const updateAgentConversation = (id, data) => put(`/agent-conversations/${id}`, data)
 export const deleteAgentConversation = id => del(`/agent-conversations/${id}`)
+export const clearAgentConversationMessages = id => del(`/agent-conversations/${id}/messages`)
+export const bulkManageAgentConversations = data => post('/agent-conversations/bulk', data)
 export const getFileRequirements = id => get(`/agent-conversations/${id}/file-requirements`)
-export const planFileRequirements = (id, message) => post(`/agent-conversations/${id}/file-plan`, { message })
+export const planFileRequirements = (id, input) => post(`/agent-conversations/${id}/file-plan`, typeof input === 'string' ? { message: input } : input)
 export const patchFileRequirements = (id, data) => request(`/agent-conversations/${id}/file-requirements`, { method: 'PATCH', body: JSON.stringify(data) })
 export const prefillFileRequirements = (id, data) => post(`/agent-conversations/${id}/file-prefill`, data)
 export const confirmFileRequirements = (id, operationId) => post(`/agent-conversations/${id}/file-confirm`, { operationId })
@@ -46,6 +54,8 @@ export const listGeneratedArtifacts = params => get('/generated-artifacts', { pa
 export const getGeneratedArtifact = id => get(`/generated-artifacts/${id}`)
 export const exportGeneratedArtifact = (id, operationId, formats = ['DOCX']) => post(`/generated-artifacts/${id}/export`, { operationId, formats })
 export const deleteGeneratedArtifact = id => del(`/generated-artifacts/${id}`)
+export const renameGeneratedArtifact = (id, title) => patch(`/generated-artifacts/${id}`, { title })
+export const bulkDeleteGeneratedArtifacts = (artifactIds) => post('/generated-artifacts/bulk-delete', { artifactIds })
 export const createLearningFlowResourceLink = (id, data) => post(`/generated-artifacts/${id}/learning-flow-links`, data)
 export const listLearningFlowResources = params => get('/learning-flow-resources', { params })
 export const getLearningFlowResource = id => get(`/learning-flow-resources/${id}`)
@@ -84,7 +94,7 @@ export async function downloadGeneratedArtifactExport(id, format, preferredName)
 }
 export const sendAgentMessage = (id, data) => post(`/agent-conversations/${id}/messages`, data)
 export const cancelAgentGeneration = (id, generationId) => post(`/agent-conversations/${id}/generations/${generationId}/cancel`, {})
-export async function streamAgentConversation(id, data, { signal, onMeta, onDelta, onDone } = {}) {
+export async function streamAgentConversation(id, data, { signal, onMeta, onDelta, onSource, onRun, onDone } = {}) {
   const response = await fetch(`${BASE_URL}/agent-conversations/${id}/stream`, {
     method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', Authorization: `Bearer ${getToken()}` },
@@ -105,17 +115,20 @@ export async function streamAgentConversation(id, data, { signal, onMeta, onDelt
       const payload = JSON.parse(line.slice(5).trim())
       if (eventName === 'meta') onMeta?.(payload)
       else if (eventName === 'delta') onDelta?.(payload.delta || '')
+      else if (eventName === 'source') onSource?.(payload)
+      else if (eventName === 'run') onRun?.(payload)
       else if (eventName === 'done') onDone?.(payload)
       else if (eventName === 'error') throw Object.assign(new Error(payload.message || '生成失败'), { code: payload.code })
       eventName = ''
     }
   }
 }
-export const listAgentMemories = id => get(`/agents/${id}/memories`)
+export const listAgentMemories = (id, params = {}) => get(`/agents/${id}/memories`, { params })
 export const createAgentMemory = (id, data) => post(`/agents/${id}/memories`, data)
 export const updateAgentMemory = (id, memoryId, data) => put(`/agents/${id}/memories/${memoryId}`, data)
 export const deleteAgentMemory = (id, memoryId) => del(`/agents/${id}/memories/${memoryId}`)
 export const clearAgentMemories = id => del(`/agents/${id}/memories`)
+export const resolveAgentMemoryCandidate = (id, messageId, action) => post(`/agents/${id}/messages/${messageId}/memory-candidate`, { action })
 
 export const listAdminAgentReviews = () => get('/admin/agent-reviews')
 export const approveAdminAgentReview = (id, operationId) => post(`/admin/agent-reviews/${id}/approve`, { operationId })

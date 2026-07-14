@@ -9,6 +9,7 @@
  */
 function success(res, data = null, message = 'success') {
   return res.json({
+    success: true,
     code: 0,
     message,
     data,
@@ -22,10 +23,15 @@ function success(res, data = null, message = 'success') {
  * @param {string} message - 错误信息
  * @param {*} data - 额外数据（通常为 null）
  */
-function fail(res, code = 40001, message = '请求失败', data = null) {
-  return res.status(400).json({
-    code,
-    message,
+function fail(res, code = 40001, message = '请求失败', data = null, options = {}) {
+  const { toPublicError } = require('./public-error');
+  const publicError = toPublicError(code, message, res, options);
+  return res.status(publicError.httpStatus).json({
+    success: false,
+    error: publicError.payload,
+    // 保留旧字段，兼容当前前端和第三方调用方；新代码统一读取 error。
+    code: publicError.legacyCode,
+    message: publicError.payload.message,
     data,
   });
 }

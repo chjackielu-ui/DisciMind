@@ -174,10 +174,13 @@ function getDifficulty(ratio) {
  * @param {string[]} [options.sources] - 限定数据源，默认全部。
  *   可选值: 'ai_subject_conversation' | 'student_question' | 'confusion_tag' | 'wrong_question'
  *   不传或传空数组 = 全部数据源（兼容旧行为）
+ * @param {number[]} [options.studentIds] - 已完成权限收敛的学生范围
+ * @param {Date} [options.rangeStart] - 统计开始时间
+ * @param {Date} [options.rangeEnd] - 统计结束时间
  * @returns {Promise<{word_cloud: Array, total_students: number, total_questions: number}>}
  */
 async function computeKeywordCloud(options = {}) {
-  const { courseId, teachingClassId, limit = 50, courseIds, sources } = options;
+  const { courseId, teachingClassId, limit = 50, courseIds, sources, studentIds: scopedStudentIds, rangeStart, rangeEnd } = options;
   // sources 为空或未传时默认全部数据源（兼容 dashboard 旧调用）
   const useAllSources = !sources || sources.length === 0;
   const useSource = (name) => useAllSources || sources.includes(name);
@@ -225,6 +228,8 @@ async function computeKeywordCloud(options = {}) {
   if (courseIds && courseIds.length > 0) {
     questionWhere.course_id = { in: courseIds };
   }
+  if (Array.isArray(scopedStudentIds)) questionWhere.student_user_id = { in: scopedStudentIds };
+  if (rangeStart || rangeEnd) questionWhere.created_at = { ...(rangeStart ? { gte: rangeStart } : {}), ...(rangeEnd ? { lte: rangeEnd } : {}) };
 
   questions = await prisma.studentQuestionRecord.findMany({
     where: {
@@ -250,6 +255,8 @@ async function computeKeywordCloud(options = {}) {
   if (useSource('wrong_question')) {
   const wrongQWhere = {};
   if (effectiveCourseId) wrongQWhere.course_id = effectiveCourseId;
+  if (Array.isArray(scopedStudentIds)) wrongQWhere.student_user_id = { in: scopedStudentIds };
+  if (rangeStart || rangeEnd) wrongQWhere.created_at = { ...(rangeStart ? { gte: rangeStart } : {}), ...(rangeEnd ? { lte: rangeEnd } : {}) };
   wrongQuestions = await prisma.wrongQuestion.findMany({
     where: { ...wrongQWhere, status: { not: 'REMOVED' } },
     include: { knowledge_point: true },
@@ -261,9 +268,11 @@ async function computeKeywordCloud(options = {}) {
   let confusionTags = [];
   if (useSource('confusion_tag')) {
   const confusionTagWhere = {};
-  if (effectiveCourseId) {
-    confusionTagWhere.analysis = { student_question: { course_id: effectiveCourseId } };
-  }
+  if (effectiveCourseId || Array.isArray(scopedStudentIds) || rangeStart || rangeEnd) confusionTagWhere.analysis = { student_question: {
+    ...(effectiveCourseId ? { course_id: effectiveCourseId } : {}),
+    ...(Array.isArray(scopedStudentIds) ? { student_user_id: { in: scopedStudentIds } } : {}),
+    ...((rangeStart || rangeEnd) ? { created_at: { ...(rangeStart ? { gte: rangeStart } : {}), ...(rangeEnd ? { lte: rangeEnd } : {}) } } : {}),
+  } };
   confusionTags = await prisma.questionConfusionTag.findMany({
     where: confusionTagWhere,
     take: 100,
@@ -277,12 +286,12 @@ async function computeKeywordCloud(options = {}) {
   const enrollmentWhere = {};
   if (effectiveCourseId) enrollmentWhere.course_id = effectiveCourseId;
   if (courseIds && courseIds.length > 0) enrollmentWhere.course_id = { in: courseIds };
-  const enrolledStudents = await prisma.studentCourseEnrollment.findMany({
-    where: { ...enrollmentWhere, enrollment_status: 'active' },
+  const enrolledStudents = Array.isArray(scopedStudentIds) ? [] : await prisma.studentCourseEnrollment.findMany({
+    where: { ...enrollmentWhere, enrollment_status: 'active', ...(teachingClassId ? { teaching_class_id: teachingClassId } : {}) },
     select: { student_user_id: true },
     distinct: ['student_user_id'],
   });
-  const studentIds = enrolledStudents.map(e => e.student_user_id);
+  const studentIds = Array.isArray(scopedStudentIds) ? scopedStudentIds : enrolledStudents.map(e => e.student_user_id);
 
   // 读取这些学生的学科专属助手对话（mode=SUBJECT）
   if (studentIds.length > 0) {
@@ -295,7 +304,7 @@ async function computeKeywordCloud(options = {}) {
     if (aiConversations.length > 0) {
       const convIds = aiConversations.map(c => c.id);
       aiConversationMessages = await prisma.aiMessage.findMany({
-        where: { conversationId: { in: convIds }, role: 'USER' },
+        where: { conversationId: { in: convIds }, role: 'USER', ...((rangeStart || rangeEnd) ? { createdAt: { ...(rangeStart ? { gte: rangeStart } : {}), ...(rangeEnd ? { lte: rangeEnd } : {}) } } : {}) },
         select: { content: true, conversationId: true },
         orderBy: { createdAt: 'desc' },
         take: 500,
@@ -481,6 +490,7 @@ async function computeKeywordCloud(options = {}) {
       related_kp: data.kpIds.size > 0
         ? [...data.kpIds].map(id => kpNameById[id]).filter(Boolean).join('、')
         : '',
+      related_kp_ids: [...data.kpIds],
       sources: [...new Set(data.sources)],   // 数据来源列表（去重）
       source_count: data.sources.length,     // 来源总次数（含重复）
       rank: 0,                              // 排序后设置

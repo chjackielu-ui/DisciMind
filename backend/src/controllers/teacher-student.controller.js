@@ -120,9 +120,9 @@ async function batchImportStudents(req, res) {
 async function exportStudentTemplate(req, res) {
   try {
     // 生成 CSV 模板
-    const headers = ['username', 'real_name', 'password', 'student_no', 'college', 'major', 'grade', 'gender', 'phone', 'email', 'class_name', 'course_name'];
+    const headers = ['username', 'real_name', 'password', 'student_no', 'college', 'major', 'grade', 'gender', 'phone', 'email', 'teaching_class_id'];
     const headerRow = headers.join(',');
-    const exampleRow = 'stu001,张三,123456,2024001,计算机与软件工程学院,软件工程,2024,male,13800000001,stu001@demo.com,软件2403班,机器学习';
+    const exampleRow = 'stu001,张三,123456,2024001,计算机与软件工程学院,软件工程,2024,male,13800000001,stu001@demo.com,1';
     const csvContent = '﻿' + headerRow + '\n' + exampleRow + '\n';
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -131,6 +131,18 @@ async function exportStudentTemplate(req, res) {
   } catch (err) {
     return handleError(res, 'exportStudentTemplate', err);
   }
+}
+
+async function createIntervention(req, res) {
+  try {
+    const studentUserId = parsePositiveInt(req.params.student_user_id, 'student_user_id');
+    return success(res, await teacherStudentService.createIntervention(req.user, studentUserId, req.body || {}), '干预记录已创建');
+  } catch (err) { return handleError(res, 'createIntervention', err); }
+}
+
+async function batchNotify(req, res) {
+  try { return success(res, await teacherStudentService.batchNotifyStudents(req.user, req.body || {}), '通知已发送'); }
+  catch (err) { return handleError(res, 'batchNotify', err); }
 }
 
 module.exports = {
@@ -145,4 +157,6 @@ module.exports = {
   deleteStudent,
   batchImportStudents,
   exportStudentTemplate,
+  createIntervention,
+  batchNotify,
 };

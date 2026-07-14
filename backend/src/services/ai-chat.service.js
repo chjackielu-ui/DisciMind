@@ -11,6 +11,8 @@ const {
   buildChatCompletionParams,
   mapBailianError,
 } = require('./bailian-openai.service');
+const agentContextService = require('../modules/agent-chat/agent-context.service');
+const attachmentService = require('./ai-chat-attachment.service');
 
 const REFUSAL_REPLY = '我当前还没有掌握这个方面的知识哦，换个学习相关的问题试试吧。';
 const MAX_IMAGE_COUNT = 4;
@@ -21,7 +23,6 @@ const IMAGE_TYPES = Object.freeze({
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
-  'image/gif': 'gif',
 });
 
 const SUBJECT_PROMPTS = {
@@ -210,6 +211,24 @@ function toApiMessage(message, preview = false) {
       size: attachment.size,
       url: `/api/ai-chat/conversations/${message.conversationId}/messages/${message.id}/attachments/${attachment.id}`,
     })),
+    knowledgeBaseRefs: Array.isArray(message.knowledgeBaseRefsJson) ? message.knowledgeBaseRefsJson : [],
+    agentRefs: Array.isArray(message.agentRefsJson) ? message.agentRefsJson : [],
+    sources: Array.isArray(message.sourcesJson) ? message.sourcesJson : [],
+    agentInvocations: (Array.isArray(message.marketplaceAgentInvocations) ? message.marketplaceAgentInvocations : []).map((invocation) => ({
+      id: invocation.id,
+      agentId: invocation.agentId,
+      agentName: invocation.agent?.currentDraftVersion?.name || invocation.agent?.currentPublicVersion?.name || `智能体 ${invocation.agentId}`,
+      sequence: invocation.sequence,
+      status: invocation.status,
+      output: preview ? undefined : invocation.outputText,
+      errorMessage: invocation.errorMessage,
+      durationMs: invocation.durationMs,
+      taskIds: Array.isArray(invocation.taskIdsJson) ? invocation.taskIdsJson : [],
+      artifactIds: Array.isArray(invocation.artifactIdsJson) ? invocation.artifactIdsJson : [],
+      artifacts: Array.isArray(invocation.artifacts) ? invocation.artifacts : [],
+      startedAt: invocation.startedAt,
+      completedAt: invocation.completedAt,
+    })),
     created_at: message.createdAt ? message.createdAt.toISOString() : null,
   };
 }
@@ -262,7 +281,7 @@ function normalizeImageInputs(images) {
   let totalBytes = 0;
   return images.map((image, index) => {
     const dataUrl = String(image?.dataUrl || image?.data_url || '');
-    const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i);
+    const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
     if (!match) throw Object.assign(new Error(`第 ${index + 1} 张图片格式不支持`), { code: 40001 });
     const mimeType = match[1].toLowerCase();
     if (!IMAGE_TYPES[mimeType]) throw Object.assign(new Error(`第 ${index + 1} 张图片格式不支持`), { code: 40001 });
@@ -447,20 +466,33 @@ async function buildModelMessages(conversation) {
       imageBudget -= 1;
     }
   }
+  const uploadedIds = [...new Set(recent.flatMap(message => (Array.isArray(message.attachments) ? message.attachments : []).map(item => item.id)).filter(Boolean))];
+  const uploadedRows = uploadedIds.length ? await prisma.aiChatAttachment.findMany({ where: { id: { in: uploadedIds }, userId: conversation.userId, status: 'READY' } }) : [];
+  const uploadedById = new Map(uploadedRows.map(row => [row.id, row]));
   const history = await Promise.all(recent.reverse().map(async (message) => {
     const attachments = (Array.isArray(message.attachments) ? message.attachments : [])
       .filter((attachment) => includedAttachmentIds.has(attachment.id));
     if (toLower(message.role) !== 'user' || !attachments.length) {
       return { role: toLower(message.role), content: message.content };
     }
-    const imageParts = (await Promise.all(attachments.map(async (attachment) => {
-      const url = await attachmentToDataUrl(attachment);
+    const uploaded = attachments.map(item => uploadedById.get(item.id)).filter(Boolean);
+    const textContext = uploaded.filter(item => item.extractedText).map(item => `\n\n[附件：${item.fileName}]\n${item.extractedText}`).join('');
+    const imageParts = (await Promise.all(attachments.filter(item => {
+      const record = uploadedById.get(item.id);
+      return record ? record.mimeType.startsWith('image/') : true;
+    }).map(async (attachment) => {
+      const record = uploadedById.get(attachment.id);
+      let url;
+      if (record) {
+        const data = await fs.readFile(attachmentService.absolutePath(record)).catch(() => null);
+        url = data ? `data:${record.mimeType};base64,${data.toString('base64')}` : null;
+      } else url = await attachmentToDataUrl(attachment);
       return url ? { type: 'image_url', image_url: { url } } : null;
     }))).filter(Boolean);
     return {
       role: 'user',
       content: [
-        { type: 'text', text: message.content || '请分析这些图片。' },
+        { type: 'text', text: `${message.content || '请分析这些附件。'}${textContext}` },
         ...imageParts,
       ],
     };
@@ -518,6 +550,17 @@ async function listConversations(userId, query = {}) {
 
   const where = { userId };
   if (query.mode) where.mode = toPrismaMode(query.mode);
+  if (query.subject) where.subject = String(query.subject);
+  if (query.agentType || query.agent_type) where.agentType = String(query.agentType || query.agent_type);
+  if (query.search || query.q) where.title = { contains: String(query.search || query.q).trim() };
+  if (query.dateFrom || query.date_from || query.dateTo || query.date_to) {
+    where.updatedAt = {};
+    const from = new Date(query.dateFrom || query.date_from || '');
+    const to = new Date(query.dateTo || query.date_to || '');
+    if (!Number.isNaN(from.getTime())) where.updatedAt.gte = from;
+    if (!Number.isNaN(to.getTime())) where.updatedAt.lte = to;
+    if (!Object.keys(where.updatedAt).length) delete where.updatedAt;
+  }
 
   const [conversations, total] = await Promise.all([
     prisma.aiConversation.findMany({
@@ -562,7 +605,40 @@ async function getMessages(userId, conversationId) {
   const messages = await prisma.aiMessage.findMany({
     where: { conversationId },
     orderBy: { id: 'asc' },
+    include: {
+      marketplaceAgentInvocations: {
+        orderBy: { sequence: 'asc' },
+        include: { agent: { include: { currentDraftVersion: true, currentPublicVersion: true } } },
+      },
+    },
   });
+  const artifactIds = [...new Set(messages.flatMap(message => (message.marketplaceAgentInvocations || [])
+    .flatMap(invocation => Array.isArray(invocation.artifactIdsJson) ? invocation.artifactIdsJson.map(Number) : [])).filter(Number.isInteger))];
+  const artifacts = artifactIds.length ? await prisma.generatedArtifact.findMany({
+    where: { ownerUserId: Number(userId), deletedAt: null, OR: [{ id: { in: artifactIds } }, { parentArtifactId: { in: artifactIds } }] },
+    include: { exports: { where: { deletedAt: null } } },
+  }) : [];
+  const artifactById = new Map(artifacts.map(artifact => [artifact.id, {
+    id: artifact.id,
+    parentArtifactId: artifact.parentArtifactId,
+    artifactRole: artifact.artifactRole,
+    title: artifact.title,
+    artifactType: artifact.artifactType,
+    fileName: artifact.fileName,
+    fileFormat: artifact.fileFormat,
+    mimeType: artifact.mimeType,
+    sizeBytes: artifact.fileSizeBytes == null ? null : Number(artifact.fileSizeBytes),
+    status: artifact.status,
+    createdAt: artifact.createdAt,
+    previewable: Boolean(artifact.previewHtml || artifact.status === 'READY'),
+    downloads: artifact.exports.filter(item => item.status === 'READY' && item.storagePath).map(item => ({
+      format: item.format, sizeBytes: item.fileSizeBytes == null ? null : Number(item.fileSizeBytes),
+    })),
+  }]));
+  messages.forEach(message => (message.marketplaceAgentInvocations || []).forEach(invocation => {
+    const roots = (Array.isArray(invocation.artifactIdsJson) ? invocation.artifactIdsJson : []).map(Number);
+    invocation.artifacts = artifacts.filter(artifact => roots.includes(artifact.id) || roots.includes(artifact.parentArtifactId)).map(artifact => artifactById.get(artifact.id)).filter(Boolean);
+  }));
 
   return {
     conversation: toApiConversation(conversation, null, messages.length),
@@ -572,8 +648,20 @@ async function getMessages(userId, conversationId) {
 
 async function prepareTurn(userId, conversationId, body = {}) {
   const regenerate = Boolean(body.regenerate);
+  const assistantSurface = body.assistantSurface === 'floating' ? 'floating' : 'full';
+  const maxOutputTokens = assistantSurface === 'floating'
+    ? Math.max(128, Number(process.env.FLOATING_ASSISTANT_MAX_OUTPUT_TOKENS || 800))
+    : Math.max(512, Number(process.env.FULL_ASSISTANT_MAX_OUTPUT_TOKENS || 2200));
   let conversation = await ensureConversation(userId, conversationId);
   let userMessage = null;
+  let resolvedKnowledgeBases = [];
+  let resolvedAgentRefs = [];
+  const agentCallOptions = {
+    allowFileGenerator: true,
+    assistantMode: body.assistantMode || toLower(conversation.mode),
+    courseId: body.courseId || body.course_id || body.learningContext?.courseId,
+    subjectCode: body.subjectCode || body.subject || conversation.subject,
+  };
 
   if (regenerate) {
     userMessage = await prisma.aiMessage.findFirst({
@@ -583,6 +671,10 @@ async function prepareTurn(userId, conversationId, body = {}) {
     if (!userMessage) {
       throw Object.assign(new Error('当前会话没有可重新生成的问题'), { code: 40001 });
     }
+    [resolvedKnowledgeBases, resolvedAgentRefs] = await Promise.all([
+      agentContextService.resolveKnowledgeBaseRefs(userId, userMessage.knowledgeBaseRefsJson || []),
+      agentContextService.resolveAgentRefs(userId, userMessage.agentRefsJson || [], agentCallOptions),
+    ]);
     await prisma.aiMessage.deleteMany({
       where: {
         conversationId,
@@ -592,16 +684,32 @@ async function prepareTurn(userId, conversationId, body = {}) {
     });
   } else {
     const images = Array.isArray(body.images) ? body.images : [];
-    const content = validateContent(body.content, { allowEmpty: images.length > 0 });
-    if (!content && !images.length) throw Object.assign(new Error('请输入文字或添加图片'), { code: 40001 });
+    const uploaded = await attachmentService.resolveForTurn(userId, conversationId, Array.isArray(body.attachments) ? body.attachments : []);
+    const content = validateContent(body.content, { allowEmpty: images.length > 0 || uploaded.length > 0 });
+    if (!content && !images.length && !uploaded.length) throw Object.assign(new Error('请输入文字或添加附件'), { code: 40001 });
+    [resolvedKnowledgeBases, resolvedAgentRefs] = await Promise.all([
+      agentContextService.resolveKnowledgeBaseRefs(userId, body.knowledgeBaseRefs || []),
+      agentContextService.resolveAgentRefs(userId, body.agentRefs || [], agentCallOptions),
+    ]);
     const previousUserCount = await prisma.aiMessage.count({
       where: { conversationId, role: 'USER' },
     });
-    const attachments = await persistImageInputs(images);
+    const attachments = [
+      ...await persistImageInputs(images),
+      ...uploaded.map(item => attachmentService.api(item)),
+    ];
     try {
       userMessage = await prisma.aiMessage.create({
-        data: { conversationId, role: 'USER', content, attachments: attachments.length ? attachments : undefined },
+        data: {
+          conversationId,
+          role: 'USER',
+          content,
+          attachments: attachments.length ? attachments : undefined,
+          knowledgeBaseRefsJson: agentContextService.normalizedKnowledgeRefs(resolvedKnowledgeBases),
+          agentRefsJson: agentContextService.normalizedAgentRefs(resolvedAgentRefs),
+        },
       });
+      await attachmentService.bindMessage(uploaded.map(item => item.id), userMessage.id);
     } catch (error) {
       await removePersistedAttachments(attachments);
       throw error;
@@ -621,14 +729,19 @@ async function prepareTurn(userId, conversationId, body = {}) {
     conversation,
     userMessage: regenerate ? null : userMessage,
     messages,
+    knowledgeBaseRefs: agentContextService.normalizedKnowledgeRefs(resolvedKnowledgeBases),
+    resolvedKnowledgeBases,
+    resolvedAgentRefs,
+    assistantSurface,
+    maxOutputTokens,
   };
 }
 
-async function callCompletion(messages) {
+async function callCompletion(messages, options = {}) {
   const { client } = getBailianClient();
   try {
     const completion = await client.chat.completions.create(buildChatCompletionParams({
-      messages, stream: false, temperature: 0.55, maxTokens: 2048,
+      messages, stream: false, temperature: 0.55, maxTokens: options.maxOutputTokens || 2200,
     }));
     return completion.choices?.[0]?.message?.content || '';
   } catch (err) {
@@ -637,11 +750,11 @@ async function callCompletion(messages) {
   }
 }
 
-async function createCompletionStream(messages, signal) {
+async function createCompletionStream(messages, signal, options = {}) {
   const { client } = getBailianClient();
   try {
     return await client.chat.completions.create(
-      buildChatCompletionParams({ messages, stream: true, temperature: 0.55, maxTokens: 2048 }),
+      buildChatCompletionParams({ messages, stream: true, temperature: 0.55, maxTokens: options.maxOutputTokens || 2200 }),
       { signal },
     );
   } catch (err) {
@@ -659,23 +772,55 @@ async function getAttachment(userId, conversationId, messageId, attachmentId) {
   const attachment = (Array.isArray(message.attachments) ? message.attachments : [])
     .find((item) => item.id === String(attachmentId));
   if (!attachment) throw Object.assign(new Error('图片不存在'), { code: 40002 });
+  const uploaded = await prisma.aiChatAttachment.findFirst({ where: { id: String(attachmentId), userId: Number(userId), conversationId: Number(conversationId), messageId: Number(messageId), status: 'READY' } });
+  if (uploaded) {
+    const filePath = attachmentService.absolutePath(uploaded);
+    await fs.access(filePath).catch(() => { throw Object.assign(new Error('附件文件不存在'), { code: 40002 }); });
+    return { filePath, mimeType: uploaded.mimeType, name: uploaded.fileName };
+  }
   const filePath = path.join(CHAT_UPLOAD_DIR, path.basename(String(attachment.fileName || '')));
   await fs.access(filePath).catch(() => { throw Object.assign(new Error('图片文件不存在'), { code: 40002 }); });
   return { filePath, mimeType: attachment.mimeType, name: attachment.name };
 }
 
-async function finalizeAssistantMessage(conversationId, content) {
+async function finalizeAssistantMessage(conversationId, content, options = {}) {
   const safeContent = String(content || '').trim() || 'AI 没有返回有效内容，请稍后重试。';
-  const assistantMessage = await prisma.aiMessage.create({
-    data: {
-      conversationId,
+  const normalizedConversationId = Number(conversationId);
+  const clientRequestId = String(options.clientRequestId || '').trim().slice(0, 80) || null;
+  let assistantMessage;
+  try {
+    const data = {
+      conversationId: normalizedConversationId,
+      clientRequestId,
       role: 'ASSISTANT',
       content: safeContent,
-    },
-  });
+      sourcesJson: Array.isArray(options.sources) && options.sources.length ? options.sources : undefined,
+    };
+    assistantMessage = clientRequestId
+      ? await prisma.aiMessage.upsert({
+        where: { conversationId_clientRequestId: { conversationId: normalizedConversationId, clientRequestId } },
+        create: data,
+        update: { content: safeContent, sourcesJson: data.sourcesJson },
+      })
+      : await prisma.aiMessage.create({ data });
+  } catch (cause) {
+    console.error('[ai-chat.service] assistant message persistence failed:', cause);
+    const error = new Error('回答已生成，但暂时未能保存。你可以直接重试保存，不必重新生成。');
+    error.code = 50001;
+    error.publicCode = 'AI_MESSAGE_SAVE_FAILED';
+    error.retryable = true;
+    error.expose = true;
+    error.clientRequestId = clientRequestId;
+    error.generatedContent = safeContent;
+    error.cause = cause;
+    throw error;
+  }
   const conversation = await prisma.aiConversation.update({
-    where: { id: conversationId },
+    where: { id: normalizedConversationId },
     data: { updatedAt: new Date() },
+  }).catch(async (error) => {
+    console.error('[ai-chat.service] conversation timestamp update failed after message save:', error);
+    return prisma.aiConversation.findUnique({ where: { id: normalizedConversationId } });
   });
 
   return {
@@ -687,7 +832,7 @@ async function finalizeAssistantMessage(conversationId, content) {
 async function sendMessage(userId, conversationId, body = {}) {
   getBailianConfig();
   const turn = await prepareTurn(userId, conversationId, body);
-  const content = await callCompletion(turn.messages);
+  const content = await callCompletion(turn.messages, turn);
   const result = await finalizeAssistantMessage(conversationId, content);
 
   return {
@@ -697,12 +842,43 @@ async function sendMessage(userId, conversationId, body = {}) {
   };
 }
 
+async function quiesceSubjectRuns(userId, conversationIds) {
+  const ids = [...new Set((Array.isArray(conversationIds) ? conversationIds : [conversationIds])
+    .map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return;
+  const runs = await prisma.subjectChatRun.findMany({
+    where: {
+      userId,
+      conversationId: { in: ids },
+      status: { in: ['pending', 'running'] },
+    },
+    select: { id: true },
+  });
+  if (!runs.length) return;
+
+  // Lazy load avoids the ai-chat <-> subject-chat orchestrator module cycle at startup.
+  const orchestrator = require('../modules/subject-chat/subject-chat-orchestrator.service');
+  await Promise.all(runs.map((run) => orchestrator.cancel(userId, run.id)));
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (runs.every((run) => !orchestrator.isActive(run.id))) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw Object.assign(new Error('会话仍在停止生成，请稍后重试该操作'), { code: 40901 });
+}
+
 async function clearMessages(userId, conversationId) {
   await ensureConversation(userId, conversationId);
+  await quiesceSubjectRuns(userId, conversationId);
   const messageAttachments = await prisma.aiMessage.findMany({
     where: { conversationId }, select: { attachments: true },
   });
-  await prisma.aiMessage.deleteMany({ where: { conversationId } });
+  // 运行记录与消息一起清理，保持“清空当前对话”的既有语义；旧会话本身不受影响。
+  await prisma.$transaction([
+    prisma.marketplaceAgentInvocation.deleteMany({ where: { aiConversationId: conversationId, userId } }),
+    prisma.subjectChatRun.deleteMany({ where: { conversationId } }),
+    prisma.aiMessage.deleteMany({ where: { conversationId } }),
+  ]);
+  await attachmentService.removeForConversations(userId, conversationId);
   await removePersistedAttachments(messageAttachments.flatMap((item) => Array.isArray(item.attachments) ? item.attachments : []));
   const conversation = await prisma.aiConversation.update({
     where: { id: conversationId },
@@ -716,12 +892,49 @@ async function clearMessages(userId, conversationId) {
 
 async function deleteConversation(userId, conversationId) {
   await ensureConversation(userId, conversationId);
+  await quiesceSubjectRuns(userId, conversationId);
   const messageAttachments = await prisma.aiMessage.findMany({
     where: { conversationId }, select: { attachments: true },
   });
   await prisma.aiConversation.delete({ where: { id: conversationId } });
+  await attachmentService.removeForConversations(userId, conversationId);
   await removePersistedAttachments(messageAttachments.flatMap((item) => Array.isArray(item.attachments) ? item.attachments : []));
   return { deleted: true, conversation_id: conversationId, id: conversationId };
+}
+
+async function renameConversation(userId, conversationId, title) {
+  await ensureConversation(userId, conversationId);
+  const safeTitle = String(title || '').trim();
+  if (!safeTitle || safeTitle.length > 200) throw Object.assign(new Error('会话名称长度应为 1-200 个字符'), { code: 40001 });
+  const conversation = await prisma.aiConversation.update({ where: { id: conversationId }, data: { title: safeTitle } });
+  return toApiConversation(conversation);
+}
+
+async function bulkManageConversations(userId, body = {}) {
+  const ids = [...new Set((Array.isArray(body.conversationIds) ? body.conversationIds : body.ids || [])
+    .map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  const action = String(body.action || '').toUpperCase();
+  if (!ids.length || ids.length > 100) throw Object.assign(new Error('请选择 1-100 条会话'), { code: 40001 });
+  if (!['DELETE', 'CLEAR_MESSAGES'].includes(action)) throw Object.assign(new Error('批量操作类型不合法'), { code: 40001 });
+  const owned = await prisma.aiConversation.findMany({ where: { id: { in: ids }, userId }, select: { id: true } });
+  if (owned.length !== ids.length) throw Object.assign(new Error('部分会话不存在或无权操作'), { code: 40301 });
+  await quiesceSubjectRuns(userId, ids);
+  const messageAttachments = await prisma.aiMessage.findMany({
+    where: { conversationId: { in: ids } }, select: { attachments: true },
+  });
+  await prisma.$transaction(async (tx) => {
+    if (action === 'DELETE') {
+      await tx.aiConversation.deleteMany({ where: { id: { in: ids }, userId } });
+      return;
+    }
+    await tx.marketplaceAgentInvocation.deleteMany({ where: { aiConversationId: { in: ids }, userId } });
+    await tx.subjectChatRun.deleteMany({ where: { conversationId: { in: ids }, userId } });
+    await tx.aiMessage.deleteMany({ where: { conversationId: { in: ids } } });
+    await tx.aiConversation.updateMany({ where: { id: { in: ids }, userId }, data: { title: '新对话', updatedAt: new Date() } });
+  });
+  await attachmentService.removeForConversations(userId, ids);
+  await removePersistedAttachments(messageAttachments.flatMap((item) => Array.isArray(item.attachments) ? item.attachments : []));
+  return { action, affected: ids.length, conversationIds: ids };
 }
 
 module.exports = {
@@ -746,4 +959,6 @@ module.exports = {
   sendMessage,
   clearMessages,
   deleteConversation,
+  renameConversation,
+  bulkManageConversations,
 };

@@ -36,7 +36,10 @@ function getFileGeneratorGraph() {
   return compiled;
 }
 
-async function runFileGeneratorGraph(artifactId, { taskId } = {}) {
-  return getFileGeneratorGraph().invoke({ artifactId: Number(artifactId), taskId: taskId ? Number(taskId) : null });
+async function runFileGeneratorGraph(artifactId, { taskId, signal } = {}) {
+  return getFileGeneratorGraph().invoke(
+    { artifactId: Number(artifactId), taskId: taskId ? Number(taskId) : null },
+    signal ? { signal } : undefined,
+  );
 }
 module.exports = { getFileGeneratorGraph, runFileGeneratorGraph };

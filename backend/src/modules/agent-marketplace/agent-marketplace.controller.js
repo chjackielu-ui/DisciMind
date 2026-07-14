@@ -16,6 +16,7 @@ const list = wrap(async (req, res) => success(res, await service.listAgents(req.
 const mine = wrap(async (req, res) => success(res, await service.listAgents(req.user.user_id, req.query, 'mine')));
 const favorites = wrap(async (req, res) => success(res, await service.listAgents(req.user.user_id, req.query, 'favorites')));
 const availableChat = wrap(async (req, res) => success(res, await service.listAvailableChatAgents(req.user.user_id)));
+const callable = wrap(async (req, res) => success(res, await service.listCallableAgents(req.user.user_id, req.query)));
 const hotRankings = wrap(async (req, res) => success(res, await rankings.hotRankings(req.query.limit)));
 const detail = wrap(async (req, res) => success(res, await service.getAgent(req.user.user_id, req.params.id)));
 const create = wrap(async (req, res) => success(res, await service.createAgent(req.user.user_id, parse(agentInputSchema, req.body)), '智能体创建成功'));
@@ -28,4 +29,4 @@ const unfavorite = wrap(async (req, res) => success(res, await service.favorite(
 const rating = wrap(async (req, res) => success(res, await service.rate(req.user.user_id, req.params.id, parse(ratingSchema, req.body).rating), '评分已保存'));
 const report = wrap(async (req, res) => success(res, await service.report(req.user.user_id, req.params.id, parse(reportSchema, req.body)), '举报已提交'));
 
-module.exports = { list, mine, favorites, availableChat, hotRankings, detail, create, update, remove, applyPublic, copy, favorite, unfavorite, rating, report, handleError };
+module.exports = { list, mine, favorites, availableChat, callable, hotRankings, detail, create, update, remove, applyPublic, copy, favorite, unfavorite, rating, report, handleError };

@@ -67,10 +67,52 @@ async function deleteQuestion(req, res) {
   }
 }
 
+async function batchImportQuestions(req, res) {
+  try {
+    const data = await teacherQuestionService.batchImportQuestions(req.user, req.body || {});
+    return success(res, data, '批量导入完成');
+  } catch (err) {
+    return handleError(res, 'batchImportQuestions', err);
+  }
+}
+
+async function batchUpdateQuestions(req, res) {
+  try {
+    const data = await teacherQuestionService.batchUpdateQuestions(req.user, req.body || {});
+    return success(res, data, '批量更新成功');
+  } catch (err) {
+    return handleError(res, 'batchUpdateQuestions', err);
+  }
+}
+
+async function batchDeleteQuestions(req, res) {
+  try {
+    const data = await teacherQuestionService.batchDeleteQuestions(req.user, req.body || {});
+    return success(res, data, '批量删除成功');
+  } catch (err) {
+    return handleError(res, 'batchDeleteQuestions', err);
+  }
+}
+
+async function exportQuestions(req, res) {
+  try {
+    const data = await teacherQuestionService.exportQuestions(req.user, req.query || {});
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="questions.json"');
+    return res.send(JSON.stringify(data, null, 2));
+  } catch (err) {
+    return handleError(res, 'exportQuestions', err);
+  }
+}
+
 module.exports = {
   listQuestions,
   createQuestion,
   getQuestion,
   updateQuestion,
   deleteQuestion,
+  batchImportQuestions,
+  batchUpdateQuestions,
+  batchDeleteQuestions,
+  exportQuestions,
 };
