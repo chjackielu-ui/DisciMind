@@ -25,31 +25,37 @@ function positionKey(user) {
   return `discimind.workCenterPosition.${user.user_id}.${String(user.role).toLowerCase()}`
 }
 
+function collapsedKey(user) {
+  return `discimind.workCenterCollapsed.${user.user_id}.${String(user.role).toLowerCase()}`
+}
+
 function readPosition(user) {
   try {
     const value = JSON.parse(localStorage.getItem(positionKey(user)) || 'null')
-    return Number.isFinite(value?.x) && Number.isFinite(value?.y) ? value : null
+    return Number.isFinite(value?.y) ? { y: value.y } : null
   } catch { return null }
 }
 
 function savePosition(user, value) {
-  try { localStorage.setItem(positionKey(user), JSON.stringify({ x: Math.round(value.x), y: Math.round(value.y) })) } catch {}
+  try { localStorage.setItem(positionKey(user), JSON.stringify({ edge: 'right', y: Math.round(value.y) })) } catch {}
+}
+
+function readCollapsed(user) {
+  try { return localStorage.getItem(collapsedKey(user)) === '1' } catch { return false }
+}
+
+function saveCollapsed(user, value) {
+  try { localStorage.setItem(collapsedKey(user), value ? '1' : '0') } catch {}
 }
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), Math.max(min, max))
 }
 
-function intersects(left, top, width, height, rect, padding = 7) {
-  return left < rect.right + padding
-    && left + width > rect.left - padding
-    && top < rect.bottom + padding
-    && top + height > rect.top - padding
-}
-
 function statusLabel(value) {
   const labels = {
-    queued: '等待中', running: '执行中', waiting_external: '等待外部服务', succeeded: '已完成', failed: '失败', cancelled: '已取消',
+    queued: '等待中', planning: '规划中', running: '执行中', waiting_external: '等待外部服务', waiting_tool: '等待工具', waiting_agent: '等待 Agent',
+    generating: '生成中', finalizing: '整理中', succeeded: '已完成', completed: '已完成', failed: '失败', stalled: '等待超时', cancelled: '已取消',
   }
   return labels[String(value || '').toLowerCase()] || value || '待处理'
 }
@@ -62,14 +68,15 @@ function typeLabel(value) {
   const map = {
     resource_shared: '课程文件', task_published: '任务发布', task_deadline: '任务提醒', system_notice: '系统消息',
     document_review: '文档审核', file_generated: '文件生成', ai_task_done: 'AI 任务', student_risk: '学情风险',
+    learning_card_daily: '学习卡片',
   }
   return map[String(value || '').toLowerCase()] || '消息'
 }
 
 function taskRows(tasks) {
   if (!tasks?.length) return '<div class="unified-center-empty">当前没有待办任务</div>'
-  return tasks.map((task) => `<button type="button" class="unified-feed-row is-task" data-task-url="${escapeHtml(task.action_url || '')}" data-task-id="${task.id}">
-    <span class="unified-feed-icon">${getIcon('workflow')}</span>
+  return tasks.map((task) => `<button type="button" class="unified-feed-row is-task" data-task-url="${escapeHtml(task.action_url || '')}" data-task-id="${task.id}" data-task-category="${escapeHtml(task.task_category || 'background_task')}">
+    <span class="unified-feed-icon">${getIcon(task.task_category === 'file_generation' ? 'document' : task.task_category === 'ai_agent' ? 'sparkles' : 'workflow')}</span>
     <span class="unified-feed-copy"><strong>${escapeHtml(task.title || '后台任务')}</strong><small>${escapeHtml(task.summary || task.stage || '')}</small><em>${escapeHtml(statusLabel(task.status))}${task.progress == null ? '' : ` · ${Math.round(task.progress)}%`}</em></span>
     <span class="unified-feed-arrow">${getIcon('arrow-right')}</span>
   </button>`).join('')
@@ -87,18 +94,26 @@ function messageRows(messages) {
 export function renderUnifiedTaskMessageCenter(user) {
   const role = escapeHtml(String(user?.role || '').toLowerCase())
   return `<div class="unified-work-center role-${role}" id="unified-work-center">
-    <button type="button" class="unified-center-trigger" id="unified-center-trigger" aria-label="打开任务与消息中心" aria-expanded="false">
-      <span class="unified-trigger-icon">${getIcon('message')}</span>
-      <span class="unified-trigger-copy"><strong>任务与消息</strong><small id="unified-trigger-status">正在同步</small></span>
-      <span class="unified-trigger-counts"><i id="unified-task-count" title="待办任务">0</i><i id="unified-message-count" title="未读消息">0</i></span>
-    </button>
+    <div class="unified-center-rail">
+      <button type="button" class="unified-center-trigger" id="unified-center-trigger" aria-label="打开任务与消息中心" aria-controls="unified-center-panel" aria-expanded="false">
+        <span class="unified-trigger-icon">${getIcon('message')}</span>
+        <span class="unified-trigger-copy"><strong>任务与消息</strong><small id="unified-trigger-status">正在同步</small></span>
+        <span class="unified-trigger-counts" aria-label="待办与最近提醒计数"><i id="unified-task-count" title="待办任务">0</i><i id="unified-message-count" title="最近提醒">0</i></span>
+      </button>
+      <button type="button" class="unified-center-dock-toggle" id="unified-center-dock-toggle" aria-label="向右收纳任务与消息中心" aria-expanded="true">${getIcon('arrow-right')}</button>
+    </div>
     <section class="unified-center-panel" id="unified-center-panel" aria-label="任务与消息中心" hidden>
-      <header><div><strong>任务与消息中心</strong><small id="unified-refreshed-at">正在读取真实数据</small></div><button type="button" id="unified-center-refresh" aria-label="刷新">${getIcon('refresh')}</button></header>
+      <header><div><strong>任务与消息中心</strong><small id="unified-refreshed-at">正在读取真实数据</small></div><span class="unified-panel-actions"><button type="button" id="unified-center-refresh" aria-label="刷新">${getIcon('refresh')}</button><button type="button" id="unified-center-close" aria-label="关闭任务与消息中心">${getIcon('close')}</button></span></header>
       <div class="unified-center-tabs" role="tablist">
         <button type="button" class="is-active" data-center-tab="tasks" role="tab" aria-selected="true">待办任务 <span id="unified-tab-task-count">0</span></button>
         <button type="button" data-center-tab="messages" role="tab" aria-selected="false">最近消息 <span id="unified-tab-message-count">0</span></button>
       </div>
-      <div class="unified-center-view" id="unified-task-view"><div id="unified-task-list" class="unified-feed-list"><div class="unified-center-loading">正在同步任务</div></div><footer><button type="button" id="unified-view-task-center">进入任务中心 ${getIcon('arrow-right')}</button></footer></div>
+      <div class="unified-center-view" id="unified-task-view">
+        <div class="unified-task-filters" id="unified-task-filters" aria-label="任务分类">
+          <button type="button" class="is-active" data-task-filter="all">全部</button><button type="button" data-task-filter="ai_agent">AI 任务</button><button type="button" data-task-filter="learning_flow">学习流</button><button type="button" data-task-filter="file_generation">文件生成</button><button type="button" data-task-filter="background_task">后台任务</button>
+        </div>
+        <div id="unified-task-list" class="unified-feed-list"><div class="unified-center-loading">正在同步任务</div></div><footer><button type="button" id="unified-view-task-center">进入任务中心 ${getIcon('arrow-right')}</button></footer>
+      </div>
       <div class="unified-center-view" id="unified-message-view" hidden>
         <div class="unified-message-tools" id="unified-message-tools" hidden>
           <button type="button" data-unread-filter="false" class="is-active">全部</button><button type="button" data-unread-filter="true">仅未读</button>
@@ -132,6 +147,7 @@ export function mountUnifiedTaskMessageCenter(user) {
   if (!root || !['student', 'teacher', 'admin'].includes(String(user?.role).toLowerCase())) return
 
   const trigger = root.querySelector('#unified-center-trigger')
+  const dockToggle = root.querySelector('#unified-center-dock-toggle')
   const panel = root.querySelector('#unified-center-panel')
   const taskView = root.querySelector('#unified-task-view')
   const messageView = root.querySelector('#unified-message-view')
@@ -143,7 +159,9 @@ export function mountUnifiedTaskMessageCenter(user) {
   const modal = root.querySelector('#unified-message-modal')
   let summary = { pending_task_count: 0, unread_message_count: 0, tasks: [], messages: [] }
   let open = false
+  let collapsed = false
   let tab = 'tasks'
+  let taskFilter = 'all'
   let expandedMessages = false
   let messagePage = 1
   let hasMore = false
@@ -151,10 +169,12 @@ export function mountUnifiedTaskMessageCenter(user) {
   let typeFilter = 'all'
   let messageItems = []
   let pollTimer = null
+  let pulseTimer = null
   let destroyed = false
   let drag = null
+  let dragFrame = null
+  let dragNextY = null
   let suppressClick = false
-  const settleTimers = []
 
   function positionPanel() {
     if (!open || panel.hidden) return
@@ -169,40 +189,13 @@ export function mountUnifiedTaskMessageCenter(user) {
   }
 
   function applyPosition(position) {
-    const width = trigger.offsetWidth || 166
-    const height = trigger.offsetHeight || 52
-    const requested = {
-      x: clamp(position?.x ?? window.innerWidth - width - 24, EDGE_MARGIN, window.innerWidth - width - EDGE_MARGIN),
-      y: clamp(position?.y ?? 88, EDGE_MARGIN, window.innerHeight - height - EDGE_MARGIN),
-    }
-    const protectedRects = [...document.querySelectorAll('#student-main button:not([disabled]),#student-main a[href],.home-identity,.teacher-summary-card,#student-ai-float .ai-float-main')]
-      .filter((element) => !root.contains(element) && element.offsetParent !== null)
-      .map((element) => element.getBoundingClientRect())
-      .filter((rect) => rect.width > 0 && rect.height > 0)
-    let { x, y } = requested
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const conflict = protectedRects.find((rect) => intersects(x, y, width, height, rect))
-      if (!conflict) break
-      const candidates = [
-        { x: conflict.left - width - 10, y },
-        { x: conflict.right + 10, y },
-        { x, y: conflict.top - height - 10 },
-        { x, y: conflict.bottom + 10 },
-      ].filter((candidate) => candidate.x >= EDGE_MARGIN
-        && candidate.y >= EDGE_MARGIN
-        && candidate.x + width <= window.innerWidth - EDGE_MARGIN
-        && candidate.y + height <= window.innerHeight - EDGE_MARGIN
-        && !protectedRects.some((rect) => intersects(candidate.x, candidate.y, width, height, rect)))
-      if (!candidates.length) break
-      candidates.sort((left, right) => Math.hypot(left.x - requested.x, left.y - requested.y) - Math.hypot(right.x - requested.x, right.y - requested.y))
-      ;({ x, y } = candidates[0])
-    }
-    root.style.left = `${x}px`
+    const railHeight = root.querySelector('.unified-center-rail')?.offsetHeight || 52
+    const y = clamp(position?.y ?? 88, EDGE_MARGIN, window.innerHeight - railHeight - EDGE_MARGIN)
+    root.style.left = 'auto'
     root.style.top = `${y}px`
-    root.style.right = 'auto'
-    root.classList.toggle('dock-left', x < window.innerWidth / 2)
+    root.style.right = '0px'
     positionPanel()
-    return { x, y }
+    return { y }
   }
 
   function updateCounts(previousUnread = summary.unread_message_count) {
@@ -210,13 +203,18 @@ export function mountUnifiedTaskMessageCenter(user) {
     root.querySelector('#unified-message-count').textContent = summary.unread_message_count || 0
     root.querySelector('#unified-tab-task-count').textContent = summary.pending_task_count || 0
     root.querySelector('#unified-tab-message-count').textContent = summary.unread_message_count || 0
-    root.querySelector('#unified-trigger-status').textContent = `${summary.pending_task_count || 0} 项待办 · ${summary.unread_message_count || 0} 条未读`
-    if (summary.unread_message_count > previousUnread) trigger.classList.add('has-new')
-    window.setTimeout(() => trigger.classList.remove('has-new'), 1400)
+    const recentTitle = summary.messages?.[0]?.title ? ` · 最近：${summary.messages[0].title}` : ''
+    root.querySelector('#unified-trigger-status').textContent = `${summary.running_task_count || 0} 进行中 · ${summary.pending_task_count || 0} 待办 · ${summary.unread_message_count || 0} 未读${recentTitle}`
+    if (summary.unread_message_count > previousUnread) {
+      trigger.classList.add('has-new')
+      clearTimeout(pulseTimer)
+      pulseTimer = window.setTimeout(() => trigger.classList.remove('has-new'), 1400)
+    }
   }
 
   function renderSummary() {
-    taskList.innerHTML = taskRows(summary.tasks)
+    const visibleTasks = taskFilter === 'all' ? summary.tasks : (summary.tasks || []).filter((task) => task.task_category === taskFilter)
+    taskList.innerHTML = taskRows(visibleTasks)
     if (!expandedMessages) messageList.innerHTML = messageRows(summary.messages)
     root.querySelector('#unified-refreshed-at').textContent = `更新于 ${timeLabel(summary.refreshed_at || new Date())}`
     updateCounts()
@@ -272,6 +270,27 @@ export function mountUnifiedTaskMessageCenter(user) {
     schedulePoll()
   }
 
+  function setCollapsed(next, { persist = true } = {}) {
+    collapsed = Boolean(next)
+    if (collapsed) setOpen(false)
+    root.classList.toggle('is-collapsed', collapsed)
+    trigger.setAttribute('aria-label', collapsed ? '展开任务与消息中心' : '打开任务与消息中心')
+    dockToggle.setAttribute('aria-expanded', String(!collapsed))
+    if (persist) saveCollapsed(user, collapsed)
+    applyPosition({ y: root.getBoundingClientRect().top })
+  }
+
+  function queueDragPosition(y) {
+    dragNextY = y
+    if (dragFrame != null) return
+    dragFrame = window.requestAnimationFrame(() => {
+      dragFrame = null
+      const nextY = dragNextY
+      dragNextY = null
+      if (Number.isFinite(nextY)) applyPosition({ y: nextY })
+    })
+  }
+
   async function loadMessages({ reset = false } = {}) {
     if (reset) { messagePage = 1; messageItems = [] }
     messageList.innerHTML = reset ? '<div class="unified-center-loading">正在读取消息</div>' : messageList.innerHTML
@@ -298,7 +317,6 @@ export function mountUnifiedTaskMessageCenter(user) {
       const action = root.querySelector('#unified-message-action')
       action.hidden = !message.action_url
       action.dataset.url = message.action_url || ''
-      modal.hidden = false
       if (message.unread) {
         await readWorkCenterMessage(id)
         summary.unread_message_count = Math.max(0, (summary.unread_message_count || 0) - 1)
@@ -307,6 +325,7 @@ export function mountUnifiedTaskMessageCenter(user) {
         updateCounts()
         if (expandedMessages) messageList.innerHTML = messageRows(messageItems)
       }
+      modal.hidden = false
       root.querySelector('#unified-message-close').focus()
     } catch (error) { setError(error.message || '消息详情读取失败') }
   }
@@ -315,36 +334,58 @@ export function mountUnifiedTaskMessageCenter(user) {
 
   trigger.addEventListener('pointerdown', (event) => {
     if (event.button !== undefined && event.button !== 0) return
-    const rect = trigger.getBoundingClientRect()
-    drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: rect.left, y: rect.top, moved: false }
+    if (open) setOpen(false)
+    const rect = root.getBoundingClientRect()
+    drag = { pointerId: event.pointerId, startY: event.clientY, y: rect.top, moved: false }
     trigger.setPointerCapture?.(event.pointerId)
   })
   trigger.addEventListener('pointermove', (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return
-    const dx = event.clientX - drag.startX
     const dy = event.clientY - drag.startY
-    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+    if (!drag.moved && Math.abs(dy) < DRAG_THRESHOLD) return
     drag.moved = true
     suppressClick = true
     root.classList.add('is-dragging')
-    applyPosition({ x: drag.x + dx, y: drag.y + dy })
+    queueDragPosition(drag.y + dy)
     event.preventDefault()
   })
   trigger.addEventListener('pointerup', (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return
+    if (dragFrame != null) window.cancelAnimationFrame(dragFrame)
+    dragFrame = null
+    if (Number.isFinite(dragNextY)) applyPosition({ y: dragNextY })
+    dragNextY = null
     if (drag.moved) {
-      const rect = trigger.getBoundingClientRect()
-      const snapped = applyPosition({ x: rect.left < window.innerWidth / 2 ? EDGE_MARGIN : window.innerWidth - rect.width - EDGE_MARGIN, y: rect.top })
-      savePosition(user, snapped)
+      savePosition(user, applyPosition({ y: root.getBoundingClientRect().top }))
     }
     root.classList.remove('is-dragging')
     drag = null
     window.setTimeout(() => { suppressClick = false }, 0)
   })
-  trigger.addEventListener('click', () => { if (!suppressClick) setOpen(!open) })
-  trigger.addEventListener('keydown', (event) => { if (event.key === 'Escape' && open) setOpen(false) })
+  trigger.addEventListener('pointercancel', () => {
+    if (dragFrame != null) window.cancelAnimationFrame(dragFrame)
+    dragFrame = null
+    dragNextY = null
+    drag = null
+    suppressClick = false
+    root.classList.remove('is-dragging')
+  })
+  trigger.addEventListener('click', () => {
+    if (suppressClick) return
+    if (collapsed) setCollapsed(false)
+    else setOpen(!open)
+  })
+  dockToggle.addEventListener('click', () => { setCollapsed(true); trigger.focus({ preventScroll: true }) })
   root.querySelectorAll('[data-center-tab]').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.centerTab)))
   root.querySelector('#unified-center-refresh').addEventListener('click', () => refreshSummary())
+  root.querySelector('#unified-center-close').addEventListener('click', () => { setOpen(false); trigger.focus({ preventScroll: true }) })
+  root.querySelector('#unified-task-filters').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-task-filter]')
+    if (!button) return
+    taskFilter = button.dataset.taskFilter
+    root.querySelectorAll('[data-task-filter]').forEach((item) => item.classList.toggle('is-active', item === button))
+    renderSummary()
+  })
   root.querySelector('#unified-view-task-center').addEventListener('click', () => {
     const role = String(user.role).toLowerCase()
     window.location.hash = role === 'student' ? '#/student/agent-tasks' : role === 'teacher' ? '#/teacher/artifacts' : '#/admin/logs'
@@ -379,25 +420,37 @@ export function mountUnifiedTaskMessageCenter(user) {
   modal.addEventListener('click', (event) => { if (event.target === modal) closeModal() })
   root.querySelector('#unified-message-action').addEventListener('click', (event) => { if (event.currentTarget.dataset.url) window.location.hash = event.currentTarget.dataset.url; closeModal() })
   const visibilityHandler = () => { if (document.hidden) clearInterval(pollTimer); else { refreshSummary({ silent: true }); schedulePoll() } }
+  const outsideHandler = (event) => {
+    if (open && !root.contains(event.target)) setOpen(false)
+  }
+  const keyHandler = (event) => {
+    if (event.key !== 'Escape') return
+    if (!modal.hidden) closeModal()
+    else if (open) { setOpen(false); trigger.focus({ preventScroll: true }) }
+  }
   const resizeHandler = () => {
-    savePosition(user, applyPosition({ x: trigger.getBoundingClientRect().left, y: trigger.getBoundingClientRect().top }))
+    savePosition(user, applyPosition({ y: root.getBoundingClientRect().top }))
     positionPanel()
   }
   document.addEventListener('visibilitychange', visibilityHandler)
+  document.addEventListener('pointerdown', outsideHandler)
+  document.addEventListener('keydown', keyHandler)
   window.addEventListener('resize', resizeHandler, { passive: true })
 
   activeController = {
     destroy() {
       destroyed = true
       clearInterval(pollTimer)
-      settleTimers.forEach((timer) => clearTimeout(timer))
+      clearTimeout(pulseTimer)
+      if (dragFrame != null) window.cancelAnimationFrame(dragFrame)
       document.removeEventListener('visibilitychange', visibilityHandler)
+      document.removeEventListener('pointerdown', outsideHandler)
+      document.removeEventListener('keydown', keyHandler)
       window.removeEventListener('resize', resizeHandler)
     },
   }
   applyPosition(readPosition(user))
-  settleTimers.push(window.setTimeout(() => applyPosition({ x: trigger.getBoundingClientRect().left, y: trigger.getBoundingClientRect().top }), 280))
-  settleTimers.push(window.setTimeout(() => applyPosition({ x: trigger.getBoundingClientRect().left, y: trigger.getBoundingClientRect().top }), 1100))
+  setCollapsed(readCollapsed(user), { persist: false })
   switchTab('tasks')
   refreshSummary()
   schedulePoll()

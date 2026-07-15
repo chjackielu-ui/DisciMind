@@ -25,7 +25,7 @@ export function marketplaceHash(path = '') {
 
 export function marketplaceTabs(active) {
   const activeHash = marketplaceHash(active)
-  return `<nav class="agent-market-tabs">${MARKET_TABS.map(([label, path]) => { const hash = marketplaceHash(path); return `<a class="${activeHash === hash ? 'active' : ''}" href="${hash}">${label}</a>` }).join('')}</nav>`
+  return `<nav class="agent-market-tabs" aria-label="智能体广场功能导航">${MARKET_TABS.map(([label, path]) => { const hash = marketplaceHash(path); return `<a class="${activeHash === hash ? 'active' : ''}" href="${hash}">${label}</a>` }).join('')}</nav>`
 }
 
 let marketplaceRoleLifecycle = null

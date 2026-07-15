@@ -1,7 +1,9 @@
 const prisma = require('../config/prisma');
 const asyncTaskService = require('../modules/async-task/async-task.service');
+const { normalizeRunStatus } = require('../modules/subject-chat/subject-chat-state-machine');
 
 const ACTIVE_TASK_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
+const ACTIVE_SUBJECT_RUN_STATUSES = ['queued', 'planning', 'running', 'waiting_tool', 'waiting_agent', 'generating', 'finalizing', 'pending'];
 
 function inputError(message) {
   return Object.assign(new Error(message), { code: 40001, status: 400 });
@@ -40,6 +42,12 @@ function taskCenterUrl(role, task) {
 
 function notificationAction(role, notification, distribution) {
   const businessType = String(notification.business_type || notification.target_type || '').toLowerCase();
+  if (role === 'student' && businessType === 'learning_card_daily') {
+    return { type: 'learning_card_daily', url: '#/student/dashboard?focus=learning-cards' };
+  }
+  if (role === 'student' && businessType === 'ai_chat_run' && notification.business_id) {
+    return { type: 'ai_chat_run', url: `#/student/ai-chat?conversationId=${notification.business_id}` };
+  }
   if (['course_file', 'resource_distribution'].includes(businessType) || notification.target_type === 'resource_distribution') {
     const courseId = distribution?.course_id;
     const fileId = distribution?.resource_id;
@@ -83,6 +91,14 @@ function serializeMessage(notification, role, distribution = null) {
 }
 
 function serializeTask(task, role) {
+  const taskType = String(task.taskType || '').toLowerCase();
+  const category = /file|artifact|document|handout|exam/.test(taskType)
+    ? 'file_generation'
+    : /learning.*flow|preload|node/.test(taskType)
+      ? 'learning_flow'
+      : /agent|chat|ai_/.test(taskType)
+        ? 'ai_agent'
+        : 'background_task';
   return {
     id: task.id,
     item_type: 'task',
@@ -100,7 +116,48 @@ function serializeTask(task, role) {
     progress: task.progress,
     progress_mode: task.progressMode,
     stage: task.stage,
+    task_category: category,
   };
+}
+
+function serializeSubjectRun(run) {
+  const status = normalizeRunStatus(run.status);
+  return {
+    id: run.id,
+    item_type: 'task',
+    title: run.conversation?.title || '学科答疑任务',
+    summary: run.currentTask || run.errorMessage || (status === 'completed' ? '回答已生成并保存' : '后台运行中'),
+    status,
+    unread: false,
+    priority: ['failed', 'stalled'].includes(status) ? 'high' : ACTIVE_SUBJECT_RUN_STATUSES.includes(run.status) ? 'normal' : 'low',
+    created_at: run.updatedAt || run.createdAt,
+    source_type: 'ai_chat_run',
+    source_id: run.conversationId,
+    action_type: 'ai_chat_run',
+    action_url: `#/student/ai-chat?conversationId=${run.conversationId}&runId=${encodeURIComponent(run.id)}`,
+    role_scope: 'student',
+    progress: run.progress,
+    progress_mode: 'stage',
+    stage: run.currentTask,
+    task_category: 'ai_agent',
+    completed_task_count: run.completedTaskCount,
+    total_task_count: run.totalTaskCount,
+    duration_ms: run.durationMs,
+    error_code: run.errorCode,
+  };
+}
+
+async function listSubjectRuns(user, { activeOnly = false, limit = 20 } = {}) {
+  if (String(user.role).toLowerCase() !== 'student') return [];
+  return prisma.subjectChatRun.findMany({
+    where: {
+      userId: Number(user.user_id),
+      ...(activeOnly ? { status: { in: ACTIVE_SUBJECT_RUN_STATUSES } } : {}),
+    },
+    include: { conversation: { select: { title: true } } },
+    orderBy: { updatedAt: 'desc' },
+    take: Math.min(50, Math.max(1, Number(limit) || 20)),
+  });
 }
 
 async function distributionMapFor(notifications) {
@@ -142,16 +199,23 @@ async function listMessageRecords(user, query = {}) {
 
 async function summary(user) {
   const where = notificationWhere(user.user_id);
-  const [unreadMessages, pendingTasks, latestMessages, taskResult] = await Promise.all([
+  const [unreadMessages, pendingTasks, latestMessages, taskResult, subjectRuns] = await Promise.all([
     prisma.notification.count({ where: { ...where, is_read: false } }),
     prisma.asyncTask.count({ where: { userId: Number(user.user_id), userVisible: true, dismissedAt: null, status: { in: ACTIVE_TASK_STATUSES } } }),
     listMessageRecords(user, { page: 1, page_size: 5 }),
     asyncTaskService.listTasks(user.user_id, { page: 1, pageSize: 20, includeDismissed: false }),
+    listSubjectRuns(user, { activeOnly: false, limit: 20 }),
   ]);
+  const activeSubjectRuns = subjectRuns.filter((run) => ACTIVE_SUBJECT_RUN_STATUSES.includes(run.status));
+  const tasks = [
+    ...taskResult.list.filter((task) => ACTIVE_TASK_STATUSES.includes(task.status)).map((task) => serializeTask(task, String(user.role).toLowerCase())),
+    ...subjectRuns.map(serializeSubjectRun),
+  ].sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
   return {
-    pending_task_count: pendingTasks,
+    pending_task_count: pendingTasks + activeSubjectRuns.length,
     unread_message_count: unreadMessages,
-    tasks: taskResult.list.filter((task) => ACTIVE_TASK_STATUSES.includes(task.status)).slice(0, 5).map((task) => serializeTask(task, String(user.role).toLowerCase())),
+    running_task_count: tasks.filter((task) => ['running', 'waiting_tool', 'waiting_agent', 'generating', 'finalizing'].includes(task.status)).length,
+    tasks: tasks.slice(0, 12),
     messages: latestMessages.list,
     refreshed_at: new Date(),
   };
@@ -159,12 +223,13 @@ async function summary(user) {
 
 async function feed(user, query = {}) {
   const limit = Math.min(40, Math.max(1, Number.parseInt(query.limit, 10) || 20));
-  const [messages, tasks] = await Promise.all([
+  const [messages, tasks, subjectRuns] = await Promise.all([
     listMessageRecords(user, { page: 1, page_size: limit }),
     asyncTaskService.listTasks(user.user_id, { page: 1, pageSize: limit, includeDismissed: false }),
+    listSubjectRuns(user, { limit }),
   ]);
   return {
-    list: [...messages.list, ...tasks.list.map((task) => serializeTask(task, String(user.role).toLowerCase()))]
+    list: [...messages.list, ...tasks.list.map((task) => serializeTask(task, String(user.role).toLowerCase())), ...subjectRuns.map(serializeSubjectRun)]
       .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
       .slice(0, limit),
   };
@@ -177,8 +242,16 @@ async function messages(user, query) {
 async function tasks(user, query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
   const pageSize = Math.min(50, Math.max(1, Number.parseInt(query.page_size || query.pageSize, 10) || 20));
-  const result = await asyncTaskService.listTasks(user.user_id, { page, pageSize, includeDismissed: false, status: query.status });
-  return { ...result, list: result.list.map((task) => serializeTask(task, String(user.role).toLowerCase())) };
+  const [result, subjectRuns] = await Promise.all([
+    asyncTaskService.listTasks(user.user_id, { page, pageSize, includeDismissed: false, status: query.status }),
+    listSubjectRuns(user, { limit: pageSize }),
+  ]);
+  const normalizedFilter = query.status ? String(query.status).toLowerCase() : null;
+  const subjectItems = subjectRuns.map(serializeSubjectRun).filter((item) => !normalizedFilter || item.status === normalizedFilter);
+  const list = [...result.list.map((task) => serializeTask(task, String(user.role).toLowerCase())), ...subjectItems]
+    .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+    .slice(0, pageSize);
+  return { ...result, total: result.total + subjectItems.length, list };
 }
 
 async function messageDetail(user, id) {
@@ -234,6 +307,7 @@ module.exports = {
   notificationWhere,
   serializeMessage,
   serializeTask,
+  serializeSubjectRun,
   summary,
   feed,
   messages,

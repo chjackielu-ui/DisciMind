@@ -17,8 +17,19 @@ test('learning PDF workspace supports multiple tabs, multi-file selection and dr
   assert.match(viewer, /async restoreView\(state = \{\}\)/);
 });
 
-test('task island remains viewport-right while the PDF panel is open', async () => {
-  const css = await fs.readFile(path.resolve(__dirname, '../../frontend/src/styles/dashboard.css'), 'utf8');
-  assert.doesNotMatch(css, /\.global-task-center\s*\{[^}]*right:\s*calc\(var\(--lws-pdf-width/s);
-  assert.match(css, /body:has\(\.lws-page\.is-pdf-open\) \.global-task-center \{ top: 96px; right: 22px !important; \}/);
+test('unified task center stays viewport-anchored and independent from PDF width', async () => {
+  const dashboardCss = await fs.readFile(path.resolve(__dirname, '../../frontend/src/styles/dashboard.css'), 'utf8');
+  const centerCss = await fs.readFile(path.resolve(__dirname, '../../frontend/src/styles/unified-work-center.css'), 'utf8');
+  assert.doesNotMatch(dashboardCss, /lws-page\.is-pdf-open[^}]*\.(?:global-task-center|unified-work-center)/s);
+  assert.doesNotMatch(centerCss, /right:\s*calc\(var\(--lws-pdf-width/s);
+  assert.match(centerCss, /\.unified-work-center\{[^}]*position:fixed/s);
+});
+
+test('learning actions stay in document flow and fullscreen study is available', async () => {
+  const page = await fs.readFile(path.resolve(__dirname, '../../frontend/src/pages/student-learning-session.js'), 'utf8');
+  const css = await fs.readFile(path.resolve(__dirname, '../../frontend/src/styles/student.css'), 'utf8');
+  assert.match(page, /data-learning-action="immersive-toggle"/);
+  assert.match(page, /requestFullscreen/);
+  assert.match(css, /\.lws-bottom-bar\{position:sticky/);
+  assert.match(css, /\.lws-page\.is-immersive/);
 });

@@ -518,6 +518,7 @@ async function shareResource(user, documentId, body) {
     }
     return created;
   });
+  if (immediate) void require('../modules/learning-flow-preload/knowledge-card-cache.service').markStaleByCourse(teachingClass.course_id).catch(() => {});
   return {
     distribution_id: distribution.distribution_id,
     shared_count: enrollments.length,

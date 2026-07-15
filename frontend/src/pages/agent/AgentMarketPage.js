@@ -16,8 +16,12 @@ function avatar(agent) {
 
 function agentCard(agent, mode) {
   const v = agent.version || {}
-  const allTags = [...(v.capabilities || []), ...(v.tags?.purpose || []), ...(v.tags?.style || [])]
-  const tags = [...new Set(allTags)].slice(0, 4)
+  const tagEntries = [
+    ...(v.capabilities || []).map(value => ({ value, kind: 'capability' })),
+    ...(v.tags?.purpose || []).map(value => ({ value, kind: 'purpose' })),
+    ...(v.tags?.style || []).map(value => ({ value, kind: 'style' })),
+  ].filter((entry, index, entries) => entries.findIndex(item => item.value === entry.value) === index)
+  const tags = tagEntries.slice(0, 4)
   const own = mode === 'mine' || Boolean(agent.isOwner)
   const isFileGenerator = agent.agentType === 'FILE_GENERATOR'
   const knowledgeEnabled = (v.knowledgeBases || []).length > 0 || v.responseMode === 'KNOWLEDGE_FIRST'
@@ -26,8 +30,8 @@ function agentCard(agent, mode) {
       <button class="agent-more-trigger" type="button" data-action="more" aria-label="更多操作" aria-haspopup="menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>
     </div>
     <p class="agent-card-description">${escapeHtml(v.shortDescription || '')}</p>
-    <div class="agent-card-tags">${tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}${allTags.length > tags.length ? `<span>+${allTags.length - tags.length}</span>` : ''}</div>
-    <div class="agent-card-capability-state"><span>${knowledgeEnabled ? '知识库增强' : '通用模型'}</span>${isFileGenerator ? '<span>DOCX</span><span>PDF</span>' : '<span>连续对话</span>'}</div>
+    <div class="agent-card-tags">${tags.map(tag => `<span class="is-${tag.kind}">${escapeHtml(tag.value)}</span>`).join('')}${tagEntries.length > tags.length ? `<span class="is-more">+${tagEntries.length - tags.length}</span>` : ''}</div>
+    <div class="agent-card-capability-state"><span class="is-context">${knowledgeEnabled ? '知识库增强' : '通用模型'}</span>${isFileGenerator ? '<span class="is-format">DOCX</span><span class="is-format">PDF</span>' : '<span class="is-dialogue">连续对话</span>'}</div>
     <div class="agent-card-stats"><span>使用 ${agent.usageCount || 0}</span><span>评分 ${Number(agent.ratingAverage || 0).toFixed(1)} (${agent.ratingCount || 0})</span><span>${agent.updatedAt ? new Date(agent.updatedAt).toLocaleDateString('zh-CN') : '最近更新'}</span>${own ? `<span class="agent-status status-${String(agent.status).toLowerCase()}">${statusLabel(agent.status)}</span>` : ''}</div>
     <div class="agent-card-actions">
       <button class="complex-btn" type="button" data-action="use">${isFileGenerator ? '生成文件' : '立即对话'}</button>
@@ -75,7 +79,7 @@ function bindCards(root, agents, mode, reload) {
 
 async function renderList(app, mode) {
   const active = mode === 'mine' ? '#/student/agents/mine' : mode === 'favorites' ? '#/student/agents/favorites' : '#/student/agents'
-  renderMarketplaceLayout(app, `<section class="agent-market-hero"><div><h1>${mode === 'public' ? '发现更多好用的学习伙伴' : mode === 'mine' ? '我的智能体' : '我的收藏'}</h1><p>${mode === 'public' ? '直接使用公开智能体，或复制一份打造自己的版本。' : '管理你的学习助手、审核状态和使用入口。'}</p></div>${mode === 'public' ? '<a class="complex-btn" href="#/student/agents/create">创建智能体</a>' : ''}</section><div id="agent-list-root">${loadingHTML()}</div>`, active)
+  renderMarketplaceLayout(app, `<section class="agent-market-hero"><div><span class="agent-market-eyebrow">AI STUDY PARTNERS</span><h1>${mode === 'public' ? '发现更多好用的学习伙伴' : mode === 'mine' ? '我的智能体' : '我的收藏'}</h1><p>${mode === 'public' ? '直接使用公开智能体，或复制一份打造自己的版本。' : '管理你的学习助手、审核状态和使用入口。'}</p></div>${mode === 'public' ? '<a class="complex-btn" href="#/student/agents/create">创建智能体</a>' : ''}</section><div id="agent-list-root">${loadingHTML()}</div>`, active)
   const root = document.getElementById('agent-list-root')
   const url = new URLSearchParams((location.hash.split('?')[1] || ''))
   let state = Object.fromEntries(url.entries()); let draft = { ...state }

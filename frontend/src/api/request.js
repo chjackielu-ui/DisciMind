@@ -133,6 +133,10 @@ export async function request(url, options = {}) {
   if (result.code === 40301) {
     const err = new Error(result.message || '无权限访问该资源')
     err.code = result.code
+    err.publicCode = result.error?.code || 'FORBIDDEN'
+    err.details = result.error?.details || result.data || null
+    err.requestId = result.error?.requestId || null
+    err.httpStatus = response.status
     throw err
   }
 
@@ -140,6 +144,11 @@ export async function request(url, options = {}) {
   if (result.code !== 0) {
     const err = new Error(result.message || '请求失败')
     err.code = result.code
+    err.publicCode = result.error?.code || null
+    err.details = result.error?.details || result.data || null
+    err.requestId = result.error?.requestId || null
+    err.retryable = Boolean(result.error?.retryable)
+    err.httpStatus = response.status
     throw err
   }
 

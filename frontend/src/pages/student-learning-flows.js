@@ -7,11 +7,14 @@ import { getUser, getToken } from '../utils/auth.js';
 import { showToast } from '../utils/toast.js';
 import {
   listAgents, listMyAgents, createAgentConversation, prefillFileRequirements,
+  listGeneratedArtifacts, createLearningFlowResourceLink,
   listLearningFlowResources, unlinkLearningFlowResource, downloadGeneratedArtifact,
 } from '../api/marketplace.js';
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js';
 import { studentLearningContextApi } from '../api/student-learning-context.js';
 import { studentLearningPlanApi } from '../api/student-learning-plans.js';
+import { learningCardApi } from '../api/learning-cards.js';
+import { renderLearningCardGrid } from '../components/learning-card-platform.js';
 import {
   FLOW_DRAFT_STORAGE_KEY, LEARNING_FLOW_CATEGORIES, getNodeCategory, getNodeType, isSupportedGraph,
 } from '../config/learning-flow.js';
@@ -46,10 +49,11 @@ export function renderStudentLearningFlows(app) {
     knowledgePointName: params.get('knowledgePointName') || '',
     items: [], counts: { all: 0, system: 0, mine: 0, teacher: 0 }, loading: true, error: '', batchMode: false, selected: new Set(),
     resources: [], resourcesLoading: true, activeFlowId: Number(params.get('flowId')) || null, learningContext: null,
-    contextLoading: true, contextError: '', planCourses: [], learningPlan: null, planRepair: null,
+    contextLoading: true, contextError: '', planCourses: [], learningPlan: null, planRepair: null, startPending: false,
   };
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, user: getUser(), contentHTML: pageHtml() });
   bindPage();
+  void loadLearningCenterCards();
   bootstrapLearningContext(params);
 }
 
@@ -68,6 +72,7 @@ async function bootstrapLearningContext(params) {
     }
   } catch (error) { state.learningContext = null; state.contextError = error.message || '当前学习计划读取失败' }
   finally { state.contextLoading = false; renderLearningPlanSummary(); renderCounts() }
+  void loadLearningCenterCards();
   loadFlows(); loadResources(); loadLearningGoalAvailability(); if (state.courseId && state.knowledgePointId) loadRecommendation()
   const pendingFlowId = Number(params.get('flowId')); if (Number.isInteger(pendingFlowId) && pendingFlowId > 0 && !params.has('resources') && !params.has('preloadId') && !state.learningContext) setTimeout(() => openLearningPlanWizard({ preferredTemplateId: pendingFlowId }), 0)
   if (params.get('panel') === 'learning-plan') setTimeout(() => openLearningPlanWizard(), 0)
@@ -80,23 +85,38 @@ function pageHtml() {
       <div class="lf-hero-right"><div class="lf-stat"><b id="lf-stat-total">—</b><span>进行中计划</span></div><div class="lf-stat"><b id="lf-stat-mine">—</b><span>可用模板</span></div><button class="lf-button primary" id="lf-create-plan">${icon('plus')}创建学习计划</button></div>
     </section>
     <section class="lf-plan-summary" id="lf-plan-summary" aria-live="polite"><div class="lf-loading"><i></i>正在读取学习目标与准备…</div></section>
+    <section class="lc-scene-section" id="lc-learning-center"><div class="lc-section-head"><div><h2>本次学习智学卡</h2><p>学习目标、必备概念、薄弱点、预计难点与预习建议</p></div></div><div id="lc-learning-center-grid"><div class="lc-empty"><b>正在读取学习准备卡片</b><span>不会阻塞学习计划和开始学习。</span></div></div></section>
     <section class="lf-recommendation" id="lf-recommendation"><div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>推荐模板</h2><p>模板是创建计划时的候选项，不会在学习准备或启动时替换计划已冻结的版本。</p></div><button class="lf-button secondary" id="lf-choose-context">查看并创建计划</button></section>
-    <section class="lf-resource-panel"><header><div><p class="lf-eyebrow">PRE-CLASS MATERIALS</p><h2>课前学习资料</h2><p>这里的资料独立于学习会话和 checkpoint，可随时预览、下载或解除关联。</p></div><button class="lf-button primary" id="lf-generate-handout">${icon('spark')}生成课前讲义</button></header><div id="lf-resource-list"><div class="lf-loading"><i></i>正在加载课前资料…</div></div></section>
+    <section class="lf-resource-panel"><header><div><p class="lf-eyebrow">PRE-CLASS MATERIALS</p><h2>课前学习资料</h2><p>这里的资料独立于学习会话和 checkpoint，可随时预览、下载或解除关联。</p></div><span class="lf-resource-actions"><button class="lf-button secondary" id="lf-import-material">${icon('plus')}导入学习资料</button><button class="lf-button primary" id="lf-generate-handout">${icon('spark')}生成课前讲义</button></span></header><div id="lf-resource-list"><div class="lf-loading"><i></i>正在加载课前资料…</div></div></section>
     <section class="lf-toolbar"><div class="lf-tabs" id="lf-tabs"></div><div class="lf-toolbar-actions"><label class="lf-search">${icon('search')}<input id="lf-search" value="${escapeHtml(state.search)}" placeholder="搜索学习流名称"></label><button class="lf-button ghost" id="lf-batch">批量管理</button></div></section>
     <section class="lf-batch-bar" id="lf-batch-bar" hidden></section>
     <section class="lf-grid" id="lf-grid" aria-live="polite"><div class="lf-loading"><i></i>正在加载学习流…</div></section>
   </main>`;
 }
 
+async function loadLearningCenterCards() {
+  const root = document.getElementById('lc-learning-center-grid')
+  if (!root) return
+  try {
+    const response = await learningCardApi.scene({ scene: 'LEARNING_CENTER', learningPlanId: state.learningPlan?.id || undefined })
+    const data = responseData(response)
+    if (!document.body.contains(root)) return
+    renderLearningCardGrid(root, data?.cards || [], { compact: true, scene: 'LEARNING_CENTER' })
+  } catch (error) {
+    if (document.body.contains(root)) root.innerHTML = `<div class="lc-empty"><b>学习卡片暂不可用</b><span>${escapeHtml(error.message || '可继续开始学习，卡片稍后自动恢复。')}</span></div>`
+  }
+}
+
 function contextIsReady() {
   const plan = state.learningPlan
-  return Boolean(plan?.id && plan.courseId && plan.knowledgePointId && plan.learningGoalId && plan.workflowVersionId && plan.graphSnapshot?.nodes?.length && ['ready', 'running', 'paused'].includes(plan.status))
+  const structurallyReady = Boolean(plan?.id && plan.courseId && plan.knowledgePointId && plan.learningGoalId && plan.workflowVersionId && plan.graphSnapshot?.nodes?.length && ['ready', 'running', 'paused', 'completed'].includes(plan.status))
+  return structurallyReady && plan?.readiness?.canStart !== false
 }
 
 function currentPreloadState() {
   const context = state.learningContext
   const plan = state.learningPlan
-  if (plan?.preload) return { preloadId: plan.preload.id, preloadStatus: plan.preload.status, preloadProgress: plan.preload.progress, preloadStage: plan.preload.stage }
+  if (plan?.preload) return { preloadId: plan.preload.id, preloadStatus: plan.preload.status, preloadProgress: plan.preload.progress, preloadStage: plan.preload.stage, ...plan.preload }
   const flow = state.items.find(item => Number(item.template_id) === Number(plan?.workflowTemplateId || context?.workflowTemplateId))
   return flow || { preloadStatus: 'NOT_STARTED', preloadProgress: 0 }
 }
@@ -105,9 +125,22 @@ function renderLearningPlanSummary() {
   const root = document.getElementById('lf-plan-summary'); if (!root) return
   if (state.contextLoading) { root.innerHTML = '<div class="lf-loading"><i></i>正在读取学习目标与准备…</div>'; return }
   const context = state.learningContext
-  const plan = state.learningPlan; const ready = contextIsReady()
+  const plan = state.learningPlan
+  const baseReady = Boolean(plan?.id && plan.courseId && plan.learningGoalId && plan.workflowVersionId && plan.graphSnapshot?.nodes?.length)
+  const readiness = plan?.readiness || { canStart: baseReady, required: {}, optional: {}, blockingReasons: [], degradedReasons: [] }
+  const ready = baseReady && readiness.canStart !== false
   const preload = currentPreloadState()
   const preloadLabel = ({ NOT_STARTED: '未准备', QUEUED: '准备中', PRELOADING: '准备中', PARTIAL: '部分完成', READY: '准备完成', FAILED: '准备失败', EXPIRED: '已过期' }[preload.preloadStatus] || '未准备')
+  const contextSnapshot = context?.contextSnapshot || context?.contextSnapshotJson || {}
+  const weakPoints = contextSnapshot.weakKnowledgePoints || context?.weakKnowledgePoints || []
+  const checklist = [
+    { label: '学习计划', ready: readiness.required?.plan === 'ready', detail: readiness.required?.plan === 'ready' ? '计划有效且属于当前用户' : '计划状态需要刷新' },
+    { label: '工作流快照', ready: readiness.required?.workflowSnapshot === 'ready', detail: plan?.workflow ? `${plan.workflow.title} · v${plan.workflow.version || '—'}` : '快照缺失' },
+    { label: '首节点正文', ready: ['ready', 'instant'].includes(readiness.required?.firstNode), detail: readiness.required?.firstNode === 'ready' ? '已预加载' : readiness.required?.firstNode === 'instant' ? '可进入后即时生成' : '首节点不可用' },
+    { label: '语音 TTS', ready: readiness.optional?.tts === 'ready', optional: true, detail: readiness.optional?.tts === 'ready' ? '已就绪' : readiness.optional?.tts === 'degraded' ? '暂不可用，将使用文本' : '可稍后生成' },
+    { label: '后续节点', ready: readiness.optional?.nextNode === 'ready', optional: true, detail: readiness.optional?.nextNode === 'ready' ? '已准备' : '按学习进度准备' },
+    { label: '学习资料', ready: state.resources.length > 0, optional: true, detail: state.resources.length ? `已关联 ${state.resources.length} 份` : '可稍后补充，不阻止开始' },
+  ]
   const reason = state.planRepair?.message || state.contextError || '选择一种方式创建学习计划。'
   const resourcePanel = document.querySelector('.lf-resource-panel')
   if (resourcePanel) resourcePanel.hidden = !ready
@@ -125,7 +158,8 @@ function renderLearningPlanSummary() {
       <div><small>总进度</small><b>${plan.progress || 0}%${plan.currentNodeId ? ` · ${escapeHtml(plan.currentNodeId)}` : ''}</b></div>
       <div><small>准备状态</small><b class="is-${String(preload.preloadStatus || 'NOT_STARTED').toLowerCase()}">${preloadLabel}${['QUEUED', 'PRELOADING'].includes(preload.preloadStatus) ? ` ${preload.preloadProgress || 0}%` : ''}</b></div>
     </div>
-    <footer><button class="lf-button secondary" data-plan-action="view">查看计划</button>${state.planRepair?.needsRematch || plan.status === 'failed' ? '<button class="lf-button secondary" data-plan-action="rematch">按当前目标重新匹配</button>' : ''}${ready ? '<button class="lf-button secondary" data-plan-action="prepare">学习准备</button><button class="lf-button secondary" data-plan-action="handout">生成课前讲义</button>' : ''}${ready ? `<button class="lf-button compact primary" data-plan-action="start">${icon('play', 13)}${['running', 'paused'].includes(plan.status) ? '继续学习' : '开始学习'}</button>` : ''}${['completed', 'archived'].includes(plan.status) ? '<button class="lf-button compact primary" data-plan-action="new">创建新计划</button>' : ''}</footer>`
+    <div class="lf-preparation-checklist"><strong>学习准备清单 <small>必需项决定能否开始；可选项允许降级</small></strong><div>${checklist.map(item => `<span class="${item.ready ? 'is-ready' : item.optional ? 'is-optional' : 'is-pending'}"><i>${item.ready ? '✓' : item.optional ? '○' : '!'}</i><b>${escapeHtml(item.label)}${item.optional ? '<em>可选</em>' : ''}</b><small>${escapeHtml(item.detail)}</small></span>`).join('')}</div>${readiness.blockingReasons?.length ? `<p class="lf-readiness-blocked">${escapeHtml(readiness.blockingReasons.map(item => item.message).join('；'))}</p>` : readiness.degradedReasons?.length ? `<p class="lf-readiness-degraded">${escapeHtml(readiness.degradedReasons.map(item => item.message).join('；'))}</p>` : ''}</div>
+    <footer><button class="lf-button secondary" data-plan-action="view">查看计划</button>${state.planRepair?.needsRematch || plan.status === 'failed' ? '<button class="lf-button secondary" data-plan-action="rematch">按当前目标重新匹配</button>' : ''}${baseReady ? `<button class="lf-button secondary" data-plan-action="prepare">${['FAILED', 'EXPIRED', 'PARTIAL'].includes(preload.preloadStatus) ? '重新准备' : '学习准备'}</button><button class="lf-button secondary" data-plan-action="handout">生成课前讲义</button>` : ''}${baseReady && !['archived'].includes(plan.status) ? `<button class="lf-button compact primary" data-plan-action="start" ${ready ? '' : 'disabled'} aria-busy="${state.startPending ? 'true' : 'false'}">${icon('play', 13)}${state.startPending ? '正在进入…' : ['running', 'paused'].includes(plan.status) ? '继续学习' : plan.status === 'completed' ? '查看学习结果' : '开始学习'}</button>` : ''}${['completed', 'archived'].includes(plan.status) ? '<button class="lf-button compact primary" data-plan-action="new">创建新计划</button>' : ''}</footer>`
   root.querySelector('[data-plan-action="view"]').onclick = () => openLearningPlanWizard()
   root.querySelector('[data-plan-action="rematch"]')?.addEventListener('click', rematchCurrentLearningPlan)
   root.querySelector('[data-plan-action="prepare"]')?.addEventListener('click', prepareCurrentLearningPlan)
@@ -184,10 +218,43 @@ async function prepareCurrentLearningPlan() {
   } catch (error) { showToast(error.message || '学习准备失败，仍可直接学习。', 'error') }
 }
 
-async function startCurrentLearningPlan() {
-  if (!requireLearningPlan(1)) return
-  try { const result = responseData(await studentLearningPlanApi.start(state.learningPlan.id)); const sessionId = result.session?.session_id; if (!sessionId) throw new Error('学习会话创建失败'); navigateTo(`#/student/learning/session/${sessionId}`) }
-  catch (error) { showToast(error.message || '无法开始学习', 'error') }
+function learningStartMessage(error) {
+  const code = error.publicCode || error.details?.code
+  const labels = {
+    LEARNING_PLAN_NOT_FOUND: '学习计划不存在，请刷新后重新选择。',
+    LEARNING_PLAN_FORBIDDEN: '该学习计划不属于当前账号。',
+    WORKFLOW_SNAPSHOT_MISSING: '学习流快照不可用，请重新匹配学习流。',
+    FIRST_NODE_NOT_READY: '首节点尚未就绪，请重新准备。',
+    SESSION_CONFLICT: '检测到已有学习会话，将继续原会话。',
+    SESSION_CREATE_FAILED: '学习会话暂时无法创建；计划和准备内容已保留，可安全重试。',
+    PRELOAD_REQUIRED_FAILED: '首节点必需内容准备失败，请重新准备。',
+    INVALID_SESSION_STATE: '当前会话状态不能继续，请刷新计划状态。',
+    LEARNING_START_TIMEOUT: '启动等待超时，可安全重试，不会重复创建会话。',
+  }
+  return labels[code] || error.message || '无法开始学习'
+}
+
+async function startCurrentLearningPlan(event) {
+  if (state.startPending || !requireLearningPlan(1)) return
+  const button = event?.currentTarget || document.querySelector('[data-plan-action="start"]')
+  state.startPending = true
+  if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); button.innerHTML = `${icon('play', 13)}正在进入…` }
+  try {
+    const result = responseData(await studentLearningPlanApi.start(state.learningPlan.id))
+    const sessionId = result.session?.session_id
+    if (!sessionId) throw new Error('学习会话创建失败')
+    state.learningPlan = result.plan || state.learningPlan
+    navigateTo(`#/student/learning/session/${sessionId}`)
+  } catch (error) {
+    const existingSessionId = error.details?.existingSessionId
+    const message = `${learningStartMessage(error)}${error.requestId ? `（请求 ${error.requestId}）` : ''}`
+    showToast(message, error.publicCode === 'SESSION_CONFLICT' && existingSessionId ? 'warning' : 'error')
+    if (error.publicCode === 'SESSION_CONFLICT' && existingSessionId) navigateTo(`#/student/learning/session/${existingSessionId}`)
+    else if (['WORKFLOW_SNAPSHOT_MISSING', 'FIRST_NODE_NOT_READY', 'PRELOAD_REQUIRED_FAILED'].includes(error.publicCode)) renderLearningPlanSummary()
+  } finally {
+    state.startPending = false
+    if (document.body.contains(button)) { button.removeAttribute('aria-busy'); button.disabled = state.learningPlan?.readiness?.canStart === false; button.innerHTML = `${icon('play', 13)}${['running', 'paused'].includes(state.learningPlan?.status) ? '继续学习' : '开始学习'}` }
+  }
 }
 
 async function generateHandoutFromContext() {
@@ -319,7 +386,7 @@ async function loadResources() {
     if (!state.learningPlan?.id) { state.resources = []; return }
     state.resources = responseData(await listLearningFlowResources({ learningPlanId: state.learningPlan.id, pageSize: 100 }))?.list || []
   } catch (error) { state.resourceError = error.message || '课前资料加载失败'; state.resources = [] }
-  finally { state.resourcesLoading = false; renderResources() }
+  finally { state.resourcesLoading = false; renderResources(); renderLearningPlanSummary() }
 }
 function renderResources() {
   const target = document.getElementById('lf-resource-list'); if (!target) return
@@ -329,6 +396,38 @@ function renderResources() {
   target.innerHTML = `<div class="lf-resource-grid">${state.resources.map(item => `<article class="lf-resource-card"><div><span class="lf-source system">${resourceRoleLabel(item.resourceRole)}</span><small>${formatDate(item.artifact?.createdAt)}</small></div><h3>${escapeHtml(item.artifact?.title || '学习资料')}</h3><p>${escapeHtml(item.course?.name || '未限定课程')} · ${escapeHtml(item.knowledgePoint?.name || '全部知识点')}</p><p>${item.artifact?.artifactType === 'STUDY_HANDOUT' ? '学习讲义' : '练习试卷'} · ${escapeHtml(item.artifact?.status || '')}</p><footer><a class="lf-button compact secondary" href="#/student/artifacts/${item.artifactId}">预览</a><button class="lf-button compact primary" data-resource-download="${item.artifactId}" data-title="${escapeHtml(item.artifact?.title || '学习资料')}">下载</button><button class="lf-button compact ghost" data-resource-unlink="${item.id}">解除关联</button></footer></article>`).join('')}</div>`
   target.querySelectorAll('[data-resource-download]').forEach(button => button.onclick = async () => { try { await downloadGeneratedArtifact(button.dataset.resourceDownload, `${button.dataset.title}.docx`) } catch (error) { showToast(error.message, 'error') } })
   target.querySelectorAll('[data-resource-unlink]').forEach(button => button.onclick = async () => { if (!confirm('只解除学习流关联，原文件仍会保留。确定继续吗？')) return; button.disabled = true; try { await unlinkLearningFlowResource(button.dataset.resourceUnlink); showToast('已解除资料关联', 'success'); await loadResources() } catch (error) { button.disabled = false; showToast(error.message, 'error') } })
+}
+
+async function openImportMaterial() {
+  const plan = state.learningPlan
+  if (!contextIsReady()) { showToast('请先创建并保存学习计划，再导入资料。', 'warning'); return }
+  const overlay = modal(`<header class="lf-modal-head"><div><span class="lf-wizard-step">导入学习资料</span><h2>从我的成果库导入</h2><p>只展示已生成完成且当前账号有权访问的真实资料；导入后仍保留原文件。</p></div><button class="lf-icon-button" data-close>${icon('close')}</button></header><div class="lf-modal-body" id="lf-import-material-list"><div class="lf-loading"><i></i>正在读取成果库…</div></div>`)
+  overlay.querySelector('[data-close]').onclick = () => overlay.remove()
+  const list = overlay.querySelector('#lf-import-material-list')
+  try {
+    const result = responseData(await listGeneratedArtifacts({ status: 'READY', page: 1, pageSize: 100 }))
+    const linked = new Set(state.resources.map(item => Number(item.artifactId)))
+    const artifacts = (result?.list || []).filter(item => !linked.has(Number(item.id)))
+    if (!artifacts.length) { list.innerHTML = '<div class="lf-empty"><p>没有可导入的新资料。可先使用文件生成器生成课前讲义。</p></div>'; return }
+    list.innerHTML = `<div class="lf-choice-grid">${artifacts.map(item => `<button class="lf-choice" data-import-artifact="${item.id}"><b>${escapeHtml(item.title || '学习资料')}</b><span>${escapeHtml(item.artifactType === 'EXAM_PAPER' ? '练习试卷' : '学习讲义')} · ${escapeHtml(formatDate(item.updatedAt || item.createdAt))}</span></button>`).join('')}</div>`
+    list.querySelectorAll('[data-import-artifact]').forEach(button => button.onclick = async () => {
+      button.disabled = true
+      try {
+        await createLearningFlowResourceLink(button.dataset.importArtifact, {
+          learningPlanId: plan.id,
+          courseId: plan.courseId,
+          knowledgePointId: plan.knowledgePointId,
+          learningGoalId: plan.learningGoalId,
+          workflowTemplateId: plan.workflowTemplateId,
+          learningSessionId: plan.learningSessionId || null,
+          resourceRole: 'REFERENCE_MATERIAL',
+        })
+        showToast('学习资料已导入当前计划', 'success')
+        overlay.remove()
+        await loadResources()
+      } catch (error) { button.disabled = false; showToast(error.message || '导入学习资料失败', 'error') }
+    })
+  } catch (error) { list.innerHTML = `<div class="lf-empty"><p>${escapeHtml(error.message || '成果库读取失败')}</p></div>` }
 }
 
 async function loadFlows() {
@@ -458,6 +557,7 @@ function bindPage() {
   document.getElementById('lf-choose-context').addEventListener('click', () => openLearningPlanWizard());
   document.getElementById('lf-batch').addEventListener('click', () => { state.batchMode = !state.batchMode; state.selected.clear(); document.getElementById('lf-batch').textContent = state.batchMode ? '完成管理' : '批量管理'; renderGrid(); renderBatchBar(); });
   document.getElementById('lf-generate-handout')?.addEventListener('click', () => generateHandout(state.learningPlan?.workflowTemplateId));
+  document.getElementById('lf-import-material')?.addEventListener('click', openImportMaterial);
   let timer;
   document.getElementById('lf-search').addEventListener('input', (event) => { clearTimeout(timer); timer = setTimeout(() => {
     state.search = event.target.value.trim(); persistListRoute(); loadFlows();

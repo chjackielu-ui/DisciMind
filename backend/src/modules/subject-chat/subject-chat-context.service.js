@@ -15,6 +15,7 @@ function normalize(value) {
 }
 
 function matchesSubject(course, subject) {
+  if (!normalize(subject)) return false;
   const haystack = normalize(`${course?.course_name || ''} ${course?.subject_category || ''} ${course?.course_code || ''}`);
   return (SUBJECT_ALIASES[subject] || [subject]).some((alias) => haystack.includes(normalize(alias)));
 }
@@ -33,9 +34,19 @@ async function resolveScope(userId, conversation, question) {
 
   const subject = String(conversation.subject || '');
   let enrollment = enrollments.find((item) => matchesSubject(item.course, subject)) || null;
+  if (!enrollment) {
+    const normalizedQuestion = normalize(question);
+    const matched = enrollments.map(item => {
+      const names = [item.course.course_name, item.course.course_code, item.course.subject_category].map(normalize).filter(Boolean);
+      return { item, score: names.reduce((best, name) => normalizedQuestion.includes(name) ? Math.max(best, name.length) : best, 0) };
+    }).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
+    if (matched[0] && (!matched[1] || matched[0].score > matched[1].score)) enrollment = matched[0].item;
+  }
   if (!enrollment && activeContext && matchesSubject(activeContext.course, subject)) {
     enrollment = enrollments.find((item) => item.course_id === activeContext.courseId) || null;
   }
+  if (!enrollment && activeContext && !subject) enrollment = enrollments.find((item) => item.course_id === activeContext.courseId) || null;
+  if (!enrollment && enrollments.length === 1) enrollment = enrollments[0];
   const course = enrollment?.course || null;
 
   let knowledgePoint = null;
@@ -70,7 +81,7 @@ async function resolveScope(userId, conversation, question) {
     activeContext,
     summary: course
       ? `已识别课程：${course.course_name}；${knowledgePoint ? `已识别知识点：${knowledgePoint.knowledge_point_name}` : '未匹配到明确知识点'}`
-      : `当前“${(SUBJECT_ALIASES[subject] || [subject])[0]}”未匹配到有效选课记录`,
+      : subject ? `当前“${(SUBJECT_ALIASES[subject] || [subject])[0]}”未匹配到有效选课记录` : '当前未选择课程，且问题中没有唯一可匹配的选课课程',
   };
 }
 

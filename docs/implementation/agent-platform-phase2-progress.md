@@ -2,6 +2,32 @@
 
 > 本文件用于任务中断恢复。每完成一个阶段或出现阻塞时更新。
 
+## 2026-07-15 AI 对话、本人学习数据与 Trainer 知识卡片（完成）
+
+- 统一身份上下文：新增认证用户派生 `UserContext` 和 8 个 owner-bound 学习数据 Tool；学生请求不接收 studentId，宽泛分析不默认取首门课程，所有无数据场景返回真实空态与来源。
+- 确定性路由：高置信文件意图进入系统试卷/讲义 Agent，学习分析先执行真实数据 Tool；通用、学科和 Agent 模式继续复用 Subject Chat 九步运行，不创建第二套聊天栈。
+- 文件闭环：完整需求不再重复规划；复用 `AsyncTask.WAITING_EXTERNAL` 与会话运行态提供刷新可恢复确认卡，支持 generate/preview/modify/cancel，确认后幂等进入现有 GeneratedArtifact/导出图，完成后原卡显示预览与下载。
+- 学习分析：严格 `ChartSpec 1.0` 包含 metric、unit、range、source、series 和 table；前端只安全映射 ECharts，支持表格、全屏、保存 PNG 和解释性空态。真实数据中一条 204.44% 源记录已单列为数据质量异常。
+- Trainer 等待体验：新增通用/个性化两层原子 JSON 卡片缓存、SWR 重新排队和即时回退；复用 `LEARNING_FLOW_PRELOAD` Worker，学习会话打开/节点进入/Trainer 启动并行预热。卡片支持翻页、展开、收藏、保存和掌握状态，不写 LangGraph checkpoint。
+- 前端：共享输入工具栏改为本地 SVG+紧凑标签/ARIA，保留知识库、Agent、文件、语音、停止和联网模式；学生冷色/教师暖色主题与既有统一输入链不变。
+- 验收：专项 22/22；后端全量 479/479；前端 build 963 modules；Prisma validate/status 退出码 0；`git diff --check` 通过。真实 Qwen 学习分析约 2.1 秒并产出图表；真实试卷生成约 82.7 秒，DOCX HTTP 200、13,966 bytes、ZIP/MIME 有效；学习会话 50 返回 5 张 READY 卡片。
+- 浏览器：1440×900、1024×768、390×844 下图表、数据表、持久文件成果卡和知识卡片通过，无页面横向溢出，Console 0 error；手机端翻页和展开真实可用。
+- 缓存失效回归：全量测试改变知识版本哈希后，两层缓存正确进入 stale；真实 GET 触发 SWR，约 17.7 秒后通用/个性化重新 READY 并合并 5 张卡片。
+- 清理：删除 2 个验收会话、4 个验收成果、3 个导出、54 条本轮探针/全量测试/刷新任务、对应 DOCX、3 个临时脚本、重复缓存和测试展开状态；会话 50 恢复 PAUSED，保留最新 READY 卡片缓存。未删除真实历史学习数据。
+- 工作区保护：保留既有 admin/跨端 dirty worktree；未执行 reset/clean/checkout/restore，未改真实 `.env`，未重建数据库，未安装依赖。
+
+## 2026-07-15 学生/教师通用 AI 加固（完成；Dify Dataset 本地上游 502 单列）
+
+- 已完成只读审计并生成 `docs/ai-assistant-hardening-audit.md`。根因是学生 Subject Chat、教师 AI、知识库、LangChain Agent 和成果中心的真实能力分散，缺少共用搜索策略、注册表、事件协议与引用层；本轮以增量核心复用原链路，没有新建第二套聊天、市场、知识库或成果中心。
+- 后端新增统一 `ai-assistant` 模块：qwen3.7-plus DashScope Multimodal Generation 原生搜索、OFF/AUTO/FORCE、能力矩阵与裁剪、版本化 SSE、来源/引用、Tool/Skill/Agent Registry、多轮 Function Calling、Trace、DOCX/XLSX/图表/知识卡片成果和所有权下载。新路径只执行 LangChain MODEL Agent，不调用 Dify Agent/Workflow；知识库继续复用既有 Dataset 检索。
+- 学生端继续使用可恢复的九步 Subject Chat 并同步统一 protocol 事件；教师端继续使用课程/教学班/时间范围真实上下文与旧 `meta/delta/done` 兼容事件。两端复用搜索控件、来源、引用、轨迹和成果组件，旧消息无新字段时正常降级。
+- 增量 migration `20260715110000_ai_assistant_hardening` 已通过 format/validate/generate 并由 `prisma migrate deploy` 应用。迁移后真实 Trace/Tool Audit/Artifact/XLSX 写读通过，临时数据库记录和文件已精确清理。
+- 自动化：专项 13/13、后端全量 466/466、前端 Vite build 961 modules 通过；Prisma validate 与 48 migrations 最新状态通过。真实 Qwen 控量探针确认原生搜索发生、10 个来源、引用和 Function Calling；text-generation 的真实 `InvalidParameter: url error` 已纠偏为 multimodal-generation。
+- 真实编排：学生错题 DOCX、教师学情 XLSX/ECharts、知识卡片、两 MODEL Agent 真串行（B 输入含 A 输出）和真并行（独立输入、并发执行、统一综合）均通过；测试 Trace、会话、Run、成果和文件已精确清理。
+- 浏览器：新 Chrome 标签恢复交互后，两端在 1366×768、1440×900、1920×1080 三个实际视口均无横向溢出；教师 FORCE 来源先出、引用联动、轨迹和 Console 0 error 通过；学生 9/9、来源先于正文、刷新恢复和 Console 0 error 通过。学生新闻提示带验收前缀时触发现有学习域拒答，搜索与恢复通过但正文质量不计通过。
+- 外部阻塞：显式知识库且搜索 OFF 的真实调用已进入 `knowledge_retrieve`，但当前本地 Dify Dataset `http://localhost/v1` 返回 HTTP 502；未伪造检索结果，按现有契约降级并保留回答。
+- 工作区保护：发现并保留大量既有管理员与跨端 dirty worktree；未执行 reset/clean/checkout/restore，未修改真实 `.env`，未删除真实业务数据。
+
 ## 2026-07-12 最后闭环阶段 1：学习目标与准备（完成）
 
 - 精确复现并修复 `StudentLearningContext` PUT 500：学情快照错误使用 `LearningFlowResourceLink.userId`，实际 Prisma 字段为 `ownerUserId`；空 GET 返回默认结构，首次保存继续使用 upsert，服务级保存/再读有效且 `contextHash` 为 64 位。
@@ -399,3 +425,111 @@ frontend/src/utils/student-menu.js
 - learning-flow-blockers：18/18 通过。
 - Prisma validate：通过。
 - frontend build：通过。
+
+## 21. 2026-07-15 智能任务运行态与学习流加固
+
+### 21.1 当前阶段
+
+- 阶段：运行态基线审计、后端/前端加固、真实运行、浏览器验收、全量回归与测试数据清理均已完成。
+- 工作区保护：继续保留现有脏工作区，不执行 `git reset --hard`、`git clean`、`git checkout`、`git restore`，不重建数据库。
+- 验收口径：只记录真实代码、数据库、API 与浏览器结果，不使用 mock 数据冒充完成。
+
+### 21.2 已确认事实
+
+- 已在学生端“通用学习”新建真实会话并提交“怎样高效刷题复习线性代数？”。
+- 浏览器约 1.2 秒进入 `5/9 · 56%`，随后持续停留在该位置，耗时固定显示 `1 秒`，执行轨迹仅显示“任务开始 / 生成计划”。
+- 对应后端 Run 实际在约 29 秒后完成全部 9 个步骤并保存最终答案，说明问题不是本次模型调用未返回，而是前端订阅链路提前退出。
+- 根因已定位到 `frontend/src/pages/student-ai-chat.js` 的 `refreshMessages()`：函数内合法宿主变量是 `host`，但附件下载绑定错误引用了未定义的 `root`。首批运行事件触发刷新后异常被 SSE 连接层捕获并显示为 `root is not defined`，随后页面不再消费事件。
+- 静态计时的独立根因是运行面板只在收到事件时重绘，`connectRunStream()` 还会停止计时器但没有启动逐秒更新；服务端快照同时缺少 `serverNow`、`lastHeartbeatAt` 与持久化耗时字段。
+- 当前服务端对每个极小模型 delta 都持久化一条 `answer_delta`，单次回答会产生数百条事件；需要批量化 delta，并保留数据库单调 sequence、断线重放与终态幂等。
+
+### 21.3 本阶段计划
+
+1. 增加 Run/Step 强状态机、心跳、超时、重试计数、错误码、持续时间与终态幂等。
+2. 加固 SSE 的 eventId、sequence、Last-Event-ID、快照补偿、去重与 2–5 秒心跳。
+3. 修复前端 `root` 异常、动态计时、刷新恢复与重连补偿。
+4. 把后台运行中的学科任务合并进统一任务与消息中心，并在完成/失败/停滞时生成可回跳通知。
+5. 完成学习计划、课前资料、学习会话 PDF/全屏/底部操作区与节点渲染加固。
+6. 执行迁移、聚焦测试、构建、真实 API/数据库核验、浏览器验收，并精确删除本轮测试会话及关联运行数据。
+
+### 21.4 已完成实现
+
+- Run 与 Task 使用统一强状态机，支持 `queued/planning/running/waiting_tool/waiting_agent/generating/finalizing/completed/failed/cancelled/stalled`、终态保护、心跳、超时、错误码、重试计数、首 token 与持续时间。
+- Prisma 增量 migration `20260715143000_subject_chat_runtime_hardening` 已应用；未删除、重命名或重建现有表。
+- SSE 增加稳定 event type、单调 sequence、事件时间、4 秒连接心跳、终态单次发送、快照补偿与 `/runs/:runId/snapshot` 别名。
+- 学科编排器增加 3 秒运行心跳、全局/步骤 AbortController 超时和 delta 批量持久化；旧问题复现 Run 产生 414 条 `answer_delta`，新通用 Run 仅 1 条，新学科 Run 仅 2 条。
+- 学生 AI 页面修复 `root is not defined`，使用服务端时间偏移逐秒计时，按 sequence 去重并在重连时读取快照；执行轨迹已展示阶段、模块、Agent 心跳、首 token 与失败/停滞事件。
+- 手动 Agent 保持权限校验，自动匹配仍只选择 MODEL；手动选择支持已配置的 MODEL、DIFY_CHATFLOW、DIFY_WORKFLOW，并将用户 ID、取消信号与超时传给运行时。
+- 统一任务与消息中心合并 AsyncTask、学科答疑 Run 与通知；收起态仅保留图标和两位计数，悬停/聚焦/展开时显示摘要，支持点击固定、Escape/外部点击关闭、分类筛选和原对话回跳。
+- 学习中心新增六项真实准备清单与真实成果库导入；学习会话底部操作条回到学习列文档流并使用 sticky，PDF 多标签/连续阅读保持可用，新增沉浸学习与安全退出。
+
+### 21.5 真实运行结果
+
+- 通用 Run `cb39fdd5-8558-4626-aa5f-7fbbd0d4dcd1`：9/9、`completed`、17.567 秒、56 个持久化事件，9 个任务均记录 duration；Agent 首 token、5 次心跳、引用和终态通知均落库。
+- 手动 MODEL Agent Run `980d4b69-3f02-40f7-ba3d-c8efca58be3e`：9/9、`completed`、36.741 秒、66 个事件；包含 `agent.started`、12 次 `agent_heartbeat`、`agent.first_delta`、`agent.completed`，最终回答真实保存。
+- 学科专属 Run `f100630e-30ae-4f20-adc2-ab78dec4ddc5`：`SUBJECT / machine_learning`、9/9、`completed`、4.591 秒、54 个事件，9 个任务全部完成且生成真实引用。
+- Dify 训练师当前环境实测：学生 3 的真实机器学习选课与逻辑回归知识点，`diagnostic_pre_test` 一次成功，上游 `succeeded`，74.692 秒，工作流 Run `20ffbdaf-2bf1-4e79-9333-ca9b68647a3f`，未打印密钥。
+- 当前数据库的 UserAgentVersion 运行时分布为 `MODEL=45`、Dify Agent 版本为 0；因此不能伪造“手动 Dify Marketplace Agent 浏览器运行”。代码与单测已覆盖手动 Dify 调用入口，真实 Dify 由已配置的训练师 Workflow 完成验收。
+
+### 21.6 浏览器验收
+
+- 任务中心能显示最近完成的学科任务，并从任务卡回跳 `#/student/ai-chat?conversationId=54&runId=980d4b69-3f02-40f7-ba3d-c8efca58be3e`；Escape 与外部点击均关闭面板。
+- 学习中心显示目标、工作流版本、学习画像、薄弱点、学习资料、首节点预加载六项清单；导入弹窗读取当前账号 8 个 READY 真实成果，没有使用 mock。
+- 学习会话 50 中操作条计算样式为 `position: sticky`、`right: auto`，且为学习列子节点；PDF 工作区真实加载 4 页连续阅读。
+- 沉浸学习在 in-app browser 不授予原生 Fullscreen 时使用同页 fallback，侧栏隐藏、PDF 保持打开，可正常退出；语音播放失败时显示“文字学习不受影响”，播放/停止/重播/上下段仍可用。
+- 当前浏览器没有未捕获 error；后端重启窗口曾记录 1 条 `ai-chat-artifact-stream network error` warning，Vite 重连后恢复。
+
+### 21.7 回归结果
+
+- 全量后端：471/471 通过，0 失败、0 跳过，耗时 70.061 秒。
+- 聚焦运行态、Dify、任务中心、学习 PDF：40/40 通过。
+- 前端生产构建：961 modules transformed，通过；保留既存 chunk size 与 ineffective dynamic import 警告。
+- `prisma validate`：通过；`prisma migrate status`：49 个 migration，数据库为最新。
+- `git diff --check`：通过，无空白错误。
+
+### 21.8 清理与工作区保护
+
+- 精确删除本轮验收会话 51–55：5 个会话、10 条消息、5 个 Run、45 个 Task、670 个 Event、5 个 Trace、1 个 Trace Tool Call、3 条终态通知由事务删除或级联删除。
+- 清理后对 51–55 复核：conversation、run、message、notification、trace、attachment、invocation、artifact 均为 0。
+- 临时审计脚本 `scripts/ai_learning_runtime_audit.py` 已删除。
+- 未执行 `git reset --hard`、`git clean`、`git checkout`、`git restore`、数据库重建或无关文件清理；现有脏工作区完整保留。
+
+## 22. 动态 AI 编排与学习启动收口（2026-07-15）
+
+### 22.1 完成范围
+
+- 废除新运行固定九步，新增 9 种执行模式和 32 条确定性路由矩阵；Subject Chat 按 `plan.created.taskDefinitions` 持久化真实步骤。
+- 补齐 Agent/Skill/Tool 能力与参数契约；owner-bound、图表、问候、文件、联网、附件路径硬禁止错误学科 Agent。
+- 统一 ChartSpec 1.0、参数规范化、调用前 preflight、字段级错误、一次修复和表格/文字降级。
+- 自然语言指定知识库可解析到有权访问的真实 Dataset；内部无公开 URL 的资料也能进入引用、Trace、Run Source 与前端来源卡片。
+- 学习启动新增结构化 readiness、必需/可降级项、计划级锁、Session 复用、`P2002` 竞争恢复、新一轮 goal 和稳定公开错误码。
+- 前端动态进度分母、重规划更新、字段级技术详情、图表重试、学习启动禁用/恢复动作与响应路由完成。
+
+### 22.2 真实验收
+
+- 问候 2/2；本人错题 3/3、20 条真实记录；图表 6/6、10 个真实掌握度、ECharts 正常；知识库问答 4/4、5 条真实来源；文件确认与 13,969-byte DOCX 下载通过。
+- 计划 4 两个并发 start 均 HTTP 200，复用 session 51；goal 30 的 session 数为 1。浏览器展示首节点并支持刷新恢复。
+- 1440×900、1024×768、390×844 无横向溢出；应用 Console 0 error，Network 无未处理 500。
+
+### 22.3 回归与清理
+
+- 新增专项 24/24，相关专项 50/50；后端全量 503/503，0 失败、0 跳过，75.67 秒。
+- 前端构建 963 modules、1.87 秒；Prisma schema 有效，49 个 migration 全部最新。
+- 精确删除会话 71–75、5 个 Run、5 个 Trace、5 条通知、成果 578、导出 221、任务 2124、文件会话 1122、物理目录和 3 个临时审计脚本；二次残留全部为 0。
+- 保留当前真实计划 4、goal 30、session 51、图表会话 68、真实知识库和所有无关 dirty worktree；未执行 reset/clean/checkout/restore，未修改真实 `.env`，未删除真实业务数据。
+
+## 23. 个性化 LearningCard 中枢（2026-07-16）
+
+### 23.1 完成范围
+
+- 建立 LearningCard 1.0、5 个持久化模型及第 50 个增量迁移；统一主页、学习中心、Trainer、错题、AI 对话、课程库和消息中心。
+- 每日推荐使用真实数据、可配置权重、五槽多样性、冷启动、反馈惩罚和单槽事件刷新；规则卡即时返回，Qwen3.7 Plus 通过既有 Worker 增强。
+- 内存/原子 JSON/数据库缓存、SWR、任务去重、完整 generation token 和旧任务防覆盖闭环完成。
+- 前端完成扇形交互、统一无障碍详情、Markdown、KaTeX、ECharts 数据表/全屏/PNG、桌面/平板/手机及 reduced-motion。
+
+### 23.2 验收与保护
+
+- LearningCard 专项 11/11，后端全量 515/515；前端 966 modules 构建通过；Prisma 50 migrations 最新。
+- 真实 Qwen 7/7；真实动作闭环与 1440/933/390 浏览器场景通过；推荐单槽刷新和并发轮次令牌通过数据库级验证。
+- 精确清理本轮卡片、集合、状态、事件、通知、任务、成果/会话标记及平台缓存，相关残留为 0。
+- 未执行 reset、clean、checkout、restore，未修改真实 `.env`，未删除真实业务数据，保留全部无关 dirty worktree。

@@ -1,20 +1,48 @@
 const prisma = require('../../config/prisma');
 const events = require('./subject-chat-event.service');
+const stateMachine = require('./subject-chat-state-machine');
 
-const TERMINAL_RUN_STATUSES = new Set(['success', 'failed', 'cancelled']);
-const ACTIVE_RUN_STATUSES = ['pending', 'running'];
+const TERMINAL_RUN_STATUSES = stateMachine.TERMINAL_RUN_STATUSES;
+const ACTIVE_RUN_STATUSES = [...stateMachine.ACTIVE_RUN_STATUSES, 'pending'];
+const DEFAULT_RUN_TIMEOUT_MS = Math.max(30_000, Number(process.env.AGENT_GRAPH_TIMEOUT_MS) || 180_000);
+const DEFAULT_TASK_TIMEOUT_MS = Math.max(15_000, Number(process.env.SUBJECT_CHAT_TASK_TIMEOUT_MS) || 120_000);
 
-const TASK_DEFINITIONS = [
-  ['analyze_question', '分析问题', '校验输入并建立本轮对话上下文'],
-  ['identify_scope', '识别课程与知识点', '从选课与当前学习上下文中识别真实范围'],
-  ['load_learning_context', '读取学习上下文', '读取最近学习记录、任务和学习流进度'],
-  ['load_student_profile', '读取学生画像', '读取掌握度、薄弱点与错题概况'],
-  ['retrieve_knowledge', '检索学科知识库', '检索课程知识库并记录可验证来源'],
-  ['invoke_subject_agent', '调用学科答疑 Agent', '复用现有学科答疑模型流式生成回答'],
-  ['organize_sources', '整理引用来源', '整理本轮实际使用的课程资料与学习数据'],
-  ['quality_check', '检查答案质量', '检查回答完整性与引用编号'],
-  ['finalize_answer', '生成最终回答', '保存最终消息并完成本轮运行'],
-];
+const TASK_DEFINITIONS = Object.freeze([
+  ['understand_request', '理解问题', '识别当前请求实际需要的能力'],
+  ['generate_response', '生成回答', '生成并保存最终回答'],
+]);
+
+function definitionsForPlan(plan) {
+  const definitions = Array.isArray(plan?.taskDefinitions) ? plan.taskDefinitions : [];
+  const valid = definitions.filter(item => Array.isArray(item) && item.length >= 3 && item[0] && item[1]);
+  return valid.length ? valid.map(item => [String(item[0]).slice(0, 100), String(item[1]).slice(0, 255), String(item[2] || '').slice(0, 1000)]) : TASK_DEFINITIONS;
+}
+
+async function notifyTerminalRun(run, status) {
+  if (!run) return;
+  const labels = {
+    completed: ['AI 学习任务已完成', '回答已生成并保存，点击返回原对话查看。'],
+    failed: ['AI 学习任务失败', run.errorMessage || '本次运行失败，可返回原对话重试。'],
+    stalled: ['AI 学习任务等待超时', run.errorMessage || '任务已停止等待，可返回原对话重试。'],
+    cancelled: ['AI 学习任务已停止', '已保留当前生成内容，点击返回原对话查看。'],
+  };
+  const [title, content] = labels[status] || labels.failed;
+  await prisma.notification.upsert({
+    where: { idempotency_key: `subject-chat-run:${run.id}:${status}` },
+    update: { title, content },
+    create: {
+      receiver_user_id: run.userId,
+      notification_type: 'AI_TASK_DONE',
+      title,
+      content,
+      target_type: 'ai_conversation',
+      target_id: run.conversationId,
+      business_type: 'ai_chat_run',
+      business_id: run.conversationId,
+      idempotency_key: `subject-chat-run:${run.id}:${status}`,
+    },
+  }).catch((error) => console.error('[subject-chat] 终态通知写入失败:', error.message));
+}
 
 function serializeTask(task) {
   return {
@@ -23,14 +51,20 @@ function serializeTask(task) {
     taskType: task.taskType,
     title: task.title,
     description: task.description,
-    status: task.status,
+    status: stateMachine.normalizeTaskStatus(task.status),
     orderIndex: task.orderIndex,
     progress: task.progress,
     inputSummary: task.inputSummary,
     outputSummary: task.outputSummary,
     errorMessage: task.errorMessage,
+    errorCode: task.errorCode,
     startedAt: task.startedAt,
+    lastHeartbeatAt: task.lastHeartbeatAt,
     completedAt: task.completedAt,
+    durationMs: task.durationMs,
+    timeoutAt: task.timeoutAt,
+    retryCount: task.retryCount || 0,
+    firstDeltaAt: task.firstDeltaAt,
   };
 }
 
@@ -59,7 +93,7 @@ function serializeRun(run, detail = true) {
     assistantMode: run.assistantMode,
     courseId: run.courseId,
     knowledgePointId: run.knowledgePointId,
-    status: run.status,
+    status: stateMachine.normalizeRunStatus(run.status),
     progress: run.progress,
     currentTask: run.currentTask,
     graphVersion: run.graphVersion,
@@ -73,10 +107,16 @@ function serializeRun(run, detail = true) {
     finalMessageId: run.finalMessageId,
     finalAnswer: run.finalAnswer,
     errorMessage: run.errorMessage,
+    errorCode: run.errorCode,
     startedAt: run.startedAt,
+    lastHeartbeatAt: run.lastHeartbeatAt,
     completedAt: run.completedAt,
+    durationMs: run.durationMs,
+    timeoutAt: run.timeoutAt,
+    retryCount: run.retryCount || 0,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
+    serverNow: new Date(),
   };
   if (detail) {
     result.tasks = (run.tasks || []).map(serializeTask);
@@ -105,18 +145,21 @@ async function assertNoActiveRun(userId, conversationId) {
   }
 }
 
-async function createRun(userId, turn) {
-  const definitions = TASK_DEFINITIONS;
+async function createRun(userId, turn, plan = turn.executionPlan) {
+  const definitions = definitionsForPlan(plan);
   const run = await prisma.subjectChatRun.create({
     data: {
       conversationId: turn.conversation.id,
       userId,
       assistantMode: String(turn.conversation.mode || 'subject').toLowerCase(),
-      status: 'pending',
+      status: 'queued',
+      lastHeartbeatAt: new Date(),
+      timeoutAt: new Date(Date.now() + DEFAULT_RUN_TIMEOUT_MS),
       totalTaskCount: definitions.length,
       pendingTaskCount: definitions.length,
       userMessageId: turn.userMessage?.id || null,
       operationId: `chat-run:${turn.conversation.id}:${turn.userMessage?.id || 'regenerate'}:${Date.now()}`,
+      stateJson: plan ? { dynamicPlan: plan, planRevision: 1 } : null,
       tasks: {
         create: definitions.map(([taskType, title, description], index) => ({
           taskType,
@@ -132,8 +175,8 @@ async function createRun(userId, turn) {
     runId: run.id,
     eventType: 'run_created',
     title: '运行任务已创建',
-    message: `已创建 ${definitions.length} 个真实执行步骤`,
-    payload: { run: serializeRun(run, false) },
+    message: `已按当前请求创建 ${definitions.length} 个动态执行步骤`,
+    payload: { run: serializeRun(run, false), executionMode: plan?.executionMode || 'DIRECT_RESPONSE' },
   });
   for (const task of run.tasks) {
     await events.record({
@@ -181,9 +224,9 @@ async function getLatestForConversation(userId, conversationId) {
 
 async function refreshProgress(runId, currentTask = undefined) {
   const tasks = await prisma.subjectChatTask.findMany({ where: { runId } });
-  const completed = tasks.filter((task) => task.status === 'success').length;
-  const pending = tasks.filter((task) => ['pending', 'running'].includes(task.status)).length;
-  const running = tasks.find((task) => task.status === 'running');
+  const completed = tasks.filter((task) => stateMachine.normalizeTaskStatus(task.status) === 'completed').length;
+  const pending = tasks.filter((task) => ['pending', 'running', 'retrying'].includes(stateMachine.normalizeTaskStatus(task.status))).length;
+  const running = tasks.find((task) => stateMachine.normalizeTaskStatus(task.status) === 'running');
   const partial = running ? Math.max(0, Math.min(100, running.progress)) / 100 : 0;
   const progress = tasks.length ? Math.min(99, Math.round(((completed + partial) / tasks.length) * 100)) : 0;
   return prisma.subjectChatRun.update({
@@ -197,26 +240,139 @@ async function refreshProgress(runId, currentTask = undefined) {
   });
 }
 
-async function markRunStarted(runId) {
+async function transitionRunStatus(runId, nextStatus, currentTask = undefined) {
+  const current = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  if (!current) return null;
+  const normalized = stateMachine.assertRunTransition(current.status, nextStatus);
+  if (stateMachine.isTerminalRunStatus(current.status)) return current;
+  const now = new Date();
+  const data = {
+    status: normalized,
+    lastHeartbeatAt: now,
+    ...(current.startedAt ? { durationMs: Math.max(0, now.getTime() - new Date(current.startedAt).getTime()) } : {}),
+    ...(currentTask !== undefined ? { currentTask } : {}),
+  };
+  const changed = await prisma.subjectChatRun.updateMany({
+    where: { id: runId, status: current.status },
+    data,
+  });
+  if (!changed.count) return prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  const run = { ...current, ...data };
+  if (stateMachine.normalizeRunStatus(current.status) !== normalized) {
+    await events.record({
+      runId,
+      eventType: 'run_status_changed',
+      title: '运行阶段更新',
+      message: currentTask || normalized,
+      payload: {
+        previousStatus: stateMachine.normalizeRunStatus(current.status),
+        status: normalized,
+        run: serializeRun(run, false),
+      },
+    });
+  }
+  return run;
+}
+
+async function heartbeat(runId, options = {}) {
+  const current = options.status
+    ? await transitionRunStatus(runId, options.status, options.currentTask)
+    : await prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  if (!current || stateMachine.isTerminalRunStatus(current.status)) return current;
+  const now = new Date();
+  const durationMs = current.startedAt ? Math.max(0, now.getTime() - new Date(current.startedAt).getTime()) : 0;
   const run = await prisma.subjectChatRun.update({
     where: { id: runId },
-    data: { status: 'running', startedAt: new Date(), errorMessage: null },
+    data: {
+      lastHeartbeatAt: now,
+      durationMs,
+      ...(options.currentTask !== undefined ? { currentTask: options.currentTask } : {}),
+    },
+  });
+  if (options.taskId) {
+    const task = await prisma.subjectChatTask.findUnique({ where: { id: options.taskId } });
+    if (task && ['running', 'retrying'].includes(stateMachine.normalizeTaskStatus(task.status))) {
+      await prisma.subjectChatTask.update({
+        where: { id: task.id },
+        data: {
+          lastHeartbeatAt: now,
+          durationMs: task.startedAt ? Math.max(0, now.getTime() - new Date(task.startedAt).getTime()) : 0,
+        },
+      });
+    }
+  }
+  await events.record({
+    runId,
+    taskId: options.taskId || null,
+    eventType: options.eventType || 'run_heartbeat',
+    title: options.title || '任务仍在执行',
+    message: options.message || options.currentTask || run.currentTask || '运行心跳正常',
+    payload: { ...(options.payload || {}), run: serializeRun(run, false) },
+  });
+  return run;
+}
+
+async function markFirstDelta(runId, taskId) {
+  const now = new Date();
+  await transitionRunStatus(runId, 'generating');
+  await prisma.subjectChatTask.updateMany({
+    where: { id: taskId, firstDeltaAt: null },
+    data: { firstDeltaAt: now, lastHeartbeatAt: now },
+  });
+  await events.record({
+    runId,
+    taskId,
+    eventType: 'agent_first_delta',
+    title: 'Agent 已开始输出',
+    message: '已收到首个模型增量片段',
+    payload: { firstDeltaAt: now },
+  });
+}
+
+async function markRunStarted(runId) {
+  const now = new Date();
+  const run = await prisma.subjectChatRun.update({
+    where: { id: runId },
+    data: {
+      status: 'planning',
+      startedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: new Date(now.getTime() + DEFAULT_RUN_TIMEOUT_MS),
+      durationMs: 0,
+      errorMessage: null,
+      errorCode: null,
+      completedAt: null,
+    },
   });
   await events.record({
     runId,
     eventType: 'run_started',
     title: '开始执行',
-    message: '学科答疑编排器已启动',
+    message: '动态 AI 编排器已启动',
     payload: { run: serializeRun(run, false) },
   });
   return run;
 }
 
-async function startTask(task, inputSummary = null) {
+async function startTask(task, inputSummary = null, options = {}) {
+  const now = new Date();
+  const timeoutMs = Math.max(5_000, Number(options.timeoutMs) || DEFAULT_TASK_TIMEOUT_MS);
   const updated = await prisma.subjectChatTask.update({
     where: { id: task.id },
-    data: { status: 'running', progress: 5, inputSummary, errorMessage: null, startedAt: new Date(), completedAt: null },
+    data: {
+      status: 'running',
+      progress: 5,
+      inputSummary,
+      errorMessage: null,
+      errorCode: null,
+      startedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: new Date(now.getTime() + timeoutMs),
+      durationMs: 0,
+      completedAt: null,
+    },
   });
+  if (options.runStatus) await transitionRunStatus(task.runId, options.runStatus, task.title);
   const run = await refreshProgress(task.runId, task.title);
   await events.record({
     runId: task.runId,
@@ -230,9 +386,15 @@ async function startTask(task, inputSummary = null) {
 }
 
 async function progressTask(task, progress, message, payload = null) {
+  const now = new Date();
   const updated = await prisma.subjectChatTask.update({
     where: { id: task.id },
-    data: { progress: Math.max(5, Math.min(95, Number(progress) || 5)), outputSummary: message || undefined },
+    data: {
+      progress: Math.max(5, Math.min(95, Number(progress) || 5)),
+      outputSummary: message || undefined,
+      lastHeartbeatAt: now,
+      ...(task.startedAt ? { durationMs: Math.max(0, now.getTime() - new Date(task.startedAt).getTime()) } : {}),
+    },
   });
   const run = await refreshProgress(task.runId, task.title);
   await events.record({
@@ -247,9 +409,18 @@ async function progressTask(task, progress, message, payload = null) {
 }
 
 async function completeTask(task, outputSummary, payload = null) {
+  const now = new Date();
   const updated = await prisma.subjectChatTask.update({
     where: { id: task.id },
-    data: { status: 'success', progress: 100, outputSummary, completedAt: new Date() },
+    data: {
+      status: 'completed',
+      progress: 100,
+      outputSummary,
+      lastHeartbeatAt: now,
+      completedAt: now,
+      timeoutAt: null,
+      durationMs: task.startedAt ? Math.max(0, now.getTime() - new Date(task.startedAt).getTime()) : 0,
+    },
   });
   const run = await refreshProgress(task.runId, null);
   await events.record({
@@ -265,9 +436,18 @@ async function completeTask(task, outputSummary, payload = null) {
 
 async function failTask(task, error) {
   const message = String(error?.message || '任务执行失败').slice(0, 2000);
+  const now = new Date();
   const updated = await prisma.subjectChatTask.update({
     where: { id: task.id },
-    data: { status: 'failed', errorMessage: message, completedAt: new Date() },
+    data: {
+      status: 'failed',
+      errorMessage: message,
+      errorCode: String(error?.code || 'TASK_FAILED').slice(0, 100),
+      lastHeartbeatAt: now,
+      completedAt: now,
+      timeoutAt: null,
+      durationMs: task.startedAt ? Math.max(0, now.getTime() - new Date(task.startedAt).getTime()) : 0,
+    },
   });
   const run = await refreshProgress(task.runId, task.title);
   await events.record({
@@ -309,42 +489,72 @@ async function createSource(runId, taskId, data) {
 }
 
 async function completeRun(runId, { finalAnswer, finalMessageId }) {
-  const run = await prisma.subjectChatRun.update({
-    where: { id: runId },
+  const current = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  if (!current || stateMachine.isTerminalRunStatus(current.status)) return current;
+  const now = new Date();
+  const changed = await prisma.subjectChatRun.updateMany({
+    where: { id: runId, status: current.status },
     data: {
-      status: 'success',
+      status: 'completed',
       progress: 100,
       currentTask: null,
-      completedTaskCount: TASK_DEFINITIONS.length,
+      completedTaskCount: current.totalTaskCount,
       pendingTaskCount: 0,
       finalAnswer,
       finalMessageId,
-      completedAt: new Date(),
+      completedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: null,
+      durationMs: current.startedAt ? Math.max(0, now.getTime() - new Date(current.startedAt).getTime()) : 0,
       errorMessage: null,
+      errorCode: null,
     },
   });
+  if (!changed.count) return prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  const run = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
   await events.record({
     runId,
     eventType: 'run_completed',
-    title: '答疑任务已完成',
+    title: 'AI 学习任务已完成',
     message: '最终回答已保存',
     payload: { run: serializeRun(run, false), finalAnswer, finalMessageId },
   });
+  await notifyTerminalRun(run, 'completed');
   return run;
 }
 
 async function failRun(runId, error) {
   const current = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
-  if (!current || current.status === 'cancelled') return current;
+  if (!current || stateMachine.isTerminalRunStatus(current.status)) return current;
   const message = String(error?.message || '运行失败').slice(0, 2000);
+  const now = new Date();
   await prisma.subjectChatTask.updateMany({
-    where: { runId, status: 'pending' },
-    data: { status: 'skipped', errorMessage: '前序任务失败，未执行', completedAt: new Date() },
+    where: { runId, status: { in: ['pending', 'running', 'retrying'] } },
+    data: {
+      status: 'skipped',
+      errorCode: 'UPSTREAM_RUN_FAILED',
+      errorMessage: '前序任务失败，未执行',
+      completedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: null,
+    },
   });
-  const run = await prisma.subjectChatRun.update({
-    where: { id: runId },
-    data: { status: 'failed', currentTask: null, pendingTaskCount: 0, errorMessage: message, completedAt: new Date() },
+  const changed = await prisma.subjectChatRun.updateMany({
+    where: { id: runId, status: current.status },
+    data: {
+      status: 'failed',
+      currentTask: null,
+      pendingTaskCount: 0,
+      errorMessage: message,
+      errorCode: String(error?.code || 'RUN_FAILED').slice(0, 100),
+      completedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: null,
+      durationMs: current.startedAt ? Math.max(0, now.getTime() - new Date(current.startedAt).getTime()) : 0,
+    },
   });
+  if (!changed.count) return prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  const run = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
   await events.record({
     runId,
     eventType: 'run_failed',
@@ -352,26 +562,77 @@ async function failRun(runId, error) {
     message,
     payload: { run: serializeRun(run, false) },
   });
+  await notifyTerminalRun(run, 'failed');
+  return run;
+}
+
+async function stallRun(runId, error) {
+  const current = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  if (!current || stateMachine.isTerminalRunStatus(current.status)) return current;
+  const now = new Date();
+  const message = String(error?.message || '运行心跳超时，已停止等待').slice(0, 2000);
+  await prisma.subjectChatTask.updateMany({
+    where: { runId, status: { in: ['pending', 'running', 'retrying'] } },
+    data: {
+      status: 'cancelled',
+      errorCode: 'RUN_STALLED',
+      errorMessage: message,
+      completedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: null,
+    },
+  });
+  const changed = await prisma.subjectChatRun.updateMany({
+    where: { id: runId, status: current.status },
+    data: {
+      status: 'stalled',
+      currentTask: null,
+      pendingTaskCount: 0,
+      errorCode: String(error?.code || 'RUN_TIMEOUT').slice(0, 100),
+      errorMessage: message,
+      completedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: null,
+      durationMs: current.startedAt ? Math.max(0, now.getTime() - new Date(current.startedAt).getTime()) : 0,
+    },
+  });
+  if (!changed.count) return prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  const run = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  await events.record({
+    runId,
+    eventType: 'run_stalled',
+    title: '答疑任务等待超时',
+    message,
+    payload: { run: serializeRun(run, false) },
+  });
+  await notifyTerminalRun(run, 'stalled');
   return run;
 }
 
 async function cancelRun(userId, runId, partialAnswer = null) {
   const owned = await getOwnedRun(userId, runId);
-  if (TERMINAL_RUN_STATUSES.has(owned.status)) return owned;
+  if (stateMachine.isTerminalRunStatus(owned.status)) return owned;
+  const current = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
+  const now = new Date();
   await prisma.subjectChatTask.updateMany({
-    where: { runId, status: { in: ['pending', 'running'] } },
-    data: { status: 'cancelled', completedAt: new Date(), errorMessage: null },
+    where: { runId, status: { in: ['pending', 'running', 'retrying'] } },
+    data: { status: 'cancelled', completedAt: now, lastHeartbeatAt: now, timeoutAt: null, errorMessage: null, errorCode: null },
   });
-  const run = await prisma.subjectChatRun.update({
-    where: { id: runId },
+  const changed = await prisma.subjectChatRun.updateMany({
+    where: { id: runId, status: current.status },
     data: {
       status: 'cancelled',
       currentTask: null,
       pendingTaskCount: 0,
-      completedAt: new Date(),
+      completedAt: now,
+      lastHeartbeatAt: now,
+      timeoutAt: null,
+      durationMs: current.startedAt ? Math.max(0, now.getTime() - new Date(current.startedAt).getTime()) : 0,
       ...(partialAnswer ? { finalAnswer: partialAnswer } : {}),
     },
   });
+  if (!changed.count) return getOwnedRun(userId, runId);
+  const run = await prisma.subjectChatRun.findUnique({ where: { id: runId } });
   await events.record({
     runId,
     eventType: 'run_cancelled',
@@ -379,10 +640,11 @@ async function cancelRun(userId, runId, partialAnswer = null) {
     message: '未执行步骤已取消，已生成内容予以保留',
     payload: { run: serializeRun(run, false), finalAnswer: partialAnswer || run.finalAnswer },
   });
+  await notifyTerminalRun(run, 'cancelled');
   return getOwnedRun(userId, runId);
 }
 
-async function resetForRetry(userId, runId, taskId) {
+async function resetForRetry(userId, runId, taskId, options = {}) {
   const owned = await getOwnedRun(userId, runId);
   const target = owned.tasks.find((task) => task.taskId === String(taskId));
   if (!target || !['failed', 'cancelled'].includes(target.status)) {
@@ -390,20 +652,71 @@ async function resetForRetry(userId, runId, taskId) {
     error.code = 40001;
     throw error;
   }
-  await prisma.$transaction([
+  const plan = options.plan || owned.graphState?.dynamicPlan || null;
+  const definitions = definitionsForPlan(plan);
+  if (plan) {
+    await prisma.$transaction([
+      prisma.subjectChatSource.deleteMany({ where: { runId } }),
+      prisma.subjectChatEvent.deleteMany({ where: { runId } }),
+      prisma.subjectChatTask.deleteMany({ where: { runId } }),
+      prisma.subjectChatRun.update({
+        where: { id: runId },
+        data: {
+          status: 'queued', progress: 0, currentTask: null,
+          totalTaskCount: definitions.length, completedTaskCount: 0, pendingTaskCount: definitions.length,
+          stateJson: { dynamicPlan: plan, planRevision: Number(owned.graphState?.planRevision || 1) + 1 },
+          finalAnswer: null, finalMessageId: null, errorMessage: null, errorCode: null,
+          startedAt: null, lastHeartbeatAt: new Date(), completedAt: null, durationMs: null,
+          timeoutAt: new Date(Date.now() + DEFAULT_RUN_TIMEOUT_MS), retryCount: { increment: 1 },
+          tasks: { create: definitions.map(([taskType, title, description], index) => ({ taskType, title, description, orderIndex: index + 1 })) },
+        },
+      }),
+    ]);
+  } else await prisma.$transaction([
     prisma.subjectChatSource.deleteMany({ where: { runId } }),
     prisma.subjectChatTask.updateMany({
       where: { runId },
-      data: { status: 'pending', progress: 0, inputSummary: null, outputSummary: null, errorMessage: null, startedAt: null, completedAt: null },
+      data: {
+        status: 'pending',
+        progress: 0,
+        inputSummary: null,
+        outputSummary: null,
+        errorMessage: null,
+        errorCode: null,
+        startedAt: null,
+        lastHeartbeatAt: null,
+        completedAt: null,
+        durationMs: null,
+        timeoutAt: null,
+        firstDeltaAt: null,
+        retryCount: { increment: 1 },
+      },
     }),
     prisma.subjectChatRun.update({
       where: { id: runId },
-      data: { status: 'pending', progress: 0, currentTask: null, completedTaskCount: 0, pendingTaskCount: TASK_DEFINITIONS.length, finalAnswer: null, finalMessageId: null, errorMessage: null, startedAt: null, completedAt: null },
+      data: {
+        status: 'queued',
+        progress: 0,
+        currentTask: null,
+        completedTaskCount: 0,
+        pendingTaskCount: owned.totalTaskCount,
+        finalAnswer: null,
+        finalMessageId: null,
+        errorMessage: null,
+        errorCode: null,
+        startedAt: null,
+        lastHeartbeatAt: new Date(),
+        completedAt: null,
+        durationMs: null,
+        timeoutAt: new Date(Date.now() + DEFAULT_RUN_TIMEOUT_MS),
+        retryCount: { increment: 1 },
+      },
     }),
   ]);
+  const refreshed = await getOwnedRun(userId, runId);
   await events.record({
     runId,
-    taskId: target.taskId,
+    taskId: refreshed.tasks[0]?.taskId || null,
     eventType: 'task_progress',
     title: '重新执行运行任务',
     message: `从“${target.title}”发起重试，并重建所需上下文`,
@@ -414,6 +727,7 @@ async function resetForRetry(userId, runId, taskId) {
 
 module.exports = {
   TASK_DEFINITIONS,
+  definitionsForPlan,
   TERMINAL_RUN_STATUSES,
   serializeRun,
   serializeTask,
@@ -422,6 +736,9 @@ module.exports = {
   createRun,
   getOwnedRun,
   getLatestForConversation,
+  transitionRunStatus,
+  heartbeat,
+  markFirstDelta,
   markRunStarted,
   startTask,
   progressTask,
@@ -430,6 +747,7 @@ module.exports = {
   createSource,
   completeRun,
   failRun,
+  stallRun,
   cancelRun,
   resetForRetry,
 };

@@ -66,6 +66,16 @@ function toPublicError(errorOrCode, message, requestOrResponse, options = {}) {
     ? 'INTERNAL_ERROR'
     : String(error?.publicCode || options.publicCode || PUBLIC_CODE_BY_LEGACY_CODE[legacyCode] || 'REQUEST_FAILED');
   const retryable = error?.retryable === true || options.retryable === true || legacyCode >= 50000;
+  let details = null;
+  if (!internal && (error?.expose === true || options.exposeDetails === true) && (error?.details || options.details)) {
+    try {
+      const redacted = require('../services/admin-secret.service').redact(error?.details || options.details);
+      const encoded = JSON.stringify(redacted);
+      details = encoded.length <= 5000 ? redacted : { truncated: true, summary: encoded.slice(0, 4800) };
+    } catch {
+      details = { unavailable: true };
+    }
+  }
 
   return {
     httpStatus: httpStatusFor(legacyCode, error?.status || options.status),
@@ -75,6 +85,7 @@ function toPublicError(errorOrCode, message, requestOrResponse, options = {}) {
       message: safeMessage,
       retryable,
       requestId: requestIdOf(requestOrResponse),
+      ...(details ? { details } : {}),
     },
   };
 }

@@ -89,13 +89,33 @@ test('教师日历排除通知和资源流水，并合并同日任务', () => {
   assert.match(source, /dateKey\(startAt\) === dateKey\(deadlineAt\)/);
 });
 
-test('教师 AI 保持输入区可见并按 Markdown 增量渲染', () => {
+test('教师 AI 保持底部输入区可见、提及层不被裁切并按 Markdown 增量渲染', () => {
   const pageSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/teacher-ai-chat.js'), 'utf8');
   const styleSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/styles/teacher-workbench.css'), 'utf8');
   assert.match(pageSource, /node\.innerHTML = renderMarkdownToHtml\(assistant\.content\)/);
   assert.match(pageSource, /teacher-ai-main is-empty/);
-  assert.match(styleSource, /\.teacher-ai-main\.is-empty \.teacher-ai-composer \{ grid-row:1/);
+  assert.match(styleSource, /\.teacher-ai-main\.is-empty \.teacher-ai-composer \{ grid-row:2/);
+  assert.match(styleSource, /\.teacher-ai-main\.is-empty \.teacher-ai-messages \{ grid-row:1/);
+  assert.match(styleSource, /\.teacher-ai-mention-popover \{[^}]*bottom:calc\(100% \+ 8px\)[^}]*max-height:min\(300px,42vh\)/);
+  assert.match(pageSource, /teacher-ai-mention-icon/);
   assert.match(styleSource, /height:calc\(100dvh - 48px\)/);
+});
+
+test('统一任务消息中心只停靠右侧并支持双圆计数收纳', () => {
+  const pageSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/components/unified-task-message-center.js'), 'utf8');
+  const styleSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/styles/unified-work-center.css'), 'utf8');
+  assert.match(pageSource, /discimind\.workCenterCollapsed/);
+  assert.match(pageSource, /unified-center-dock-toggle/);
+  assert.match(pageSource, /root\.style\.right = '0px'/);
+  assert.match(pageSource, /queueDragPosition\(drag\.y \+ dy\)/);
+  assert.match(pageSource, /window\.requestAnimationFrame/);
+  assert.equal(pageSource.includes('protectedRects'), false);
+  assert.equal(pageSource.includes('settleTimers'), false);
+  assert.match(styleSource, /\.unified-work-center\{[^}]*right:0[^}]*z-index:12000/);
+  assert.match(styleSource, /\.unified-work-center\.is-collapsed\{width:32px\}/);
+  assert.match(styleSource, /\.unified-work-center\.is-collapsed \.unified-trigger-icon[^}]*display:none/);
+  assert.match(styleSource, /background:#e4f5ec;color:#218657/);
+  assert.match(styleSource, /background:#fde8e7;color:#c94e4e/);
 });
 
 test('高频关键词使用 ECharts 碰撞检测词云并保持文本可读', () => {

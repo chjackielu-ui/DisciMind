@@ -454,6 +454,10 @@ model User {
   created_editable_versions     EditableTeachingDocumentVersion[]   @relation("EditableDocumentVersionCreator")
   created_document_revisions    DocumentRevision[]                  @relation("DocumentRevisionCreator")
   admin_role_assignments        AdminUserRole[]                     @relation("AdminRoleAssignedUser")
+  owned_learning_cards          LearningCard[]                      @relation("LearningCardOwner")
+  daily_learning_card_sets      DailyLearningCardSet[]              @relation("DailyLearningCardSetUser")
+  learning_card_states          UserLearningCardState[]             @relation("UserLearningCardStateUser")
+  learning_card_events          LearningCardEvent[]                 @relation("LearningCardEventUser")
 
   @@index([role])
   @@index([status])
@@ -708,6 +712,7 @@ model Course {
   learning_sessions            LearningSession[]
   learning_goals               LearningGoal[]
   ai_flow_generation_jobs      AiFlowGenerationJob[]
+  learning_cards               LearningCard[]
   generated_artifacts          GeneratedArtifact[]
   learning_flow_resource_links LearningFlowResourceLink[]
   student_learning_contexts    StudentLearningContext[]
@@ -914,6 +919,7 @@ model KnowledgePoint {
   learning_flow_resource_links LearningFlowResourceLink[]
   student_learning_contexts    StudentLearningContext[]
   student_learning_plans       StudentLearningPlan[]
+  learning_cards               LearningCard[]
 
   @@unique([course_id, knowledge_point_code])
   @@index([chapter_id])
@@ -1241,7 +1247,7 @@ model SubjectChatRun {
   assistantMode      String    @default("subject") @map("assistant_mode") @db.VarChar(32)
   courseId           Int?      @map("course_id")
   knowledgePointId   Int?      @map("knowledge_point_id")
-  status             String    @default("pending") @db.VarChar(24)
+  status             String    @default("queued") @db.VarChar(24)
   progress           Int       @default(0)
   currentTask        String?   @map("current_task") @db.VarChar(160)
   totalTaskCount     Int       @default(0) @map("total_task_count")
@@ -1251,12 +1257,17 @@ model SubjectChatRun {
   finalMessageId     Int?      @map("final_message_id")
   finalAnswer        String?   @map("final_answer") @db.LongText
   errorMessage       String?   @map("error_message") @db.Text
+  errorCode          String?   @map("error_code") @db.VarChar(100)
   graphVersion       String    @default("agent-orchestration-v1") @map("graph_version") @db.VarChar(64)
   currentNode        String?   @map("current_node") @db.VarChar(64)
   stateJson          Json?     @map("state_json")
   operationId        String?   @unique @map("operation_id") @db.VarChar(96)
   startedAt          DateTime? @map("started_at")
+  lastHeartbeatAt    DateTime? @map("last_heartbeat_at")
   completedAt        DateTime? @map("completed_at")
+  durationMs         Int?      @map("duration_ms")
+  timeoutAt          DateTime? @map("timeout_at")
+  retryCount         Int       @default(0) @map("retry_count")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -1284,8 +1295,14 @@ model SubjectChatTask {
   inputSummary  String?   @map("input_summary") @db.Text
   outputSummary String?   @map("output_summary") @db.Text
   errorMessage  String?   @map("error_message") @db.Text
+  errorCode     String?   @map("error_code") @db.VarChar(100)
   startedAt     DateTime? @map("started_at")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
   completedAt   DateTime? @map("completed_at")
+  durationMs    Int?      @map("duration_ms")
+  timeoutAt     DateTime? @map("timeout_at")
+  retryCount    Int       @default(0) @map("retry_count")
+  firstDeltaAt  DateTime? @map("first_delta_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
@@ -3130,37 +3147,42 @@ enum GeneratedArtifactExportStatus {
 }
 
 model GeneratedArtifact {
-  id                    Int                     @id @default(autoincrement())
-  ownerUserId           Int                     @map("owner_user_id")
-  agentId               Int?                    @map("agent_id")
-  conversationId        Int?                    @map("conversation_id")
-  lessonPlanId          Int?                    @map("lesson_plan_id")
-  parentArtifactId      Int?                    @map("parent_artifact_id")
-  artifactRole          String                  @default("PRIMARY") @map("artifact_role") @db.VarChar(32)
-  taskId                Int?                    @unique @map("task_id")
-  operationId           String                  @map("operation_id") @db.VarChar(64)
-  artifactType          String                  @map("artifact_type") @db.VarChar(32)
-  title                 String                  @db.VarChar(200)
-  description           String?                 @db.Text
-  courseId              Int?                    @map("course_id")
-  knowledgePointIdsJson Json?                   @map("knowledge_point_ids_json")
-  requirementsJson      Json                    @map("requirements_json")
-  contentSchemaJson     Json?                   @map("content_schema_json")
-  previewHtml           String?                 @map("preview_html") @db.LongText
-  fileFormat            String                  @default("DOCX") @map("file_format") @db.VarChar(16)
-  storagePath           String?                 @map("storage_path") @db.VarChar(1000)
-  fileName              String?                 @map("file_name") @db.VarChar(255)
-  mimeType              String?                 @map("mime_type") @db.VarChar(120)
-  fileSizeBytes         BigInt?                 @map("file_size_bytes")
-  checksum              String?                 @db.VarChar(64)
-  downloadCount         Int                     @default(0) @map("download_count")
-  status                GeneratedArtifactStatus @default(DRAFT)
-  errorCode             String?                 @map("error_code") @db.VarChar(100)
-  lastAccessedAt        DateTime?               @map("last_accessed_at")
-  createdAt             DateTime                @default(now()) @map("created_at")
-  updatedAt             DateTime                @updatedAt @map("updated_at")
-  expiresAt             DateTime?               @map("expires_at")
-  deletedAt             DateTime?               @map("deleted_at")
+  id                     Int                     @id @default(autoincrement())
+  ownerUserId            Int                     @map("owner_user_id")
+  agentId                Int?                    @map("agent_id")
+  conversationId         Int?                    @map("conversation_id")
+  lessonPlanId           Int?                    @map("lesson_plan_id")
+  parentArtifactId       Int?                    @map("parent_artifact_id")
+  artifactRole           String                  @default("PRIMARY") @map("artifact_role") @db.VarChar(32)
+  taskId                 Int?                    @unique @map("task_id")
+  operationId            String                  @map("operation_id") @db.VarChar(64)
+  artifactType           String                  @map("artifact_type") @db.VarChar(32)
+  title                  String                  @db.VarChar(200)
+  description            String?                 @db.Text
+  courseId               Int?                    @map("course_id")
+  knowledgePointIdsJson  Json?                   @map("knowledge_point_ids_json")
+  requirementsJson       Json                    @map("requirements_json")
+  contentSchemaJson      Json?                   @map("content_schema_json")
+  previewHtml            String?                 @map("preview_html") @db.LongText
+  fileFormat             String                  @default("DOCX") @map("file_format") @db.VarChar(16)
+  storagePath            String?                 @map("storage_path") @db.VarChar(1000)
+  fileName               String?                 @map("file_name") @db.VarChar(255)
+  mimeType               String?                 @map("mime_type") @db.VarChar(120)
+  fileSizeBytes          BigInt?                 @map("file_size_bytes")
+  checksum               String?                 @db.VarChar(64)
+  downloadCount          Int                     @default(0) @map("download_count")
+  status                 GeneratedArtifactStatus @default(DRAFT)
+  errorCode              String?                 @map("error_code") @db.VarChar(100)
+  lastAccessedAt         DateTime?               @map("last_accessed_at")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  expiresAt              DateTime?               @map("expires_at")
+  deletedAt              DateTime?               @map("deleted_at")
+  sourceTraceId          Int?                    @map("source_trace_id")
+  sourceAiConversationId Int?                    @map("source_ai_conversation_id")
+  sourceMessageId        Int?                    @map("source_message_id")
+  generator              String?                 @db.VarChar(64)
+  metadataJson           Json?                   @map("metadata_json")
 
   owner             User                          @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
   agent             UserAgent?                    @relation(fields: [agentId], references: [id], onDelete: SetNull)
@@ -3182,7 +3204,121 @@ model GeneratedArtifact {
   @@index([lessonPlanId])
   @@index([parentArtifactId, artifactRole])
   @@index([courseId])
+  @@index([sourceTraceId])
+  @@index([sourceAiConversationId, updatedAt])
   @@map("generated_artifacts")
+}
+
+model LearningCard {
+  id                  String    @id @db.VarChar(80)
+  ownerUserId         Int?      @map("owner_user_id")
+  scope               String    @db.VarChar(20)
+  cardType            String    @map("card_type") @db.VarChar(32)
+  courseId            Int?      @map("course_id")
+  knowledgePointId    Int?      @map("knowledge_point_id")
+  title               String    @db.VarChar(200)
+  summary             String    @db.VarChar(1000)
+  contentJson         Json      @map("content_json")
+  sourceRefsJson      Json      @map("source_refs_json")
+  generatorJson       Json      @map("generator_json")
+  cacheKey            String?   @map("cache_key") @db.VarChar(128)
+  status              String    @default("READY") @db.VarChar(20)
+  version             String    @default("1.0") @db.VarChar(16)
+  teacherRecommended  Boolean   @default(false) @map("teacher_recommended")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  expiresAt           DateTime? @map("expires_at")
+
+  owner          User?                      @relation("LearningCardOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
+  course         Course?                    @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
+  knowledgePoint KnowledgePoint?            @relation(fields: [knowledgePointId], references: [knowledge_point_id], onDelete: SetNull)
+  dailySetItems  DailyLearningCardSetItem[]
+  userStates     UserLearningCardState[]
+  events         LearningCardEvent[]
+
+  @@index([ownerUserId, status])
+  @@index([courseId, knowledgePointId, cardType])
+  @@index([cacheKey, status])
+  @@index([updatedAt])
+  @@map("learning_cards")
+}
+
+model DailyLearningCardSet {
+  id                  Int      @id @default(autoincrement())
+  userId              Int      @map("user_id")
+  recommendationDate  DateTime @map("recommendation_date") @db.Date
+  reasonSummary       String?  @map("reason_summary") @db.Text
+  dataSnapshotVersion String   @map("data_snapshot_version") @db.VarChar(128)
+  generationStatus    String   @default("GENERATING") @map("generation_status") @db.VarChar(20)
+  version             String   @default("1.0") @db.VarChar(16)
+  generatedAt         DateTime @default(now()) @map("generated_at")
+  refreshedAt         DateTime @default(now()) @map("refreshed_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  user  User                       @relation("DailyLearningCardSetUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  items DailyLearningCardSetItem[]
+
+  @@unique([userId, recommendationDate])
+  @@index([userId, generatedAt])
+  @@map("daily_learning_card_sets")
+}
+
+model DailyLearningCardSetItem {
+  id         Int     @id @default(autoincrement())
+  setId      Int     @map("set_id")
+  cardId     String  @map("card_id") @db.VarChar(80)
+  slot       Int
+  score      Float   @default(0)
+  reason     String? @db.VarChar(500)
+  sourceKind String  @map("source_kind") @db.VarChar(40)
+  contextJson Json?  @map("context_json")
+
+  set  DailyLearningCardSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  card LearningCard         @relation(fields: [cardId], references: [id], onDelete: Restrict)
+
+  @@unique([setId, slot])
+  @@unique([setId, cardId])
+  @@index([cardId])
+  @@map("daily_learning_card_set_items")
+}
+
+model UserLearningCardState {
+  id               Int       @id @default(autoincrement())
+  userId           Int       @map("user_id")
+  cardId           String    @map("card_id") @db.VarChar(80)
+  isFavorite       Boolean   @default(false) @map("is_favorite")
+  isMastered       Boolean   @default(false) @map("is_mastered")
+  isDeferred       Boolean   @default(false) @map("is_deferred")
+  isIgnored        Boolean   @default(false) @map("is_ignored")
+  viewCount        Int       @default(0) @map("view_count")
+  totalDwellTimeMs Int       @default(0) @map("total_dwell_time_ms")
+  viewedAt         DateTime? @map("viewed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user User         @relation("UserLearningCardStateUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  card LearningCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cardId])
+  @@index([userId, isFavorite, isMastered])
+  @@map("user_learning_card_states")
+}
+
+model LearningCardEvent {
+  id        BigInt   @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  cardId    String   @map("card_id") @db.VarChar(80)
+  eventType String   @map("event_type") @db.VarChar(40)
+  context   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User         @relation("LearningCardEventUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  card LearningCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType, createdAt])
+  @@index([cardId, createdAt])
+  @@map("learning_card_events")
 }
 
 model GeneratedArtifactExport {
@@ -4465,6 +4601,12 @@ model AiRequestTrace {
   completed_at        DateTime?
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
+  conversation_id     Int?
+  user_role           String?   @db.VarChar(24)
+  search_mode         String?   @db.VarChar(24)
+  intent_json         Json?
+  plan_json           Json?
+  context_json        Json?
 
   steps      AiTraceStep[]
   retrievals AiTraceRetrieval[]
@@ -4477,6 +4619,8 @@ model AiRequestTrace {
   @@index([provider_id, model_config_id])
   @@index([status, created_at])
   @@index([risk_flag, created_at])
+  @@index([conversation_id, created_at])
+  @@index([user_role, created_at])
   @@map("ai_request_traces")
 }
 
@@ -4510,23 +4654,30 @@ model AiTraceStep {
 }
 
 model AiTraceRetrieval {
-  id                Int      @id @default(autoincrement())
-  trace_id          Int
-  step_id           Int?
-  knowledge_base_id Int?
-  document_id       Int?
-  chunk_id          Int?
-  document_title    String?  @db.VarChar(500)
-  source_uri        String?  @db.VarChar(1000)
-  chapter           String?  @db.VarChar(300)
-  page_number       Int?
-  excerpt_redacted  String?  @db.Text
-  retrieval_score   Float?
-  rerank_score      Float?
-  cited             Boolean  @default(false)
-  adopted           Boolean  @default(false)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
+  id                  Int       @id @default(autoincrement())
+  trace_id            Int
+  step_id             Int?
+  knowledge_base_id   Int?
+  document_id         Int?
+  chunk_id            Int?
+  document_title      String?   @db.VarChar(500)
+  source_uri          String?   @db.VarChar(1000)
+  chapter             String?   @db.VarChar(300)
+  page_number         Int?
+  excerpt_redacted    String?   @db.Text
+  retrieval_score     Float?
+  rerank_score        Float?
+  cited               Boolean   @default(false)
+  adopted             Boolean   @default(false)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  source_type         String    @default("knowledge") @db.VarChar(48)
+  source_index        Int?
+  site_name           String?   @db.VarChar(160)
+  icon_url            String?   @db.VarChar(1000)
+  search_strategy     String?   @db.VarChar(32)
+  provider_request_id String?   @db.VarChar(160)
+  retrieved_at        DateTime?
 
   trace AiRequestTrace @relation(fields: [trace_id], references: [id], onDelete: Restrict)
   step  AiTraceStep?   @relation(fields: [step_id], references: [id], onDelete: SetNull)
@@ -4535,23 +4686,26 @@ model AiTraceRetrieval {
   @@index([step_id])
   @@index([knowledge_base_id, document_id])
   @@index([cited, created_at])
+  @@index([source_type, created_at])
   @@map("ai_trace_retrievals")
 }
 
 model AiTraceToolCall {
-  id             Int       @id @default(autoincrement())
-  trace_id       Int
-  step_id        Int?
-  tool_name      String    @db.VarChar(160)
-  status         String    @db.VarChar(24)
-  input_summary  Json?
-  output_summary Json?
-  latency_ms     Int?
-  error_message  String?   @db.VarChar(500)
-  started_at     DateTime  @default(now())
-  completed_at   DateTime?
-  created_at     DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
+  id                  Int       @id @default(autoincrement())
+  trace_id            Int
+  step_id             Int?
+  tool_name           String    @db.VarChar(160)
+  status              String    @db.VarChar(24)
+  input_summary       Json?
+  output_summary      Json?
+  latency_ms          Int?
+  error_message       String?   @db.VarChar(500)
+  started_at          DateTime  @default(now())
+  completed_at        DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  retry_count         Int       @default(0)
+  permission_decision String?   @db.VarChar(48)
 
   trace AiRequestTrace @relation(fields: [trace_id], references: [id], onDelete: Restrict)
   step  AiTraceStep?   @relation(fields: [step_id], references: [id], onDelete: SetNull)

@@ -35,9 +35,17 @@ async function buildAgentMessages({ version, history, memories, question, record
 }
 
 async function runAgent(context, modelCall = bailianModelCall) {
-  if (['DIFY_CHATFLOW', 'DIFY_WORKFLOW'].includes(context.version.runtimeProvider)) return difyRuntime.runDifyAgent(context);
+  if (['DIFY_CHATFLOW', 'DIFY_WORKFLOW'].includes(context.version.runtimeProvider)) {
+    return difyRuntime.runDifyAgent(context, { signal: context.signal });
+  }
   const messages = await buildAgentMessages(context);
-  return modelCall(messages, { temperature: 0.5, maxTokens: context.version.maxOutputTokens, enableThinking: false });
+  return modelCall(messages, {
+    temperature: 0.5,
+    maxTokens: context.version.maxOutputTokens,
+    enableThinking: false,
+    signal: context.signal,
+    timeout: context.timeout,
+  });
 }
 
 async function streamAgent(context, options = {}) {

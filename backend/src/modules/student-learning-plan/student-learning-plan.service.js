@@ -10,6 +10,40 @@ const STATUS_TRANSITIONS = Object.freeze({
   DRAFT: ['READY', 'ARCHIVED'], READY: ['RUNNING', 'ARCHIVED'], RUNNING: ['PAUSED', 'COMPLETED', 'FAILED'],
   PAUSED: ['RUNNING', 'ARCHIVED'], FAILED: ['READY', 'RUNNING', 'ARCHIVED'], COMPLETED: ['ARCHIVED'], ARCHIVED: [],
 });
+const STARTABLE_PLAN_STATUSES = new Set(['READY', 'PAUSED', 'FAILED', 'RUNNING', 'COMPLETED']);
+const RESUMABLE_SESSION_STATUSES = new Set(['CREATED', 'RUNNING', 'PAUSED', 'FAILED']);
+const TERMINAL_SESSION_STATUSES = new Set(['COMPLETED', 'ABANDONED']);
+const BLOCKING_PRELOAD_CODES = new Set(['PRELOAD_REQUIRED_FAILED', 'FIRST_NODE_CONTENT_FAILED', 'FIRST_NODE_NOT_READY']);
+const startLocks = new Map();
+
+class LearningStartError extends Error {
+  constructor(publicCode, message, status = 409, details = {}, options = {}) {
+    super(message);
+    this.name = 'LearningStartError';
+    this.publicCode = publicCode;
+    this.status = status;
+    this.code = status === 403 ? 40301 : status === 404 ? 40401 : status === 409 ? 40901 : status >= 500 ? 50001 : 40001;
+    this.details = details;
+    this.expose = true;
+    this.retryable = options.retryable === true;
+  }
+}
+
+function startError(code, message, status = 409, details = {}, options = {}) {
+  return new LearningStartError(code, message, status, details, options);
+}
+
+function withStartLock(key, factory) {
+  const normalized = String(key);
+  if (startLocks.has(normalized)) return startLocks.get(normalized);
+  const promise = Promise.resolve().then(factory).finally(() => { if (startLocks.get(normalized) === promise) startLocks.delete(normalized); });
+  startLocks.set(normalized, promise);
+  return promise;
+}
+
+function sessionStartAction(status) {
+  return ({ RUNNING: 'reuse', PAUSED: 'resume', CREATED: 'start', FAILED: 'resume', COMPLETED: 'results', ABANDONED: 'new_round' })[String(status || '').toUpperCase()] || 'invalid';
+}
 const INCLUDE = {
   course: { select: { course_id: true, course_name: true } },
   knowledgePoint: { select: { knowledge_point_id: true, knowledge_point_name: true } },
@@ -45,6 +79,46 @@ function planStatusFromSession(session) {
   return ({ CREATED: 'READY', RUNNING: 'RUNNING', PAUSED: 'PAUSED', COMPLETED: 'COMPLETED', FAILED: 'FAILED', ABANDONED: 'ARCHIVED' })[session?.status] || 'READY';
 }
 
+function buildReadiness(record) {
+  const graph = record?.graphSnapshot || {};
+  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const entryNodeId = String(record?.currentNodeId || graph.entryNodeId || '');
+  const firstNode = nodes.find(node => String(node?.id) === entryNodeId) || null;
+  const graphValidation = validateGraphJson(graph);
+  const preload = record?.preloads?.[0] || null;
+  const preloadStatus = String(preload?.status || 'NOT_STARTED').toUpperCase();
+  const contentReady = Number(preload?.preparedContentCount || 0) > 0;
+  const audioReady = Number(preload?.preparedAudioCount || 0) > 0;
+  const blockingReasons = [];
+  if (!record || !STARTABLE_PLAN_STATUSES.has(String(record.status))) blockingReasons.push({ code: 'LEARNING_PLAN_NOT_READY', message: '学习计划状态不能开始学习', action: 'REFRESH_PLAN' });
+  if (!record?.workflowVersionId || !graphValidation.valid) blockingReasons.push({ code: 'WORKFLOW_SNAPSHOT_MISSING', message: graphValidation.errors?.[0] || '学习流快照不存在或无效', action: 'REMATCH_WORKFLOW' });
+  if (!entryNodeId || !firstNode) blockingReasons.push({ code: 'FIRST_NODE_NOT_READY', message: '学习流首节点不存在或不属于当前快照', action: 'REPREPARE' });
+  if (preloadStatus === 'FAILED' && BLOCKING_PRELOAD_CODES.has(String(preload?.errorCode || '')) && !contentReady) {
+    blockingReasons.push({ code: 'PRELOAD_REQUIRED_FAILED', message: preload.errorMessage || '首节点必需内容准备失败', action: 'REPREPARE' });
+  }
+  return {
+    canStart: blockingReasons.length === 0,
+    required: {
+      plan: record && STARTABLE_PLAN_STATUSES.has(String(record.status)) ? 'ready' : 'blocked',
+      workflowSnapshot: record?.workflowVersionId && graphValidation.valid ? 'ready' : 'blocked',
+      firstNode: firstNode ? (contentReady ? 'ready' : 'instant') : 'blocked',
+    },
+    optional: {
+      tts: audioReady ? 'ready' : ['QUEUED', 'PRELOADING'].includes(preloadStatus) ? 'generating' : preload?.errorCode === 'TTS_UPSTREAM_ERROR' ? 'degraded' : 'pending',
+      nextNode: (preload?.preparedNodeIdsJson || []).length > 1 ? 'ready' : 'pending',
+      cards: preload?.manifestJson?.cards?.status || 'pending',
+      pdfPreview: 'optional',
+    },
+    blockingReasons,
+    degradedReasons: [
+      ...(!audioReady && preload?.errorCode === 'TTS_UPSTREAM_ERROR' ? [{ code: 'TTS_UPSTREAM_ERROR', message: '语音暂不可用，将使用文本开始学习' }] : []),
+      ...(preloadStatus === 'PARTIAL' ? [{ code: 'PRELOAD_PARTIAL', message: '非关键内容仍在准备，不阻止首节点学习' }] : []),
+    ],
+    firstNode: firstNode ? { id: String(firstNode.id), type: firstNode.type || null, title: firstNode.title || null } : null,
+    preload: preload ? { id: preload.id, status: preloadStatus, contentReady, audioReady, errorCode: preload.errorCode || null } : null,
+  };
+}
+
 function serialize(record, extra = {}) {
   if (!record) return null;
   const preload = record.preloads?.[0] || null;
@@ -63,7 +137,8 @@ function serialize(record, extra = {}) {
     learningGoal: record.learningGoal ? { id: record.learningGoal.goal_id, title: record.learningGoal.normalized_title, status: record.learningGoal.status } : null,
     workflow: record.workflowTemplate ? { id: record.workflowTemplate.template_id, title: record.workflowTemplate.title, key: record.workflowTemplate.template_key, versionId: record.workflowVersionId, version: record.workflowVersion?.version_number } : null,
     session: record.learningSession ? { id: record.learningSession.session_id, status: String(record.learningSession.status).toLowerCase(), currentNodeId: record.learningSession.current_node_id, updatedAt: record.learningSession.updated_at } : null,
-    preload: preload ? { id: preload.id, status: preload.status, progress: preload.progress, stage: preload.stage, expiresAt: preload.expiresAt } : null,
+    preload: preload ? { id: preload.id, status: preload.status, progress: preload.progress, stage: preload.stage, preparedContentCount: preload.preparedContentCount, preparedAudioCount: preload.preparedAudioCount, preparedNodeIds: preload.preparedNodeIdsJson || [], errorCode: preload.errorCode, errorMessage: preload.errorMessage, expiresAt: preload.expiresAt } : null,
+    readiness: buildReadiness(record),
     resourceCount: record.resourceLinks?.length || 0, resourceLinks: record.resourceLinks || [],
     readyAt: record.readyAt, startedAt: record.startedAt, pausedAt: record.pausedAt,
     completedAt: record.completedAt, archivedAt: record.archivedAt, createdAt: record.createdAt, updatedAt: record.updatedAt,
@@ -187,7 +262,11 @@ async function createPlan(user, input, options = {}) {
     await syncLegacyContext(tx, userId, plan, workflow, goal);
     return plan;
   });
-  return serialize(await prisma.studentLearningPlan.findUnique({ where: { id: created.id }, include: INCLUDE }));
+  const hydrated = await prisma.studentLearningPlan.findUnique({ where: { id: created.id }, include: INCLUDE });
+  setImmediate(() => require('../learning-flow-preload/learning-flow-preload.service').createPreload(
+    { user_id: userId, role: 'student' }, { learningPlanId: created.id, operationId: `plan-created-${created.id}` },
+  ).catch(error => console.warn('[student-learning-plan] background preload skipped', { planId: created.id, code: error.code || 'PRELOAD_CREATE_FAILED' })));
+  return serialize(hydrated);
 }
 
 async function ownedRecord(userId, planId) {
@@ -316,8 +395,65 @@ async function findGoalSession(plan, userId, db = prisma) {
   if (!plan.learningGoalId) return null;
   return db.learningSession.findFirst({
     where: { learning_goal_id: Number(plan.learningGoalId), student_user_id: Number(userId) },
+    include: { learning_plan: { select: { id: true, studentUserId: true, status: true } } },
     orderBy: { updated_at: 'desc' },
   });
+}
+
+async function ensurePlanRoundGoal(plan, userId) {
+  const operationId = `learning-plan-round:${Number(plan.id)}`;
+  let roundGoal = await prisma.learningGoal.findFirst({ where: { student_user_id: Number(userId), operation_id: operationId } });
+  if (!roundGoal) {
+    const source = await prisma.learningGoal.findFirst({ where: { goal_id: Number(plan.learningGoalId), student_user_id: Number(userId) } });
+    if (!source) throw startError('LEARNING_PLAN_NOT_FOUND', '学习计划关联的目标不存在', 404, { learningPlanId: plan.id, action: 'RECREATE_PLAN' });
+    const snapshot = {
+      ...json(source.goal_snapshot, {}),
+      sourceGoalId: source.goal_id,
+      learningPlanId: plan.id,
+      roundKey: operationId,
+      capturedAt: new Date().toISOString(),
+    };
+    try {
+      roundGoal = await prisma.learningGoal.create({ data: {
+        student_user_id: Number(userId), course_id: source.course_id, raw_goal: source.raw_goal,
+        normalized_goal_hash: source.normalized_goal_hash, normalized_title: source.normalized_title,
+        focus_question: source.focus_question, goal_type: source.goal_type, status: 'WORKFLOW_READY', operation_id: operationId,
+        primary_knowledge_point_id: source.primary_knowledge_point_id,
+        related_knowledge_points: source.related_knowledge_points, sub_goals: source.sub_goals,
+        prerequisite_goals: source.prerequisite_goals, clarification_options: source.clarification_options,
+        target_depth: source.target_depth, target_mastery: source.target_mastery,
+        estimated_minutes: source.estimated_minutes, coverage_status: source.coverage_status,
+        coverage_score: source.coverage_score, coverage_details: source.coverage_details,
+        resolver_snapshot: source.resolver_snapshot, planner_snapshot: source.planner_snapshot,
+        goal_snapshot: snapshot, workflow_template_id: plan.workflowTemplateId,
+        workflow_version_id: plan.workflowVersionId, confirmed_at: source.confirmed_at || new Date(),
+      } });
+    } catch (error) {
+      if (error.code !== 'P2002') throw error;
+      roundGoal = await prisma.learningGoal.findFirst({ where: { student_user_id: Number(userId), operation_id: operationId } });
+      if (!roundGoal) throw error;
+    }
+  }
+  await prisma.studentLearningPlan.updateMany({
+    where: { id: Number(plan.id), studentUserId: Number(userId), learningSessionId: null },
+    data: { learningGoalId: roundGoal.goal_id, goalSnapshot: goalSnapshot(roundGoal) },
+  });
+  return ownedRecord(userId, plan.id);
+}
+
+async function preparePlanForSession(plan, userId) {
+  if (plan.learningSessionId) return plan;
+  const goalSession = await findGoalSession(plan, userId);
+  if (!goalSession) return plan;
+  const owner = goalSession.learning_plan || await prisma.studentLearningPlan.findFirst({ where: { learningSessionId: goalSession.session_id }, select: { id: true, studentUserId: true, status: true } });
+  if (RESUMABLE_SESSION_STATUSES.has(String(goalSession.status)) && owner && Number(owner.id) !== Number(plan.id)) {
+    throw startError('SESSION_CONFLICT', '同一学习目标已有其他计划的进行中会话，请继续原会话或先结束它。', 409, {
+      learningPlanId: plan.id, existingPlanId: owner.id, existingSessionId: goalSession.session_id,
+      existingSessionStatus: String(goalSession.status).toLowerCase(), action: 'CONTINUE_EXISTING_SESSION',
+    });
+  }
+  if (TERMINAL_SESSION_STATUSES.has(String(goalSession.status))) return ensurePlanRoundGoal(plan, userId);
+  return plan;
 }
 
 async function resolveSessionForPlan(plan, userId, runtime, db = prisma) {
@@ -357,9 +493,9 @@ async function syncPlanToSession(plan, session) {
       select: { settings_json: true },
     })
     : null;
-  return prisma.studentLearningPlan.update({
-    where: { id: plan.id },
-    data: {
+  const owner = await prisma.studentLearningPlan.findFirst({ where: { learningSessionId: session.session_id }, select: { id: true, studentUserId: true } });
+  if (owner && Number(owner.id) !== Number(plan.id)) throw startError('SESSION_CONFLICT', '该学习会话已绑定到其他学习计划。', 409, { learningPlanId: plan.id, existingPlanId: owner.id, existingSessionId: session.session_id, action: 'CONTINUE_EXISTING_SESSION' });
+  const data = {
       learningSessionId: session.session_id,
       workflowTemplateId: session.workflow_template_id || plan.workflowTemplateId,
       workflowVersionId: session.workflow_version_id || plan.workflowVersionId,
@@ -375,23 +511,66 @@ async function syncPlanToSession(plan, session) {
       pausedAt: session.paused_at,
       completedAt: session.completed_at,
       ...(status !== 'FAILED' ? { errorCode: null, errorMessage: null } : {}),
-    },
-    include: INCLUDE,
-  });
+  };
+  try {
+    return await prisma.studentLearningPlan.update({ where: { id: plan.id }, data, include: INCLUDE });
+  } catch (error) {
+    if (error.code !== 'P2002') throw error;
+    const winner = await prisma.studentLearningPlan.findFirst({ where: { learningSessionId: session.session_id }, include: INCLUDE });
+    if (winner && Number(winner.id) === Number(plan.id)) return winner;
+    throw startError('SESSION_CONFLICT', '学习会话绑定发生并发冲突，请继续已创建的会话。', 409, { learningPlanId: plan.id, existingPlanId: winner?.id || null, existingSessionId: session.session_id, action: winner?.studentUserId === plan.studentUserId ? 'CONTINUE_EXISTING_SESSION' : 'RETRY' });
+  }
 }
 
-async function start(user, planId) {
-  let plan = await ownedRecord(user.user_id, planId);
-  assert(['READY', 'PAUSED', 'FAILED', 'RUNNING'].includes(plan.status), '当前计划不能开始学习', 40901, 409);
-  const runtime = require('../learning-workflow/workflow-runtime.service');
-  let session = await resolveSessionForPlan(plan, user.user_id, runtime);
-  assert(session.status !== 'ABANDONED', '该学习目标关联的会话已结束，请创建新的学习目标', 40901, 409);
-  plan = await syncPlanToSession(plan, session);
-  if (['CREATED', 'PAUSED', 'FAILED'].includes(session.status)) {
-    session = await runtime.startSession(session.session_id, user.user_id);
-    plan = await syncPlanToSession(plan, session);
+async function startUnlocked(user, planId, options = {}) {
+  const userId = Number(user.user_id);
+  let plan = await prisma.studentLearningPlan.findFirst({ where: { id: Number(planId), studentUserId: userId }, include: INCLUDE });
+  if (!plan) throw startError('LEARNING_PLAN_FORBIDDEN', '学习计划不存在或无权访问', 403, { learningPlanId: Number(planId), action: 'REFRESH_PLAN', requestId: options.requestId || null });
+  if (!STARTABLE_PLAN_STATUSES.has(String(plan.status))) throw startError('INVALID_SESSION_STATE', `当前计划状态 ${String(plan.status).toLowerCase()} 不能开始学习`, 409, { learningPlanId: plan.id, planStatus: String(plan.status).toLowerCase(), action: 'REFRESH_PLAN' });
+  const readiness = buildReadiness(plan);
+  if (!readiness.canStart) {
+    const first = readiness.blockingReasons[0] || {};
+    throw startError(first.code || 'PRELOAD_REQUIRED_FAILED', first.message || '学习计划尚未满足启动条件', 409, { learningPlanId: plan.id, readiness, action: first.action || 'REPREPARE' });
   }
-  return { plan: serialize(plan), session: await runtime.getPublicSession(session.session_id, user.user_id) };
+  const runtime = require('../learning-workflow/workflow-runtime.service');
+  try {
+    if (plan.learningSessionId) {
+      let linked = await runtime.getSession(plan.learningSessionId, userId);
+      if (linked.status === 'COMPLETED') return { plan: serialize(plan), session: await runtime.getPublicSession(linked.session_id, userId), readiness, idempotentReplay: true, navigation: 'results' };
+      if (linked.status === 'ABANDONED') throw startError('INVALID_SESSION_STATE', '当前计划的学习会话已废弃，请创建新计划。', 409, { learningPlanId: plan.id, sessionId: linked.session_id, action: 'CREATE_NEW_PLAN' });
+      if (['CREATED', 'PAUSED', 'FAILED'].includes(linked.status)) linked = await runtime.startSession(linked.session_id, userId);
+      plan = await syncPlanToSession(plan, linked);
+      return { plan: serialize(plan), session: await runtime.getPublicSession(linked.session_id, userId), readiness, idempotentReplay: true, navigation: 'session' };
+    }
+
+    plan = await preparePlanForSession(plan, userId);
+    let session = await resolveSessionForPlan(plan, userId, runtime);
+    if (session.status === 'ABANDONED') {
+      plan = await ensurePlanRoundGoal(plan, userId);
+      session = await resolveSessionForPlan(plan, userId, runtime);
+    }
+    plan = await syncPlanToSession(plan, session);
+    if (['CREATED', 'PAUSED', 'FAILED'].includes(session.status)) {
+      session = await runtime.startSession(session.session_id, userId);
+      plan = await syncPlanToSession(plan, session);
+    }
+    if (session.status === 'COMPLETED') return { plan: serialize(plan), session: await runtime.getPublicSession(session.session_id, userId), readiness, idempotentReplay: true, navigation: 'results' };
+    require('../learning-flow-preload/knowledge-card.service').fireAndRecord({
+      userId, sessionId: session.session_id, nodeId: session.current_node_id, reason: 'learning_plan_start',
+    });
+    return { plan: serialize(plan), session: await runtime.getPublicSession(session.session_id, userId), readiness, idempotentReplay: false, navigation: 'session' };
+  } catch (error) {
+    if (error instanceof LearningStartError) throw error;
+    const code = String(error.publicCode || error.code || '');
+    if (['VERSION_NOT_FOUND', 'TEMPLATE_NOT_FOUND', 'INVALID_GRAPH_SNAPSHOT'].includes(code)) throw startError('WORKFLOW_SNAPSHOT_MISSING', '当前学习流快照不可用，请重新匹配学习流。', 409, { learningPlanId: plan.id, causeCode: code, action: 'REMATCH_WORKFLOW' });
+    if (['NODE_NOT_FOUND', 'NO_CURRENT_NODE'].includes(code)) throw startError('FIRST_NODE_NOT_READY', '学习流首节点尚不可用，请重新准备。', 409, { learningPlanId: plan.id, causeCode: code, action: 'REPREPARE' });
+    if (/timeout|timed out/i.test(String(error.message || '')) || code === 'P2028') throw startError('LEARNING_START_TIMEOUT', '学习会话启动超时，请重试；重复请求不会创建新会话。', 504, { learningPlanId: plan.id, causeCode: code || null, action: 'RETRY' }, { retryable: true });
+    throw startError('SESSION_CREATE_FAILED', '学习会话暂时无法创建，请重试；已有计划和准备内容已保留。', 503, { learningPlanId: plan.id, causeCode: code || null, action: 'RETRY' }, { retryable: true });
+  }
+}
+
+function start(user, planId, options = {}) {
+  return withStartLock(`student:${Number(user.user_id)}:plan:${Number(planId)}`, () => startUnlocked(user, planId, options));
 }
 
 async function listReferenceMaterials(user, planId) {
@@ -478,4 +657,10 @@ async function listReferenceMaterials(user, planId) {
   };
 }
 
-module.exports = { ACTIVE_STATUSES, STATUS_TRANSITIONS, serialize, createPlan, ownedRecord, getCurrent, listPlans, materializeLegacy, rematchLegacy, rematch, transition, prepare, start, listReferenceMaterials, resolveSessionForPlan };
+module.exports = {
+  ACTIVE_STATUSES, STATUS_TRANSITIONS, STARTABLE_PLAN_STATUSES, RESUMABLE_SESSION_STATUSES,
+  LearningStartError, startError, withStartLock, sessionStartAction, buildReadiness, serialize, createPlan, ownedRecord,
+  getCurrent, listPlans, materializeLegacy, rematchLegacy, rematch, transition, prepare,
+  findGoalSession, ensurePlanRoundGoal, preparePlanForSession, resolveSessionForPlan, syncPlanToSession,
+  startUnlocked, start, listReferenceMaterials,
+};

@@ -7,6 +7,11 @@ const wrongQuestionTagService = require('../services/wrong-question-tag.service'
 const wrongQuestionCollectionService = require('../services/wrong-question-collection.service');
 const aiGenerationJobService = require('../services/ai-generation-job.service');
 
+function refreshLearningCards(userId, reason) {
+  setImmediate(() => require('../modules/learning-card/daily-learning-card-recommendation.service')
+    .markTodayStale(userId, reason).catch(() => null));
+}
+
 function getUserId(req) {
   return req.user?.user_id;
 }
@@ -56,6 +61,7 @@ async function submitPractice(req, res) {
     if (!userId) return fail(res, 40101, '无法获取用户身份');
 
     const data = await practiceService.submitPractice(userId, req.body || {});
+    refreshLearningCards(userId, 'PRACTICE_COMPLETED');
     return success(res, data, '提交练习成功');
   } catch (err) {
     return handleError(res, 'submitPractice', err);
@@ -134,6 +140,7 @@ async function submitPracticeItem(req, res) {
     const sessionId = parsePositiveInt(req.params.sessionId || req.params.session_id, 'sessionId');
     const itemId = parsePositiveInt(req.params.itemId || req.params.item_id || req.params.questionId || req.params.question_id, 'itemId');
     const data = await practiceService.submitPracticeItem(userId, sessionId, itemId, req.body || {});
+    refreshLearningCards(userId, 'MASTERY_CHANGED');
     return success(res, data, '本题已提交');
   } catch (err) {
     return handleError(res, 'submitPracticeItem', err);
@@ -147,6 +154,7 @@ async function submitPracticeSession(req, res) {
 
     const sessionId = parsePositiveInt(req.params.sessionId || req.params.session_id, 'sessionId');
     const data = await practiceService.submitPracticeSession(userId, sessionId, req.body || {});
+    refreshLearningCards(userId, 'PRACTICE_COMPLETED');
     return success(res, data, '整卷提交成功');
   } catch (err) {
     return handleError(res, 'submitPracticeSession', err);
@@ -278,6 +286,7 @@ async function markWrongQuestionMastered(req, res) {
 
     const wrongQuestionId = parsePositiveInt(req.params.id, 'id');
     const data = await practiceService.markWrongQuestionMastered(userId, wrongQuestionId);
+    refreshLearningCards(userId, 'MASTERY_CHANGED');
     return success(res, data, '错题已标记掌握');
   } catch (err) {
     return handleError(res, 'markWrongQuestionMastered', err);
@@ -383,6 +392,7 @@ async function updateWrongQuestion(req, res) {
     if (!userId) return fail(res, 40101, '无法获取用户身份');
     const id = parsePositiveInt(req.params.id, 'id');
     const data = await wrongQuestionService.updateWrongQuestion(userId, id, req.body || {});
+    refreshLearningCards(userId, 'WRONG_QUESTION_UPDATED');
     return success(res, data, '更新错题成功');
   } catch (err) {
     return handleError(res, 'updateWrongQuestion', err);
@@ -395,6 +405,7 @@ async function batchUpdateWrongQuestions(req, res) {
     if (!userId) return fail(res, 40101, '无法获取用户身份');
     const { ids, ...data } = req.body || {};
     const result = await wrongQuestionService.batchUpdateWrongQuestions(userId, ids, data);
+    refreshLearningCards(userId, 'WRONG_QUESTION_UPDATED');
     return success(res, result, '批量更新成功');
   } catch (err) {
     return handleError(res, 'batchUpdateWrongQuestions', err);

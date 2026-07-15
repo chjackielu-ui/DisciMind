@@ -79,7 +79,7 @@ test('goal rematch and historical repair use stable ids and frozen workflow snap
 
 test('learning preparation is plan-scoped and does not rematch a template', () => {
   const service = read('backend/src/modules/student-learning-plan/student-learning-plan.service.js')
-  const prepare = service.slice(service.indexOf('async function prepare'), service.indexOf('async function start'))
+  const prepare = service.slice(service.indexOf('async function prepare'), service.indexOf('async function findGoalSession'))
   assert.match(prepare, /ownedRecord/)
   assert.match(prepare, /learningPlanId:\s*plan\.id/)
   assert.doesNotMatch(prepare, /listTemplates|recommendTemplate|title/)

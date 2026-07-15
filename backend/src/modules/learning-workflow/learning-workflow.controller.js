@@ -39,6 +39,9 @@ function triggerPreparedNextNode(userId, sessionId, result) {
   require('../learning-flow-preload/learning-flow-preload-trigger.service').fireAndRecord({
     userId, learningSessionId: sessionId, nextNodeId,
   });
+  require('../learning-flow-preload/knowledge-card.service').fireAndRecord({
+    userId, sessionId, nodeId: nextNodeId, reason: 'next_node_determined',
+  });
 }
 
 // ========================
@@ -177,7 +180,9 @@ async function startSession(req, res) {
   try {
     const userId = getUserId(req);
     await runtimeService.startSession(req.params.id, userId);
-    sendSuccess(res, await runtimeService.getPublicSession(req.params.id, userId), '学习会话已启动');
+    const session = await runtimeService.getPublicSession(req.params.id, userId);
+    require('../learning-flow-preload/knowledge-card.service').fireAndRecord({ userId, sessionId: req.params.id, nodeId: session.currentNodeId || session.current_node_id, reason: 'session_start' });
+    sendSuccess(res, session, '学习会话已启动');
   } catch (err) { sendError(res, err); }
 }
 
@@ -196,6 +201,7 @@ async function pauseSession(req, res) {
 async function executeCurrentNode(req, res) {
   try {
     const userId = getUserId(req);
+    require('../learning-flow-preload/knowledge-card.service').fireAndRecord({ userId, sessionId: req.params.id, nodeId: req.body?.nodeId, reason: 'current_node_execute' });
     const preloadModel = require('../learning-flow-preload/learning-flow-preload-model.adapter');
     const result = await preloadModel.runWithSession({ userId, sessionId: req.params.id }, () => runtimeService.executeCurrentNode(req.params.id, userId, req, res));
     // executeCurrentNode 可能直接通过 SSE 响应，也可能返回 JSON

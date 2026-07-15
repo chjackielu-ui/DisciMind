@@ -6,6 +6,7 @@ const voice = require('./voice-prewarm.service');
 
 async function triggerNextNode({ userId, learningSessionId, nextNodeId }) {
   if (!nextNodeId) return { skipped: true, reason: 'NEXT_NODE_UNDETERMINED' };
+  require('./knowledge-card.service').fireAndRecord({ userId, sessionId: learningSessionId, nodeId: nextNodeId, reason: 'next_node_preload' });
   const preload = await prisma.learningFlowPreload.findFirst({
     where: { userId: Number(userId), learningSessionId: Number(learningSessionId), activeKey: { not: null }, deletedAt: null },
     orderBy: { updatedAt: 'desc' },

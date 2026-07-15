@@ -69,6 +69,13 @@ function publicTaskMetadata(task) {
     }
     return Object.keys(safe).length ? safe : null;
   }
+  if (task.taskType === 'LEARNING_FLOW_PRELOAD' && task.metadataJson.kind === 'LEARNING_CARD') {
+    const safe = {};
+    for (const key of ['kind', 'scope', 'priority', 'reason', 'sessionId', 'nodeId', 'cardCount', 'fallback']) {
+      if (task.metadataJson[key] !== undefined) safe[key] = task.metadataJson[key];
+    }
+    return safe;
+  }
   return null;
 }
 
@@ -141,6 +148,13 @@ async function assertResultAccess(userId, task) {
       select: { id: true },
     });
     if (!owned) throw taskError('任务结果不存在或无权访问', 40301, 403);
+    return;
+  }
+  if (task.resultType === 'LEARNING_CARDS') {
+    const owned = await prisma.learningSession.findFirst({
+      where: { session_id: Number(task.resultId), student_user_id: Number(userId) }, select: { session_id: true },
+    });
+    if (!owned) throw taskError('知识卡片结果不存在或无权访问', 40301, 403);
     return;
   }
   if (task.resultType === 'LESSON_PLAN') {

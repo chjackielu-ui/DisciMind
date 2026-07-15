@@ -17,6 +17,13 @@ import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { escapeHtml, formatRelativeTime } from '../utils/format.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js'
 import { showToast } from '../utils/toast.js'
+import { getIcon } from '../utils/icons.js'
+import { getAiAssistantCapabilities } from '../api/ai-assistant.js'
+import { createSearchControls, DEFAULT_SEARCH_OPTIONS } from '../components/ai-assistant/search-controls.js'
+import { renderCitedMarkdown, bindCitationClicks } from '../components/ai-assistant/citation-renderer.js'
+import { renderSourceCards, focusSource } from '../components/ai-assistant/source-panel.js'
+import { createExecutionTrace } from '../components/ai-assistant/execution-trace.js'
+import { renderArtifacts, bindArtifactActions } from '../components/ai-assistant/artifact-renderer.js'
 
 const MODES = [
   { value: 'general', label: '通用教学助手', hint: '教学设计、课程资料与日常教学' },
@@ -29,7 +36,7 @@ const state = {
   mode: 'general', conversationId: null, conversations: [], messages: [], options: null,
   context: { course_id: '', teaching_class_id: '', range: '7d' }, knowledgeBaseIds: [], agentIds: [], attachments: [],
   generating: false, abortController: null, autoFollow: true, chartInstances: [],
-  mention: null, lifecycleController: null,
+  mention: null, lifecycleController: null, searchOptions: { ...DEFAULT_SEARCH_OPTIONS }, searchControls: null, capabilities: null,
 }
 
 function queryConversationId() {
@@ -62,6 +69,7 @@ function renderShell() {
           <div id="teacher-ai-selection-chips" class="teacher-ai-selection-chips"></div>
           <div id="teacher-ai-attachments" class="teacher-ai-attachments"></div>
           <textarea id="teacher-ai-input" maxlength="5000" rows="2" placeholder="输入教学问题；可用 @知识库、@课程、@教学班 或 \\Agent 选择器…"></textarea>
+          <div id="teacher-ai-search-controls"></div>
           <div class="teacher-ai-composer-actions">
             <div>
               <label class="teacher-tool-button" title="添加文件或图片"><input type="file" id="teacher-ai-file" accept=".pdf,.docx,.txt,.md,.csv,image/png,image/jpeg,image/webp" multiple hidden>附件</label>
@@ -107,8 +115,7 @@ function chartOption(spec) {
 function renderSources(sources = []) {
   const container = document.getElementById('teacher-ai-sources')
   if (!container) return
-  const visible = sources.filter(item => item.type !== 'chart_spec')
-  container.innerHTML = visible.length ? visible.map(item => `<div><b>${escapeHtml(item.label || item.type)}</b>${item.generated_at ? `<span>${escapeHtml(new Date(item.generated_at).toLocaleString('zh-CN'))}</span>` : ''}</div>`).join('') : '<span class="teacher-inline-empty">本回答未使用外部数据</span>'
+  container.innerHTML = renderSourceCards(sources, { emptyText: '本回答未使用外部数据' })
 }
 
 function renderMessages() {
@@ -123,16 +130,26 @@ function renderMessages() {
       const charts = (message.sources || []).filter(item => item.type === 'chart_spec').map(item => item.chart)
       return `<article class="teacher-ai-message ${message.role}" data-message-index="${index}">
         <div class="teacher-ai-message-role">${message.role === 'user' ? '教师' : 'AI'}</div>
-        <div class="teacher-ai-message-body message-markdown">${message.streaming && !message.content ? '<span class="teacher-ai-thinking">正在读取授权数据并生成回答…</span>' : renderMarkdownToHtml(message.content || '')}</div>
+        <div class="teacher-ai-message-body message-markdown">${message.streaming && !message.content ? '<span class="teacher-ai-thinking">正在读取授权数据并生成回答…</span>' : (message.role === 'assistant' ? renderCitedMarkdown(message.content || '', message.sources || []) : renderMarkdownToHtml(message.content || ''))}</div>
         ${message.persistence?.saved === false ? `<div class="teacher-ai-save-warning"><span>${escapeHtml(message.persistence.message || '回答已生成，但尚未保存。')}</span><button type="button" data-ai-retry-save="${index}">重试保存</button></div>` : ''}
+        ${message.role === 'assistant' ? `<div class="teacher-ai-message-extras"><div data-ai-trace="${index}"></div>${renderArtifacts(message.artifacts || [])}${message.confirmationRequired ? `<button type="button" class="ai-confirm-action" data-ai-confirm="${index}">确认生成</button>` : ''}</div>` : ''}
         ${charts.length ? `<div class="teacher-ai-chart-grid">${charts.map((spec, chartIndex) => `<div class="teacher-ai-chart-card"><b>${escapeHtml(spec.title || '数据图表')}</b><div data-ai-chart="${index}-${chartIndex}"></div></div>`).join('')}</div>` : ''}
       </article>`
     }).join('')
   }
   container.querySelectorAll('[data-starter]').forEach(button => button.addEventListener('click', () => { document.getElementById('teacher-ai-input').value = button.dataset.starter; document.getElementById('teacher-ai-input').focus() }))
   container.querySelectorAll('[data-ai-retry-save]').forEach(button => button.addEventListener('click', () => void retryAssistantSave(Number(button.dataset.aiRetrySave))))
+  container.querySelectorAll('[data-ai-confirm]').forEach(button => button.addEventListener('click', () => {
+    const message = state.messages[Number(button.dataset.aiConfirm)]
+    if (!message?.requestContent) return
+    void sendMessage({ content: message.requestContent, confirmed: true })
+  }))
+  bindArtifactActions(container, error => showToast(error.message || '成果下载失败', 'error'))
   renderMathInMarkdownElements(container)
   state.messages.forEach((message, index) => {
+    bindCitationClicks(container.querySelector(`[data-message-index="${index}"]`), citationIndex => { renderSources(message.sources || []); requestAnimationFrame(() => focusSource(document.getElementById('teacher-ai-sources'), citationIndex)) })
+    const traceRoot = container.querySelector(`[data-ai-trace="${index}"]`)
+    if (traceRoot) { const trace = createExecutionTrace(traceRoot); (message.traceEvents || []).forEach(event => trace.push(event)) }
     const specs = (message.sources || []).filter(item => item.type === 'chart_spec').map(item => item.chart)
     specs.forEach((spec, chartIndex) => {
       const node = container.querySelector(`[data-ai-chart="${index}-${chartIndex}"]`)
@@ -239,7 +256,7 @@ function updateMention(input) {
   if (!popover) return
   state.mention = { ...match, items, index: 0 }
   popover.innerHTML = items.length
-    ? `<div class="teacher-ai-mention-head">${match.type === 'knowledge' ? '选择知识库（可多选）' : '选择已注册 Agent（可多选）'}</div>${items.map((item, index) => `<button type="button" class="${index === 0 ? 'active' : ''}" data-mention-index="${index}"><b>${match.type === 'knowledge' ? '@' : '\\'}${escapeHtml(item.name)}</b><span>${escapeHtml(item.description || (item.source === 'mine' ? '我的 Agent' : item.source === 'marketplace' ? '市场 Agent' : '系统 Agent'))}</span></button>`).join('')}`
+    ? `<div class="teacher-ai-mention-head">${match.type === 'knowledge' ? '选择知识库（可多选）' : '选择已注册 Agent（可多选）'}</div>${items.map((item, index) => `<button type="button" class="${index === 0 ? 'active' : ''}" data-mention-index="${index}"><span class="teacher-ai-mention-icon">${getIcon(match.type === 'knowledge' ? 'book' : 'sparkles')}</span><span class="teacher-ai-mention-copy"><b>${match.type === 'knowledge' ? '@' : '\\'}${escapeHtml(item.name)}</b><span>${escapeHtml(item.description || (item.source === 'mine' ? '我的 Agent' : item.source === 'marketplace' ? '市场 Agent' : '系统 Agent'))}</span></span></button>`).join('')}`
     : '<div class="teacher-inline-empty">没有匹配项</div>'
   popover.hidden = false
   popover.querySelectorAll('[data-mention-index]').forEach(button => button.addEventListener('mousedown', event => {
@@ -326,16 +343,17 @@ async function openConversation(id) {
   renderConversationList(); renderContextOptions(); renderMessages()
 }
 
-async function sendMessage() {
+async function sendMessage(options = {}) {
   if (state.generating) { state.abortController?.abort(); return }
   const input = document.getElementById('teacher-ai-input')
-  const content = input.value.trim()
+  const content = String(options.content ?? input.value).trim()
   if (!content && !state.attachments.length) return
   const id = await ensureConversation()
   const outgoing = [...state.attachments]; state.attachments = []; renderAttachments(); input.value = ''
-  const assistant = { role: 'assistant', content: '', sources: [], streaming: true }
+  const assistant = { role: 'assistant', content: '', sources: [], artifacts: [], traceEvents: [], streaming: true, requestContent: content, confirmationRequired: false }
   state.messages.push({ role: 'user', content: content || outgoing.map(item => item.name).join('、'), attachments: outgoing }, assistant)
   state.generating = true; state.abortController = new AbortController(); document.getElementById('teacher-ai-send').textContent = '停止'; renderMessages()
+  state.searchControls?.setBusy(true)
   try {
     await streamTeacherAiMessage(id, {
       content,
@@ -343,9 +361,25 @@ async function sendMessage() {
       context: state.context,
       knowledge_base_refs: state.knowledgeBaseIds,
       agent_refs: state.agentIds,
+      search_options: state.searchControls?.getOptions() || state.searchOptions,
+      auto_agent: true,
+      confirmed: options.confirmed === true,
     }, {
       signal: state.abortController.signal,
       onEvent(event, payload) {
+        if (event.includes('.') && payload?.type) {
+          assistant.traceEvents.push(payload)
+          if (event === 'search.sources') {
+            const early = (payload.payload?.sources || []).map(source => ({ ...source, type: 'web', label: source.title }))
+            assistant.sources = [...early, ...assistant.sources.filter(source => source.type !== 'web')]
+            renderSources(assistant.sources)
+          }
+          if (event === 'artifact.completed' && payload.payload?.id) assistant.artifacts = [...assistant.artifacts.filter(item => item.id !== payload.payload.id), payload.payload]
+          if (event === 'run.completed') {
+            assistant.confirmationRequired = payload.payload?.confirmationRequired === true
+            if (Array.isArray(payload.payload?.artifacts)) assistant.artifacts = payload.payload.artifacts
+          }
+        }
         if (event === 'delta') {
           assistant.content += payload.content || ''
           const node = document.querySelector('.teacher-ai-message:last-child .teacher-ai-message-body')
@@ -356,12 +390,12 @@ async function sendMessage() {
           if (state.autoFollow) document.getElementById('teacher-ai-messages').scrollTop = document.getElementById('teacher-ai-messages').scrollHeight
         }
         if (event === 'save_error') assistant.persistence = { ...payload, saved: false }
-        if (event === 'done') { assistant.content = payload.assistant_message?.content || assistant.content; assistant.sources = payload.assistant_message?.sources || (payload.charts || []).map(chart => ({ type: 'chart_spec', chart })); assistant.persistence = payload.persistence || assistant.persistence || { saved: true }; state.context = { ...state.context, ...(payload.context || {}) }; renderSources(assistant.sources) }
+        if (event === 'done') { assistant.content = payload.assistant_message?.content || assistant.content; assistant.sources = payload.assistant_message?.sources || (payload.charts || []).map(chart => ({ type: 'chart_spec', chart })); assistant.artifacts = payload.artifacts || assistant.artifacts; assistant.confirmationRequired = payload.confirmation_required === true; assistant.traceId = payload.trace_id; assistant.persistence = payload.persistence || assistant.persistence || { saved: true }; state.context = { ...state.context, ...(payload.context || {}) }; renderSources(assistant.sources) }
         if (event === 'error') { assistant.content = assistant.content || payload.message || '生成失败'; assistant.error = payload }
       },
     })
   } catch (error) { assistant.content = error.name === 'AbortError' ? '已停止生成。' : (error.message || 'AI 对话暂时不可用') }
-  finally { assistant.streaming = false; state.generating = false; state.abortController = null; document.getElementById('teacher-ai-send').textContent = '发送'; renderMessages(); await loadConversations() }
+  finally { assistant.streaming = false; state.generating = false; state.abortController = null; state.searchControls?.setBusy(false); document.getElementById('teacher-ai-send').textContent = '发送'; renderMessages(); await loadConversations() }
 }
 
 function bindEvents() {
@@ -409,10 +443,13 @@ export async function renderTeacherAiChat(app) {
   try { const result = await getMe(); user = result.data.user; setAuth(getToken(), user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
   renderDashboardLayout(app, { title: '教师 AI', menuItems: TEACHER_MENU_ITEMS, contentHTML: renderShell(), user })
   document.getElementById('student-main')?.classList.add('teacher-ai-host')
+  state.searchControls = createSearchControls(document.getElementById('teacher-ai-search-controls'), { value: state.searchOptions, capabilities: state.capabilities, onChange: value => { state.searchOptions = value } })
   bindEvents()
   try {
-    const [options] = await Promise.all([getTeacherAiContextOptions(), loadConversations()])
+    const [options, , capabilityResult] = await Promise.all([getTeacherAiContextOptions(), loadConversations(), getAiAssistantCapabilities().catch(() => null)])
     state.options = normalizeContextOptions(options.data)
+    state.capabilities = capabilityResult?.data || null
+    state.searchControls?.setCapabilities(state.capabilities)
     const requestedAgent = queryAgentId()
     if (requestedAgent && state.options.agents.some(item => String(item.id) === requestedAgent)) state.agentIds = [requestedAgent]
     renderContextOptions()

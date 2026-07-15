@@ -57,6 +57,18 @@ export const learningWorkflowApi = {
   listPreloads(params = {}) { return get('/learning-flow-preloads', { params }); },
   getPreload(id) { return get('/learning-flow-preloads/' + id); },
   retryPreload(id, operationId) { return post('/learning-flow-preloads/' + id + '/retry', { operationId }); },
+  getSessionCards(sessionId, nodeId) {
+    return get(`/learning-flow-preloads/sessions/${sessionId}/cards`, { params: { nodeId } });
+  },
+  regenerateSessionCards(sessionId, nodeId) {
+    return post(`/learning-flow-preloads/sessions/${sessionId}/cards/regenerate`, { ...(nodeId ? { nodeId } : {}) });
+  },
+  updateSessionCardState(sessionId, cardId, state, nodeId) {
+    return post(`/learning-flow-preloads/sessions/${sessionId}/cards/${encodeURIComponent(cardId)}/state`, { state, ...(nodeId ? { nodeId } : {}) });
+  },
+  saveSessionCard(sessionId, cardId, nodeId) {
+    return post(`/learning-flow-preloads/sessions/${sessionId}/cards/${encodeURIComponent(cardId)}/save`, { ...(nodeId ? { nodeId } : {}) });
+  },
 
   // 会话
   createSession(data) {

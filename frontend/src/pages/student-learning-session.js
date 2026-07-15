@@ -18,6 +18,7 @@ import { LearningNarrationClient } from '../services/learning-narration.js';
 import { collectNarrationSegments } from '../services/learning-speech-segments.js';
 import { LearningPdfViewer } from '../services/learning-pdf-viewer.js';
 import { studentLearningPlanApi } from '../api/student-learning-plans.js';
+import { createLearningCardDeck } from '../components/learning-card-deck.js';
 
 // ========================
 // 常量
@@ -67,6 +68,7 @@ let pdfSwitchVersion = 0;
 let pdfSwitchPromise = Promise.resolve();
 let pdfControlsCleanup = null;
 let pdfSourcesLoaded = false;
+let learningCardDeck = null;
 
 function initState(sessionId) {
   return {
@@ -238,9 +240,14 @@ export function renderStudentLearningSession(app, params) {
   pdfControlsCleanup?.();
   pdfControlsCleanup = null;
   lastNarrationKey = '';
+  learningCardDeck?.destroy();
+  learningCardDeck = null;
 
   const html = buildPageShell();
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: html, user });
+  learningCardDeck = createLearningCardDeck(document.getElementById('lws-learning-card-deck'), {
+    onNotice: (message, type = 'warning') => showToast(message, type),
+  });
   document.querySelector('.student-dashboard-wrapper')?.classList.add('learning-session-layout');
   const resetInitialScroll = () => window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   resetInitialScroll();
@@ -272,6 +279,7 @@ function buildPageShell() {
         <div class="lws-topbar-right">
           <span class="lws-save-status" id="lws-save-status"></span>
           <span class="lws-agent-badge" id="lws-agent-badge" style="display:none"></span>
+          <button class="lws-btn lws-btn-outline lws-btn-sm" data-learning-action="immersive-toggle" id="lws-immersive-toggle" aria-pressed="false">沉浸学习</button>
           <button class="lws-btn lws-btn-outline lws-btn-sm" data-learning-action="pdf-toggle" id="lws-pdf-toggle">参考资料</button>
           <button class="lws-progress-pin" data-learning-action="progress-pin" id="lws-progress-pin" type="button" aria-label="锁定进度导航">锁定</button>
           <button class="lws-progress-collapse" data-learning-action="progress-toggle" id="lws-progress-toggle" type="button" aria-label="收起进度导航">收起</button>
@@ -311,6 +319,7 @@ function buildPageShell() {
         </div>
       </div>
       <div class="lws-agent-status-bar" id="lws-agent-status-bar" style="display:none"></div>
+      <div id="lws-learning-card-deck" hidden></div>
        <div class="lws-content-area" id="lws-content-area" style="display:none">
          <div class="lws-node-history" id="lws-node-history"></div>
          <div class="lws-multimodal-container" id="lws-multimodal-container" style="display:none"></div>
@@ -318,6 +327,12 @@ function buildPageShell() {
       </div>
       <div class="lws-error-state" id="lws-error-state" style="display:none"></div>
       <div class="lws-paused-state" id="lws-paused-state" style="display:none"></div>
+    </div>
+    <div class="lws-bottom-bar" id="lws-bottom-bar" style="display:none">
+      <button class="lws-btn lws-btn-ghost" data-learning-action="retry" id="lws-btn-retry" style="display:none">重新尝试</button>
+      <div class="lws-bottom-spacer"></div>
+      <button class="lws-btn lws-btn-outline" data-learning-action="skip" id="lws-btn-skip">跳过</button>
+      <button class="lws-btn lws-btn-primary" data-learning-action="next" id="lws-btn-next" disabled>等待完成…</button>
     </div></section>
     <button type="button" class="lws-pdf-backdrop" id="lws-pdf-backdrop" data-learning-action="pdf-close" aria-label="关闭 PDF 阅读器" hidden></button>
     <aside class="lws-pdf-panel" id="lws-pdf-panel" aria-hidden="true" aria-label="PDF 连续阅读器" hidden>
@@ -356,16 +371,34 @@ function buildPageShell() {
         <button type="button" data-learning-action="narration-mini-toggle" aria-label="最小化">—</button>
       </div>
     </aside>
-    <div class="lws-bottom-bar" id="lws-bottom-bar" style="display:none">
-      <button class="lws-btn lws-btn-ghost" data-learning-action="retry" id="lws-btn-retry" style="display:none">重新尝试</button>
-      <div class="lws-bottom-spacer"></div>
-      <button class="lws-btn lws-btn-outline" data-learning-action="skip" id="lws-btn-skip">跳过</button>
-      <button class="lws-btn lws-btn-primary" data-learning-action="next" id="lws-btn-next" disabled>等待完成…</button>
-    </div>
     <div class="lws-modal-overlay" id="lws-modal-overlay" style="display:none">
       <div class="lws-modal" id="lws-modal"></div>
     </div>
   </div>`;
+}
+
+function syncImmersiveButton() {
+  const root = document.getElementById('lws-page');
+  const button = document.getElementById('lws-immersive-toggle');
+  const active = Boolean(root?.classList.contains('is-immersive'));
+  if (!button) return;
+  button.textContent = active ? '退出全屏' : '沉浸学习';
+  button.setAttribute('aria-pressed', String(active));
+}
+
+async function toggleImmersiveStudy() {
+  const root = document.getElementById('lws-page');
+  if (!root) return;
+  const entering = !root.classList.contains('is-immersive');
+  root.classList.toggle('is-immersive', entering);
+  document.body.classList.toggle('lws-immersive-mode', entering);
+  syncImmersiveButton();
+  try {
+    if (entering && !document.fullscreenElement && root.requestFullscreen) await root.requestFullscreen();
+    else if (!entering && document.fullscreenElement === root && document.exitFullscreen) await document.exitFullscreen();
+  } catch {
+    if (entering) showToast('浏览器未允许全屏，已保留沉浸布局', 'warning');
+  }
 }
 
 // ========================
@@ -391,7 +424,7 @@ function bindEvents() {
     const action = actionEl.dataset.learningAction;
 
     // Synchronous lock check — prevent any action while another is in flight
-    if (state && state.action.submitting && action !== 'return') {
+    if (state && state.action.submitting && !['return', 'immersive-toggle', 'pdf-toggle', 'pdf-close'].includes(action)) {
       // Don't spam toasts for every duplicate click — dedup handles this
       showToast('操作进行中，请稍候', 'warning');
       return;
@@ -403,6 +436,7 @@ function bindEvents() {
       case 'skip': await handleSkip(); break;
       case 'retry': await handleRetry(); break;
       case 'return': await handleReturn(); break;
+      case 'immersive-toggle': await toggleImmersiveStudy(); break;
       case 'narration-toggle': await toggleNarration(); break;
       case 'narration-play-pause': await toggleNarrationPlayback(); break;
       case 'narration-stop': await stopNarration(); break;
@@ -454,6 +488,17 @@ function bindEvents() {
   // beforeunload cleanup
   const beforeUnloadHandler = () => cleanup();
   window.addEventListener('beforeunload', beforeUnloadHandler);
+  const fullscreenHandler = () => {
+    if (document.fullscreenElement === root) {
+      root.classList.add('is-immersive');
+      document.body.classList.add('lws-immersive-mode');
+    } else if (root.classList.contains('is-immersive')) {
+      root.classList.remove('is-immersive');
+      document.body.classList.remove('lws-immersive-mode');
+    }
+    syncImmersiveButton();
+  };
+  document.addEventListener('fullscreenchange', fullscreenHandler);
 
   sessionEventCleanup = () => {
     root.removeEventListener('click', handler);
@@ -462,6 +507,7 @@ function bindEvents() {
       modalOverlay.removeEventListener('click', modalClickHandler);
     }
     window.removeEventListener('beforeunload', beforeUnloadHandler);
+    document.removeEventListener('fullscreenchange', fullscreenHandler);
     rates.forEach((rate) => rate.removeEventListener('change', onRate));
     subtitles?.removeEventListener('change', onSubtitles);
     pdfControlsCleanup?.();
@@ -484,6 +530,8 @@ function cleanup() {
   narrationClient = null;
   pdfViewer?.destroy().catch(() => {});
   pdfViewer = null;
+  learningCardDeck?.destroy();
+  learningCardDeck = null;
 
   // Clear all timers
   clearFormalAgentTimer();
@@ -495,6 +543,10 @@ function cleanup() {
   cleanupProgressNavigation();
   const sentinel = document.getElementById('lws-sticky-sentinel');
   if (sentinel) sentinel.remove();
+  const root = document.getElementById('lws-page');
+  root?.classList.remove('is-immersive');
+  document.body.classList.remove('lws-immersive-mode');
+  if (document.fullscreenElement === root) document.exitFullscreen?.().catch(() => {});
 }
 
 // ========================
@@ -1156,6 +1208,7 @@ async function initSession(sessionId) {
     state.sessionPhase = S.status;
     state.nodeId = S.current_node_id;
     state.nodeRuns = S.node_runs || [];
+    void learningCardDeck?.load(sessionId, state.nodeId);
 
     updateTopbar();
     hideSkeleton();
@@ -1756,6 +1809,7 @@ async function execCurrentNode(sessionId) {
     return;
   }
   state.nodeId = String(node.id);
+  void learningCardDeck?.load(sessionId, state.nodeId);
   const execution = beginExecution(node);
 
   // Check if already completed (has output content we can restore)
@@ -3078,6 +3132,10 @@ async function submitLearningInput(interaction) {
 async function runTrainerNode(node, sessionId, execution, controller) {
   const el = document.getElementById('lws-teaching-result');
   if (el) el.innerHTML = '';
+
+  // Card preparation is independent from the long-running Trainer workflow.
+  // It renders an immediate cache/fallback deck and keeps refreshing in parallel.
+  void learningCardDeck?.load(sessionId, String(node.id));
 
   ensureTimelineContainer(el);
 

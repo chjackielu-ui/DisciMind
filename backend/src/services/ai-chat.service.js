@@ -214,6 +214,7 @@ function toApiMessage(message, preview = false) {
     knowledgeBaseRefs: Array.isArray(message.knowledgeBaseRefsJson) ? message.knowledgeBaseRefsJson : [],
     agentRefs: Array.isArray(message.agentRefsJson) ? message.agentRefsJson : [],
     sources: Array.isArray(message.sourcesJson) ? message.sourcesJson : [],
+    artifacts: Array.isArray(message.aiAssistantArtifacts) ? message.aiAssistantArtifacts : [],
     agentInvocations: (Array.isArray(message.marketplaceAgentInvocations) ? message.marketplaceAgentInvocations : []).map((invocation) => ({
       id: invocation.id,
       agentId: invocation.agentId,
@@ -639,6 +640,27 @@ async function getMessages(userId, conversationId) {
     const roots = (Array.isArray(invocation.artifactIdsJson) ? invocation.artifactIdsJson : []).map(Number);
     invocation.artifacts = artifacts.filter(artifact => roots.includes(artifact.id) || roots.includes(artifact.parentArtifactId)).map(artifact => artifactById.get(artifact.id)).filter(Boolean);
   }));
+  const unifiedArtifacts = await prisma.generatedArtifact.findMany({
+    where: { ownerUserId: Number(userId), sourceAiConversationId: Number(conversationId), deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+  });
+  const bySourceMessage = new Map();
+  unifiedArtifacts.forEach((artifact) => {
+    const key = Number(artifact.sourceMessageId) || 0;
+    if (!bySourceMessage.has(key)) bySourceMessage.set(key, []);
+    bySourceMessage.get(key).push({
+      id: artifact.id, title: artifact.title, artifactType: artifact.artifactType,
+      fileFormat: artifact.fileFormat, status: artifact.status, previewHtml: artifact.previewHtml,
+      content: artifact.contentSchemaJson, mimeType: artifact.mimeType,
+      sizeBytes: artifact.fileSizeBytes == null ? null : Number(artifact.fileSizeBytes),
+      downloadUrl: artifact.storagePath ? `/api/ai-assistant/artifacts/${artifact.id}/download` : null,
+      createdAt: artifact.createdAt,
+    });
+  });
+  for (const [sourceMessageId, values] of bySourceMessage) {
+    const target = messages.find(message => message.role === 'ASSISTANT' && message.id > sourceMessageId);
+    if (target) target.aiAssistantArtifacts = values;
+  }
 
   return {
     conversation: toApiConversation(conversation, null, messages.length),
@@ -734,6 +756,10 @@ async function prepareTurn(userId, conversationId, body = {}) {
     resolvedAgentRefs,
     assistantSurface,
     maxOutputTokens,
+    searchOptions: body.searchOptions || body.search_options || {},
+    autoAgent: body.autoAgent !== false && body.auto_agent !== false,
+    agentExecutionMode: body.agentExecutionMode || body.agent_execution_mode || null,
+    confirmed: body.confirmed === true,
   };
 }
 

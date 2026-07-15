@@ -12,10 +12,39 @@ import * as echarts from 'echarts'
 import { buildMindData, createMindMap, getKnowledgeStatus } from '../components/kgraph/KgMindMap.js'
 import { buildVideoPanelHTML, loadKpVideosToPanel } from '../components/kgraph/KgVideoPanel.js'
 import { renderCourseFilesPanel, mountCourseFilesPanel } from '../components/course-files-panel.js'
+import { learningCardApi } from '../api/learning-cards.js'
+import { renderLearningCardGrid } from '../components/learning-card-platform.js'
 
 function getCourseIdFromHash() {
   const m = window.location.hash.slice(1).match(/^\/student\/courses\/(\d+)/)
   return m ? parseInt(m[1], 10) : null
+}
+
+function buildCourseCardLibrary(chapters, kps) {
+  return `<section class="lc-course-library" id="lc-course-library"><div class="lc-section-head"><div><h2>课程知识卡片库</h2><p>按章节、知识点、类型、掌握状态与教师推荐筛选</p></div></div><div class="lc-library-toolbar"><input id="lc-library-search" placeholder="搜索卡片标题或内容"><select id="lc-library-chapter"><option value="">全部章节</option>${chapters.map(item => `<option value="${escapeHtml(item.chapter_name)}">${escapeHtml(item.chapter_name)}</option>`).join('')}</select><select id="lc-library-kp"><option value="">全部知识点</option>${kps.map(item => `<option value="${item.knowledge_point_id}">${escapeHtml(item.knowledge_point_name)}</option>`).join('')}</select><select id="lc-library-type"><option value="">全部类型</option>${[['CONCEPT','核心概念'],['FORMULA','公式'],['PITFALL','易错点'],['EXAMPLE','例题'],['COMPARISON','概念对比'],['WRONG_QUESTION','错题修复'],['REVIEW','复习']].map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select><select id="lc-library-mastery"><option value="ALL">全部掌握状态</option><option value="FAVORITE">已收藏</option><option value="MASTERED">已掌握</option><option value="UNMASTERED">未掌握</option></select><select id="lc-library-teacher"><option value="">全部来源</option><option value="true">教师推荐</option><option value="false">非教师推荐</option></select><select id="lc-library-sort"><option value="RECENT">最近学习</option><option value="PRIORITY">推荐优先</option><option value="TITLE">标题</option></select></div><div class="lc-library-meta"><span id="lc-library-count">正在读取卡片</span><span>完整内容仅在打开详情后渲染</span></div><div id="lc-course-library-grid"><div class="lc-empty"><b>正在读取课程卡片</b><span>筛选和课程其他功能可以继续使用。</span></div></div></section>`
+}
+
+function mountCourseCardLibrary(courseId) {
+  const root = document.getElementById('lc-course-library-grid')
+  if (!root) return
+  let timer = null; let version = 0
+  const load = async () => {
+    const current = ++version
+    const params = {
+      search: document.getElementById('lc-library-search')?.value.trim(), chapterName: document.getElementById('lc-library-chapter')?.value,
+      knowledgePointId: document.getElementById('lc-library-kp')?.value, cardType: document.getElementById('lc-library-type')?.value,
+      masteryState: document.getElementById('lc-library-mastery')?.value || 'ALL', teacherRecommended: document.getElementById('lc-library-teacher')?.value,
+      sort: document.getElementById('lc-library-sort')?.value || 'RECENT', page: 1, pageSize: 24,
+    }
+    try {
+      const data = (await learningCardApi.courseLibrary(courseId, params)).data
+      if (current !== version || !document.body.contains(root)) return
+      document.getElementById('lc-library-count').textContent = `共 ${data.total || 0} 张卡片`
+      renderLearningCardGrid(root, data.list || [], { scene: 'COURSE_LIBRARY', onStateChange: () => load() })
+    } catch (error) { if (current === version) root.innerHTML = `<div class="lc-empty"><b>课程卡片读取失败</b><span>${escapeHtml(error.message || '请稍后重试。')}</span></div>` }
+  }
+  document.querySelectorAll('#lc-course-library input,#lc-course-library select').forEach(control => control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', () => { clearTimeout(timer); timer = setTimeout(load, control.tagName === 'INPUT' ? 260 : 0) }))
+  void load()
 }
 
 function sortKPs(kps, sortBy) {
@@ -612,6 +641,7 @@ export async function renderStudentCourseDetail(app) {
         <button class="course-action-btn" id="btn-course-files" type="button">课程文件</button>
       </div>
       ${renderCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] })}
+      ${buildCourseCardLibrary(chapters, kps)}
       ${buildKnowledgeGraphSection(course, chapters, kps)}
       <div class="course-charts-row">
         <div class="course-chart-panel" id="panel-mastery-ring">
@@ -632,7 +662,7 @@ export async function renderStudentCourseDetail(app) {
   renderDashboardLayout(app, { menuItems, contentHTML, user })
 
   if (!loadError && course) {
-    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); mountCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] }); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps, course.course_id) }, 150)
+    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); mountCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] }); mountCourseCardLibrary(course.course_id); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps, course.course_id) }, 150)
   }
 }
 

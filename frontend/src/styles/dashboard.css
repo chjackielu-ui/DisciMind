@@ -881,7 +881,6 @@
 
 .discimind-global-overlays > * { pointer-events: auto; }
 
-body:has(.lws-page.is-pdf-open) .global-task-center { top: 96px; right: 22px !important; }
 body:has(.lws-page.is-pdf-open) .ai-float-widget {
   /* The assistant remains viewport-anchored; PDF geometry only changes its compact presentation. */
   right: 18px !important;
@@ -892,12 +891,7 @@ body:has(.lws-page.is-pdf-open) .ai-float-widget {
 }
 body:has(.lws-page.is-pdf-open) .ai-float-grip { display: none; }
 
-@media (max-width: 1180px) {
-  body:has(.lws-page.is-pdf-open) .global-task-center { right: 22px !important; }
-}
-
 @media (max-width: 560px) {
-  body:has(.lws-page.is-pdf-open) .global-task-center { top: 96px; right: 12px !important; }
   body:has(.lws-page.is-pdf-open) .ai-float-widget { right: 12px !important; }
 }
 

@@ -84,6 +84,16 @@ class AsyncTaskWorker {
       return { terminal: true };
     });
     this.register('LEARNING_FLOW_PRELOAD', async (task, { signal }) => {
+      if (task.metadataJson?.kind === 'DAILY_LEARNING_CARD') {
+        const cards = require('../learning-card/learning-card-ai.service');
+        await cards.processDailyCardTask(task, { signal });
+        return { terminal: true };
+      }
+      if (task.metadataJson?.kind === 'LEARNING_CARD') {
+        const cards = require('../learning-flow-preload/knowledge-card.service');
+        await cards.processCardTask(task, { signal });
+        return { terminal: true };
+      }
       const processor = require('../learning-flow-preload/learning-flow-preload.processor');
       await processor.processPreload(Number(task.relatedResourceId || task.metadataJson?.preloadId), { taskId: task.id, signal });
       return { terminal: true };

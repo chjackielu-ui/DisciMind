@@ -99,6 +99,18 @@ function pendingAttachmentsHTML(attachments) {
   return `<div class="composer-images">${attachments.map((item, index) => `<figure>${item.mimeType?.startsWith('image/') && item.displayUrl ? `<img src="${item.displayUrl}" alt="">` : '<span class="composer-file-icon">文件</span>'}<button type="button" data-remove-attachment="${index}" aria-label="移除附件">×</button><figcaption>${escapeHtml(item.name)}</figcaption></figure>`).join('')}</div>`
 }
 
+const COMPOSER_ICON_PATHS = {
+  knowledge: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z"/>',
+  agent: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><path d="M9 6h3a3 3 0 0 1 3 3v6M12 18H9a3 3 0 0 1-3-3V9"/>',
+  file: '<path d="M4 4h16v16H4z"/><circle cx="9" cy="9" r="1.4"/><path d="m20 16-5-5L7 20"/>',
+  voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+}
+
+function composerTool(icon, label) {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${COMPOSER_ICON_PATHS[icon]}</svg><span>${label}</span>`
+}
+
 export function createUnifiedComposer(options) {
   const root = options.root
   const state = {
@@ -113,7 +125,7 @@ export function createUnifiedComposer(options) {
 
   const render = (keepFocus = false) => {
     const selectionStart = root.querySelector('textarea')?.selectionStart ?? state.value.length
-    root.innerHTML = `<form class="unified-composer" autocomplete="off">${contextTags(state)}${pendingAttachmentsHTML(state.attachments)}<div class="composer-input-row"><textarea maxlength="${maxLength}" placeholder="${escapeHtml(options.placeholder || '输入问题，使用 @ 引用知识库，使用 \\ 调用智能体')}">${escapeHtml(state.value)}</textarea><button class="composer-send" type="submit" ${state.busy || state.uploading ? 'disabled' : ''}>${state.uploading ? '上传中' : '发送'}</button></div><div class="composer-toolbar"><div><button type="button" data-composer-kb title="引用知识库">@ 知识库</button><button type="button" data-composer-agent title="调用智能体">\\ 智能体</button>${options.allowImages === false ? '' : '<button type="button" data-composer-image>图片/文件</button>'}${options.allowVoice === false ? '' : '<button type="button" data-composer-voice>语音</button>'}</div><div><span data-composer-count>${state.value.length}/${maxLength}</span><button type="button" data-composer-stop ${state.busy ? '' : 'hidden'}>停止生成</button></div></div><div data-composer-menu-host>${menuHTML(state)}</div><input type="file" data-composer-file accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" multiple hidden></form>`
+    root.innerHTML = `<form class="unified-composer" autocomplete="off">${contextTags(state)}${pendingAttachmentsHTML(state.attachments)}<div class="composer-input-row"><textarea maxlength="${maxLength}" placeholder="${escapeHtml(options.placeholder || '输入问题，使用 @ 引用知识库，使用 \\ 调用智能体')}">${escapeHtml(state.value)}</textarea><button class="composer-send" type="submit" ${state.busy || state.uploading ? 'disabled' : ''}>${state.uploading ? '上传中' : '发送'}</button></div><div class="composer-toolbar"><div><button type="button" data-composer-kb title="引用知识库" aria-label="引用知识库">${composerTool('knowledge', '知识库')}</button><button type="button" data-composer-agent title="调用智能体" aria-label="调用智能体">${composerTool('agent', '智能体')}</button>${options.allowImages === false ? '' : `<button type="button" data-composer-image title="添加图片或文件" aria-label="添加图片或文件">${composerTool('file', '文件')}</button>`}${options.allowVoice === false ? '' : `<button type="button" data-composer-voice title="语音输入" aria-label="语音输入">${composerTool('voice', '语音')}</button>`}</div><div><span data-composer-count>${state.value.length}/${maxLength}</span><button type="button" data-composer-stop ${state.busy ? '' : 'hidden'} title="停止生成">${composerTool('stop', '停止')}</button></div></div><div data-composer-menu-host>${menuHTML(state)}</div><input type="file" data-composer-file accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" multiple hidden></form>`
     bind()
     if (keepFocus) {
       const textarea = root.querySelector('textarea')
