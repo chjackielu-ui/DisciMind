@@ -21,10 +21,12 @@ function serializeEvent(event) {
     taskId: event.taskId,
     sequence: event.sequence,
     eventType: event.eventType,
+    type: event.eventType,
     title: event.title,
     message: event.message,
     payload: safeJson(event.payload),
     createdAt: event.createdAt,
+    timestamp: event.createdAt,
   };
 }
 

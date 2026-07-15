@@ -45,6 +45,8 @@ import {
   knowledgePointTagHtml,
 } from '../components/practice/practice-tags.js'
 import { savePracticeSessionSnapshot } from '../components/practice/practice-components.js'
+import { learningCardApi } from '../api/learning-cards.js'
+import { renderLearningCardGrid } from '../components/learning-card-platform.js'
 
 // ========================
 // 常量
@@ -225,6 +227,7 @@ export async function renderStudentWrongQuestions(app) {
     leftOpen: true,
     rightOpen: true,
     expandedCards: new Set(),
+    repairCards: new Map(), repairLoading: new Set(),
     // AI 生成
     aiJob: null,
     aiJobPolling: null,
@@ -349,6 +352,24 @@ export async function renderStudentWrongQuestions(app) {
     setAiContext()
     main.innerHTML = buildPage(state, errorMessage)
     bindEvents()
+    void mountRepairCards()
+  }
+
+  async function mountRepairCards() {
+    const roots = [...document.querySelectorAll('[data-wq-repair-card]')]
+    for (const root of roots) {
+      const id = String(root.dataset.wqRepairCard)
+      if (state.repairCards.has(id)) { renderLearningCardGrid(root, [state.repairCards.get(id)], { compact: true, scene: 'WRONG_QUESTION_DETAIL' }); continue }
+      if (state.repairLoading.has(id)) continue
+      state.repairLoading.add(id)
+      try {
+        const card = (await learningCardApi.repairCard(id)).data
+        state.repairCards.set(id, card)
+        if (document.body.contains(root)) renderLearningCardGrid(root, [card], { compact: true, scene: 'WRONG_QUESTION_DETAIL' })
+      } catch (error) {
+        if (document.body.contains(root)) root.innerHTML = `<div class="lc-empty"><b>错题修复卡暂不可用</b><span>${escapeHtml(error.message || '原题练习仍可继续。')}</span></div>`
+      } finally { state.repairLoading.delete(id) }
+    }
   }
 
   // ========================
@@ -719,6 +740,8 @@ export async function renderStudentWrongQuestions(app) {
             <p>${escapeHtml(item.answer_analysis)}</p>
           </div>` : ''}
         </div>
+
+        <section class="lc-wq-repair"><div class="lc-section-head"><div><h2>错题修复卡</h2><p>基于本题真实错因、知识点与解析生成</p></div></div><div data-wq-repair-card="${item.wrong_question_id}"><div class="lc-empty"><b>正在准备修复卡</b><span>原题和相似练习不受影响。</span></div></div></section>
 
         <div class="wq-detail-actions-row">
           <div class="wq-detail-actions-left">

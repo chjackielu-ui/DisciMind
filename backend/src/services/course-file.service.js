@@ -321,6 +321,7 @@ async function upload(user, courseId, classId, file, body = {}) {
       }) });
       return document.document_id;
     });
+    if (publishNow) void require('../modules/learning-flow-preload/knowledge-card-cache.service').markStaleByCourse(teachingClass.course_id).catch(() => {});
     return { file: serialize(await ensureFile(teachingClass.course_id, teachingClass.teaching_class_id, createdId)), duplicate: false };
   } catch (error) {
     await fs.unlink(absolutePath).catch(() => {});
@@ -387,6 +388,7 @@ async function publish(user, courseId, classId, fileId) {
     await publishInTransaction(tx, user, teachingClass, document);
     await tx.operationLog.create({ data: auditData(user, 'PUBLISH_COURSE_FILE', document.document_id, { course_id: teachingClass.course_id, teaching_class_id: teachingClass.teaching_class_id }) });
   });
+  void require('../modules/learning-flow-preload/knowledge-card-cache.service').markStaleByCourse(courseId).catch(() => {});
   return { file: serialize(await ensureFile(courseId, classId, fileId)) };
 }
 

@@ -3,6 +3,10 @@ const aiChatService = require('../../services/ai-chat.service');
 const eventService = require('./subject-chat-event.service');
 const runService = require('./subject-chat-run.service');
 const orchestrator = require('./subject-chat-orchestrator.service');
+const { isTerminalRunStatus } = require('./subject-chat-state-machine');
+const { createPlan } = require('../ai-assistant/workflow-planner');
+const prisma = require('../../config/prisma');
+const agentContextService = require('../agent-chat/agent-context.service');
 
 function handleError(res, error, scope) {
   console.error(`[subject-chat.controller] ${scope}:`, error.message);
@@ -19,13 +23,54 @@ function conversationId(req) {
   return id;
 }
 
+function buildExecutionPlan(req, turn) {
+  const question = orchestrator.extractQuestion(turn).trim();
+  const knowledgeBaseIds = (turn.knowledgeBaseRefs || []).map(item => Number(item?.knowledgeBaseId ?? item)).filter(Number.isInteger);
+  const plan = createPlan({
+    query: question,
+    role: req.user?.role || 'student',
+    searchOptions: turn.searchOptions,
+    manualAgentRefs: turn.resolvedAgentRefs || [],
+    knowledgeBaseIds,
+    attachments: turn.userMessage?.attachments || [],
+  });
+  turn.executionPlan = plan;
+  turn.requestId = req.id || null;
+  return plan;
+}
+
+async function enrichNaturalKnowledgeRefs(uid, req, turn) {
+  if ((turn.knowledgeBaseRefs || []).length || (turn.resolvedKnowledgeBases || []).length) return turn;
+  const question = orchestrator.extractQuestion(turn).trim();
+  if (!agentContextService.mentionedKnowledgeTerms(question).length) return turn;
+  const inferred = await agentContextService.inferKnowledgeBaseRefs(uid, question, {
+    courseId: req.body?.courseId || req.body?.course_id || req.body?.learningContext?.courseId,
+  });
+  if (!inferred.length) return turn;
+  const refs = agentContextService.normalizedKnowledgeRefs(inferred);
+  turn.resolvedKnowledgeBases = inferred;
+  turn.knowledgeBaseRefs = refs;
+  const messageId = turn.userMessage?.id || (await prisma.aiMessage.findFirst({
+    where: { conversationId: turn.conversation.id, role: 'USER' },
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  }))?.id;
+  if (messageId) {
+    await prisma.aiMessage.update({ where: { id: messageId }, data: { knowledgeBaseRefsJson: refs } });
+    if (turn.userMessage) turn.userMessage.knowledgeBaseRefsJson = refs;
+  }
+  return turn;
+}
+
 async function createRun(req, res) {
   try {
     const uid = userId(req);
     const conversation = conversationId(req);
     await runService.assertNoActiveRun(uid, conversation);
     const turn = await aiChatService.prepareTurn(uid, conversation, req.body || {});
-    const run = await runService.createRun(uid, turn);
+    await enrichNaturalKnowledgeRefs(uid, req, turn);
+    const plan = buildExecutionPlan(req, turn);
+    const run = await runService.createRun(uid, turn, plan);
     const response = {
       ...run,
       conversation: aiChatService.toApiConversation(turn.conversation),
@@ -94,7 +139,7 @@ async function streamRun(req, res) {
     if (replaying) buffered.push(event);
     else if (event.sequence > lastSequence && writeSse(res, event)) {
       lastSequence = event.sequence;
-      if (['run_completed', 'run_failed', 'run_cancelled'].includes(event.eventType)) {
+      if (['run_completed', 'run_failed', 'run_cancelled', 'run_stalled'].includes(event.eventType)) {
         setImmediate(() => {
           cleanup();
           if (!res.writableEnded) res.end();
@@ -105,7 +150,7 @@ async function streamRun(req, res) {
   const unsubscribe = eventService.subscribe(req.params.runId, onEvent);
   const heartbeat = setInterval(() => {
     if (!res.destroyed && !res.writableEnded) res.write(`: heartbeat ${Date.now()}\n\n`);
-  }, 15000);
+  }, 4000);
   const cleanup = () => {
     clearInterval(heartbeat);
     unsubscribe();
@@ -122,7 +167,7 @@ async function streamRun(req, res) {
       if (event.sequence > lastSequence && writeSse(res, event)) lastSequence = event.sequence;
     }
     owned = await runService.getOwnedRun(userId(req), req.params.runId);
-    if (runService.TERMINAL_RUN_STATUSES.has(owned.status)) {
+    if (isTerminalRunStatus(owned.status)) {
       cleanup();
       res.end();
     }
@@ -143,8 +188,11 @@ async function cancelRun(req, res) {
 async function retryTask(req, res) {
   try {
     const uid = userId(req);
-    const reset = await runService.resetForRetry(uid, req.params.runId, req.params.taskId);
-    const turn = await aiChatService.prepareTurn(uid, reset.conversationId, { regenerate: true });
+    const owned = await runService.getOwnedRun(uid, req.params.runId);
+    const turn = await aiChatService.prepareTurn(uid, owned.conversationId, { regenerate: true });
+    await enrichNaturalKnowledgeRefs(uid, req, turn);
+    const plan = buildExecutionPlan(req, turn);
+    await runService.resetForRetry(uid, req.params.runId, req.params.taskId, { plan });
     const run = await runService.getOwnedRun(uid, req.params.runId);
     success(res, run, '已重新启动运行任务');
     setImmediate(() => orchestrator.execute(run.runId, uid, turn).catch((error) => {
@@ -155,4 +203,4 @@ async function retryTask(req, res) {
   }
 }
 
-module.exports = { createRun, getRun, getLatestRun, getEvents, streamRun, cancelRun, retryTask };
+module.exports = { createRun, getRun, getLatestRun, getEvents, streamRun, cancelRun, retryTask, buildExecutionPlan, enrichNaturalKnowledgeRefs };

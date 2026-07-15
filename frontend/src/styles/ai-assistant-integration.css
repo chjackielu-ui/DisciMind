@@ -1,0 +1,34 @@
+.teacher-ai-message-extras {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.teacher-ai-source-list .ai-source-card b,
+.teacher-ai-source-list .ai-source-card span {
+  display: block;
+}
+
+.teacher-ai-source-list .ai-source-card span {
+  margin-top: 2px;
+}
+
+.teacher-ai-composer > .ai-search-controls {
+  border-top: 1px solid rgba(135, 111, 82, 0.11);
+}
+
+.student-ai-search-host .ai-search-controls {
+  padding-inline: 12px;
+}
+
+.student-ai-message-extras {
+  min-width: 0;
+}
+
+.ai-artifact-card > button {
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+  color: #8a581f;
+  font-size: 0.65rem;
+  cursor: pointer;
+}

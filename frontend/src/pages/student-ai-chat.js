@@ -28,6 +28,13 @@ import { disposeAllCharts } from '../utils/echarts.js'
 import { listAvailableChatAgents, listCallableAgents, listAccessibleKnowledgeBases, downloadGeneratedArtifactExport } from '../api/marketplace.js'
 import { createUnifiedComposer } from '../components/unified-composer.js'
 import { streamTasks } from '../api/tasks.js'
+import { getAiAssistantCapabilities, getAiConversationPendingAction, actOnAiPendingAction } from '../api/ai-assistant.js'
+import { createSearchControls, DEFAULT_SEARCH_OPTIONS } from '../components/ai-assistant/search-controls.js'
+import { renderCitedMarkdown, bindCitationClicks } from '../components/ai-assistant/citation-renderer.js'
+import { renderSourceCards, focusSource } from '../components/ai-assistant/source-panel.js'
+import { createExecutionTrace } from '../components/ai-assistant/execution-trace.js'
+import { renderArtifacts, bindArtifactActions } from '../components/ai-assistant/artifact-renderer.js'
+import { renderPendingActionCard, bindPendingActionCard } from '../components/ai-assistant/pending-action-card.js'
 
 const MAX_INPUT_LENGTH = 2000
 const MAX_IMAGE_COUNT = 4
@@ -369,10 +376,28 @@ function buildMessageContexts(message) {
   return `<div class="ai-message-contexts">${knowledge.map(item => `<span>@ ${escapeHtml(item.name || `知识库 ${item.knowledgeBaseId}`)}</span>`).join('')}${agents.map(item => `<span>\\ ${escapeHtml(item.name || `智能体 ${item.agentId}`)}</span>`).join('')}</div>`
 }
 
+function numberMessageSources(sources = []) {
+  const used = new Set(sources.map(source => Number(source.index ?? source.metadata?.sourceIndex)).filter(Number.isInteger))
+  let next = 1
+  return sources.map(source => {
+    const explicit = Number(source.index ?? source.metadata?.sourceIndex)
+    if (Number.isInteger(explicit) && explicit > 0) return { ...source, index: explicit }
+    while (used.has(next)) next += 1
+    const index = next; used.add(index); next += 1
+    return { ...source, index }
+  })
+}
+
 function buildMessageSources(message) {
   const sources = Array.isArray(message.sources) ? message.sources : []
   if (!sources.length) return ''
-  return `<details class="ai-message-sources"><summary>查看 ${sources.length} 条真实资料来源</summary>${sources.map(source => `<article><header><strong>${escapeHtml(source.documentTitle || source.documentName || '未命名文档')}</strong><span>${escapeHtml(source.knowledgeBaseName || '')}</span></header><p>${escapeHtml(source.snippet || source.content || '')}</p><footer>${Number.isFinite(Number(source.score)) ? `相关度 ${Math.round(Number(source.score) * 100)}%` : ''}${source.documentId ? ` · 文档 ID ${escapeHtml(source.documentId)}` : ''}${source.externalUrl ? ` · <a href="${escapeHtml(source.externalUrl)}" target="_blank" rel="noopener noreferrer">外部链接</a>` : ''}</footer></article>`).join('')}</details>`
+  const normalized = numberMessageSources(sources).map(source => ({
+    ...source,
+    title: source.title || source.documentTitle || source.documentName,
+    url: source.url || source.externalUrl,
+    siteName: source.siteName || source.knowledgeBaseName || source.metadata?.knowledgeBaseName,
+  }))
+  return `<details class="ai-message-sources"><summary>查看 ${sources.length} 条真实资料来源</summary><div class="ai-message-source-cards">${renderSourceCards(normalized)}</div></details>`
 }
 
 function buildAgentInvocations(message) {
@@ -396,24 +421,26 @@ function buildMessages(state) {
     return `<div class="complex-empty"><h3>当前会话暂无消息</h3><p>发送第一条学习问题后，会话标题会自动生成。</p></div>`
   }
 
-  return state.messages.map(message => {
+  return state.messages.map((message, messageIndex) => {
     const role = String(message.role || '').toLowerCase()
     const isUser = role === 'user'
     const isStreaming = Boolean(message.streaming)
     const content = String(message.content || '')
     const attachments = Array.isArray(message.attachments) ? message.attachments : []
-    return `<div class="message-row ${isUser ? 'user' : 'assistant'}${isStreaming ? ' streaming' : ''}" data-message-id="${escapeHtml(message.id || message.message_id || '')}">
+    const citedSources = numberMessageSources(message.sources || [])
+    return `<div class="message-row ${isUser ? 'user' : 'assistant'}${isStreaming ? ' streaming' : ''}" data-message-id="${escapeHtml(message.id || message.message_id || '')}" data-message-index="${messageIndex}">
       <div class="message-bubble ai-message-bubble">
         ${!isUser ? `<div class="message-meta"><span>千问 3.7 Plus</span>${content && !isStreaming ? `<span class="ai-message-tools"><button type="button" data-copy-message="${escapeHtml(message.id || message.message_id || '')}">复制</button><button type="button" data-speak-message="${escapeHtml(message.id || message.message_id || '')}">朗读</button></span>` : ''}</div>` : ''}
         ${buildMessageContexts(message)}
         ${attachments.length ? `<div class="ai-message-images">${attachments.map(attachment => attachment.mimeType?.startsWith('image/') ? `<button type="button" class="ai-message-image" data-open-image="${escapeHtml(attachment.displayUrl || attachment.dataUrl || attachment.url || '')}" title="查看 ${escapeHtml(attachment.name || '图片')}"><img src="${escapeHtml(attachment.displayUrl || attachment.dataUrl || attachment.url || '')}" alt="${escapeHtml(attachment.name || '对话图片')}"></button>` : `<button type="button" class="ai-message-file" data-open-image="${escapeHtml(attachment.displayUrl || attachment.url || '')}" title="打开附件">文件 · ${escapeHtml(attachment.name || '附件')}</button>`).join('')}</div>` : ''}
-        <div class="message-markdown">${content ? renderMarkdownToHtml(content) : (isStreaming
+        <div class="message-markdown">${content ? (isUser ? renderMarkdownToHtml(content) : renderCitedMarkdown(content, citedSources)) : (isStreaming
           ? (state.mode === 'subject' && state.currentRun
               ? '<p class="thinking-text">回答将随任务进度生成</p>'
               : createAiLoadingIndicator(state.loadingStageText || '正在理解问题'))
           : '<p></p>')}</div>
         ${buildAgentInvocations(message)}
         ${buildMessageSources(message)}
+        ${!isUser ? `<div class="student-ai-message-extras"><div data-student-ai-trace="${messageIndex}"></div>${renderArtifacts(message.artifacts || [])}${renderPendingActionCard(message.pendingAction || (messageIndex === state.messages.findLastIndex(item => String(item.role || '').toLowerCase() !== 'user') ? state.pendingAction : null))}</div>` : ''}
       </div>
     </div>`
   }).join('')
@@ -455,30 +482,44 @@ function loadingTextFromRunEvent(eventName, detail = {}, run = null) {
 }
 
 const RUN_STATUS_LABELS = {
-  pending: '等待执行', running: '执行中', success: '已完成', failed: '失败', cancelled: '已取消',
+  queued: '等待执行', planning: '正在规划', running: '执行中', waiting_tool: '等待工具', waiting_agent: '等待 Agent',
+  generating: '生成回答', finalizing: '整理结果', completed: '已完成', failed: '失败', cancelled: '已取消', stalled: '等待超时',
 }
 const TASK_STATUS_LABELS = {
-  pending: '待办', running: '执行中', success: '成功', failed: '失败', skipped: '已跳过', cancelled: '已取消',
+  pending: '待办', running: '执行中', completed: '完成', failed: '失败', skipped: '已跳过', cancelled: '已取消', retrying: '重试中',
+}
+
+const ACTIVE_RUN_STATUSES = new Set(['queued', 'planning', 'running', 'waiting_tool', 'waiting_agent', 'generating', 'finalizing'])
+const TERMINAL_RUN_EVENTS = new Set(['run_completed', 'run_failed', 'run_cancelled', 'run_stalled'])
+
+function normalizeRunStatus(status) {
+  const value = String(status || 'queued').toLowerCase()
+  return ({ pending: 'queued', success: 'completed' })[value] || value
+}
+
+function normalizeTaskStatus(status) {
+  const value = String(status || 'pending').toLowerCase()
+  return value === 'success' ? 'completed' : value
 }
 
 function runStatusIcon(status) {
-  if (status === 'success') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>'
-  if (status === 'failed') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>'
-  if (status === 'running') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>'
+  if (status === 'completed') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>'
+  if (status === 'failed' || status === 'stalled') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>'
+  if (ACTIVE_RUN_STATUSES.has(status) || status === 'running' || status === 'retrying') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v6h-6"/></svg>'
   if (status === 'cancelled' || status === 'skipped') return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/><circle cx="12" cy="12" r="9"/></svg>'
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
 }
 
-function formatRunDuration(run) {
+function formatRunDuration(run, serverTimeOffsetMs = 0) {
   if (!run?.startedAt) return '0 秒'
-  const end = run.completedAt ? new Date(run.completedAt).getTime() : Date.now()
+  const end = run.completedAt ? new Date(run.completedAt).getTime() : Date.now() - serverTimeOffsetMs
   const seconds = Math.max(0, Math.floor((end - new Date(run.startedAt).getTime()) / 1000))
   if (seconds < 60) return `${seconds} 秒`
   return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
 }
 
 function sourceTypeLabel(type) {
-  return ({ COURSE_KNOWLEDGE: '课程知识库', STUDENT_PROFILE: '学生画像', WRONG_QUESTION: '历史错题', EXTERNAL_WEB: '外部网页' })[type] || '学习资料'
+  return ({ COURSE_KNOWLEDGE: '课程知识库', STUDENT_PROFILE: '学生画像', WRONG_QUESTION: '历史错题', EXTERNAL_WEB: '外部网页', WEB_SEARCH: '联网网页' })[type] || '学习资料'
 }
 
 function buildRunWorkbench(state) {
@@ -488,7 +529,7 @@ function buildRunWorkbench(state) {
       return `<section class="subject-run-panel" id="subject-run-host" data-run-status="running">
         <div class="subject-run-statusbar">
           <div class="subject-run-status-main">${createAiLoadingIndicator(state.loadingStageText || '正在理解问题')}</div>
-          <div class="subject-run-metrics"><span><b>0/9</b></span><span><b>0%</b></span></div>
+          <div class="subject-run-metrics"><span><b>动态规划中</b></span></div>
         </div>
         <div class="subject-run-progress"><i style="width:0%"></i></div>
       </section>`
@@ -499,19 +540,26 @@ function buildRunWorkbench(state) {
     </section>`
   }
   const tasks = state.runTasks || []
+  const visibleTasks = tasks.filter(task => normalizeTaskStatus(task.status) !== 'skipped')
+  const skippedTasks = tasks.filter(task => normalizeTaskStatus(task.status) === 'skipped')
   const sources = state.runSources || []
-  const status = String(run.status || 'pending').toLowerCase()
-  const progress = Math.max(0, Math.min(100, Number(run.progress) || 0))
-  const total = Number(run.totalTaskCount) || tasks.length
-  const completed = Number(run.completedTaskCount) || tasks.filter(task => task.status === 'success').length
-  const isActive = status === 'pending' || status === 'running'
-  const stageText = state.loadingStageText || loadingTextFromStage(run.currentTask, status === 'pending' ? '正在理解问题' : '正在执行任务')
-  const statusText = status === 'success'
+  const validationEvent = [...(state.runEvents || [])].reverse().find(event => event.eventType === 'tool.validation_failed' || event.payload?.protocol?.type === 'tool.validation_failed')
+  const validationPayload = validationEvent?.payload?.protocol?.payload || validationEvent?.payload || null
+  const validationDetails = validationPayload?.details || null
+  const status = normalizeRunStatus(run.status)
+  const total = visibleTasks.length || Number(run.totalTaskCount) || tasks.length
+  const completed = visibleTasks.filter(task => normalizeTaskStatus(task.status) === 'completed').length
+  const progress = skippedTasks.length && total ? Math.round((completed / total) * 100) : Math.max(0, Math.min(100, Number(run.progress) || 0))
+  const isActive = ACTIVE_RUN_STATUSES.has(status)
+  const stageText = state.loadingStageText || loadingTextFromStage(run.currentTask, status === 'queued' ? '正在理解问题' : '正在执行任务')
+  const statusText = status === 'completed'
     ? '已完成全部步骤'
     : status === 'failed'
       ? (run.errorMessage || '任务执行失败')
       : status === 'cancelled'
         ? '任务已取消'
+        : status === 'stalled'
+          ? (run.errorMessage || '任务等待超时，可重试')
         : stageText
   return `<section class="subject-run-panel" id="subject-run-host" data-run-status="${escapeHtml(status)}">
     <div class="subject-run-statusbar">
@@ -523,17 +571,17 @@ function buildRunWorkbench(state) {
       <div class="subject-run-metrics">
         <span><b>${completed}/${total}</b></span>
         <span><b>${progress}%</b></span>
-        <span>${formatRunDuration(run)}</span>
+        <span>${formatRunDuration(run, state.serverTimeOffsetMs)}</span>
       </div>
     </div>
     <div class="subject-run-progress"><i style="width:${progress}%"></i></div>
     <details class="subject-run-details" ${state.runDetailsOpen || status === 'failed' ? 'open' : ''}>
-      <summary><span>执行过程</span><small>${tasks.length} 个步骤</small>${iconSvg('chevron', 'subject-run-chevron')}</summary>
+      <summary><span>执行过程</span><small>${visibleTasks.length} 个实际步骤</small>${iconSvg('chevron', 'subject-run-chevron')}</summary>
       <div class="subject-run-timeline">
-        ${tasks.map(task => {
-          const taskStatus = String(task.status || 'pending').toLowerCase()
+        ${visibleTasks.map(task => {
+          const taskStatus = normalizeTaskStatus(task.status)
           const started = task.startedAt ? new Date(task.startedAt).getTime() : 0
-          const ended = task.completedAt ? new Date(task.completedAt).getTime() : (taskStatus === 'running' ? Date.now() : 0)
+          const ended = task.completedAt ? new Date(task.completedAt).getTime() : (taskStatus === 'running' || taskStatus === 'retrying' ? Date.now() - state.serverTimeOffsetMs : 0)
           const duration = started && ended ? `${Math.max(0, Math.round((ended - started) / 1000))} 秒` : ''
           return `<article class="subject-run-task task-${escapeHtml(taskStatus)}">
             <span class="subject-run-task-icon">${runStatusIcon(taskStatus)}</span>
@@ -546,6 +594,8 @@ function buildRunWorkbench(state) {
           </article>`
         }).join('')}
       </div>
+      ${validationDetails ? `<details class="subject-run-technical"><summary>工具错误技术详情</summary><dl><div><dt>工具</dt><dd>${escapeHtml(validationDetails.toolName || validationPayload?.toolName || '未知')}</dd></div><div><dt>字段</dt><dd>${escapeHtml(validationDetails.argumentPath || '$')}</dd></div><div><dt>期望</dt><dd>${escapeHtml(validationDetails.expectedType || '合法参数')}</dd></div><div><dt>实际</dt><dd>${escapeHtml(`${validationDetails.receivedType || 'unknown'} · ${validationDetails.receivedValueSummary || ''}`)}</dd></div>${validationDetails.requestId ? `<div><dt>requestId</dt><dd>${escapeHtml(validationDetails.requestId)}</dd></div>` : ''}</dl>${validationPayload?.fallback === 'table_and_text' ? '<button type="button" class="subject-run-retry" data-regenerate-chart>重新生成图表</button>' : ''}</details>` : ''}
+      ${skippedTasks.length ? `<details class="subject-run-technical"><summary>技术详情：${skippedTasks.length} 个未执行步骤</summary><ul>${skippedTasks.map(task => `<li>${escapeHtml(task.title)}：${escapeHtml(task.errorMessage || '前序步骤未完成')}</li>`).join('')}</ul></details>` : ''}
     </details>
     ${sources.length ? `<details class="subject-run-sources" ${state.runSourcesOpen ? 'open' : ''}>
       <summary class="subject-run-section-title"><strong>参考来源</strong><span>${sources.length} 项</span>${iconSvg('chevron', 'subject-run-chevron')}</summary>
@@ -620,6 +670,7 @@ function buildShell(state) {
 
           <div class="chat-input-area ai-chat-input-area">
             ${buildStarterQuestionRow(state)}
+            <div id="student-ai-search-controls" class="student-ai-search-host"></div>
             <div id="subject-unified-composer"></div>
             <p class="ai-input-disclaimer">AI 内容可能存在偏差，请结合课程资料核对。</p>
           </div>
@@ -651,10 +702,11 @@ export async function renderStudentAiChat(app) {
   let mentionKnowledgeBases = []
   let callableAgents = []
   let courses = []
-  const [knowledgeResult, callableResult, coursesResult] = await Promise.allSettled([listAccessibleKnowledgeBases(), listCallableAgents(), getStudentCourses()])
+  const [knowledgeResult, callableResult, coursesResult, capabilitiesResult] = await Promise.allSettled([listAccessibleKnowledgeBases(), listCallableAgents(), getStudentCourses(), getAiAssistantCapabilities()])
   if (knowledgeResult.status === 'fulfilled') mentionKnowledgeBases = knowledgeResult.value.data?.list || []
   if (callableResult.status === 'fulfilled') callableAgents = callableResult.value.data?.list || []
   if (coursesResult.status === 'fulfilled') courses = coursesResult.value.data?.list || coursesResult.value.data?.courses || []
+  const capabilities = capabilitiesResult.status === 'fulfilled' ? capabilitiesResult.value.data : null
   const openGeneralDraftOnLoad = consumeGeneralAiOpenFlag()
 
   const state = {
@@ -688,6 +740,9 @@ export async function renderStudentAiChat(app) {
     abortController: null,
     runStreamController: null,
     runTimer: null,
+    serverTimeOffsetMs: 0,
+    lastRunSequence: 0,
+    terminalRunEventSeen: false,
     currentRun: null,
     runTasks: [],
     runEvents: [],
@@ -705,12 +760,16 @@ export async function renderStudentAiChat(app) {
     learningContext,
     courses,
     courseId: Number(learningContext.courseId) || null,
+    searchOptions: { ...DEFAULT_SEARCH_OPTIONS },
+    capabilities,
+    pendingAction: null,
   }
 
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: buildShell(state), user })
   document.getElementById('student-main')?.classList.add('student-main-ai-chat')
   let starterRequestSeq = 0
   let subjectComposer = null
+  let searchControls = null
 
   function syncModeFromConversation(conversation) {
     if (!conversation) return
@@ -876,6 +935,21 @@ export async function renderStudentAiChat(app) {
 
   function hydrateMessageContent(root = document) {
     bindMessageActions(root)
+    bindArtifactActions(root, error => showToast(error.message || '成果下载失败', 'error'))
+    bindPendingActionCard(root, { onAction: handlePendingAction, onError: error => showToast(error.message, 'warning') })
+    state.messages.forEach((message, index) => {
+      const row = root.querySelector?.(`[data-message-index="${index}"]`)
+      bindCitationClicks(row, citationIndex => {
+        const details = row?.querySelector('.ai-message-sources')
+        if (details) details.open = true
+        requestAnimationFrame(() => focusSource(row, citationIndex))
+      })
+      const traceRoot = row?.querySelector(`[data-student-ai-trace="${index}"]`)
+      if (traceRoot) {
+        const trace = createExecutionTrace(traceRoot)
+        ;(message.traceEvents || []).forEach(event => trace.push(event))
+      }
+    })
     renderMathInMarkdownElements(root)
   }
 
@@ -897,7 +971,7 @@ export async function renderStudentAiChat(app) {
         scrollHost.scrollTop = previousScrollTop
       }
     })
-    root.querySelectorAll?.('[data-ai-artifact-download]').forEach(button => {
+    host.querySelectorAll?.('[data-ai-artifact-download]').forEach(button => {
       button.addEventListener('click', async () => {
         button.disabled = true
         try { await downloadGeneratedArtifactExport(button.dataset.artifactId, button.dataset.aiArtifactDownload) }
@@ -912,11 +986,20 @@ export async function renderStudentAiChat(app) {
     state.runTimer = null
   }
 
+  function startRunTimer() {
+    stopRunTimer()
+    if (!ACTIVE_RUN_STATUSES.has(normalizeRunStatus(state.currentRun?.status))) return
+    state.runTimer = window.setInterval(() => refreshRunWorkbench(), 1000)
+  }
+
   function resetRunState({ abort = true } = {}) {
     if (abort) state.runStreamController?.abort()
     stopRunTimer()
     state.runStreamController = null
     state.currentRun = null
+    state.serverTimeOffsetMs = 0
+    state.lastRunSequence = 0
+    state.terminalRunEventSeen = false
     state.runTasks = []
     state.runEvents = []
     state.runSources = []
@@ -930,12 +1013,22 @@ export async function renderStudentAiChat(app) {
 
   function applyRun(run) {
     if (!run) { resetRunState(); return }
-    state.currentRun = { ...(state.currentRun || {}), ...run }
-    if (Array.isArray(run.tasks)) state.runTasks = run.tasks
-    if (Array.isArray(run.events)) state.runEvents = run.events
+    const changedRun = state.currentRun?.runId && run.runId && state.currentRun.runId !== run.runId
+    if (changedRun) {
+      state.lastRunSequence = 0
+      state.terminalRunEventSeen = false
+    }
+    state.currentRun = { ...(state.currentRun || {}), ...run, status: normalizeRunStatus(run.status || state.currentRun?.status) }
+    if (run.serverNow) state.serverTimeOffsetMs = Date.now() - new Date(run.serverNow).getTime()
+    if (Array.isArray(run.tasks)) state.runTasks = run.tasks.map(task => ({ ...task, status: normalizeTaskStatus(task.status) }))
+    if (Array.isArray(run.events)) {
+      state.runEvents = [...run.events].sort((left, right) => Number(left.sequence) - Number(right.sequence))
+      state.lastRunSequence = Math.max(0, ...state.runEvents.map(item => Number(item.sequence) || 0))
+      state.terminalRunEventSeen = state.runEvents.some(item => TERMINAL_RUN_EVENTS.has(item.eventType))
+    }
     if (Array.isArray(run.sources)) state.runSources = run.sources
     state.runAssistantContent = run.finalAnswer || state.runAssistantContent || ''
-    if (['pending', 'running'].includes(String(run.status || '').toLowerCase())) {
+    if (ACTIVE_RUN_STATUSES.has(normalizeRunStatus(run.status))) {
       state.loadingStageText = loadingTextFromStage(run.currentTask, state.loadingStageText || '正在理解问题')
     }
   }
@@ -944,6 +1037,7 @@ export async function renderStudentAiChat(app) {
     document.querySelectorAll('[data-retry-run-task]').forEach(button => {
       button.addEventListener('click', () => retryRunTask(button.dataset.retryRunTask))
     })
+    document.querySelector('[data-regenerate-chart]')?.addEventListener('click', () => sendCurrentMessage({ regenerate: true }))
     const details = document.querySelector('.subject-run-details')
     details?.addEventListener('toggle', () => {
       state.runDetailsOpen = details.open
@@ -990,6 +1084,10 @@ export async function renderStudentAiChat(app) {
       role: 'assistant',
       content: state.runAssistantContent || '',
       streaming: true,
+      sources: [],
+      artifacts: [],
+      traceEvents: [],
+      confirmationRequired: false,
       created_at: new Date().toISOString(),
     }
     state.runAssistantLocalId = message.id
@@ -1005,16 +1103,69 @@ export async function renderStudentAiChat(app) {
     state.runTasks.sort((a, b) => Number(a.orderIndex) - Number(b.orderIndex))
   }
 
+  function runEventToTrace(event) {
+    if (event?.payload?.protocol?.type) return event.payload.protocol
+    const type = ({
+      task_started: 'step.started', task_progress: 'step.progress', task_completed: 'step.completed',
+      run_status_changed: 'run.phase', run_heartbeat: 'run.heartbeat', agent_heartbeat: 'agent.heartbeat',
+      agent_first_delta: 'agent.first_delta', source_found: 'knowledge.hits',
+      run_completed: 'run.completed', run_failed: 'run.failed', run_stalled: 'run.stalled', run_cancelled: 'run.cancelled',
+    })[event?.eventType]
+    if (!type) return null
+    return {
+      type,
+      runId: event.runId,
+      sequence: event.sequence,
+      timestamp: event.timestamp || event.createdAt,
+      payload: { ...(event.payload || {}), title: event.title || event.payload?.task?.title || '' },
+    }
+  }
+
   function handleRunEvent(eventName, event) {
     if (!event || event.runId !== state.currentRun?.runId) return
-    if (state.runEvents.some(item => Number(item.sequence) === Number(event.sequence))) return
+    const sequence = Number(event.sequence) || 0
+    if (sequence && sequence <= state.lastRunSequence) return
+    if (sequence) state.lastRunSequence = sequence
     state.runEvents.push(event)
     state.runEvents.sort((a, b) => Number(a.sequence) - Number(b.sequence))
     const detail = event.payload || {}
+    if (eventName.includes('.') && detail.protocol?.type) {
+      const protocol = detail.protocol
+      const assistant = ensureRunAssistantMessage()
+      assistant.traceEvents = [...(assistant.traceEvents || []), protocol]
+      if (eventName === 'search.sources') {
+        const early = (protocol.payload?.sources || []).map(source => ({
+          ...source,
+          sourceType: 'WEB_SEARCH',
+          metadata: { sourceIndex: source.index, siteName: source.siteName, searchStrategy: source.searchStrategy },
+        }))
+        assistant.sources = [...early, ...(assistant.sources || []).filter(source => String(source.sourceType).toUpperCase() !== 'WEB_SEARCH')]
+      }
+      if (eventName === 'artifact.completed' && protocol.payload?.id) {
+        assistant.artifacts = [...(assistant.artifacts || []).filter(item => item.id !== protocol.payload.id), protocol.payload]
+      }
+      if (eventName === 'run.completed') {
+        assistant.artifacts = protocol.payload?.artifacts || assistant.artifacts || []
+        assistant.confirmationRequired = protocol.payload?.confirmationRequired === true
+        if (protocol.payload?.pendingAction) {
+          state.pendingAction = protocol.payload.pendingAction
+          assistant.pendingAction = protocol.payload.pendingAction
+        }
+      }
+      refreshMessages()
+    }
+    if (!eventName.includes('.')) {
+      const traceEvent = runEventToTrace(event)
+      if (traceEvent) {
+        const assistant = ensureRunAssistantMessage()
+        assistant.traceEvents = [...(assistant.traceEvents || []), traceEvent]
+        refreshMessages()
+      }
+    }
     if (['task_started', 'task_progress', 'tool_started', 'source_found', 'answer_delta'].includes(eventName)) {
       state.loadingStageText = loadingTextFromRunEvent(eventName, detail, state.currentRun)
     }
-    if (detail.run) state.currentRun = { ...state.currentRun, ...detail.run }
+    if (detail.run) applyRun(detail.run)
     if (detail.task) upsertRunTask(detail.task)
     if (detail.source && !state.runSources.some(item => item.sourceId === detail.source.sourceId)) state.runSources.push(detail.source)
     if (eventName === 'answer_delta' && detail.content) {
@@ -1032,9 +1183,11 @@ export async function renderStudentAiChat(app) {
       replaceLocalMessage(state.runAssistantLocalId, detail.assistantMessage)
       state.runAssistantLocalId = null
     }
-    if (['run_completed', 'run_failed', 'run_cancelled'].includes(eventName)) {
+    if (TERMINAL_RUN_EVENTS.has(eventName) && !state.terminalRunEventSeen) {
+      state.terminalRunEventSeen = true
       state.generating = false
       state.loadingStageText = ''
+      stopRunTimer()
       const assistant = state.messages.find(item => item.id === state.runAssistantLocalId)
       if (assistant) assistant.streaming = false
     }
@@ -1043,16 +1196,16 @@ export async function renderStudentAiChat(app) {
 
   async function connectRunStream() {
     const runId = state.currentRun?.runId
-    if (!runId || !['pending', 'running'].includes(state.currentRun.status)) return
+    if (!runId || !ACTIVE_RUN_STATUSES.has(normalizeRunStatus(state.currentRun.status))) return
     state.runStreamController?.abort()
     state.runStreamController = new AbortController()
     state.generating = true
     ensureRunAssistantMessage()
-    stopRunTimer()
+    startRunTimer()
     let attempts = 0
     try {
-      while (attempts < 3 && ['pending', 'running'].includes(state.currentRun?.status)) {
-        const after = Math.max(0, ...state.runEvents.map(item => Number(item.sequence) || 0))
+      while (attempts < 3 && ACTIVE_RUN_STATUSES.has(normalizeRunStatus(state.currentRun?.status))) {
+        const after = state.lastRunSequence
         try {
           await streamSubjectChatRun(runId, {
             after,
@@ -1066,7 +1219,7 @@ export async function renderStudentAiChat(app) {
         }
         const latest = await getSubjectChatRun(runId)
         applyRun(latest.data)
-        if (['pending', 'running'].includes(state.currentRun?.status)) {
+        if (ACTIVE_RUN_STATUSES.has(normalizeRunStatus(state.currentRun?.status))) {
           attempts += 1
           await new Promise(resolve => window.setTimeout(resolve, Math.min(1500, 400 * attempts)))
         }
@@ -1077,10 +1230,20 @@ export async function renderStudentAiChat(app) {
       state.messages = await hydrateMessages(messages.data?.messages || state.messages)
       state.currentConversation = normalizeConversation(messages.data?.conversation || state.currentConversation)
     } catch (error) {
-      if (error.name !== 'AbortError') showToast(error.message || '运行事件连接中断，可刷新页面恢复', 'warning')
+      if (error.name !== 'AbortError') {
+        try {
+          const latest = await getSubjectChatRun(runId)
+          applyRun(latest.data)
+        } catch {
+          // Keep the last valid snapshot; the user can still return through the task center.
+        }
+        showToast(error.message || '运行事件连接中断，已用最新快照补偿', 'warning')
+      }
     } finally {
-      stopRunTimer()
-      if (state.currentRun && !['pending', 'running'].includes(state.currentRun.status)) state.generating = false
+      if (!ACTIVE_RUN_STATUSES.has(normalizeRunStatus(state.currentRun?.status))) {
+        stopRunTimer()
+        state.generating = false
+      }
       state.runStreamController = null
       rerender()
     }
@@ -1093,13 +1256,15 @@ export async function renderStudentAiChat(app) {
       const response = await getLatestSubjectChatRun(state.currentId)
       if (!response.data) return false
       applyRun(response.data)
-      if (['pending', 'running'].includes(state.currentRun.status)) {
+      if (ACTIVE_RUN_STATUSES.has(normalizeRunStatus(state.currentRun.status))) {
         state.generating = true
+        startRunTimer()
         state.runAssistantContent = state.currentRun.finalAnswer || state.runEvents
           .filter(event => event.eventType === 'answer_delta')
           .map(event => event.payload?.content || '')
           .join('')
-        ensureRunAssistantMessage()
+        const assistant = ensureRunAssistantMessage()
+        assistant.traceEvents = state.runEvents.map(runEventToTrace).filter(Boolean)
         return true
       }
     } catch (error) {
@@ -1262,6 +1427,8 @@ export async function renderStudentAiChat(app) {
     applyStarterContext()
     subjectComposer?.destroy()
     subjectComposer = null
+    searchControls?.destroy()
+    searchControls = null
     main.innerHTML = buildShell(state)
     bindEvents()
     hydrateMessageContent(main)
@@ -1310,6 +1477,7 @@ export async function renderStudentAiChat(app) {
     state.loadingMessages = true
     state.messageError = ''
     state.messages = []
+    state.pendingAction = null
     if (rerenderBefore) rerender()
 
     let shouldReconnectRun = false
@@ -1318,6 +1486,7 @@ export async function renderStudentAiChat(app) {
       state.currentConversation = normalizeConversation(res.data?.conversation || state.currentConversation)
       syncModeFromConversation(state.currentConversation)
       state.messages = await hydrateMessages(res.data?.messages || [])
+      await refreshPendingAction()
       shouldReconnectRun = await restoreLatestRun()
     } catch (err) {
       state.messageError = err.message || '消息加载失败'
@@ -1445,6 +1614,45 @@ export async function renderStudentAiChat(app) {
     } catch {
       // 会话列表刷新失败不影响当前流式回答展示
     }
+    await refreshPendingAction()
+  }
+
+  function attachPendingAction(pendingAction) {
+    state.pendingAction = pendingAction || null
+    for (const message of state.messages) delete message.pendingAction
+    const lastAssistant = state.messages.findLast?.(item => String(item.role || '').toLowerCase() !== 'user')
+      || [...state.messages].reverse().find(item => String(item.role || '').toLowerCase() !== 'user')
+    if (lastAssistant && pendingAction) lastAssistant.pendingAction = pendingAction
+  }
+
+  async function refreshPendingAction() {
+    if (!state.currentId) { attachPendingAction(null); return null }
+    try {
+      const response = await getAiConversationPendingAction(state.currentId)
+      attachPendingAction(response.data || null)
+      return state.pendingAction
+    } catch (error) {
+      if (![40301, 40401].includes(Number(error.code))) console.warn('[student-ai-chat] pending action refresh failed:', error.message)
+      return null
+    }
+  }
+
+  async function handlePendingAction(pendingActionId, action, patch, control) {
+    if (control) control.disabled = true
+    try {
+      const response = await actOnAiPendingAction(pendingActionId, action, patch)
+      const result = response.data || {}
+      if (action === 'preview') return result
+      attachPendingAction(result.pendingAction || state.pendingAction)
+      if (action === 'generate') showToast('文件任务已开始，可在任务与消息中查看实时进度', 'success')
+      else if (action === 'modify') showToast('生成需求已更新', 'success')
+      else if (action === 'cancel') showToast('本次文件生成已取消', 'success')
+      refreshMessages()
+      return result
+    } catch (error) {
+      showToast(error.message || '确认操作失败，请稍后重试', 'error')
+      return null
+    } finally { if (control) control.disabled = false }
   }
 
   function replaceLocalMessage(localId, serverMessage) {
@@ -1454,10 +1662,10 @@ export async function renderStudentAiChat(app) {
     }
   }
 
-  async function sendCurrentMessage({ regenerate = false } = {}) {
+  async function sendCurrentMessage({ regenerate = false, confirmed = false, content: confirmedContent = '' } = {}) {
     if (state.generating) return
 
-    const text = String(state.inputDraft || '').trim()
+    const text = String(confirmedContent || state.inputDraft || '').trim()
     const images = regenerate ? [] : [...state.pendingImages]
     const knowledgeBaseRefs = regenerate ? [] : [...state.knowledgeBaseRefs]
     const agentRefs = regenerate ? [] : [...state.agentRefs]
@@ -1507,6 +1715,11 @@ export async function renderStudentAiChat(app) {
       role: 'assistant',
       content: '',
       streaming: true,
+      sources: [],
+      artifacts: [],
+      traceEvents: [],
+      confirmationRequired: false,
+      requestContent: text,
       created_at: new Date().toISOString(),
     }
     resetRunState()
@@ -1520,7 +1733,15 @@ export async function renderStudentAiChat(app) {
     try {
       if (['general', 'subject', 'agent'].includes(state.mode)) {
         const selectedCourse = state.courses.find(item => Number(item.course_id || item.id) === Number(state.courseId))
-        const contextPayload = { assistantMode: state.mode, courseId: state.courseId, learningContext: state.learningContext, subjectCode: selectedCourse?.course_code || selectedCourse?.code || state.subject }
+        const contextPayload = {
+          assistantMode: state.mode,
+          courseId: state.courseId,
+          learningContext: state.learningContext,
+          subjectCode: selectedCourse?.course_code || selectedCourse?.code || state.subject,
+          searchOptions: searchControls?.getOptions() || state.searchOptions,
+          autoAgent: true,
+          confirmed,
+        }
         const created = await createSubjectChatRun(conversationId, regenerate ? { regenerate: true, ...contextPayload } : {
           content: text,
           attachments: images.map(item => item.id),
@@ -1656,6 +1877,7 @@ export async function renderStudentAiChat(app) {
         state.currentId = null
         state.currentConversation = null
         state.messages = []
+        state.pendingAction = null
       }
       showToast('会话已删除', 'success')
       rerender()
@@ -1733,6 +1955,16 @@ export async function renderStudentAiChat(app) {
     document.getElementById('ai-history-mode')?.addEventListener('change', event => { state.historyMode = event.target.value; refreshConversationList() })
     document.getElementById('ai-history-subject')?.addEventListener('change', event => { state.historySubject = event.target.value; refreshConversationList() })
     document.getElementById('ai-history-date')?.addEventListener('change', event => { state.historyDate = event.target.value; refreshConversationList() })
+
+    const searchRoot = document.getElementById('student-ai-search-controls')
+    if (searchRoot) {
+      searchControls = createSearchControls(searchRoot, {
+        value: state.searchOptions,
+        capabilities: state.capabilities,
+        onChange: value => { state.searchOptions = value },
+      })
+      searchControls.setBusy(state.generating)
+    }
 
     const subjectComposerRoot = document.getElementById('subject-unified-composer')
     if (subjectComposerRoot) {
@@ -1862,7 +2094,10 @@ export async function renderStudentAiChat(app) {
   void streamTasks({
     signal: artifactTaskController.signal,
     onTasks: async payload => {
-      const relevantIds = new Set(state.messages.flatMap(message => (message.agentInvocations || []).flatMap(invocation => invocation.taskIds || [])).map(Number))
+      const relevantIds = new Set([
+        ...state.messages.flatMap(message => (message.agentInvocations || []).flatMap(invocation => invocation.taskIds || [])).map(Number),
+        Number(state.pendingAction?.taskId || state.pendingAction?.id),
+      ].filter(Number.isInteger))
       if (!relevantIds.size || !state.currentId) return
       const relevant = (payload.list || []).filter(task => relevantIds.has(Number(task.id)))
       const signature = relevant.map(task => `${task.id}:${task.status}:${task.progress}:${task.updatedAt || ''}`).join('|')
@@ -1872,6 +2107,7 @@ export async function renderStudentAiChat(app) {
       try {
         const messages = await getAiChatMessages(state.currentId)
         state.messages = await hydrateMessages(messages.data?.messages || state.messages)
+        await refreshPendingAction()
         refreshMessages()
       } finally { refreshingArtifacts = false }
     },

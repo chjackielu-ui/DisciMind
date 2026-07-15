@@ -76,6 +76,37 @@ async function listAccessibleKnowledgeBases(userId, query = {}) {
     }));
 }
 
+function mentionedKnowledgeTerms(query) {
+  const stopWords = /^(?:结合|使用|引用|检索|查询|搜索|根据|基于|通过|从|请用|请结合|帮我用|利用)$/;
+  const terms = [];
+  for (const match of String(query || '').matchAll(/([\p{Script=Han}A-Za-z0-9_-]{2,32})知识库/gu)) {
+    const value = String(match[1] || '').replace(/^(?:请|帮我|结合|使用|引用|检索|查询|搜索|根据|基于|通过|从|利用)+/u, '').trim();
+    if (value && !stopWords.test(value) && !terms.includes(value)) terms.push(value);
+  }
+  return terms;
+}
+
+async function inferKnowledgeBaseRefs(userId, query, options = {}) {
+  const terms = mentionedKnowledgeTerms(query);
+  if (!terms.length) return [];
+  const accessible = (await listAccessibleKnowledgeBases(userId)).filter(item => item.available && Number(item.documentCount || 0) > 0);
+  if (!accessible.length) return [];
+  const courseId = Number(options.courseId || options.course_id) || null;
+  const scored = accessible.map((item) => {
+    const name = String(item.name || '').toLowerCase();
+    let score = 0;
+    for (const term of terms) {
+      const needle = term.toLowerCase();
+      if (name === needle || name === `${needle}知识库`) score = Math.max(score, 200);
+      else if (name.includes(needle)) score = Math.max(score, 120);
+    }
+    if (courseId && Number(item.courseId) === courseId) score += 20;
+    return { item, score };
+  }).filter(entry => entry.score >= 80).sort((a, b) => b.score - a.score || Number(b.item.documentCount) - Number(a.item.documentCount));
+  if (!scored.length || (scored[1] && scored[1].score === scored[0].score)) return [];
+  return resolveKnowledgeBaseRefs(userId, [scored[0].item.id]);
+}
+
 async function loadAgentCallContext(userId, options = {}) {
   const assistantMode = String(options.assistantMode || options.mode || 'general').toLowerCase() === 'subject' ? 'subject' : 'general';
   const scope = await loadUserScope(userId);
@@ -195,6 +226,8 @@ module.exports = {
   isKnowledgeBaseAvailable,
   resolveKnowledgeBaseRefs,
   listAccessibleKnowledgeBases,
+  mentionedKnowledgeTerms,
+  inferKnowledgeBaseRefs,
   loadAgentCallContext,
   canCallAgentInContext,
   resolveAgentRefs,

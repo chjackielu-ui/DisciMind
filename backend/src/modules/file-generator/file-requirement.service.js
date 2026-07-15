@@ -134,8 +134,28 @@ async function resolveAndPersist(userId, conversation, patch, { explicit = false
     next.knowledgePointIds = points.map(point => point.knowledge_point_id);
     next.knowledgePointNames = points.map(point => point.knowledge_point_name);
   }
-  // Preserve compatibility with the original compact exam form. The upgraded
-  // form sends the full blueprint explicitly; older clients only sent a count.
+  // A compact confirmation editor may change only count or score. Keep that
+  // edit internally consistent by rebuilding a deterministic, bounded blueprint;
+  // the user never has to know or send database identifiers or hidden fields.
+  if (explicit && next.artifactType === 'EXAM_PAPER'
+    && normalized.questionTypes === undefined
+    && (normalized.questionCount !== undefined || normalized.totalScore !== undefined)
+    && next.questionTypes?.length) {
+    const targetCount = Number(next.questionCount);
+    const targetScore = Number(next.totalScore);
+    const retainedTypes = next.questionTypes.slice(0, Math.min(next.questionTypes.length, targetCount));
+    const priorTotal = retainedTypes.reduce((sum, item) => sum + Number(item.count || 0), 0) || retainedTypes.length;
+    let remaining = targetCount - retainedTypes.length;
+    const counts = retainedTypes.map((item, index) => {
+      if (index === retainedTypes.length - 1) return 1 + remaining;
+      const share = Math.min(remaining, Math.floor((Number(item.count || 1) / priorTotal) * (targetCount - retainedTypes.length)));
+      remaining -= share;
+      return 1 + share;
+    });
+    next.questionTypes = retainedTypes.map((item, index) => ({ ...item, count: counts[index], score: targetScore / targetCount }));
+  }
+  // Preserve compatibility with the original compact exam form when no
+  // blueprint exists yet.
   if (explicit && next.artifactType === 'EXAM_PAPER' && normalized.questionCount !== undefined && !next.questionTypes?.length) {
     const count = Number(next.questionCount);
     next.examType ??= 'CUSTOM';
@@ -221,21 +241,31 @@ async function prefillRequirements(userId, conversationId, input) {
 
 async function prefillFromOrchestration(userId, conversationId, input = {}) {
   const conversation = await loadConversation(userId, conversationId);
-  if (!input.courseId || !input.knowledgePointId) return getRequirements(userId, conversationId);
+  if (!input.courseId) return getRequirements(userId, conversationId);
   const candidates = await accessibleCandidates(userId);
   const courseEntry = [...candidates.courseMap.entries()].find(([, course]) => Number(course.course_id) === Number(input.courseId));
-  const pointEntry = [...candidates.knowledgeMap.entries()].find(([, point]) => Number(point.knowledge_point_id) === Number(input.knowledgePointId));
   assert(courseEntry, '当前课程不可用于文件生成', 40301, 403);
-  assert(pointEntry && Number(pointEntry[1].course_id) === Number(input.courseId), '当前知识点不属于所选课程', 40001, 400);
+  const requestedPointIds = [input.knowledgePointId, ...(input.knowledgePointIds || [])].map(Number).filter(Number.isInteger);
+  let pointEntries = [...candidates.knowledgeMap.entries()].filter(([, point]) => (
+    Number(point.course_id) === Number(input.courseId) && requestedPointIds.includes(Number(point.knowledge_point_id))
+  ));
+  if (!pointEntries.length) {
+    // Course-wide paper/handout requests are valid. The controlled file schema
+    // accepts up to ten knowledge points, so select the real course outline in
+    // stable order instead of inventing one point or asking for a database id.
+    pointEntries = [...candidates.knowledgeMap.entries()].filter(([, point]) => Number(point.course_id) === Number(input.courseId)).slice(0, 10);
+  }
+  assert(pointEntries.length, '当前课程没有可用知识点，无法生成受控教育文件', 40901, 409);
   const artifactType = input.artifactType === 'EXAM_PAPER' ? 'EXAM_PAPER' : 'STUDY_HANDOUT';
+  const courseWide = !requestedPointIds.length;
   const common = {
     artifactType,
     courseKey: courseEntry[0],
-    knowledgePointKeys: [pointEntry[0]],
+    knowledgePointKeys: pointEntries.map(([key]) => key),
     knowledgeBaseRefs: input.knowledgeBaseRefs || [],
-    title: `${pointEntry[1].knowledge_point_name}${artifactType === 'EXAM_PAPER' ? '练习试卷' : '学习讲义'}`,
+    title: input.title || `${courseWide ? courseEntry[1].course_name : pointEntries[0][1].knowledge_point_name}${artifactType === 'EXAM_PAPER' ? '练习试卷' : '学习讲义'}`,
     difficulty: 'INTERMEDIATE',
-    outputFormats: ['DOCX', 'PDF'],
+    outputFormats: Array.isArray(input.outputFormats) && input.outputFormats.length ? input.outputFormats : ['DOCX', 'PDF'],
     generationStyle: '结构清晰、内容可核对、适合当前学习阶段',
   };
   const defaults = artifactType === 'EXAM_PAPER' ? {
@@ -251,7 +281,7 @@ async function prefillFromOrchestration(userId, conversationId, input = {}) {
   const current = await prisma.marketplaceAgentConversation.findUnique({ where: { id: conversation.id }, select: { requirementDraftJson: true } });
   const draft = { ...(current?.requirementDraftJson || {}), orchestrationPrefill: {
     aiConversationId: Number(input.aiConversationId) || null,
-    courseId: Number(input.courseId), knowledgePointId: Number(input.knowledgePointId),
+    courseId: Number(input.courseId), knowledgePointId: Number(input.knowledgePointId) || null,
     attachmentIds: (input.attachments || []).map(item => item.id),
     attachmentSummaries: (input.attachments || []).filter(item => item.extractedText).map(item => ({ id: item.id, name: item.fileName, excerpt: String(item.extractedText).slice(0, 2000) })).slice(0, 3),
   } };
@@ -335,7 +365,7 @@ function serializeConfirmation(artifact, task) {
   };
 }
 
-async function confirmRequirements(userId, conversationId, operationId) {
+async function confirmRequirements(userId, conversationId, operationId, options = {}) {
   const conversation = await loadConversation(userId, conversationId);
   const existing = await prisma.generatedArtifact.findUnique({ where: { ownerUserId_conversationId_operationId: { ownerUserId: userId, conversationId: conversation.id, operationId } }, include: { task: true } });
   if (existing) return serializeConfirmation(existing, existing.task);
@@ -348,7 +378,15 @@ async function confirmRequirements(userId, conversationId, operationId) {
     assert(count === Number(draft.questionCount), '题型数量之和必须等于题目总数');
     assert(Math.abs(score - Number(draft.totalScore)) < 1e-6, '各题型总分之和必须等于总分');
   }
-  const activeCount = await prisma.asyncTask.count({ where: { userId, taskType: 'FILE_GENERATION', status: { in: ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'] } } });
+  const pendingTaskId = Number(options.pendingTaskId);
+  const pendingTask = Number.isInteger(pendingTaskId) ? await prisma.asyncTask.findFirst({
+    where: { id: pendingTaskId, userId, taskType: 'FILE_GENERATION', status: 'WAITING_EXTERNAL', requiresUserAction: true },
+  }) : null;
+  if (Number.isInteger(pendingTaskId)) assert(pendingTask, '确认请求已失效或无权操作', 40901, 409);
+  const activeCount = await prisma.asyncTask.count({ where: {
+    userId, taskType: 'FILE_GENERATION', status: { in: ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'] },
+    ...(pendingTask ? { id: { not: pendingTask.id } } : {}),
+  } });
   assert(activeCount < Number(process.env.FILE_GENERATION_MAX_ACTIVE_PER_USER || 2), '当前文件生成任务已达并发上限', 40902, 409);
   try {
     return await prisma.$transaction(async tx => {
@@ -359,14 +397,18 @@ async function confirmRequirements(userId, conversationId, operationId) {
         courseId: draft.courseId || null, knowledgePointIdsJson: draft.knowledgePointIds || [], requirementsJson: draft,
         fileFormat: draft.outputFormats[0], status: 'GENERATING',
       } });
-      const task = await tx.asyncTask.create({ data: {
-        userId, operationId: operationKey('FILE_GENERATION', operationId), taskType: 'FILE_GENERATION', title: artifact.title,
-        description: '生成结构化教育文件内容', status: 'QUEUED', stage: '正在分析需求', progressMode: 'DETERMINATE', progress: 0,
-        relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: String(artifact.id), resultType: 'ARTIFACT', resultId: String(artifact.id),
-        resultUrl: `#/student/artifacts/${artifact.id}`, cancellable: true, maxAttempts: 3,
-        metadataJson: { conversationId: conversation.id, artifactId: artifact.id }, requestPayloadJson: draft,
-        agentId: conversation.agentId, conversationId: conversation.id, nextRunAt: new Date(),
-      } });
+      const taskData = {
+        title: artifact.title, description: '生成结构化教育文件内容', status: 'QUEUED', stage: '正在分析需求',
+        progressMode: 'DETERMINATE', progress: 0, relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: String(artifact.id),
+        resultType: 'ARTIFACT', resultId: String(artifact.id), resultUrl: `#/student/artifacts/${artifact.id}`,
+        cancellable: true, requiresUserAction: false, maxAttempts: 3,
+        metadataJson: { ...(pendingTask?.metadataJson || {}), conversationId: conversation.id, artifactId: artifact.id, confirmedAt: new Date().toISOString() },
+        requestPayloadJson: draft, agentId: conversation.agentId, conversationId: conversation.id,
+        nextRunAt: new Date(), startedAt: null, completedAt: null, cancelledAt: null, errorCode: null, errorMessage: null,
+      };
+      const task = pendingTask
+        ? await tx.asyncTask.update({ where: { id: pendingTask.id }, data: taskData })
+        : await tx.asyncTask.create({ data: { userId, operationId: operationKey('FILE_GENERATION', operationId), taskType: 'FILE_GENERATION', ...taskData } });
       const linked = await tx.generatedArtifact.update({ where: { id: artifact.id }, data: { taskId: task.id } });
       await tx.marketplaceAgentConversation.update({ where: { id: conversation.id }, data: { requirementStatus: 'CONFIRMED' } });
       return serializeConfirmation(linked, task);

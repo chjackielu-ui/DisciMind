@@ -168,23 +168,38 @@ def test_unified_center(page: Page, acceptance: Acceptance, role: str, width: in
     acceptance.check(f"{role}.{width}.center.no_legacy", page.locator(duplicate_selectors).count() == 0, "legacy floating roots absent")
     acceptance.check(f"{role}.{width}.ai_role", (page.locator("#student-ai-float").count() == 1) == (role == "student"), f"student_ai_count={page.locator('#student-ai-float').count()}")
     trigger = page.locator("#unified-center-trigger")
+    if trigger.get_attribute("aria-label") == "展开任务与消息中心":
+        trigger.click()
     acceptance.check(f"{role}.{width}.center.aria", trigger.get_attribute("aria-label") == "打开任务与消息中心", trigger.get_attribute("aria-label"))
+    viewport_right = page.evaluate("document.documentElement.clientWidth")
 
     drag_trigger(page, 2, 2)
-    left = rect(page, "#unified-center-trigger")
-    acceptance.check(f"{role}.{width}.center.clamp_left_top", bool(left) and left["left"] >= 17 and left["top"] >= 17, left)
-    drag_trigger(page, width - 2, height - 2)
+    top = rect(page, "#unified-center-trigger")
+    acceptance.check(f"{role}.{width}.center.right_only_top", bool(top) and abs(top["right"] - viewport_right) <= 1 and top["top"] >= 17, top)
+    drag_trigger(page, 2, height - 2)
     bottom = rect(page, "#unified-center-trigger")
-    acceptance.check(f"{role}.{width}.center.clamp_right_bottom", bool(bottom) and bottom["right"] <= width - 17 and bottom["bottom"] <= height - 17, bottom)
+    acceptance.check(f"{role}.{width}.center.right_only_bottom", bool(bottom) and abs(bottom["right"] - viewport_right) <= 1 and bottom["bottom"] <= height - 17, bottom)
     stored = page.evaluate("role => localStorage.getItem(`discimind.workCenterPosition.${JSON.parse(sessionStorage.getItem('discimind_user')).user_id}.${role}`)", role)
-    acceptance.check(f"{role}.{width}.center.position_saved", bool(stored), stored)
+    acceptance.check(f"{role}.{width}.center.position_saved", bool(stored) and json.loads(stored).get("edge") == "right", stored)
+
+    page.locator("#unified-center-dock-toggle").click()
+    collapsed = page.evaluate("""() => {
+      const root=document.querySelector('#unified-work-center');
+      const trigger=document.querySelector('#unified-center-trigger');
+      const counts=document.querySelector('.unified-trigger-counts');
+      const icon=document.querySelector('.unified-trigger-icon');
+      const rect=trigger.getBoundingClientRect();
+      return {collapsed:root.classList.contains('is-collapsed'),label:trigger.getAttribute('aria-label'),right:rect.right,width:rect.width,counts:getComputedStyle(counts).display,icon:getComputedStyle(icon).display};
+    }""")
+    acceptance.check(f"{role}.{width}.center.collapsed_dual_counts", collapsed["collapsed"] and collapsed["label"] == "展开任务与消息中心" and abs(collapsed["right"] - viewport_right) <= 1 and collapsed["width"] <= 33 and collapsed["counts"] != "none" and collapsed["icon"] == "none", collapsed)
+    trigger.click()
 
     trigger.click()
     page.wait_for_timeout(100)
     panel = rect(page, "#unified-center-panel")
     acceptance.check(f"{role}.{width}.center.panel_in_view", bool(panel) and panel["left"] >= 0 and panel["right"] <= width + 1 and panel["top"] >= 0 and panel["bottom"] <= height + 1, panel)
     trigger.click()
-    drag_trigger(page, width - 30, 92)
+    drag_trigger(page, 2, 92)
 
     if expanded_ui:
         trigger.click()

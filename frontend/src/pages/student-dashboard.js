@@ -11,11 +11,15 @@ import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, recommendTypeLabel, isOverdue } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 import { getCourseCoverUrl } from '../utils/course-cover.js'
+import { learningCardApi } from '../api/learning-cards.js'
+import { createDailyLearningCardFan } from '../components/learning-card-platform.js'
 
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace(/\/api\/?$/, '')
 const ACTIVE_TASKS = new Set(['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'])
 const TASK_STATUS = { QUEUED: '等待开始', RUNNING: '生成中', WAITING_EXTERNAL: '等待外部服务', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已取消' }
 let homeTaskRefreshTimer = null
+let homeCardRefreshTimer = null
+let homeCardFan = null
 
 function responseData(response) { return response?.data ?? response ?? null }
 function responseList(response, fallback = []) {
@@ -118,6 +122,12 @@ function buildMetrics(overview = {}) {
   return `<section class="home-overview home-module"><div class="home-section-head"><div><h2>学习概览</h2><p>四项核心指标均来自当前学习记录。</p></div><span>未掌握错题 ${safeNumber(overview.wrong_question_count)} 道</span></div><div class="home-metric-grid">${metrics.map(item => `<article class="${item.tone}"><span>${item.label}</span><b data-home-count="${item.value}" data-home-suffix="${item.suffix}">${item.value}${item.suffix}</b><em>${item.hint}</em>${item.suffix === '%' ? `<i><u data-home-progress="${item.value}"></u></i>` : ''}</article>`).join('')}</div></section>`
 }
 
+function buildDailyLearningCards(model) {
+  const set = model.dailyCardSet
+  const status = ({ READY: '今日推荐已就绪', GENERATING: '先看快速卡，AI 正在补充', STALE: '学习状态已更新，后台刷新中', FAILED: '已使用规则卡片' })[set?.status] || '正在读取今日推荐'
+  return `<section class="home-module lc-home-section" id="daily-learning-cards"><div class="lc-section-head"><div><h2>今日智学卡</h2><p>根据近期学习记录，为你整理今日最值得关注的内容</p></div><div><span id="lc-home-status">${escapeHtml(status)}</span><button type="button" id="lc-home-refresh">换一组</button></div></div><div class="lc-fan-root" id="lc-home-fan">${set?.cards?.length ? '' : '<div class="lc-empty"><b>正在整理今日卡片</b><span>无需等待 AI，你可以继续浏览首页。</span></div>'}</div></section>`
+}
+
 function buildQuickEntries(model) {
   const entries = [
     ['courses', 'course', model.courses.length ? '进入最近课程' : '查看课程'], ['practice', 'practice', '智能练习'], ['ai-chat', 'chat', '学科答疑'],
@@ -168,7 +178,7 @@ function buildSharedResources(resources = []) {
 function buildHomeContent(model) {
   const overview = model.dashboardData.overview || {}
   const mainTask = selectMainTask(model)
-  return `<div class="dashboard-content student-home-shell"><header class="student-home-head home-module"><div><span class="home-eyebrow">学习首页</span><h1>今天，先完成最重要的一步</h1><p>更新时间 ${formatDate(new Date().toISOString(), 'time')}</p></div>${buildIdentity(model.user, model.displayName, overview)}</header>${buildMainTask(mainTask)}${buildMetrics(overview)}${buildQuickEntries(model)}<section class="home-work-grid">${buildTaskPanel(model)}${buildRecommendationPanel(model)}</section>${buildSharedResources(model.sharedResources)}${buildCourseProgress(model.courses)}</div>`
+  return `<div class="dashboard-content student-home-shell"><header class="student-home-head home-module"><div><span class="home-eyebrow">学习首页</span><h1>今天，先完成最重要的一步</h1><p>更新时间 ${formatDate(new Date().toISOString(), 'time')}</p></div>${buildIdentity(model.user, model.displayName, overview)}</header>${buildMetrics(overview)}${buildDailyLearningCards(model)}${buildMainTask(mainTask)}${buildQuickEntries(model)}<section class="home-work-grid">${buildTaskPanel(model)}${buildRecommendationPanel(model)}</section>${buildSharedResources(model.sharedResources)}${buildCourseProgress(model.courses)}</div>`
 }
 
 function buildErrorContent(message) {
@@ -254,6 +264,8 @@ function taskSignature(tasks) {
 }
 
 function renderHomeModel(model, { replaceLayout = true } = {}) {
+  homeCardFan?.destroy?.()
+  homeCardFan = null
   const contentHTML = buildHomeContent(model)
   if (replaceLayout) renderDashboardLayout(model.app, { menuItems: STUDENT_MENU_ITEMS, contentHTML, user: model.user })
   else {
@@ -262,6 +274,64 @@ function renderHomeModel(model, { replaceLayout = true } = {}) {
   }
   bindHomeEvents(model)
   animateHome()
+  mountDailyLearningCards(model)
+}
+
+function updateCardStatus(set) {
+  const node = document.getElementById('lc-home-status')
+  if (node) node.textContent = ({ READY: '今日推荐已就绪', GENERATING: '先看快速卡，AI 正在补充', STALE: '学习状态已更新，后台刷新中', FAILED: '已使用规则卡片' })[set?.status] || '今日推荐'
+}
+
+function scheduleCardRefresh(model) {
+  clearTimeout(homeCardRefreshTimer)
+  if (!['GENERATING', 'STALE'].includes(model.dailyCardSet?.status)) return
+  homeCardRefreshTimer = window.setTimeout(async () => {
+    if (!document.getElementById('lc-home-fan')) return
+    try {
+      model.dailyCardSet = responseData(await learningCardApi.daily())
+      homeCardFan?.setCards(model.dailyCardSet.cards || [])
+      updateCardStatus(model.dailyCardSet)
+    } catch {}
+    scheduleCardRefresh(model)
+  }, 4000)
+}
+
+function mountDailyLearningCards(model) {
+  const root = document.getElementById('lc-home-fan')
+  if (!root) return
+  if (model.dailyCardSet?.cards?.length) homeCardFan = createDailyLearningCardFan(root, { cards: model.dailyCardSet.cards })
+  document.getElementById('lc-home-refresh')?.addEventListener('click', async event => {
+    event.currentTarget.disabled = true
+    try {
+      model.dailyCardSet = responseData(await learningCardApi.refresh({ eventType: 'MANUAL' }))
+      if (!homeCardFan) homeCardFan = createDailyLearningCardFan(root, { cards: model.dailyCardSet.cards || [] })
+      else homeCardFan.setCards(model.dailyCardSet.cards || [])
+      updateCardStatus(model.dailyCardSet)
+      showToast('已换一组今日智学卡', 'success')
+      scheduleCardRefresh(model)
+    } catch (error) { showToast(error.message || '卡片刷新失败', 'error') }
+    finally { event.currentTarget.disabled = false }
+  })
+  const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
+  if (params.get('focus') === 'learning-cards') window.setTimeout(() => document.getElementById('daily-learning-cards')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
+  scheduleCardRefresh(model)
+}
+
+async function loadDailyLearningCards(model, pending) {
+  try {
+    const settled = await pending
+    if (!settled.ok) throw settled.error
+    model.dailyCardSet = responseData(settled.value)
+    const root = document.getElementById('lc-home-fan')
+    if (!root) return
+    if (!homeCardFan) homeCardFan = createDailyLearningCardFan(root, { cards: model.dailyCardSet?.cards || [] })
+    else homeCardFan.setCards(model.dailyCardSet?.cards || [])
+    updateCardStatus(model.dailyCardSet)
+    scheduleCardRefresh(model)
+  } catch (error) {
+    const root = document.getElementById('lc-home-fan')
+    if (root) root.innerHTML = `<div class="lc-empty"><b>今日卡片暂未读取</b><span>${escapeHtml(error.message || '可稍后重试，其他学习功能不受影响。')}</span></div>`
+  }
 }
 
 function scheduleTaskRefresh(model) {
@@ -286,6 +356,8 @@ function scheduleTaskRefresh(model) {
 
 export async function renderStudentDashboard(app) {
   clearTimeout(homeTaskRefreshTimer)
+  clearTimeout(homeCardRefreshTimer)
+  homeCardFan?.destroy?.(); homeCardFan = null
   let user = getUser()
   try {
     const result = await getMe()
@@ -296,6 +368,7 @@ export async function renderStudentDashboard(app) {
   }
   renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: `<div class="dashboard-content student-home-shell home-skeleton"><i></i><i></i><i></i><i></i></div>`, user })
   try {
+    const dailyCardsPending = learningCardApi.daily().then(value => ({ ok: true, value }), error => ({ ok: false, error }))
     const [dashboardSettled, coursesSettled, planSettled, tasksSettled, artifactsSettled, resourcesSettled] = await Promise.allSettled([
       getStudentDashboard(), getStudentCourses(), studentLearningPlanApi.current(false), listTasks({ pageSize: 12 }), listGeneratedArtifacts({ pageSize: 12 }), getStudentSharedResources({ page_size: 20 }),
     ])
@@ -309,10 +382,11 @@ export async function renderStudentDashboard(app) {
       plan: planPayload?.plan || null,
       asyncTasks: tasksSettled.status === 'fulfilled' ? responseList(tasksSettled.value) : [],
       artifacts: artifactsSettled.status === 'fulfilled' ? responseList(artifactsSettled.value) : [],
-      sharedResources: resourcesSettled.status === 'fulfilled' ? responseList(resourcesSettled.value) : [],
+      sharedResources: resourcesSettled.status === 'fulfilled' ? responseList(resourcesSettled.value) : [], dailyCardSet: null,
     }
     renderHomeModel(model)
     scheduleTaskRefresh(model)
+    void loadDailyLearningCards(model, dailyCardsPending)
   } catch (error) {
     renderDashboardLayout(app, { menuItems: STUDENT_MENU_ITEMS, contentHTML: buildErrorContent(error.message), user })
   }

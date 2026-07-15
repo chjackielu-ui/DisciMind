@@ -168,6 +168,14 @@ app.use('/api/student', studentChatRoutes);
 const aiChatRoutes = require('./routes/ai-chat.routes');
 app.use('/api/ai-chat', aiChatRoutes);
 
+// 学生与教师共用的 AI 任务中心协议、搜索能力与执行轨迹。
+const aiAssistantRoutes = require('./modules/ai-assistant/ai-assistant.routes');
+app.use('/api/ai-assistant', aiAssistantRoutes);
+
+// 统一个性化学习卡片中枢（每日推荐、场景卡片、行为与 AI 成果）。
+const learningCardRoutes = require('./modules/learning-card/learning-card.routes');
+app.use('/api', learningCardRoutes);
+
 // 用户智能体广场（独立于学习流和内置教学 Agent）
 const agentMarketplaceRoutes = require('./modules/agent-marketplace/agent-marketplace.routes');
 const knowledgeBaseMarketplaceRoutes = require('./modules/knowledge-base/knowledge-base.routes');

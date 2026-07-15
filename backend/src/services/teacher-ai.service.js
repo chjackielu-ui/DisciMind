@@ -6,6 +6,7 @@ const analyticsService = require('./teacher-analytics-workbench.service');
 const marketplaceService = require('../modules/agent-marketplace/agent-marketplace.service');
 const agentContextService = require('../modules/agent-chat/agent-context.service');
 const agentRuntimeService = require('../modules/agent-chat/agent-runtime.service');
+const assistantOrchestrator = require('../modules/ai-assistant/assistant-orchestrator.service');
 const {
   ensureCourseAccess,
   ensureTeachingClassAccess,
@@ -42,6 +43,7 @@ function toConversation(record, lastMessage = null, messageCount = null) {
 
 function toMessage(record, preview = false) {
   const content = String(record.content || '');
+  const sources = Array.isArray(record.sourcesJson) ? record.sourcesJson : [];
   return {
     id: record.id,
     message_id: record.id,
@@ -52,7 +54,8 @@ function toMessage(record, preview = false) {
       url: `/api/teacher/ai/conversations/${record.conversationId}/messages/${record.id}/attachments/${item.id}`,
     })),
     knowledge_base_refs: Array.isArray(record.knowledgeBaseRefsJson) ? record.knowledgeBaseRefsJson : [],
-    sources: Array.isArray(record.sourcesJson) ? record.sourcesJson : [],
+    sources,
+    artifacts: sources.filter((item) => item?.type === 'artifact' && item.artifact).map((item) => item.artifact),
     created_at: record.createdAt,
   };
 }
@@ -415,6 +418,11 @@ async function buildTurn(user, conversationId, body = {}) {
     fallback: analyticsFallback(analytics, context),
     assistantClientRequestId: String(body.client_request_id || `teacher-ai-${userMessage.id}`).slice(0, 80),
     maxOutputTokens: body.assistant_surface === 'floating' ? 900 : 2600,
+    user,
+    searchOptions: body.search_options || body.searchOptions || {},
+    autoAgent: body.auto_agent !== false && body.autoAgent !== false,
+    agentExecutionMode: body.agent_execution_mode || body.agentExecutionMode || null,
+    confirmed: body.confirmed === true,
   };
 }
 
@@ -454,37 +462,56 @@ async function runRegisteredAgentCollaboration(turn) {
   });
 }
 
-async function completeTurn(turn, signal, onDelta = () => {}) {
+async function completeTurn(turn, signal, onDelta = () => {}, onEvent = () => {}) {
   let content = '';
   let providerDegraded = false;
-  const collaboration = await runRegisteredAgentCollaboration(turn);
-  const completed = collaboration.filter((item) => item.content);
-  if (completed.length) {
-    turn.messages[0].content += `\n\n以下内容来自教师显式选择、已通过权限校验并实际运行的注册 Agent。它们是协作意见，需与真实数据交叉核对：\n${completed.map((item) => `[${item.name}]\n${item.content}`).join('\n\n')}`;
-  }
+  let orchestration = null;
   try {
-    aiChatService.getBailianConfig();
-    const stream = await aiChatService.createCompletionStream(turn.messages, signal, turn);
-    for await (const chunk of stream) {
-      const delta = chunk.choices?.[0]?.delta?.content || '';
-      if (!delta) continue;
-      content += delta;
-      onDelta(delta);
-    }
+    orchestration = await assistantOrchestrator.run({
+      user: turn.user,
+      query: turn.agentQuestion,
+      messages: turn.messages,
+      conversationId: turn.conversation.id,
+      messageId: turn.userMessage.id,
+      courseId: turn.context.course_id,
+      teachingClassId: turn.context.teaching_class_id,
+      assistantMode: teacherMode(turn.conversation),
+      knowledgeBaseIds: turn.knowledgeBaseRefs,
+      resolvedAgents: turn.registeredAgents.map(item => ({ ...item, selection: 'manual', score: 1000 })),
+      autoAgent: turn.registeredAgents.length ? false : turn.autoAgent,
+      agentExecutionMode: turn.agentExecutionMode,
+      searchOptions: turn.searchOptions,
+      confirmed: turn.confirmed,
+      maxTokens: turn.maxOutputTokens,
+      signal,
+      entryPoint: 'teacher-ai',
+      scene: teacherMode(turn.conversation),
+      context: turn.context,
+      onDelta,
+      onEvent,
+    });
+    content = orchestration.content;
   } catch (error) {
     if (signal?.aborted) throw error;
+    if (['AI_SEARCH_NOT_TRIGGERED', 'AI_SEARCH_UNSUPPORTED', 'AI_TOOL_VALIDATION_FAILED', 'AI_AGENT_FORBIDDEN'].includes(error.publicCode)) throw error;
     providerDegraded = true;
-    content = completed.length
-      ? `${completed.map((item) => `### ${item.name}\n\n${item.content}`).join('\n\n')}\n\n> 主助手本次降级，以上为已完成 Agent 的受控协作结果。`
-      : turn.fallback;
+    content = turn.fallback;
     onDelta(content);
   }
+  const webSources = (orchestration?.sources || []).map((source) => ({
+    type: 'web', label: source.title, title: source.title, url: source.url,
+    index: source.index, site_name: source.siteName, icon: source.icon,
+    retrieved_at: source.retrievedAt, search_strategy: source.searchStrategy,
+    cited: source.cited === true,
+  }));
+  const artifactSources = (orchestration?.artifacts || []).map(artifact => ({ type: 'artifact', label: artifact.title, artifact }));
+  const combinedSources = [...webSources, ...turn.sources, ...artifactSources];
   try {
     const saved = await aiChatService.finalizeAssistantMessage(turn.conversation.id, content, {
-      sources: turn.sources,
+      sources: combinedSources,
       clientRequestId: turn.assistantClientRequestId,
     });
-    return { ...saved, content, sources: turn.sources, charts: turn.charts, provider: { degraded: providerDegraded }, persistence: { saved: true } };
+    return { ...saved, content, sources: combinedSources, charts: turn.charts, artifacts: orchestration?.artifacts || [], traceId: orchestration?.traceId || null, confirmationRequired: orchestration?.confirmationRequired === true, provider: { degraded: providerDegraded }, persistence: { saved: true } };
   } catch (error) {
     if (error.publicCode !== 'AI_MESSAGE_SAVE_FAILED') throw error;
     return {
@@ -498,8 +525,11 @@ async function completeTurn(turn, signal, onDelta = () => {}) {
         createdAt: new Date(),
       },
       content,
-      sources: turn.sources,
+      sources: combinedSources,
       charts: turn.charts,
+      artifacts: orchestration?.artifacts || [],
+      traceId: orchestration?.traceId || null,
+      confirmationRequired: orchestration?.confirmationRequired === true,
       provider: { degraded: providerDegraded },
       persistence: {
         saved: false,

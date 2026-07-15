@@ -100,6 +100,11 @@ async function processPreload(preloadId, { taskId, signal } = {}) {
     if (taskId) await tasks.updateTask(taskId, { status: 'RUNNING', stage: '正在生成学习基础包', progress: 10 });
     const context = await preloadService.contextFor(preload.userId, { learningPlanId: preload.learningPlanId, workflowTemplateId: preload.workflowTemplateId, learningGoalId: preload.learningGoalId, learningSessionId: preload.learningSessionId });
     if (context.preloadKey !== preload.preloadKey) throw Object.assign(new Error('学习准备依赖已变化'), { code: 'PRELOAD_KEY_STALE', permanent: true });
+    if (context.session?.session_id) require('./knowledge-card.service').fireAndRecord({
+      userId: preload.userId, sessionId: context.session.session_id,
+      nodeId: context.session.current_node_id || firstNode(context.graph)?.id,
+      reason: 'learning_flow_preload',
+    });
     const manifest = await buildBaseManifest(preload, context);
     await prisma.learningFlowPreload.update({ where: { id: preload.id }, data: { manifestJson: manifest, stage: '学习基础包已完成', progress: 40 } });
     if (taskId) await tasks.updateTask(taskId, { status: 'RUNNING', stage: '正在生成首节点内容', progress: 45 });
