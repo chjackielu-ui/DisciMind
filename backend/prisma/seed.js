@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs')
 const { loadEnv } = require('../src/config/env')
 const { getDatabaseConfig } = require('../src/config/database')
 const { seedAgentMarketplace } = require('./seeds/seedAgentMarketplace')
+const { seedPermissionCatalog } = require('../src/services/admin-permission.seed')
 
 loadEnv()
 
@@ -1921,6 +1922,11 @@ async function main() {
   log(`学习流系统模板种子数据完成 (共 ${SYS_TEMPLATES.length} 套)`);
 
   await seedAgentMarketplace({ prisma, upsertUser, upsertProfile, adminUser, studentUser, log })
+  const rbacSeed = await seedPermissionCatalog(prisma, {
+    assignUncoveredAdmins: true,
+    grantedBy: adminUser.user_id,
+  })
+  log(`管理员 RBAC：${rbacSeed.roles} 个角色，${rbacSeed.permissions} 个权限，新分配 ${rbacSeed.assigned_admins} 名管理员`)
   const systemFileAgents = await require('../src/modules/file-generator/system-file-agents.service').ensureSystemFileAgents({ prisma, creatorUserId: adminUser.user_id })
   log(`系统文件智能体初始化完成 (${systemFileAgents.length} 个；真实知识库绑定数 ${systemFileAgents[0]?.boundKnowledgeBaseIds.length || 0})`)
 }

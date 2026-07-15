@@ -1,0 +1,815 @@
+{
+  "generatedAt": "2026-07-15T05:26:18.363Z",
+  "routeChecks": [
+    {
+      "activeModules": [
+        "学生管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-students",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "学生管理",
+      "url": "http://127.0.0.1:5173/#/admin/users?role=student",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "教师管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-teachers",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "教师管理",
+      "url": "http://127.0.0.1:5173/#/admin/users?role=teacher",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "管理员管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-admin-accounts",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "管理员管理",
+      "url": "http://127.0.0.1:5173/#/admin/users?role=admin",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "课程管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-courses",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "课程管理",
+      "url": "http://127.0.0.1:5173/#/admin/courses",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-course-detail",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "概率论",
+      "url": "http://127.0.0.1:5173/#/admin/courses/4",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "行政班管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-admin-classes",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "行政班管理",
+      "url": "http://127.0.0.1:5173/#/admin/classes",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "教学班管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-teaching-classes",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "教学班管理",
+      "url": "http://127.0.0.1:5173/#/admin/teaching-classes",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "供应商配置"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-ai-providers",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "供应商配置",
+      "url": "http://127.0.0.1:5173/#/admin/ai-config?tab=providers",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "模型管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-ai-models",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "模型管理",
+      "url": "http://127.0.0.1:5173/#/admin/ai-config?tab=models",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "密钥与环境"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-environment",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "密钥与环境",
+      "url": "http://127.0.0.1:5173/#/admin/environment",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "知识文档"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-knowledge-documents",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "知识文档",
+      "url": "http://127.0.0.1:5173/#/admin/knowledge",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "智能体审核"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-agent-reviews",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "智能体审核",
+      "url": "http://127.0.0.1:5173/#/admin/agent-reviews?tab=agents",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "知识库审核"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-knowledge-reviews",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "知识库审核",
+      "url": "http://127.0.0.1:5173/#/admin/agent-reviews?tab=knowledge",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "举报处理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-report-reviews",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "举报处理",
+      "url": "http://127.0.0.1:5173/#/admin/agent-reviews?tab=reports",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "角色与权限"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-permissions",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "角色与权限",
+      "url": "http://127.0.0.1:5173/#/admin/permissions",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "通知管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-notifications",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "通知管理",
+      "url": "http://127.0.0.1:5173/#/admin/notifications",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "操作日志"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-logs",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "操作日志",
+      "url": "http://127.0.0.1:5173/#/admin/logs",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "个人信息"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-profile",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "个人中心",
+      "url": "http://127.0.0.1:5173/#/admin/profile",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1440-dashboard",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 0,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "欢迎你，管理员演示",
+      "url": "http://127.0.0.1:5173/#/admin/dashboard",
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1366-dashboard",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 0,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "欢迎你，管理员演示",
+      "url": "http://127.0.0.1:5173/#/admin/dashboard",
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "学生管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1366-students",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "学生管理",
+      "url": "http://127.0.0.1:5173/#/admin/users?role=student",
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "课程管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1366-courses",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "课程管理",
+      "url": "http://127.0.0.1:5173/#/admin/courses",
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "供应商配置"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1366-ai-providers",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "供应商配置",
+      "url": "http://127.0.0.1:5173/#/admin/ai-config?tab=providers",
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "知识文档"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1366-knowledge",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "知识文档",
+      "url": "http://127.0.0.1:5173/#/admin/knowledge",
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "角色与权限"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1366-permissions",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "角色与权限",
+      "url": "http://127.0.0.1:5173/#/admin/permissions",
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-dashboard-expanded",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 0,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "欢迎你，管理员演示",
+      "url": "http://127.0.0.1:5173/#/admin/dashboard",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "学生管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-students-expanded",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "学生管理",
+      "url": "http://127.0.0.1:5173/#/admin/users?role=student",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "课程管理"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-courses-expanded",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "课程管理",
+      "url": "http://127.0.0.1:5173/#/admin/courses",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "供应商配置"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-ai-expanded",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "供应商配置",
+      "url": "http://127.0.0.1:5173/#/admin/ai-config?tab=providers",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "知识文档"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-knowledge-expanded",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "知识文档",
+      "url": "http://127.0.0.1:5173/#/admin/knowledge",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [
+        "角色与权限"
+      ],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-permissions-expanded",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 1,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "角色与权限",
+      "url": "http://127.0.0.1:5173/#/admin/permissions",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-dashboard-expand-final-verified",
+      "legacySubNavCount": 0,
+      "mainLeft": 294,
+      "mainTop": 20,
+      "moduleNavCount": 0,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar expanded",
+      "sidebarOverlap": false,
+      "sidebarRight": 270,
+      "title": "欢迎你，管理员演示",
+      "url": "http://127.0.0.1:5173/#/admin/dashboard",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    },
+    {
+      "activeModules": [],
+      "badText": [],
+      "bodyOverflow": 0,
+      "label": "1024-dashboard-collapsed-restored",
+      "legacySubNavCount": 0,
+      "mainLeft": 124,
+      "mainTop": 20,
+      "moduleNavCount": 0,
+      "rootOverflow": 0,
+      "scrollY": 0,
+      "sidebarClass": "student-sidebar collapsed",
+      "sidebarOverlap": false,
+      "sidebarRight": 100,
+      "title": "欢迎你，管理员演示",
+      "url": "http://127.0.0.1:5173/#/admin/dashboard",
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      },
+      "visibleAlerts": []
+    }
+  ],
+  "summary": {
+    "requestedChecks": 33,
+    "collectedChecks": 33,
+    "failures": 0,
+    "resolutions": [
+      "1440x900",
+      "1366x768",
+      "1024x768"
+    ],
+    "consoleWarnErrorCount": 2,
+    "applicationConsoleWarnErrorCount": 0,
+    "viteDevTransportCount": 2
+  },
+  "console": {
+    "application": [],
+    "viteDevTransport": [
+      {
+        "level": "error",
+        "message": "[vite] failed to connect to websocket.\nyour current setup:\n  (browser) 127.0.0.1:5173/ <--[HTTP]--> 127.0.0.1:5173/ (server)\n  (browser) 127.0.0.1:5173/ <--[WebSocket (failing)]--> 127.0.0.1:5173/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr .",
+        "timestamp": "2026-07-15T05:08:55.933Z",
+        "url": "http://127.0.0.1:5173/@vite/client"
+      },
+      {
+        "level": "error",
+        "message": "Failed to send error to Vite server: TypeError: Cannot read properties of undefined (reading 'send')\n    at Object.send (http://127.0.0.1:5173/@vite/client:444:7)\n    at Object.send (http://127.0.0.1:5173/@vite/client:900:16)\n    at Object.send (http://127.0.0.1:5173/@vite/client:307:21)\n    at Object.send (http://127.0.0.1:5173/@vite/client:385:30)\n    at sendError (http://127.0.0.1:5173/@vite/client:486:19)\n    at sendLog (http://127.0.0.1:5173/@vite/client:514:11)",
+        "timestamp": "2026-07-15T05:08:55.933Z",
+        "url": "http://127.0.0.1:5173/@vite/client"
+      }
+    ]
+  }
+}

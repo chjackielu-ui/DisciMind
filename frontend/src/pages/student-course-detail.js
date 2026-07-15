@@ -11,6 +11,7 @@ import { disposeAllCharts, bindResize, initChart, renderRingChart, renderHorizon
 import * as echarts from 'echarts'
 import { buildMindData, createMindMap, getKnowledgeStatus } from '../components/kgraph/KgMindMap.js'
 import { buildVideoPanelHTML, loadKpVideosToPanel } from '../components/kgraph/KgVideoPanel.js'
+import { renderCourseFilesPanel, mountCourseFilesPanel } from '../components/course-files-panel.js'
 
 function getCourseIdFromHash() {
   const m = window.location.hash.slice(1).match(/^\/student\/courses\/(\d+)/)
@@ -608,7 +609,9 @@ export async function renderStudentCourseDetail(app) {
       <div class="course-action-strip">
         <button class="course-action-btn primary" id="btn-course-wrong-book" type="button">本课程错题本</button>
         <button class="course-action-btn" id="btn-course-practice" type="button">进入智能练习</button>
+        <button class="course-action-btn" id="btn-course-files" type="button">课程文件</button>
       </div>
+      ${renderCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] })}
       ${buildKnowledgeGraphSection(course, chapters, kps)}
       <div class="course-charts-row">
         <div class="course-chart-panel" id="panel-mastery-ring">
@@ -629,7 +632,7 @@ export async function renderStudentCourseDetail(app) {
   renderDashboardLayout(app, { menuItems, contentHTML, user })
 
   if (!loadError && course) {
-    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps, course.course_id) }, 150)
+    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); mountCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] }); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps, course.course_id) }, 150)
   }
 }
 
@@ -639,6 +642,9 @@ function bindCourseActionEvents(course) {
   })
   document.getElementById('btn-course-practice')?.addEventListener('click', () => {
     window.location.hash = '#/student/practice'
+  })
+  document.getElementById('btn-course-files')?.addEventListener('click', () => {
+    document.getElementById('course-files-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
 }
 

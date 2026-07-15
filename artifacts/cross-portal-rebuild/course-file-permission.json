@@ -1,0 +1,172 @@
+{
+  "schema": "course-file-permission-acceptance.v1",
+  "generated_at_epoch": 1784100292.9295201,
+  "base_url": "http://localhost:3000/api",
+  "marker": "cf1784100290163",
+  "passed": true,
+  "checks": [
+    {
+      "id": "accounts.roles",
+      "passed": true,
+      "detail": "admin/teacher/student roles authenticated"
+    },
+    {
+      "id": "fixture.student_class",
+      "passed": true,
+      "detail": "course=1, class=1"
+    },
+    {
+      "id": "fixture.temp_teacher_created",
+      "passed": true,
+      "detail": "user_id=91"
+    },
+    {
+      "id": "permission.non_responsible_teacher_upload",
+      "passed": true,
+      "detail": "non-responsible teacher rejected before persistence"
+    },
+    {
+      "id": "permission.student_upload",
+      "passed": true,
+      "detail": "student upload rejected by backend role middleware"
+    },
+    {
+      "id": "permission.course_class_mismatch",
+      "passed": true,
+      "detail": "course=1, mismatched_class=9"
+    },
+    {
+      "id": "security.extension_mime",
+      "passed": true,
+      "detail": "unsupported extension/MIME rejected without orphan file"
+    },
+    {
+      "id": "security.magic_bytes",
+      "passed": true,
+      "detail": "spoofed PDF MIME rejected by content signature without orphan file"
+    },
+    {
+      "id": "security.size_limit",
+      "passed": true,
+      "detail": "30MB limit rejected without orphan file"
+    },
+    {
+      "id": "upload.metadata",
+      "passed": true,
+      "detail": "file_id=101, status=draft"
+    },
+    {
+      "id": "upload.storage_isolated",
+      "passed": true,
+      "detail": "new physical files=['223a4c724ae5489e373e123c9e9591723002ebcd61946711.txt']"
+    },
+    {
+      "id": "upload.deduplication",
+      "passed": true,
+      "detail": "same checksum/uploader/course/class reuses the record"
+    },
+    {
+      "id": "draft.teacher_admin_visible",
+      "passed": true,
+      "detail": "draft is visible to authorized teacher and admin"
+    },
+    {
+      "id": "draft.student_hidden",
+      "passed": true,
+      "detail": "draft is not visible to enrolled student"
+    },
+    {
+      "id": "draft.student_download_blocked",
+      "passed": true,
+      "detail": "draft cannot be downloaded by student"
+    },
+    {
+      "id": "edit.validation_and_rbac",
+      "passed": true,
+      "detail": "teacher edit persisted; invalid category and student edit rejected"
+    },
+    {
+      "id": "publish.state",
+      "passed": true,
+      "detail": "recipients=7"
+    },
+    {
+      "id": "publish.student_visible",
+      "passed": true,
+      "detail": "file={'file_id': 101, 'course_id': 1, 'teaching_class_id': 1, 'uploader_user_id': 2, 'uploader_role': 'teacher', 'uploader_name': '戴平', 'original_filename': '跨端课程文件验收-cf1784100290163.txt', 'mime_type': 'text/plain', 'size_bytes': 49, 'checksum': 'c97e08c23dbed6b03d17fcd8d77a8d865d7f1db898d167962a20cbd37d117726', 'title': '课程文件验收-cf1784100290163-已编辑', 'description': '编辑后的课程文件说明', 'category': 'reading', 'version': 1, 'status': 'active', 'published_at': '2026-07-15T07:24:51.810Z', 'created_at': '2026-07-15T07:24:51.530Z', 'updated_at': '2026-07-15T07:24:51.802Z', 'downloaded_count': 0, 'recipient_count': 7, 'unread_count': 7, 'is_unread': True, 'is_downloaded': False, 'download_url': '/api/courses/1/teaching-classes/1/files/101/download'}"
+    },
+    {
+      "id": "permission.cross_class_student",
+      "passed": true,
+      "detail": "student without active enrollment cannot list or download"
+    },
+    {
+      "id": "permission.student_mutations",
+      "passed": true,
+      "detail": "publish, unpublish and delete all return 403"
+    },
+    {
+      "id": "download.teacher",
+      "passed": true,
+      "detail": "bytes=49"
+    },
+    {
+      "id": "download.student_controlled",
+      "passed": true,
+      "detail": "attachment; filename=\"course-file.txt\"; filename*=UTF-8''%E8%B7%A8%E7%AB%AF%E8%AF%BE%E7%A8%8B%E6%96%87%E4%BB%B6%E9%AA%8C%E6%94%B6-cf1784100290163.txt"
+    },
+    {
+      "id": "download.tracking",
+      "passed": true,
+      "detail": "downloaded_count=1"
+    },
+    {
+      "id": "notification.single",
+      "passed": true,
+      "detail": "matching messages=1"
+    },
+    {
+      "id": "notification.detail",
+      "passed": true,
+      "detail": "action_url=#/student/courses/1?tab=files&fileId=101"
+    },
+    {
+      "id": "unpublish.student_hidden",
+      "passed": true,
+      "detail": "unpublished file disappears from student list"
+    },
+    {
+      "id": "publish.notification_idempotent",
+      "passed": true,
+      "detail": "matching messages after republish=1"
+    },
+    {
+      "id": "delete.soft_hidden",
+      "passed": true,
+      "detail": "soft-deleted file is hidden"
+    },
+    {
+      "id": "cleanup.database",
+      "passed": true,
+      "detail": "{\"marker\": \"cf1784100290163\", \"document_ids\": [101], \"deleted_notifications\": 7, \"deleted_operation_logs\": 7, \"deleted_distributions\": 1, \"deleted_documents\": 1, \"deleted_users\": 1, \"deleted_physical_files\": 1}"
+    },
+    {
+      "id": "cleanup.storage",
+      "passed": true,
+      "detail": "remaining delta=[]"
+    }
+  ],
+  "errors": [],
+  "cleanup": {
+    "marker": "cf1784100290163",
+    "document_ids": [
+      101
+    ],
+    "deleted_notifications": 7,
+    "deleted_operation_logs": 7,
+    "deleted_distributions": 1,
+    "deleted_documents": 1,
+    "deleted_users": 1,
+    "deleted_physical_files": 1
+  }
+}

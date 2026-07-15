@@ -15,7 +15,8 @@ async function getNotificationList(req, res) {
 
 async function createNotification(req, res) {
   try {
-    const data = await notificationService.createNotification(req.body || {}, req.user.user_id);
+    const data = await notificationService.createNotification(req.body || {}, req.user.user_id, req);
+    res.status(201);
     return success(res, data, '通知发送成功');
   } catch (err) {
     console.error('[admin-notification] createNotification error:', err.message);
@@ -29,7 +30,7 @@ async function markNotificationRead(req, res) {
     if (!notificationId || notificationId < 1) {
       return fail(res, 40001, '通知 ID 不合法');
     }
-    const data = await notificationService.markNotificationRead(notificationId);
+    const data = await notificationService.markNotificationRead(notificationId, req);
     return success(res, data, '通知已标记为已读');
   } catch (err) {
     console.error('[admin-notification] markNotificationRead error:', err.message);
@@ -39,11 +40,7 @@ async function markNotificationRead(req, res) {
 
 async function markAllNotificationsRead(req, res) {
   try {
-    const { user_id } = req.body;
-    if (!user_id) {
-      return fail(res, 40001, '用户 ID 不能为空');
-    }
-    const data = await notificationService.markAllNotificationsRead(parseInt(user_id, 10));
+    const data = await notificationService.markAllNotificationsRead(req.body || {}, req);
     return success(res, data, '所有通知已标记为已读');
   } catch (err) {
     console.error('[admin-notification] markAllNotificationsRead error:', err.message);

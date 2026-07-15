@@ -1,0 +1,461 @@
+{
+  "schema_version": "admin-api-smoke.v1",
+  "generated_at": "2026-07-15T05:29:12.875024+00:00",
+  "target": {
+    "base_url": "http://localhost:3000/api"
+  },
+  "summary": {
+    "result": "passed",
+    "mode": "read-only",
+    "total": 25,
+    "passed": 25,
+    "required_failed": 0,
+    "optional_failed": 0,
+    "skipped": 0,
+    "warnings": 0,
+    "exit_code": 0
+  },
+  "checks": [
+    {
+      "id": "auth.unauthorized_boundary",
+      "name": "Unauthorized dashboard boundary",
+      "category": "auth",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/dashboard",
+      "status": 401,
+      "duration_ms": 37,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {}
+    },
+    {
+      "id": "auth.login",
+      "name": "Admin login",
+      "category": "auth",
+      "required": true,
+      "method": "POST",
+      "path": "/auth/login",
+      "status": 200,
+      "duration_ms": 134,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "admin_role_confirmed": true
+      }
+    },
+    {
+      "id": "dashboard",
+      "name": "Dashboard",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/dashboard",
+      "status": 200,
+      "duration_ms": 48,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "contract_version": "admin-dashboard.v1",
+        "summary_field_count": 14,
+        "trend_days": 14,
+        "distribution_count": 3,
+        "review_flow_count": 3,
+        "system_overall": "degraded",
+        "service_count": 6,
+        "module_error_count": 0
+      }
+    },
+    {
+      "id": "users",
+      "name": "Users",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/users?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 11,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 2,
+        "total": 12,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 2
+      }
+    },
+    {
+      "id": "courses",
+      "name": "Courses",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/courses?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 25,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 2,
+        "total": 4,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 2
+      }
+    },
+    {
+      "id": "admin_classes",
+      "name": "Admin classes",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/admin-classes?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 33,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 2,
+        "total": 2,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 2
+      }
+    },
+    {
+      "id": "knowledge_documents",
+      "name": "Knowledge documents",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/knowledge-documents?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 9,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 2,
+        "total": 16,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 2
+      }
+    },
+    {
+      "id": "operation_logs",
+      "name": "Operation logs",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/operation-logs?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 8,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 2,
+        "total": 20,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 2
+      }
+    },
+    {
+      "id": "notifications",
+      "name": "Notifications",
+      "category": "base",
+      "required": true,
+      "method": "GET",
+      "path": "/admin/notifications?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 9,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 2,
+        "total": 54,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 2
+      }
+    },
+    {
+      "id": "ai.legacy_models",
+      "name": "Legacy AI model configs",
+      "category": "optional_ai",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/ai-model-configs",
+      "status": 200,
+      "duration_ms": 6,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "item_count": 0,
+        "items_schema_validated": 0
+      }
+    },
+    {
+      "id": "ai.call_logs",
+      "name": "AI call logs",
+      "category": "optional_ai",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/ai-call-logs?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 27,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 0,
+        "total": 0,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 0
+      }
+    },
+    {
+      "id": "ai.providers",
+      "name": "AI providers",
+      "category": "optional_ai",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/ai/providers",
+      "status": 200,
+      "duration_ms": 13,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "item_count": 5,
+        "items_schema_validated": 5
+      }
+    },
+    {
+      "id": "ai.models",
+      "name": "AI models",
+      "category": "optional_ai",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/ai/models",
+      "status": 200,
+      "duration_ms": 9,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "item_count": 0,
+        "items_schema_validated": 0
+      }
+    },
+    {
+      "id": "ai.agents",
+      "name": "AI agents",
+      "category": "optional_ai",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/agents",
+      "status": 200,
+      "duration_ms": 7,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "item_count": 0,
+        "items_schema_validated": 0
+      }
+    },
+    {
+      "id": "environment",
+      "name": "Environment status",
+      "category": "optional_ai",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/system/environment-status",
+      "status": 200,
+      "duration_ms": 18,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "component_count": 9
+      }
+    },
+    {
+      "id": "traces",
+      "name": "AI traces",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/traces?page=1&page_size=2",
+      "status": 200,
+      "duration_ms": 34,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "list_count": 0,
+        "total": 0,
+        "page": 1,
+        "page_size": 2,
+        "items_schema_validated": 0
+      }
+    },
+    {
+      "id": "governance.learning",
+      "name": "Learning-flow governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/learning-flows/overview",
+      "status": 200,
+      "duration_ms": 34,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 11
+      }
+    },
+    {
+      "id": "governance.knowledge",
+      "name": "Knowledge-health governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/knowledge-health/overview",
+      "status": 200,
+      "duration_ms": 10,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 11
+      }
+    },
+    {
+      "id": "governance.teaching",
+      "name": "Teaching-issue governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/teaching-issues/overview",
+      "status": 200,
+      "duration_ms": 31,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 6
+      }
+    },
+    {
+      "id": "governance.evaluations",
+      "name": "Agent-evaluation governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/evaluations/overview",
+      "status": 200,
+      "duration_ms": 31,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 7
+      }
+    },
+    {
+      "id": "governance.experiments",
+      "name": "Experiment governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/experiments/overview",
+      "status": 200,
+      "duration_ms": 9,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 3
+      }
+    },
+    {
+      "id": "governance.digital_twin",
+      "name": "Digital-twin governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/digital-twin/overview",
+      "status": 200,
+      "duration_ms": 21,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 5
+      }
+    },
+    {
+      "id": "governance.assets",
+      "name": "Teaching-asset governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/assets/overview",
+      "status": 200,
+      "duration_ms": 8,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 5
+      }
+    },
+    {
+      "id": "governance.strategy_profiles",
+      "name": "Strategy-profile governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/strategy-profiles/overview",
+      "status": 200,
+      "duration_ms": 23,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 4
+      }
+    },
+    {
+      "id": "governance.risks",
+      "name": "Risk governance",
+      "category": "optional_governance",
+      "required": false,
+      "method": "GET",
+      "path": "/admin/governance/risks/overview",
+      "status": 200,
+      "duration_ms": 33,
+      "outcome": "passed",
+      "issues": [],
+      "warnings": [],
+      "observed": {
+        "field_count": 5
+      }
+    }
+  ]
+}

@@ -11,7 +11,10 @@ const listAgentReviews = wrap(async (req, res) => success(res, await service.lis
 const getAgentReview = wrap(async (req, res) => success(res, await service.getAgentReview(req.params.id)));
 const approveAgent = wrap(async (req, res) => success(res, await service.approveAgent(req.user.user_id, req.params.id, schemas.parse(schemas.operationSchema, req.body).operationId), '审核通过'));
 const rejectAgent = wrap(async (req, res) => success(res, await service.rejectAgent(req.user.user_id, req.params.id, schemas.parse(schemas.rejectSchema, req.body)), '已驳回'));
-const offlineAgent = wrap(async (req, res) => success(res, await service.offlineAgent(req.user.user_id, req.params.id, schemas.parse(schemas.operationSchema, req.body).operationId, req.body.reason), '已下架'));
+const offlineAgent = wrap(async (req, res) => {
+  const input = schemas.parse(schemas.offlineSchema, req.body);
+  return success(res, await service.offlineAgent(req.user.user_id, req.params.id, input.operationId, input.reason), '已下架');
+});
 const listKnowledgeReviews = wrap(async (req, res) => success(res, await service.listKnowledgeReviews()));
 const getKnowledgeReview = wrap(async (req, res) => success(res, await service.getKnowledgeReview(req.params.id)));
 const approveKnowledge = wrap(async (req, res) => success(res, await service.reviewKnowledge(req.user.user_id, req.params.id, schemas.parse(schemas.operationSchema, req.body), true), '知识库审核通过'));

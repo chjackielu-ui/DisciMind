@@ -567,6 +567,11 @@
   padding-top: 4px;
 }
 
+.admin-review-readonly {
+  color: var(--am-text-muted);
+  font-size: 0.8rem;
+}
+
 .agent-card-actions .complex-btn {
   min-height: 34px;
   padding: 0 18px;

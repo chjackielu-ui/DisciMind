@@ -1,264 +1,298 @@
-﻿// 管理员端通知管理页面
+import {
+  getAdminNotifications,
+  createAdminNotification,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from '../api/admin.js'
+import {
+  requireAdminUser,
+  renderAdminPage,
+  notifyAdmin,
+  confirmAdmin,
+  setBusy,
+  escapeHtml,
+  getIcon,
+} from '../utils/admin-ui.js'
+import { formatDate } from '../utils/format.js'
 
-import { getMe } from '../api/auth.js'
-import { getAdminNotifications, createAdminNotification, markNotificationRead, markAllNotificationsRead } from '../api/admin.js'
-import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
-import { renderDashboardLayout } from '../utils/dashboard.js'
-import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
-
-const notificationTypeLabels = {
+const NOTIFICATION_TYPE_LABELS = {
   task_published: '任务发布',
-  task_deadline: '任务截止',
-  document_review: '文档审核',
-  document_parsed: '文档解析',
-  ai_grading_done: 'AI批改完成',
+  task_deadline: '任务提醒',
+  task_submitted: '任务提交',
+  exam_submitted: '考试提交',
+  document_review: '审核通知',
+  document_parsed: '文档解析完成',
+  knowledge_application: '知识库申请',
+  ai_grading_done: 'AI 批改完成',
+  file_generated: '文件生成完成',
+  ai_task_done: 'AI 任务完成',
+  student_risk: '风险预警',
+  class_alert: '班级预警',
+  frequent_question: '高频问题',
+  resource_shared: '教学资源共享',
   system_notice: '系统通知',
 }
 
+const CREATE_TYPE_OPTIONS = [
+  'system_notice',
+  'task_deadline',
+  'document_review',
+  'resource_shared',
+  'student_risk',
+  'class_alert',
+]
+
+function typeLabel(value) {
+  return NOTIFICATION_TYPE_LABELS[String(value || '').toLowerCase()] || '其他通知'
+}
+
+function filterPayload(filters) {
+  return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value !== null && value !== undefined))
+}
+
 export async function renderAdminNotifications(app) {
-  let user = getUser()
-  try {
-    const result = await getMe()
-    user = result.data.user
-    setAuth(getToken(), user)
-  } catch {
-    if (!user) { clearAuth(); window.location.hash = '#/login'; return }
+  const user = await requireAdminUser()
+  if (!user) return
+
+  const state = {
+    list: [],
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 1,
+    loading: true,
+    error: null,
+  }
+  const filters = {
+    keyword: '',
+    notification_type: '',
+    is_read: '',
+    receiver: '',
+    start_date: '',
+    end_date: '',
   }
 
-  let state = { list: [], total: 0, page: 1, pageSize: 10, loading: true, error: null }
-  let filters = { notification_type: '', is_read: '' }
+  renderAdminPage(app, {
+    user,
+    title: '通知管理',
+    contentHTML: '<div id="admin-notifications-root"></div>',
+  })
+
+  function rowHTML(notification) {
+    const unread = !notification.is_read
+    return `<tr class="${unread ? 'is-unread' : ''}">
+      <td class="admin-notification-title-cell">
+        <strong>${escapeHtml(notification.title || '-')}</strong>
+        <p class="admin-notification-summary">${escapeHtml(notification.content || '无补充内容')}</p>
+      </td>
+      <td><span class="tag tag-student">${escapeHtml(typeLabel(notification.notification_type))}</span></td>
+      <td>
+        <strong>${escapeHtml(notification.receiver_name || notification.receiver_username || '-')}</strong>
+        ${notification.receiver_username && notification.receiver_name !== notification.receiver_username ? `<small>${escapeHtml(notification.receiver_username)}</small>` : ''}
+      </td>
+      <td>${unread ? '<span class="tag tag-pending">未读</span>' : '<span class="tag tag-active">已读</span>'}</td>
+      <td>${notification.created_at ? escapeHtml(formatDate(notification.created_at, 'short')) : '-'}</td>
+      <td><div class="action-btns">
+        ${unread ? `<button type="button" class="btn-mark-read" data-notification-id="${Number(notification.notification_id)}">标记已读</button>` : '<span class="admin-action-complete">无需操作</span>'}
+      </div></td>
+    </tr>`
+  }
+
+  function filterOptions() {
+    return Object.entries(NOTIFICATION_TYPE_LABELS)
+      .map(([value, label]) => `<option value="${value}" ${filters.notification_type === value ? 'selected' : ''}>${escapeHtml(label)}</option>`)
+      .join('')
+  }
+
+  function contentHTML() {
+    if (state.loading) {
+      return '<div class="loading-state"><div class="loading-spinner"></div><p>正在读取通知记录...</p></div>'
+    }
+    if (state.error) {
+      return `<div class="error-state"><div class="error-icon">${getIcon('alert')}</div><div class="error-message">${escapeHtml(state.error)}</div><button type="button" class="btn-retry" id="admin-notifications-retry">重新加载</button></div>`
+    }
+
+    const rows = state.list.length
+      ? state.list.map(rowHTML).join('')
+      : '<tr><td colspan="6"><div class="empty-state"><p>当前筛选条件下没有通知记录。</p></div></td></tr>'
+
+    return `<div class="dashboard-content admin-list-page">
+      <section class="section-header admin-page-heading">
+        <div>
+          <h2>通知管理</h2>
+          <p>查询和发送真实通知记录；筛选、分页和已读状态均直接写入数据库。</p>
+        </div>
+        <div class="admin-page-actions">
+          <button type="button" class="btn-sm btn-secondary" id="admin-mark-all-read">全部标记已读</button>
+          <button type="button" class="btn-sm btn-primary" id="admin-create-notification">${getIcon('message')} 发送通知</button>
+        </div>
+      </section>
+
+      <form class="card search-bar admin-filter-bar" id="admin-notification-filters">
+        <label><span>关键词</span><input class="admin-filter-input" name="keyword" value="${escapeHtml(filters.keyword)}" placeholder="标题或内容"></label>
+        <label><span>通知类型</span><select class="admin-filter-select" name="notification_type"><option value="">全部类型</option>${filterOptions()}</select></label>
+        <label><span>阅读状态</span><select class="admin-filter-select" name="is_read"><option value="">全部状态</option><option value="false" ${filters.is_read === 'false' ? 'selected' : ''}>未读</option><option value="true" ${filters.is_read === 'true' ? 'selected' : ''}>已读</option></select></label>
+        <label><span>接收人</span><input class="admin-filter-input" name="receiver" value="${escapeHtml(filters.receiver)}" placeholder="姓名或用户名"></label>
+        <label><span>开始时间</span><input class="admin-filter-input" type="date" name="start_date" value="${escapeHtml(filters.start_date)}"></label>
+        <label><span>结束时间</span><input class="admin-filter-input" type="date" name="end_date" value="${escapeHtml(filters.end_date)}"></label>
+        <div class="admin-filter-actions">
+          <button type="submit" class="btn-sm btn-primary">${getIcon('search')} 查询</button>
+          <button type="button" class="btn-sm btn-secondary" id="admin-notification-reset">重置</button>
+        </div>
+      </form>
+
+      <section class="card">
+        <div class="admin-list-summary"><span>共 ${state.total.toLocaleString('zh-CN')} 条真实记录</span><button type="button" class="btn-link" id="admin-notification-refresh">${getIcon('refresh')} 刷新</button></div>
+        <div class="table-container"><table class="admin-data-table">
+          <thead><tr><th>标题与内容</th><th>类型</th><th>接收人</th><th>阅读状态</th><th>发送时间</th><th>操作</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+        <div class="pagination">
+          <button type="button" class="btn-sm btn-secondary" data-page="previous" ${state.page <= 1 ? 'disabled' : ''}>上一页</button>
+          <span class="page-info">第 ${state.page} / ${state.totalPages} 页</span>
+          <button type="button" class="btn-sm btn-secondary" data-page="next" ${state.page >= state.totalPages ? 'disabled' : ''}>下一页</button>
+        </div>
+      </section>
+    </div>`
+  }
+
+  function renderView() {
+    const root = document.getElementById('admin-notifications-root')
+    if (!root) return
+    root.innerHTML = contentHTML()
+    if (state.loading || state.error) {
+      document.getElementById('admin-notifications-retry')?.addEventListener('click', loadData)
+      return
+    }
+
+    document.getElementById('admin-notification-filters')?.addEventListener('submit', (event) => {
+      event.preventDefault()
+      const form = new FormData(event.currentTarget)
+      Object.keys(filters).forEach((key) => { filters[key] = String(form.get(key) || '').trim() })
+      state.page = 1
+      loadData()
+    })
+    document.getElementById('admin-notification-reset')?.addEventListener('click', () => {
+      Object.keys(filters).forEach((key) => { filters[key] = '' })
+      state.page = 1
+      loadData()
+    })
+    document.getElementById('admin-notification-refresh')?.addEventListener('click', loadData)
+    document.querySelectorAll('[data-page]').forEach((button) => button.addEventListener('click', () => {
+      if (button.dataset.page === 'previous' && state.page > 1) state.page -= 1
+      if (button.dataset.page === 'next' && state.page < state.totalPages) state.page += 1
+      loadData()
+    }))
+    document.querySelectorAll('[data-notification-id]').forEach((button) => button.addEventListener('click', async () => {
+      setBusy(button, true)
+      try {
+        await markNotificationRead(Number(button.dataset.notificationId))
+        notifyAdmin('通知已标记为已读')
+        await loadData()
+      } catch (error) {
+        notifyAdmin(error.message || '标记已读失败', true)
+        setBusy(button, false)
+      }
+    }))
+    document.getElementById('admin-mark-all-read')?.addEventListener('click', async () => {
+      const confirmed = await confirmAdmin({
+        title: '全部标记为已读',
+        message: '将把当前筛选范围内所有未读通知写入已读状态，是否继续？',
+        confirmLabel: '确认标记',
+      })
+      if (!confirmed) return
+      try {
+        const result = await markAllNotificationsRead(filterPayload(filters))
+        notifyAdmin(`已更新 ${result.data.updated_count} 条通知`)
+        await loadData()
+      } catch (error) {
+        notifyAdmin(error.message || '批量标记失败', true)
+      }
+    })
+    document.getElementById('admin-create-notification')?.addEventListener('click', openCreateDialog)
+  }
 
   async function loadData() {
-    state.loading = true; state.error = null
+    state.loading = true
+    state.error = null
     renderView()
     try {
-      const params = { page: state.page, page_size: state.pageSize, ...filters }
-      Object.keys(params).forEach((k) => { if (params[k] === '' || params[k] === undefined) delete params[k] })
-      const result = await getAdminNotifications(params)
-      state.list = result.data.list || []
-      state.total = result.data.total || 0
-    } catch (err) {
-      state.error = err.message
-      state.list = []
+      const result = await getAdminNotifications({
+        page: state.page,
+        page_size: state.pageSize,
+        ...filterPayload(filters),
+      })
+      const data = result.data
+      if (!data || !Array.isArray(data.list) || !Number.isFinite(Number(data.total))) {
+        throw new Error('通知接口返回结构无效。')
+      }
+      state.list = data.list
+      state.total = Number(data.total)
+      state.page = Number(data.page) || state.page
+      state.pageSize = Number(data.page_size) || state.pageSize
+      state.totalPages = Number(data.total_pages) || Math.max(1, Math.ceil(state.total / state.pageSize))
+    } catch (error) {
+      state.error = error.message || '通知数据加载失败，请稍后重试。'
     } finally {
       state.loading = false
       renderView()
     }
   }
 
-  function getContentHTML() {
-    if (state.loading) {
-      return `<div class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>`
-    }
-    if (state.error) {
-      return `<div class="error-state"><div class="error-icon"></div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
-    }
-
-    const totalPages = Math.ceil(state.total / state.pageSize) || 1
-
-    let rows = ''
-    if (state.list.length === 0) {
-      rows = `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--stu-text-muted);">暂无通知</td></tr>`
-    } else {
-      for (const n of state.list) {
-        const typeLabel = notificationTypeLabels[n.notification_type] || n.notification_type
-        const time = n.created_at ? new Date(n.created_at).toLocaleString('zh-CN') : '-'
-        rows += `<tr style="${!n.is_read ? 'font-weight:600;' : ''}">
-          <td>${n.notification_id}</td>
-          <td>
-            <div>${n.title}</div>
-            <div style="font-size:0.78rem;color:var(--stu-text-muted);margin-top:4px;">${n.content || ''}</div>
-          </td>
-          <td><span class="tag tag-student">${typeLabel}</span></td>
-          <td>${n.receiver_name || '-'}</td>
-          <td>
-            <div class="action-btns">
-              ${!n.is_read ? `<button class="btn-mark-read" data-id="${n.notification_id}">标记已读</button>` : '<span style="color:var(--stu-text-muted);font-size:0.82rem;">已读</span>'}
-            </div>
-          </td>
-        </tr>`
-      }
-    }
-
-    let pagination = ''
-    if (state.total > state.pageSize) {
-      pagination = `<div class="pagination">
-        <button ${state.page <= 1 ? 'disabled' : ''} data-page="prev">上一页</button>
-        <span class="page-info">第 ${state.page} / ${totalPages} 页，共 ${state.total} 条</span>
-        <button ${state.page >= totalPages ? 'disabled' : ''} data-page="next">下一页</button>
-      </div>`
-    }
-
-    return `
-      <div style="margin-bottom:12px;">
-        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
-      </div>
-      <div class="section-header">
-        <h2>通知管理</h2>
-        <div style="display:flex;gap:8px;">
-          <button class="btn-sm btn-secondary" id="btn-create-notification">+ 发送通知</button>
-          <button class="btn-sm btn-secondary" id="btn-mark-all-read">全部标记已读</button>
-        </div>
-      </div>
-
-      <div class="search-bar">
-        <select id="filter-type">
-          <option value="">全部类型</option>
-          <option value="system_notice" ${filters.notification_type === 'system_notice' ? 'selected' : ''}>系统通知</option>
-          <option value="task_published" ${filters.notification_type === 'task_published' ? 'selected' : ''}>任务发布</option>
-          <option value="document_review" ${filters.notification_type === 'document_review' ? 'selected' : ''}>文档审核</option>
-        </select>
-        <select id="filter-read">
-          <option value="">全部状态</option>
-          <option value="false" ${filters.is_read === 'false' ? 'selected' : ''}>未读</option>
-          <option value="true" ${filters.is_read === 'true' ? 'selected' : ''}>已读</option>
-        </select>
-        <button class="btn-sm btn-primary" id="btn-search">搜索</button>
-      </div>
-
-      <div class="card">
-        <div class="table-container">
-          <table>
-            <thead><tr>
-              <th>ID</th><th>通知内容</th><th>类型</th><th>接收人</th><th>操作</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        ${pagination}
-      </div>
-    `
-  }
-
-  function renderView() {
-    const contentHTML = getContentHTML()
-    renderDashboardLayout(app, { title: '通知管理', menuItems: ADMIN_MENU_ITEMS, contentHTML, user })
-
-    // 搜索
-    document.getElementById('btn-search')?.addEventListener('click', () => {
-      filters.notification_type = document.getElementById('filter-type')?.value || ''
-      filters.is_read = document.getElementById('filter-read')?.value || ''
-      state.page = 1
-      loadData()
-    })
-
-    // 分页
-    document.querySelectorAll('[data-page]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const action = btn.dataset.page
-        if (action === 'prev' && state.page > 1) { state.page--; loadData() }
-        if (action === 'next') { const tp = Math.ceil(state.total / state.pageSize); if (state.page < tp) { state.page++; loadData() } }
-      })
-    })
-
-    // 标记已读
-    document.querySelectorAll('.btn-mark-read').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const nid = parseInt(btn.dataset.id, 10)
-        try {
-          await markNotificationRead(nid)
-          loadData()
-        } catch (err) { alert('操作失败: ' + err.message) }
-      })
-    })
-
-    // 全部标记已读
-    document.getElementById('btn-mark-all-read')?.addEventListener('click', async () => {
-      if (!confirm('确定将所有通知标记为已读？')) return
-      try {
-        await markAllNotificationsRead(user.user_id)
-        loadData()
-      } catch (err) { alert('操作失败: ' + err.message) }
-    })
-
-    // 创建通知
-    document.getElementById('btn-create-notification')?.addEventListener('click', () => showCreateModal())
-  }
-
-  function showCreateModal() {
-    // 锁定底层滚动
-    const scrollY = window.scrollY
-    document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollY}px`
-    document.body.style.width = '100%'
-
+  function openCreateDialog() {
+    document.getElementById('admin-notification-dialog')?.remove()
     const overlay = document.createElement('div')
+    overlay.id = 'admin-notification-dialog'
     overlay.className = 'modal-overlay'
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);'
-    overlay.innerHTML = `
-      <div class="modal-box" style="background:#fff;border-radius:var(--stu-radius,22px);box-shadow:0 24px 64px rgba(91,33,182,0.15);padding:28px;width:90%;max-width:540px;max-height:85vh;overflow-y:auto;border:1px solid var(--stu-border,rgba(124,58,237,0.12));">
-        <h3 style="font-size:1.1rem;margin-bottom:18px;color:var(--stu-dark,#5B21B6);">📨 发送通知</h3>
-        <div class="form-group" style="margin-bottom:14px;">
-          <label style="display:block;font-size:0.85rem;color:var(--stu-text-secondary);margin-bottom:4px;font-weight:500;">通知类型 *</label>
-          <select id="create-type" style="width:100%;padding:9px 12px;border:1px solid var(--stu-border,rgba(124,58,237,0.12));border-radius:8px;font-size:0.9rem;font-family:var(--font);color:var(--stu-text);outline:none;">
-            <option value="system_notice">系统通知</option>
-            <option value="task_published">任务发布</option>
-            <option value="document_review">文档审核</option>
-          </select>
+    overlay.innerHTML = `<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="admin-notification-dialog-title">
+      <form id="admin-notification-create-form">
+        <div class="section-header">
+          <div><h3 id="admin-notification-dialog-title">发送通知</h3><p>保存后会为匹配的活跃用户创建真实通知记录。</p></div>
+          <button type="button" class="btn-sm btn-secondary" data-close-notification-dialog>关闭</button>
         </div>
-        <div class="form-group" style="margin-bottom:14px;">
-          <label style="display:block;font-size:0.85rem;color:var(--stu-text-secondary);margin-bottom:4px;font-weight:500;">发送对象 *</label>
-          <select id="create-target" style="width:100%;padding:9px 12px;border:1px solid var(--stu-border,rgba(124,58,237,0.12));border-radius:8px;font-size:0.9rem;font-family:var(--font);color:var(--stu-text);outline:none;">
-            <option value="all">全体用户</option>
-            <option value="teacher">仅教师</option>
-            <option value="student">仅学生</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-bottom:14px;">
-          <label style="display:block;font-size:0.85rem;color:var(--stu-text-secondary);margin-bottom:4px;font-weight:500;">通知标题 *</label>
-          <input type="text" id="create-title" placeholder="请输入通知标题" required style="width:100%;padding:9px 12px;border:1px solid var(--stu-border,rgba(124,58,237,0.12));border-radius:8px;font-size:0.9rem;font-family:var(--font);color:var(--stu-text);outline:none;" />
-        </div>
-        <div class="form-group" style="margin-bottom:14px;">
-          <label style="display:block;font-size:0.85rem;color:var(--stu-text-secondary);margin-bottom:4px;font-weight:500;">通知内容</label>
-          <textarea id="create-content" placeholder="请输入通知内容" style="width:100%;padding:9px 12px;border:1px solid var(--stu-border,rgba(124,58,237,0.12));border-radius:8px;font-size:0.9rem;font-family:var(--font);color:var(--stu-text);outline:none;min-height:80px;resize:vertical;"></textarea>
-        </div>
-        <div class="modal-actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
-          <button class="btn-cancel" id="modal-cancel" style="padding:8px 22px;border-radius:10px;font-size:0.88rem;font-family:var(--font);cursor:pointer;background:transparent;border:1px solid var(--stu-border,rgba(124,58,237,0.12));color:var(--stu-text-secondary);transition:all 0.2s;">取消</button>
-          <button class="btn-confirm" id="modal-confirm" style="padding:8px 22px;border-radius:10px;font-size:0.88rem;font-family:var(--font);cursor:pointer;background:var(--stu-primary,#7C3AED);color:#fff;border:none;transition:all 0.2s;">发送</button>
-        </div>
-      </div>
-    `
+        <div class="form-group"><label for="admin-notification-type">通知类型</label><select id="admin-notification-type" name="notification_type" required>${CREATE_TYPE_OPTIONS.map((value) => `<option value="${value}">${escapeHtml(typeLabel(value))}</option>`).join('')}</select></div>
+        <div class="form-group"><label for="admin-notification-target">发送对象</label><select id="admin-notification-target" name="target_role" required><option value="all">全体活跃用户</option><option value="teacher">仅教师</option><option value="student">仅学生</option><option value="admin">仅管理员</option></select></div>
+        <div class="form-group"><label for="admin-notification-title">通知标题</label><input id="admin-notification-title" name="title" maxlength="200" required autocomplete="off"></div>
+        <div class="form-group"><label for="admin-notification-content">通知内容</label><textarea id="admin-notification-content" name="content" maxlength="20000" rows="5"></textarea></div>
+        <div class="modal-actions"><button type="button" class="btn-cancel" data-close-notification-dialog>取消</button><button type="submit" class="btn-confirm">发送通知</button></div>
+      </form>
+    </div>`
+    const modalHost = document.querySelector('.student-dashboard-wrapper.role-admin') || document.body
+    modalHost.appendChild(overlay)
+    document.body.classList.add('admin-modal-open')
 
-    // 插入到 student-dashboard-wrapper 内，确保 CSS 作用域匹配
-    const container = app.querySelector('.student-dashboard-wrapper') || app
-    container.appendChild(overlay)
-
-    // 点击遮罩关闭
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeModal()
-    })
-
-    // 取消按钮
-    overlay.querySelector('#modal-cancel').addEventListener('click', closeModal)
-
-    // 发送
-    overlay.querySelector('#modal-confirm').addEventListener('click', async () => {
-      const title = overlay.querySelector('#create-title').value.trim()
-      if (!title) { alert('请输入通知标题'); return }
-      try {
-        await createAdminNotification({
-          target_role: overlay.querySelector('#create-target').value,
-          notification_type: overlay.querySelector('#create-type').value,
-          title,
-          content: overlay.querySelector('#create-content').value.trim() || null,
-        })
-        closeModal()
-        alert('通知发送成功')
-        loadData()
-      } catch (err) { alert('发送失败: ' + err.message) }
-    })
-
-    function closeModal() {
+    const close = () => {
+      document.removeEventListener('keydown', onKeydown)
       overlay.remove()
-      // 恢复滚动
-      document.body.style.position = ''
-      document.body.style.top = ''
-      document.body.style.width = ''
-      window.scrollTo(0, scrollY)
+      document.body.classList.remove('admin-modal-open')
     }
+    const onKeydown = (event) => { if (event.key === 'Escape') close() }
+    document.addEventListener('keydown', onKeydown)
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) close() })
+    overlay.querySelectorAll('[data-close-notification-dialog]').forEach((button) => button.addEventListener('click', close))
+    overlay.querySelector('form').addEventListener('submit', async (event) => {
+      event.preventDefault()
+      const form = new FormData(event.currentTarget)
+      const button = event.currentTarget.querySelector('[type="submit"]')
+      setBusy(button, true, '正在发送')
+      try {
+        const result = await createAdminNotification({
+          notification_type: form.get('notification_type'),
+          target_role: form.get('target_role'),
+          title: String(form.get('title') || '').trim(),
+          content: String(form.get('content') || '').trim() || null,
+        })
+        close()
+        notifyAdmin(`通知发送成功，已创建 ${result.data.count} 条记录`)
+        state.page = 1
+        await loadData()
+      } catch (error) {
+        notifyAdmin(error.message || '通知发送失败，请稍后重试。', true)
+        setBusy(button, false)
+      }
+    })
+    overlay.querySelector('[name="title"]')?.focus()
   }
 
   await loadData()
 }
-
-

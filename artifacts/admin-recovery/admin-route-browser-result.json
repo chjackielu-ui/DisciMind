@@ -1,0 +1,518 @@
+{
+  "generated_at": "2026-07-15",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "routes": [
+    {
+      "route": "/admin/dashboard",
+      "buttons": 1,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/dashboard",
+      "headings": [
+        "欢迎你，管理员演示",
+        "管理驾驶舱",
+        "系统与服务状态",
+        "最近管理操作"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 933,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/users",
+      "buttons": 55,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/users",
+      "headings": [
+        "用户管理"
+      ],
+      "inputs": 2,
+      "loginVisible": false,
+      "mainChars": 1548,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/courses",
+      "buttons": 6,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/courses",
+      "headings": [
+        "课程管理"
+      ],
+      "inputs": 2,
+      "loginVisible": false,
+      "mainChars": 261,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/courses/1",
+      "buttons": 51,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/courses/1",
+      "headings": [
+        "机器学习",
+        "章节列表（3）",
+        "知识点（10）",
+        "教学班级（2）",
+        "授课教师（1）",
+        "编辑课程"
+      ],
+      "inputs": 19,
+      "loginVisible": false,
+      "mainChars": 273,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/classes",
+      "buttons": 11,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/classes",
+      "headings": [
+        "行政班级管理",
+        "新建班级",
+        "确认删除"
+      ],
+      "inputs": 8,
+      "loginVisible": false,
+      "mainChars": 221,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/knowledge",
+      "buttons": 3,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/knowledge",
+      "headings": [
+        "系统管理",
+        "知识库文档"
+      ],
+      "inputs": 3,
+      "loginVisible": false,
+      "mainChars": 670,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/logs",
+      "buttons": 2,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/logs",
+      "headings": [
+        "操作日志"
+      ],
+      "inputs": 3,
+      "loginVisible": false,
+      "mainChars": 826,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/notifications",
+      "buttons": 17,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/notifications",
+      "headings": [
+        "通知管理"
+      ],
+      "inputs": 6,
+      "loginVisible": false,
+      "mainChars": 1063,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/ai-config",
+      "buttons": 26,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/ai-config",
+      "headings": [
+        "AI 供应商与模型配置",
+        "DeepSeek",
+        "Dify",
+        "讯飞星火",
+        "通义千问",
+        "阿里云百炼"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 692,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/profile",
+      "buttons": 1,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/profile",
+      "headings": [
+        "个人中心",
+        "账户信息",
+        "安全设置"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 185,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/agent-reviews",
+      "buttons": 7,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/agent-reviews",
+      "headings": [
+        "智能体审核与治理",
+        "概率论考点助手",
+        "校园办事问答助手"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 239,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/traces",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/traces",
+      "headings": [
+        "AI 请求轨迹"
+      ],
+      "inputs": 3,
+      "loginVisible": false,
+      "mainChars": 120,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/learning-flows",
+      "buttons": 21,
+      "docClientWidth": 1434,
+      "docScrollWidth": 1434,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/learning-flows",
+      "headings": [
+        "学习流治理中心",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 1487,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/agents",
+      "buttons": 6,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/agents",
+      "headings": [
+        "智能体运营与版本"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 125,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/evaluations",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/evaluations",
+      "headings": [
+        "多智能体能力评测",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 311,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/experiments",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/experiments",
+      "headings": [
+        "AI 教学沙盒与灰度发布",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 260,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/knowledge-health",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/knowledge-health",
+      "headings": [
+        "知识库健康度中心",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 316,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/teaching-issues",
+      "buttons": 3,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/teaching-issues",
+      "headings": [
+        "教学问题雷达与干预",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 313,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/digital-twin",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/digital-twin",
+      "headings": [
+        "教学数字孪生班级",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 277,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/assets",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/assets",
+      "headings": [
+        "AI 教学资产沉淀中心",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 287,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/strategy-profiles",
+      "buttons": 2,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/strategy-profiles",
+      "headings": [
+        "学生学习策略画像",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 238,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/risks",
+      "buttons": 1,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/risks",
+      "headings": [
+        "AI 安全与异常行为治理",
+        "治理记录"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 264,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    },
+    {
+      "route": "/admin/environment",
+      "buttons": 5,
+      "docClientWidth": 1440,
+      "docScrollWidth": 1440,
+      "errorMarkers": [],
+      "hasPageError": false,
+      "hash": "#/admin/environment",
+      "headings": [
+        "环境状态",
+        "database",
+        "ai encryption",
+        "qdrant",
+        "dify",
+        "libreoffice"
+      ],
+      "inputs": 0,
+      "loginVisible": false,
+      "mainChars": 453,
+      "navMainOverlap": false,
+      "pageOverflow": false,
+      "scrollY": 0
+    }
+  ],
+  "summary": {
+    "routes_total": 23,
+    "authenticated": 23,
+    "page_overflow_failures": 0,
+    "nav_overlap_failures": 0,
+    "error_marker_failures": 0,
+    "console_warning_or_error": 0
+  },
+  "user_table": {
+    "container": {
+      "clientWidth": 1268,
+      "overflowX": "auto",
+      "scrollWidth": 1666
+    },
+    "doc": {
+      "clientWidth": 1434,
+      "overflow": false,
+      "scrollWidth": 1434
+    },
+    "table": {
+      "minWidth": "1580px",
+      "width": 1666
+    }
+  },
+  "user_modal_1024x768": {
+    "clientHeight": 657,
+    "fits": true,
+    "overflowY": "auto",
+    "pageOverflow": false,
+    "rect": {
+      "bottom": 712,
+      "h": 657,
+      "right": 799,
+      "w": 580,
+      "x": 219,
+      "y": 56
+    },
+    "scrollHeight": 657,
+    "viewport": {
+      "h": 768,
+      "w": 1024
+    }
+  },
+  "user_table_1024x768": {
+    "container": {
+      "clientWidth": 852,
+      "overflowX": "auto",
+      "scrollWidth": 1666
+    },
+    "doc": {
+      "clientWidth": 1018,
+      "overflow": false,
+      "scrollWidth": 1018
+    },
+    "stickyAction": {
+      "right": 977,
+      "viewportRight": 1024,
+      "visible": true
+    },
+    "tableWidth": 1666
+  }
+}

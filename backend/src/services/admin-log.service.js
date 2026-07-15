@@ -4,6 +4,17 @@
 const prisma = require('../config/prisma');
 const { fromPrismaRole } = require('../utils/enum');
 
+function inputError(message) {
+  return Object.assign(new Error(message), { code: 40001, status: 400 });
+}
+
+function parseDate(value, label) {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) throw inputError(`${label}格式不合法`);
+  return parsed;
+}
+
 /**
  * 获取操作日志列表（分页 + 筛选）
  */
@@ -12,14 +23,30 @@ async function getOperationLogs(query = {}) {
   const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 10));
   const skip = (page - 1) * pageSize;
 
-  const where = {};
+  const where = { AND: [] };
+
+  const keyword = String(query.keyword || '').trim();
+  if (keyword) {
+    if (keyword.length > 100) throw inputError('搜索关键词不能超过 100 个字符');
+    where.AND.push({ OR: [
+      { operation_type: { contains: keyword } },
+      { operation_desc: { contains: keyword } },
+      { target_type: { contains: keyword } },
+      { user: { is: { OR: [
+        { username: { contains: keyword } },
+        { profile: { real_name: { contains: keyword } } },
+      ] } } },
+    ] });
+  }
 
   if (query.operation_type) {
     where.operation_type = String(query.operation_type);
   }
 
   if (query.user_id) {
-    where.user_id = parseInt(query.user_id, 10);
+    const userId = Number(query.user_id);
+    if (!Number.isInteger(userId) || userId <= 0) throw inputError('用户 ID 不合法');
+    where.user_id = userId;
   }
 
   if (query.target_type) {
@@ -28,13 +55,22 @@ async function getOperationLogs(query = {}) {
 
   if (query.start_date || query.end_date) {
     where.created_at = {};
-    if (query.start_date) {
-      where.created_at.gte = new Date(query.start_date);
+    const start = parseDate(query.start_date, '开始日期');
+    const end = parseDate(query.end_date, '结束日期');
+    const endIsDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(query.end_date || ''));
+    if (start) where.created_at.gte = start;
+    if (end) {
+      if (endIsDateOnly) {
+        end.setUTCDate(end.getUTCDate() + 1);
+        where.created_at.lt = end;
+      } else {
+        where.created_at.lte = end;
+      }
     }
-    if (query.end_date) {
-      where.created_at.lte = new Date(query.end_date);
-    }
+    if (start && end && start >= end) throw inputError('开始日期必须早于结束日期');
   }
+
+  if (where.AND.length === 0) delete where.AND;
 
   const [logs, total] = await Promise.all([
     prisma.operationLog.findMany({
@@ -63,7 +99,7 @@ async function getOperationLogs(query = {}) {
     created_at: log.created_at,
   }));
 
-  return { list, total, page, page_size: pageSize };
+  return { list, total, page, page_size: pageSize, total_pages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
 module.exports = { getOperationLogs };

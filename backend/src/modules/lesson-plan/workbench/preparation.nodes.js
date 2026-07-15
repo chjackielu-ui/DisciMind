@@ -49,7 +49,6 @@ async function callStructured(state, agentKey, instruction, fallback) {
         }) },
       ],
       options: { temperature: 0.35, maxTokens: 1800 },
-      fallbackMock: false,
     });
     const value = parseJson(response.content);
     if (!value) throw new Error('模型未返回合法 JSON');

@@ -1,0 +1,27 @@
+{
+  "mounts": {
+    "student_tasks": "frontend/src/utils/dashboard.js -> mountTaskCenter",
+    "student_messages": "frontend/src/utils/dashboard.js -> mountStudentNotificationCenter",
+    "teacher_tasks_and_messages": "frontend/src/utils/dashboard.js -> mountTeacherGlobalOverlays",
+    "admin": "no dedicated mount before rebuild; stale shared overlay could survive role changes"
+  },
+  "duplicate_surfaces": {
+    "student": true,
+    "teacher": true
+  },
+  "transports": {
+    "tasks_sse": true,
+    "student_message_polling": true,
+    "teacher_overlay_polling": true
+  },
+  "role_guards": {
+    "global_notifications": true,
+    "student_ai_render_guard": true,
+    "teacher_overlay_historically_accepts_admin": false
+  },
+  "endpoints": {
+    "notifications": "/api/notifications",
+    "tasks": "/api/tasks",
+    "tasks_stream": "/api/tasks/stream"
+  }
+}

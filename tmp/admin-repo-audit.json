@@ -1,0 +1,1114 @@
+{
+  "admin_pages": [
+    "frontend/src/pages/admin-agent-reviews.js",
+    "frontend/src/pages/admin-ai-config.js",
+    "frontend/src/pages/admin-classes.js",
+    "frontend/src/pages/admin-course-detail.js",
+    "frontend/src/pages/admin-courses.js",
+    "frontend/src/pages/admin-dashboard.js",
+    "frontend/src/pages/admin-knowledge.js",
+    "frontend/src/pages/admin-logs.js",
+    "frontend/src/pages/admin-notifications.js",
+    "frontend/src/pages/admin-profile.js",
+    "frontend/src/pages/admin-users.js"
+  ],
+  "prisma_models": [
+    "User",
+    "AsyncTask",
+    "RefreshToken",
+    "AuthSession",
+    "UserProfile",
+    "AdminClass",
+    "College",
+    "Major",
+    "AcademicSemester",
+    "Course",
+    "CourseOffering",
+    "CourseTeacherRelation",
+    "TeachingClass",
+    "TeachingClassTeacherAuthorization",
+    "TeachingClassAdminClass",
+    "StudentCourseEnrollment",
+    "Chapter",
+    "KnowledgePoint",
+    "KnowledgePointAlias",
+    "KnowledgeBase",
+    "KnowledgeDocument",
+    "ResourceDistribution",
+    "ResourceRecipient",
+    "KnowledgeDocumentChunk",
+    "KnowledgeDocumentReview",
+    "AiConversation",
+    "AiMessage",
+    "AiChatAttachment",
+    "SubjectChatRun",
+    "SubjectChatTask",
+    "SubjectChatEvent",
+    "SubjectChatSource",
+    "ChatConversation",
+    "ChatMessage",
+    "MessageSource",
+    "StudentQuestionRecord",
+    "QuestionAnalysisRecord",
+    "QuestionKeyword",
+    "QuestionConfusionTag",
+    "QuestionKnowledgePointMapping",
+    "QuestionBank",
+    "QuestionBankTeachingClass",
+    "QuestionBankKnowledgePoint",
+    "QuestionBankQuestion",
+    "AiQuestionGenerationLog",
+    "AiQuestionGenerationQuestion",
+    "Question",
+    "QuestionOption",
+    "LearningTask",
+    "TaskQuestion",
+    "LearningTaskRecipient",
+    "TeachingTaskAttachment",
+    "TaskKnowledgePoint",
+    "TaskSubmission",
+    "PracticeSession",
+    "PracticeSessionQuestion",
+    "TrainerSessionDetail",
+    "TrainerSessionQuestion",
+    "AnswerRecord",
+    "TrainerAnswerDetail",
+    "AiGradingRecord",
+    "ProgrammingSubmission",
+    "WrongQuestion",
+    "WrongQuestionTag",
+    "WrongQuestionTagRelation",
+    "WrongQuestionCollection",
+    "WrongQuestionCollectionItem",
+    "AiGenerationJob",
+    "StudyRecord",
+    "StudentMasteryRecord",
+    "StudentPortrait",
+    "StudentPortraitSnapshot",
+    "StudentResearchProfile",
+    "StudentCompetitionProfile",
+    "RecommendationRecord",
+    "RecommendationItem",
+    "LearningPath",
+    "LearningPathStep",
+    "ReviewPlan",
+    "ReviewPlanItem",
+    "VideoResource",
+    "VideoGenerationTask",
+    "AiModelConfig",
+    "AiAgentConfig",
+    "AgentRunRecord",
+    "AgentConversation",
+    "AgentIntervention",
+    "AgentDiagnosticReport",
+    "AiCallLog",
+    "DocumentSummaryRecord",
+    "Notification",
+    "TeacherReminder",
+    "OperationLog",
+    "FeedbackRecord",
+    "SafetyCheckRecord",
+    "SystemConfig",
+    "AgentCategory",
+    "AgentTag",
+    "UserAgent",
+    "UserAgentVersion",
+    "AgentVersionTag",
+    "AgentKnowledgeBase",
+    "MarketplaceAgentConversation",
+    "GeneratedArtifact",
+    "GeneratedArtifactExport",
+    "LearningFlowResourceLink",
+    "LearningFlowPreload",
+    "StudentLearningContext",
+    "StudentLearningPlan",
+    "MarketplaceAgentMessage",
+    "AgentMessageSource",
+    "AgentMemory",
+    "MarketplaceAgentInvocation",
+    "AgentFavorite",
+    "AgentRating",
+    "AgentReport",
+    "AgentReviewRecord",
+    "KnowledgeBaseReviewRecord",
+    "LearningWorkflowTemplate",
+    "LearningWorkflowVersion",
+    "LearningGoal",
+    "LearningSession",
+    "LearningSessionNodeRun",
+    "LearningSessionEvent",
+    "LearningNarrationAsset",
+    "AiFlowGenerationJob",
+    "LessonPlan",
+    "LessonPlanVersion",
+    "EditableTeachingDocument",
+    "EditableTeachingDocumentVersion",
+    "DocumentRevision",
+    "LessonPlanAgentExecution",
+    "TeacherAnalyticsSnapshot",
+    "TeacherStudentIntervention",
+    "Homework",
+    "HomeworkSubmission",
+    "HomeworkMarkRecord"
+  ],
+  "backend_admin_routes": [
+    [
+      "get",
+      "/dashboard"
+    ],
+    [
+      "get",
+      "/users"
+    ],
+    [
+      "post",
+      "/users"
+    ],
+    [
+      "put",
+      "/users/:user_id/status"
+    ],
+    [
+      "put",
+      "/users/:user_id/password"
+    ],
+    [
+      "put",
+      "/users/:user_id"
+    ],
+    [
+      "delete",
+      "/users/:user_id"
+    ],
+    [
+      "get",
+      "/courses"
+    ],
+    [
+      "post",
+      "/courses"
+    ],
+    [
+      "get",
+      "/courses/:course_id"
+    ],
+    [
+      "put",
+      "/courses/:course_id"
+    ],
+    [
+      "delete",
+      "/courses/:course_id"
+    ],
+    [
+      "post",
+      "/courses/:course_id/teachers"
+    ],
+    [
+      "delete",
+      "/courses/:course_id/teachers/:teacher_user_id"
+    ],
+    [
+      "get",
+      "/courses/:course_id/chapters"
+    ],
+    [
+      "post",
+      "/courses/:course_id/chapters"
+    ],
+    [
+      "put",
+      "/chapters/:chapter_id"
+    ],
+    [
+      "delete",
+      "/chapters/:chapter_id"
+    ],
+    [
+      "get",
+      "/courses/:course_id/knowledge-points"
+    ],
+    [
+      "post",
+      "/knowledge-points"
+    ],
+    [
+      "put",
+      "/knowledge-points/:knowledge_point_id"
+    ],
+    [
+      "delete",
+      "/knowledge-points/:knowledge_point_id"
+    ],
+    [
+      "get",
+      "/admin-classes"
+    ],
+    [
+      "post",
+      "/admin-classes"
+    ],
+    [
+      "put",
+      "/admin-classes/:admin_class_id"
+    ],
+    [
+      "delete",
+      "/admin-classes/:admin_class_id"
+    ],
+    [
+      "get",
+      "/courses/:course_id/teaching-classes"
+    ],
+    [
+      "post",
+      "/courses/:course_id/teaching-classes"
+    ],
+    [
+      "put",
+      "/teaching-classes/:teaching_class_id"
+    ],
+    [
+      "delete",
+      "/teaching-classes/:teaching_class_id"
+    ],
+    [
+      "get",
+      "/teaching-classes/:teaching_class_id/students"
+    ],
+    [
+      "post",
+      "/teaching-classes/:teaching_class_id/students"
+    ],
+    [
+      "delete",
+      "/teaching-classes/:teaching_class_id/students/:student_user_id"
+    ],
+    [
+      "get",
+      "/knowledge-documents"
+    ],
+    [
+      "put",
+      "/knowledge-documents/:document_id/review"
+    ],
+    [
+      "get",
+      "/operation-logs"
+    ],
+    [
+      "get",
+      "/notifications"
+    ],
+    [
+      "post",
+      "/notifications"
+    ],
+    [
+      "put",
+      "/notifications/:notification_id/read"
+    ],
+    [
+      "put",
+      "/notifications/read-all"
+    ],
+    [
+      "get",
+      "/ai-model-configs"
+    ],
+    [
+      "post",
+      "/ai-model-configs"
+    ],
+    [
+      "get",
+      "/ai-call-logs"
+    ]
+  ],
+  "frontend_admin_routes": [
+    "/admin/agent-reviews",
+    "/admin/ai-config",
+    "/admin/classes",
+    "/admin/courses",
+    "/admin/dashboard",
+    "/admin/knowledge",
+    "/admin/logs",
+    "/admin/notifications",
+    "/admin/profile",
+    "/admin/users"
+  ],
+  "risks": [
+    {
+      "type": "mock_markers",
+      "file": "docs/09-admin-api-supplement.md",
+      "count": 3
+    },
+    {
+      "type": "emoji",
+      "file": "docs/10-video-kg-feature.md",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "docs/11-video-search-api.md",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "docs/13-agent-workflow-design.md",
+      "count": 1
+    },
+    {
+      "type": "mock_markers",
+      "file": "docs/admin-current-state-audit.md",
+      "count": 3
+    },
+    {
+      "type": "mock_markers",
+      "file": "docs/DisciMind-产品需求规格说明书.md",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "scripts/smoke-diagnostician.js",
+      "count": 4
+    },
+    {
+      "type": "emoji",
+      "file": "scripts/test-attempt-system.js",
+      "count": 6
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/api/learning-goals.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/components/agent-icon.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/components/task-center.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/admin-agent-reviews.js",
+      "count": 3
+    },
+    {
+      "type": "mock_markers",
+      "file": "frontend/src/pages/admin-ai-config.js",
+      "count": 7
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-ai-config.js",
+      "count": 10
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-classes.js",
+      "count": 10
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/admin-course-detail.js",
+      "count": 4
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/admin-course-detail.js",
+      "count": 20
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-course-detail.js",
+      "count": 135
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/admin-courses.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/admin-courses.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-courses.js",
+      "count": 16
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/admin-dashboard.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-dashboard.js",
+      "count": 4
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/admin-knowledge.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/admin-knowledge.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-knowledge.js",
+      "count": 9
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-logs.js",
+      "count": 4
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/admin-notifications.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/admin-notifications.js",
+      "count": 6
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-notifications.js",
+      "count": 24
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/admin-profile.js",
+      "count": 1
+    },
+    {
+      "type": "mock_markers",
+      "file": "frontend/src/pages/admin-profile.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-profile.js",
+      "count": 10
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/admin-users.js",
+      "count": 13
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/admin-users.js",
+      "count": 71
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/login.js",
+      "count": 9
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/login.js",
+      "count": 13
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/register.js",
+      "count": 2
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/student-ai-chat.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-ai-chat.js",
+      "count": 4
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-ai-chat.js",
+      "count": 2
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-course-detail.js",
+      "count": 12
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-course-detail.js",
+      "count": 22
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-courses.js",
+      "count": 7
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-courses.js",
+      "count": 5
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/student-dashboard.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-diagnostician.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-diagnostician.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-documents.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-documents.js",
+      "count": 17
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-learning-context.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/student-learning-flow-editor.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-learning-flow-editor.js",
+      "count": 18
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/student-learning-flows.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-learning-flows.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-learning-flows.js",
+      "count": 2
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-learning-session.js",
+      "count": 7
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/student-learning-session.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-learning-session.js",
+      "count": 22
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-learning-summary.js",
+      "count": 4
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-portrait.js",
+      "count": 9
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-practice-center.js",
+      "count": 2
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-practice-center.js",
+      "count": 2
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-practice-center.js",
+      "count": 2
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-practice-session.js",
+      "count": 6
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-practice-session.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-practice-session.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-recommendations.js",
+      "count": 28
+    },
+    {
+      "type": "mock_markers",
+      "file": "frontend/src/pages/student-recommendations.js",
+      "count": 4
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-recommendations.js",
+      "count": 8
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-submission-result.js",
+      "count": 8
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-task-answer.js",
+      "count": 6
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/student-trainer-session.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-trainer-session.js",
+      "count": 5
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-videos.js",
+      "count": 4
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/student-wrong-questions.js",
+      "count": 13
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/student-wrong-questions.js",
+      "count": 9
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-artifacts.js",
+      "count": 3
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-classes.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-classes.js",
+      "count": 7
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-classes.js",
+      "count": 62
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-course-detail.js",
+      "count": 6
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-course-detail.js",
+      "count": 17
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-course-detail.js",
+      "count": 145
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-courses.js",
+      "count": 7
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-courses.js",
+      "count": 4
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-courses.js",
+      "count": 24
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-dashboard.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-homework.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-homework.js",
+      "count": 14
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-homework.js",
+      "count": 141
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-knowledge.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-lesson-plan.js",
+      "count": 2
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-lesson-plan.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-lesson-plan.js",
+      "count": 145
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/teacher-preparation-immersive.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-preparation-immersive.js",
+      "count": 4
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-preparation-immersive.js",
+      "count": 4
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-question-create.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-question-create.js",
+      "count": 15
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-questions.js",
+      "count": 2
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-student-detail.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-student-detail.js",
+      "count": 20
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-students.js",
+      "count": 13
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-students.js",
+      "count": 117
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-system-management.js",
+      "count": 24
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-system-management.js",
+      "count": 228
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-task-detail.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-task-detail.js",
+      "count": 2
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-task-detail.js",
+      "count": 31
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/pages/teacher-tasks.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/teacher-tasks.js",
+      "count": 2
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/teacher-tasks.js",
+      "count": 25
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/utils/course-cover.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/utils/dashboard.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/utils/dashboard.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/utils/echarts.js",
+      "count": 1
+    },
+    {
+      "type": "emoji",
+      "file": "frontend/src/utils/learning-agent-result.js",
+      "count": 10
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/AgentChatPage.js",
+      "count": 8
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/AgentCreatePage.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/agent/AgentDetailPage.js",
+      "count": 2
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/AgentMarketPage.js",
+      "count": 5
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/AgentTasksPage.js",
+      "count": 2
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/agent/AgentTasksPage.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/FileGeneratorChat.js",
+      "count": 1
+    },
+    {
+      "type": "mock_markers",
+      "file": "frontend/src/pages/agent/FileGeneratorChat.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/GeneratedArtifactsPage.js",
+      "count": 4
+    },
+    {
+      "type": "native_dialog",
+      "file": "frontend/src/pages/agent/KnowledgeBasesPage.js",
+      "count": 5
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/pages/agent/KnowledgeBasesPage.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "frontend/src/pages/agent/marketplace-shared.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/modules/student/portrait-report-exporter.js",
+      "count": 2
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/modules/student/portrait-report-template.js",
+      "count": 8
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/components/common/exam-leave-modal.js",
+      "count": 1
+    },
+    {
+      "type": "inline_style",
+      "file": "frontend/src/components/practice/practice-tags.js",
+      "count": 4
+    },
+    {
+      "type": "random_data",
+      "file": "backend/prisma/seed-expand.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "backend/prisma/seed-teacher.js",
+      "count": 2
+    },
+    {
+      "type": "mock_markers",
+      "file": "backend/test/agent-result-parser.test.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "backend/test/file-generation.test.js",
+      "count": 2
+    },
+    {
+      "type": "native_dialog",
+      "file": "backend/test/task-center-state.test.js",
+      "count": 1
+    },
+    {
+      "type": "native_dialog",
+      "file": "backend/test/teacher-preparation-document.test.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "backend/test/trainer-agent.test.js",
+      "count": 1
+    },
+    {
+      "type": "mock_markers",
+      "file": "backend/src/controllers/admin-ai.controller.js",
+      "count": 6
+    },
+    {
+      "type": "mock_markers",
+      "file": "backend/src/services/ai.service.js",
+      "count": 21
+    },
+    {
+      "type": "mock_markers",
+      "file": "backend/src/services/grading.service.js",
+      "count": 2
+    },
+    {
+      "type": "random_data",
+      "file": "backend/src/services/practice.service.js",
+      "count": 1
+    },
+    {
+      "type": "mock_markers",
+      "file": "backend/src/services/student-chat.service.js",
+      "count": 3
+    },
+    {
+      "type": "inline_style",
+      "file": "backend/src/services/teacher-preparation-document.service.js",
+      "count": 2
+    },
+    {
+      "type": "inline_style",
+      "file": "backend/src/modules/file-generator/file-generation.service.js",
+      "count": 1
+    },
+    {
+      "type": "mock_markers",
+      "file": "backend/src/modules/file-generator/file-requirement.schemas.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "backend/src/modules/learning-workflow/learning-workflow.routes.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "backend/src/modules/learning-workflow/workflow-runtime.service.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "backend/src/modules/learning-workflow/workflow-template.service.js",
+      "count": 1
+    },
+    {
+      "type": "random_data",
+      "file": "backend/src/modules/learning-agent/routes/learning-agent.routes.js",
+      "count": 1
+    }
+  ],
+  "summary": {
+    "admin_page_count": 11,
+    "prisma_model_count": 137,
+    "backend_admin_route_count": 43,
+    "frontend_admin_route_count": 10,
+    "risk_file_count": 96
+  }
+}

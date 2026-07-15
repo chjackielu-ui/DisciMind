@@ -4,6 +4,9 @@ import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
+import { resetUserPassword } from '../api/admin.js'
+import { promptAdmin, notifyAdmin, confirmAdmin } from '../utils/admin-ui.js'
+import { escapeHtml } from '../utils/format.js'
 
 export async function renderAdminProfile(app) {
   let user = getUser()
@@ -25,7 +28,7 @@ export async function renderAdminProfile(app) {
   const contentHTML = `
     <div class="dashboard-content">
       <div style="margin-bottom:12px;">
-        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
+        <a href="#/admin/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">返回管理看板</a>
       </div>
       <div class="section-header">
         <h2>个人中心</h2>
@@ -36,11 +39,11 @@ export async function renderAdminProfile(app) {
         <div class="user-info-grid">
           <div class="info-item">
             <span class="info-label">用户 ID</span>
-            <span class="info-value">${user.user_id || '-'}</span>
+            <span class="info-value">${escapeHtml(user.user_id || '-')}</span>
           </div>
           <div class="info-item">
             <span class="info-label">用户名</span>
-            <span class="info-value">${user.username || '-'}</span>
+            <span class="info-value">${escapeHtml(user.username || '-')}</span>
           </div>
           <div class="info-item">
             <span class="info-label">角色</span>
@@ -48,23 +51,23 @@ export async function renderAdminProfile(app) {
           </div>
           <div class="info-item">
             <span class="info-label">真实姓名</span>
-            <span class="info-value">${user.profile?.real_name || '-'}</span>
+            <span class="info-value">${escapeHtml(user.profile?.real_name || '-')}</span>
           </div>
           <div class="info-item">
             <span class="info-label">邮箱</span>
-            <span class="info-value">${user.email || '-'}</span>
+            <span class="info-value">${escapeHtml(user.email || '-')}</span>
           </div>
           <div class="info-item">
             <span class="info-label">手机号</span>
-            <span class="info-value">${user.phone || '-'}</span>
+            <span class="info-value">${escapeHtml(user.phone || '-')}</span>
           </div>
           <div class="info-item">
             <span class="info-label">学院</span>
-            <span class="info-value">${user.profile?.college || '-'}</span>
+            <span class="info-value">${escapeHtml(user.profile?.college || '-')}</span>
           </div>
           <div class="info-item">
             <span class="info-label">专业</span>
-            <span class="info-value">${user.profile?.major || '-'}</span>
+            <span class="info-value">${escapeHtml(user.profile?.major || '-')}</span>
           </div>
         </div>
       </div>
@@ -82,9 +85,9 @@ export async function renderAdminProfile(app) {
           <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;">
             <div>
               <div style="font-weight:600;color:var(--stu-text);">AI 功能配置</div>
-              <div style="font-size:0.82rem;color:var(--stu-text-muted);">该功能正在开发中，敬请期待</div>
+              <div style="font-size:0.82rem;color:var(--stu-text-muted);">统一管理供应商、模型、Agent 与环境状态</div>
             </div>
-            <button class="btn-sm btn-secondary" style="opacity:0.5;cursor:not-allowed;" disabled>开发中</button>
+            <a class="btn-sm btn-secondary" href="#/admin/ai-config">进入配置中心</a>
           </div>
         </div>
       </div>
@@ -98,9 +101,11 @@ export async function renderAdminProfile(app) {
     user,
   })
 
-  document.getElementById('btn-change-password')?.addEventListener('click', () => {
-    alert('该功能正在开发中，敬请期待')
+  document.getElementById('btn-change-password')?.addEventListener('click', async () => {
+    const password = await promptAdmin({ title: '修改管理员密码', label: '新密码', placeholder: '至少 6 位字符', multiline: false })
+    if (!password) return
+    if (password.length < 6) { notifyAdmin('新密码至少需要 6 位字符', true); return }
+    if (!(await confirmAdmin({ title: '确认修改密码', message: '修改后下次登录需使用新密码。', confirmLabel: '修改密码', danger: true }))) return
+    try { await resetUserPassword(user.user_id, password); notifyAdmin('密码修改成功') } catch (error) { notifyAdmin(error.message || '密码修改失败', true) }
   })
 }
-
-
