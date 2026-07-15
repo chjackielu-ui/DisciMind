@@ -35,7 +35,7 @@ async function createCourse(req, res) {
     if (!course_name || !course_code || !subject_category) {
       return fail(res, 40001, '课程名称、课程编码、学科分类为必填项');
     }
-    const data = await courseService.createCourse({ course_name, course_code, subject_category, description, cover_url, status });
+    const data = await courseService.createCourse({ course_name, course_code, subject_category, description, cover_url, status }, req);
     return success(res, data, '课程创建成功');
   } catch (err) {
     return handleError(res, 'createCourse', err);
@@ -55,7 +55,7 @@ async function getCourseDetail(req, res) {
 async function updateCourse(req, res) {
   try {
     const courseId = parseId(req.params.course_id, 'course_id');
-    const data = await courseService.updateCourse(courseId, req.body || {});
+    const data = await courseService.updateCourse(courseId, req.body || {}, req);
     return success(res, data, '课程更新成功');
   } catch (err) {
     return handleError(res, 'updateCourse', err);
@@ -65,7 +65,7 @@ async function updateCourse(req, res) {
 async function deleteCourse(req, res) {
   try {
     const courseId = parseId(req.params.course_id, 'course_id');
-    const data = await courseService.deleteCourse(courseId);
+    const data = await courseService.deleteCourse(courseId, req);
     return success(res, data, '课程已归档');
   } catch (err) {
     return handleError(res, 'deleteCourse', err);
@@ -79,7 +79,7 @@ async function bindTeacher(req, res) {
     if (!teacher_user_id || !teacher_role) {
       return fail(res, 40001, '教师 ID 和教师角色为必填项');
     }
-    const data = await courseService.bindTeacher(courseId, parseInt(teacher_user_id, 10), teacher_role);
+    const data = await courseService.bindTeacher(courseId, parseInt(teacher_user_id, 10), teacher_role, req);
     return success(res, data, '教师绑定成功');
   } catch (err) {
     return handleError(res, 'bindTeacher', err);
@@ -90,7 +90,7 @@ async function unbindTeacher(req, res) {
   try {
     const courseId = parseId(req.params.course_id, 'course_id');
     const teacherUserId = parseId(req.params.teacher_user_id, 'teacher_user_id');
-    const data = await courseService.unbindTeacher(courseId, teacherUserId);
+    const data = await courseService.unbindTeacher(courseId, teacherUserId, req);
     return success(res, data, '教师已解绑');
   } catch (err) {
     return handleError(res, 'unbindTeacher', err);
@@ -116,7 +116,7 @@ async function createChapter(req, res) {
     if (!chapter_name) {
       return fail(res, 40001, '章节名称为必填项');
     }
-    const data = await courseService.createChapter(courseId, { chapter_name, chapter_order, description });
+    const data = await courseService.createChapter(courseId, { chapter_name, chapter_order, description }, req);
     return success(res, data, '章节创建成功');
   } catch (err) {
     return handleError(res, 'createChapter', err);
@@ -126,7 +126,7 @@ async function createChapter(req, res) {
 async function updateChapter(req, res) {
   try {
     const chapterId = parseId(req.params.chapter_id, 'chapter_id');
-    const data = await courseService.updateChapter(chapterId, req.body || {});
+    const data = await courseService.updateChapter(chapterId, req.body || {}, req);
     return success(res, data, '章节更新成功');
   } catch (err) {
     return handleError(res, 'updateChapter', err);
@@ -136,7 +136,7 @@ async function updateChapter(req, res) {
 async function deleteChapter(req, res) {
   try {
     const chapterId = parseId(req.params.chapter_id, 'chapter_id');
-    const data = await courseService.deleteChapter(chapterId);
+    const data = await courseService.deleteChapter(chapterId, req);
     return success(res, data, '章节已删除');
   } catch (err) {
     return handleError(res, 'deleteChapter', err);
@@ -171,7 +171,7 @@ async function createKnowledgePoint(req, res) {
       parent_id: parent_id ? parseInt(parent_id, 10) : null,
       aliases,
       sort_order,
-    });
+    }, req);
     return success(res, data, '知识点创建成功');
   } catch (err) {
     return handleError(res, 'createKnowledgePoint', err);
@@ -181,7 +181,7 @@ async function createKnowledgePoint(req, res) {
 async function updateKnowledgePoint(req, res) {
   try {
     const pointId = parseId(req.params.knowledge_point_id, 'knowledge_point_id');
-    const data = await courseService.updateKnowledgePoint(pointId, req.body || {});
+    const data = await courseService.updateKnowledgePoint(pointId, req.body || {}, req);
     return success(res, data, '知识点更新成功');
   } catch (err) {
     return handleError(res, 'updateKnowledgePoint', err);
@@ -191,7 +191,7 @@ async function updateKnowledgePoint(req, res) {
 async function deleteKnowledgePoint(req, res) {
   try {
     const pointId = parseId(req.params.knowledge_point_id, 'knowledge_point_id');
-    const data = await courseService.deleteKnowledgePoint(pointId);
+    const data = await courseService.deleteKnowledgePoint(pointId, req);
     return success(res, data, '知识点已删除');
   } catch (err) {
     return handleError(res, 'deleteKnowledgePoint', err);

@@ -60,13 +60,25 @@ import { renderAdminUsers } from '../pages/admin-users.js'
 import { renderAdminCourses } from '../pages/admin-courses.js'
 import { renderAdminCourseDetail } from '../pages/admin-course-detail.js'
 import { renderAdminClasses } from '../pages/admin-classes.js'
+import { renderAdminTeachingClasses } from '../pages/admin-teaching-classes.js'
 import { renderAdminKnowledge } from '../pages/admin-knowledge.js'
 import { renderAdminLogs } from '../pages/admin-logs.js'
 import { renderAdminNotifications } from '../pages/admin-notifications.js'
 import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
 import { renderAdminProfile } from '../pages/admin-profile.js'
 import { renderAdminAgentReviews } from '../pages/admin-agent-reviews.js'
-import { unmountTeacherGlobalOverlays } from '../components/teacher-global-assistant.js'
+import { renderAdminTraces } from '../pages/admin-traces.js'
+import { renderAdminPermissions } from '../pages/admin-permissions.js'
+import {
+  renderAdminLearningFlows, renderAdminKnowledgeHealth, renderAdminTeachingIssues,
+  renderAdminEvaluations, renderAdminExperiments, renderAdminDigitalTwin,
+  renderAdminAssets, renderAdminStrategyProfiles, renderAdminRisks,
+} from '../pages/admin-governance.js'
+import { loadAdminAccess, hasAdminPermission } from './admin-access.js'
+import { ADMIN_MENU_ITEMS } from './admin-menu.js'
+import { renderDashboardLayout } from './dashboard.js'
+import { unmountUnifiedTaskMessageCenter } from '../components/unified-task-message-center.js'
+import { escapeHtml } from './format.js'
 
 // ============================================================
 // 教师端页面导入区域（教师端开发者在此添加 import）
@@ -135,16 +147,30 @@ const staticRoutes = {
 
   // ========== 教师端路由（教师端开发者在此区域添加）==========
 
-  '/admin/dashboard': { render: renderAdminDashboard, auth: true, roles: ['admin'] },
-  '/admin/users': { render: renderAdminUsers, auth: true, roles: ['admin'] },
-  '/admin/courses': { render: renderAdminCourses, auth: true, roles: ['admin'] },
-  '/admin/classes': { render: renderAdminClasses, auth: true, roles: ['admin'] },
-  '/admin/knowledge': { render: renderAdminKnowledge, auth: true, roles: ['admin'] },
-  '/admin/logs': { render: renderAdminLogs, auth: true, roles: ['admin'] },
-  '/admin/notifications': { render: renderAdminNotifications, auth: true, roles: ['admin'] },
-  '/admin/ai-config': { render: renderAdminAiConfig, auth: true, roles: ['admin'] },
+  '/admin/dashboard': { render: renderAdminDashboard, auth: true, roles: ['admin'], permission: 'admin.dashboard.view' },
+  '/admin/users': { render: renderAdminUsers, auth: true, roles: ['admin'], permission: 'admin.users.view' },
+  '/admin/courses': { render: renderAdminCourses, auth: true, roles: ['admin'], permission: 'admin.teaching.view' },
+  '/admin/classes': { render: renderAdminClasses, auth: true, roles: ['admin'], permission: 'admin.teaching.view' },
+  '/admin/teaching-classes': { render: renderAdminTeachingClasses, auth: true, roles: ['admin'], permission: 'admin.teaching.view' },
+  '/admin/knowledge': { render: renderAdminKnowledge, auth: true, roles: ['admin'], permission: 'admin.knowledge.view' },
+  '/admin/logs': { render: renderAdminLogs, auth: true, roles: ['admin'], permission: 'admin.audit.view' },
+  '/admin/notifications': { render: renderAdminNotifications, auth: true, roles: ['admin'], permission: 'admin.system.view' },
+  '/admin/ai-config': { render: renderAdminAiConfig, auth: true, roles: ['admin'], permission: ['admin.ai.providers.view', 'admin.ai.models.view'] },
   '/admin/profile': { render: renderAdminProfile, auth: true, roles: ['admin'] },
-  '/admin/agent-reviews': { render: renderAdminAgentReviews, auth: true, roles: ['admin'] },
+  '/admin/agent-reviews': { render: renderAdminAgentReviews, auth: true, roles: ['admin'], permission: ['admin.agents.view', 'admin.knowledge.view', 'admin.risks.view'] },
+  '/admin/traces': { render: renderAdminTraces, auth: true, roles: ['admin'], permission: 'admin.traces.view' },
+  '/admin/learning-flows': { render: renderAdminLearningFlows, auth: true, roles: ['admin'], permission: 'admin.workflows.view' },
+  '/admin/agents': { render: renderAdminAiConfig, auth: true, roles: ['admin'], permission: 'admin.agents.view' },
+  '/admin/evaluations': { render: renderAdminEvaluations, auth: true, roles: ['admin'], permission: 'admin.evaluations.view' },
+  '/admin/experiments': { render: renderAdminExperiments, auth: true, roles: ['admin'], permission: 'admin.experiments.view' },
+  '/admin/knowledge-health': { render: renderAdminKnowledgeHealth, auth: true, roles: ['admin'], permission: 'admin.knowledge.view' },
+  '/admin/teaching-issues': { render: renderAdminTeachingIssues, auth: true, roles: ['admin'], permission: 'admin.interventions.view' },
+  '/admin/digital-twin': { render: renderAdminDigitalTwin, auth: true, roles: ['admin'], permission: 'admin.teaching.view' },
+  '/admin/assets': { render: renderAdminAssets, auth: true, roles: ['admin'], permission: 'admin.assets.view' },
+  '/admin/strategy-profiles': { render: renderAdminStrategyProfiles, auth: true, roles: ['admin'], permission: 'admin.teaching.view' },
+  '/admin/risks': { render: renderAdminRisks, auth: true, roles: ['admin'], permission: 'admin.risks.view' },
+  '/admin/environment': { render: renderAdminAiConfig, auth: true, roles: ['admin'], permission: 'admin.system.view' },
+  '/admin/permissions': { render: renderAdminPermissions, auth: true, roles: ['admin'], permission: 'admin.system.view' },
 
   // ========== 管理端路由（管理端开发者在此区域添加）==========
 }
@@ -351,6 +377,7 @@ const dynamicRoutes = [
     render: renderAdminCourseDetail,
     auth: true,
     roles: ['admin'],
+    permission: 'admin.teaching.view',
     paramNames: ['course_id'],
   },
 ]
@@ -435,6 +462,15 @@ function buildAuthCheckingHTML() {
     </div>`
 }
 
+function renderAdminAccessState(app, user, title, message) {
+  renderDashboardLayout(app, {
+    user,
+    title,
+    menuItems: ADMIN_MENU_ITEMS,
+    contentHTML: `<div class="admin-page"><div class="admin-error" role="alert"><div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(message)}</p></div></div></div>`,
+  })
+}
+
 async function render() {
   const seq = ++renderSeq
   const app = document.getElementById('app')
@@ -454,7 +490,10 @@ async function render() {
   }
 
   const path = getCurrentPath()
-  if (!path.startsWith('/teacher/')) unmountTeacherGlobalOverlays()
+  if (!/^\/(student|teacher|admin)\//.test(path)) {
+    unmountUnifiedTaskMessageCenter()
+    document.getElementById('discimind-global-overlays')?.remove()
+  }
   const matched = matchRoute(path)
 
   // 路由不存在 → 跳转到合适的默认页
@@ -497,6 +536,23 @@ async function render() {
     }
   }
 
+  if (path.startsWith('/admin/') && isLoggedIn()) {
+    const user = getUser()
+    try {
+      const access = await loadAdminAccess(user?.user_id)
+      if (seq !== renderSeq) return
+      const requiredPermissions = Array.isArray(route.permission) ? route.permission : route.permission ? [route.permission] : []
+      if (requiredPermissions.length && !requiredPermissions.some((permission) => hasAdminPermission(access, permission))) {
+        renderAdminAccessState(app, user, '无权访问此页面', '当前管理员角色未被授予此模块的查看权限。请联系超级管理员调整显式角色授权。')
+        return
+      }
+    } catch (error) {
+      if (seq !== renderSeq) return
+      renderAdminAccessState(app, user, '权限校验失败', error.message || '无法读取当前管理员的显式权限，请稍后重试。')
+      return
+    }
+  }
+
   if (route.auth && isLoggedIn()) {
     const redirected = await guardActiveExam(path, getUser())
     if (redirected) return
@@ -504,10 +560,16 @@ async function render() {
 
   // 渲染页面
   app.innerHTML = ''
+  if (path.startsWith('/admin/')) {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
   const cleanup = await route.render(app, params)
   if (seq !== renderSeq) {
     if (typeof cleanup === 'function') await cleanup()
     return
+  }
+  if (path.startsWith('/admin/')) {
+    window.scrollTo(0, 0)
   }
   activePageCleanup = typeof cleanup === 'function' ? cleanup : null
 }

@@ -31,11 +31,11 @@ async function getAdminClassList(req, res) {
 
 async function createAdminClass(req, res) {
   try {
-    const { class_name, college, major, grade } = req.body;
+    const { class_name } = req.body;
     if (!class_name) {
       return fail(res, 40001, '班级名称为必填项');
     }
-    const data = await classService.createAdminClass({ class_name, college, major, grade });
+    const data = await classService.createAdminClass(req.body || {}, req);
     return success(res, data, '行政班级创建成功');
   } catch (err) {
     return handleError(res, 'createAdminClass', err);
@@ -45,7 +45,7 @@ async function createAdminClass(req, res) {
 async function updateAdminClass(req, res) {
   try {
     const classId = parseId(req.params.admin_class_id, 'admin_class_id');
-    const data = await classService.updateAdminClass(classId, req.body || {});
+    const data = await classService.updateAdminClass(classId, req.body || {}, req);
     return success(res, data, '行政班级更新成功');
   } catch (err) {
     return handleError(res, 'updateAdminClass', err);
@@ -55,10 +55,40 @@ async function updateAdminClass(req, res) {
 async function deleteAdminClass(req, res) {
   try {
     const classId = parseId(req.params.admin_class_id, 'admin_class_id');
-    const data = await classService.deleteAdminClass(classId);
+    const data = await classService.deleteAdminClass(classId, req);
     return success(res, data, '行政班级已删除');
   } catch (err) {
     return handleError(res, 'deleteAdminClass', err);
+  }
+}
+
+async function getAdminClassStudentList(req, res) {
+  try {
+    const classId = parseId(req.params.admin_class_id, 'admin_class_id');
+    return success(res, await classService.getAdminClassStudentList(classId, req.query || {}), '获取行政班学生成功');
+  } catch (err) {
+    return handleError(res, 'getAdminClassStudentList', err);
+  }
+}
+
+async function addAdminClassStudents(req, res) {
+  try {
+    const classId = parseId(req.params.admin_class_id, 'admin_class_id');
+    const ids = req.body?.student_user_ids;
+    if (!Array.isArray(ids) || !ids.length) throw Object.assign(new Error('学生 ID 列表不能为空'), { code: 40001 });
+    return success(res, await classService.addAdminClassStudents(classId, ids, req), '行政班学生已更新');
+  } catch (err) {
+    return handleError(res, 'addAdminClassStudents', err);
+  }
+}
+
+async function removeAdminClassStudent(req, res) {
+  try {
+    const classId = parseId(req.params.admin_class_id, 'admin_class_id');
+    const studentUserId = parseId(req.params.student_user_id, 'student_user_id');
+    return success(res, await classService.removeAdminClassStudent(classId, studentUserId, req), '学生已移出行政班');
+  } catch (err) {
+    return handleError(res, 'removeAdminClassStudent', err);
   }
 }
 
@@ -74,14 +104,22 @@ async function getTeachingClassList(req, res) {
   }
 }
 
+async function getTeachingClassPage(req, res) {
+  try {
+    return success(res, await classService.getTeachingClassPage(req.query || {}), '获取教学班列表成功');
+  } catch (err) {
+    return handleError(res, 'getTeachingClassPage', err);
+  }
+}
+
 async function createTeachingClass(req, res) {
   try {
     const courseId = parseId(req.params.course_id, 'course_id');
-    const { teaching_class_name, semester, description } = req.body;
+    const { teaching_class_name } = req.body;
     if (!teaching_class_name) {
       return fail(res, 40001, '教学班级名称为必填项');
     }
-    const data = await classService.createTeachingClass(courseId, { teaching_class_name, semester, description });
+    const data = await classService.createTeachingClass(courseId, req.body || {}, req);
     return success(res, data, '教学班级创建成功');
   } catch (err) {
     return handleError(res, 'createTeachingClass', err);
@@ -91,7 +129,7 @@ async function createTeachingClass(req, res) {
 async function updateTeachingClass(req, res) {
   try {
     const classId = parseId(req.params.teaching_class_id, 'teaching_class_id');
-    const data = await classService.updateTeachingClass(classId, req.body || {});
+    const data = await classService.updateTeachingClass(classId, req.body || {}, req);
     return success(res, data, '教学班级更新成功');
   } catch (err) {
     return handleError(res, 'updateTeachingClass', err);
@@ -101,8 +139,8 @@ async function updateTeachingClass(req, res) {
 async function deleteTeachingClass(req, res) {
   try {
     const classId = parseId(req.params.teaching_class_id, 'teaching_class_id');
-    const data = await classService.deleteTeachingClass(classId);
-    return success(res, data, '教学班级已删除');
+    const data = await classService.deleteTeachingClass(classId, req);
+    return success(res, data, data.deletion_mode === 'soft' ? '教学班级已归档' : '教学班级已删除');
   } catch (err) {
     return handleError(res, 'deleteTeachingClass', err);
   }
@@ -125,7 +163,7 @@ async function addClassStudents(req, res) {
     if (!student_user_ids || !Array.isArray(student_user_ids) || student_user_ids.length === 0) {
       return fail(res, 40001, '学生 ID 列表不能为空');
     }
-    const data = await classService.addClassStudents(classId, student_user_ids.map((id) => parseInt(id, 10)));
+    const data = await classService.addClassStudents(classId, student_user_ids, req);
     return success(res, data, '学生添加成功');
   } catch (err) {
     return handleError(res, 'addClassStudents', err);
@@ -136,7 +174,7 @@ async function removeClassStudent(req, res) {
   try {
     const classId = parseId(req.params.teaching_class_id, 'teaching_class_id');
     const studentUserId = parseId(req.params.student_user_id, 'student_user_id');
-    const data = await classService.removeClassStudent(classId, studentUserId);
+    const data = await classService.removeClassStudent(classId, studentUserId, req);
     return success(res, data, '学生已移除');
   } catch (err) {
     return handleError(res, 'removeClassStudent', err);
@@ -145,6 +183,8 @@ async function removeClassStudent(req, res) {
 
 module.exports = {
   getAdminClassList, createAdminClass, updateAdminClass, deleteAdminClass,
+  getAdminClassStudentList, addAdminClassStudents, removeAdminClassStudent,
+  getTeachingClassPage,
   getTeachingClassList, createTeachingClass, updateTeachingClass, deleteTeachingClass,
   getClassStudentList, addClassStudents, removeClassStudent,
 };

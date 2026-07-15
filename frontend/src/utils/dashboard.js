@@ -3,19 +3,28 @@
 
 import { getUserDisplayName, logoutSession } from './auth.js'
 import { getIcon, iconMessage, iconPin, iconPinFilled, iconLogout } from './icons.js'
-import { createAiChatConversation, streamAiChatMessage, uploadAiChatAttachment } from '../api/student.js'
-import { renderMarkdownToHtml, renderMathInMarkdownElements } from './markdown.js'
-import { mountTaskCenter } from '../components/task-center.js'
-import { renderTeacherGlobalOverlays, mountTeacherGlobalOverlays, unmountTeacherGlobalOverlays } from '../components/teacher-global-assistant.js'
-import { renderStudentNotificationCenter, mountStudentNotificationCenter } from '../components/student-notification-center.js'
+import { renderUnifiedTaskMessageCenter, mountUnifiedTaskMessageCenter, unmountUnifiedTaskMessageCenter } from '../components/unified-task-message-center.js'
 import { renderTeacherSecondaryNav } from '../components/teacher-secondary-nav.js'
 
 const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
 const API_ORIGIN = 'http://localhost:3000'
 const STUDENT_SIDEBAR_FIRST_VISIT_KEY = 'discimind.studentSidebarFirstVisitSeen'
+const ADMIN_SIDEBAR_PIN_KEY = 'discimind.adminSidebarPinned'
 const AI_FLOAT_STATE_KEY = 'discimind.studentAiFloatState'
 const AI_FLOAT_EDGE_MARGIN = 18
 const AI_FLOAT_MAX_INPUT = 2000
+
+let studentAiDependenciesPromise = null
+
+function loadStudentAiDependencies() {
+  if (!studentAiDependenciesPromise) {
+    studentAiDependenciesPromise = Promise.all([
+      import('../api/student.js'),
+      import('./markdown.js'),
+    ]).then(([api, markdown]) => ({ api, markdown }))
+  }
+  return studentAiDependenciesPromise
+}
 
 let sidebarExpanded = true
 let sidebarPinned = false
@@ -30,8 +39,8 @@ export function renderDashboardLayout(app, config) {
   const roleLabel = ROLE_LABEL[user.role] || user.role
   const avatarUrl = getAvatarUrl(user)
 
-  sidebarExpanded = shouldExpandSidebarInitially(user)
-  sidebarPinned = false
+  sidebarPinned = user?.role === 'admin' && readBooleanStorage(ADMIN_SIDEBAR_PIN_KEY)
+  sidebarExpanded = sidebarPinned || shouldExpandSidebarInitially(user)
   isHoveringSidebar = false
   if (collapseTimer) clearTimeout(collapseTimer)
   if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
@@ -39,34 +48,19 @@ export function renderDashboardLayout(app, config) {
 
   // 构建菜单 HTML（使用 SVG 图标）
   const currentHash = window.location.hash.slice(1) || ''
-let activeParentHash = ''
+  const matchesMenuEntry = (entry) => {
+    if (typeof entry?.matchHash === 'function') return entry.matchHash(currentHash)
+    if (entry?.prefixMatch) return currentHash.startsWith(entry.prefixMatch)
+    const entryHash = String(entry?.hash || '').replace(/^#/, '')
+    return Boolean(entryHash) && currentHash === entryHash
+  }
 
 const menuHTML = menuItems.map((item, index) => {
   const iconSvg = getIcon(item.icon)
   const itemId = getMenuItemId(item)
   const hasChildren =
     Array.isArray(item.children) && item.children.length > 0
-    let isActive = false
-    if (typeof item.matchHash === 'function') {
-      isActive = item.matchHash(currentHash)
-    } else if (item.prefixMatch) {
-      isActive = currentHash.startsWith(item.prefixMatch)
-    } else if (item.hash) {
-      const itemPath = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
-      isActive = currentHash === itemPath
-    }
-    // 如果自身不活跃，检查是否有子项匹配
-    if (!isActive && hasChildren) {
-      const parentHash = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
-      isActive = item.children.some(child => {
-        const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
-        return typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
-      })
-      if (isActive) activeParentHash = parentHash
-    }
-    if (!isActive && item.prefixMatch && currentHash.startsWith(item.prefixMatch)) {
-      isActive = true
-    }
+    const isActive = matchesMenuEntry(item) || (hasChildren && item.children.some(matchesMenuEntry))
     const arrowHTML = `<span class="sidebar-menu-arrow${hasChildren && isActive ? ' expanded' : ''}">${menuArrowSvg()}</span>`
     return `
       <button
@@ -87,26 +81,26 @@ const menuHTML = menuItems.map((item, index) => {
 
   // 构建二级导航面板 HTML
   let subNavHTML = ''
-  const activeParent = menuItems.find(item => {
-    if (!item.children) return false
-    const parentHash = item.hash.startsWith('#') ? item.hash.slice(1) : item.hash
-    if (activeParentHash === parentHash) return true
-    if (typeof item.matchHash === 'function' && item.matchHash(currentHash)) return true
-    if (item.prefixMatch && currentHash.startsWith(item.prefixMatch)) return true
-    return item.children.some(child => {
-      const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
-      return typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
-    })
-  })
+  let adminModuleNavHTML = ''
+  const activeParent = menuItems.find((item) => Array.isArray(item.children) && item.children.length && (matchesMenuEntry(item) || item.children.some(matchesMenuEntry)))
   if (activeParent && activeParent.children) {
-    subNavHTML = `
+    const childrenHTML = activeParent.children.map(child => {
+      const isChildActive = matchesMenuEntry(child)
+      return user?.role === 'admin'
+        ? `<a class="admin-module-nav-link${isChildActive ? ' is-active' : ''}" href="${escapeHtml(child.hash)}"${isChildActive ? ' aria-current="page"' : ''}>${escapeHtml(child.label)}</a>`
+        : `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${escapeHtml(child.hash)}"><span>${escapeHtml(child.label)}</span><span class="sub-nav-arrow">${menuArrowSvg()}</span></div>`
+    }).join('')
+    if (user?.role === 'admin') {
+      adminModuleNavHTML = `<nav class="admin-module-nav" aria-label="${escapeHtml(activeParent.label)}二级导航">
+        <span class="admin-module-nav-title"><span aria-hidden="true">${getIcon(activeParent.icon)}</span>${escapeHtml(activeParent.label)}</span>
+        <span class="admin-module-nav-links">${childrenHTML}</span>
+      </nav>`
+    } else {
+      subNavHTML = `
       <div class="sub-nav-panel" id="sub-nav-panel">
-        ${activeParent.children.map(child => {
-          const childHash = child.hash.startsWith('#') ? child.hash.slice(1) : child.hash
-          const isChildActive = typeof child.matchHash === 'function' ? child.matchHash(currentHash) : currentHash === childHash
-          return `<div class="sub-nav-item${isChildActive ? ' active' : ''}" data-hash="${child.hash}"><span>${child.label}</span><span class="sub-nav-arrow">${menuArrowSvg()}</span></div>`
-        }).join('')}
+        ${childrenHTML}
       </div>`
+    }
   }
 
   const roleClass = user?.role === 'teacher' ? ' role-teacher' : user?.role === 'admin' ? ' role-admin' : ''
@@ -127,9 +121,9 @@ const menuHTML = menuItems.map((item, index) => {
         <div class="sidebar-menu-wrap" id="sidebar-menu-wrap">${menuHTML}</div>
 
         <div class="sidebar-footer">
-          <button class="sidebar-pin-btn" id="sidebar-pin-btn" title="固定展开">
-            <span class="pin-icon-svg">${iconPin()}</span>
-            <span class="pin-text">固定展开</span>
+          <button class="sidebar-pin-btn${sidebarPinned ? ' pinned' : ''}" id="sidebar-pin-btn" title="${sidebarPinned ? '取消固定' : '固定展开'}" aria-pressed="${sidebarPinned}">
+            <span class="pin-icon-svg">${sidebarPinned ? iconPinFilled() : iconPin()}</span>
+            <span class="pin-text">${sidebarPinned ? '取消固定' : '固定展开'}</span>
           </button>
           <div class="sidebar-user-info" id="sidebar-user-info" title="个人主页">
             <div class="sidebar-user-avatar">
@@ -151,21 +145,19 @@ const menuHTML = menuItems.map((item, index) => {
         </div>
       </nav>
 
-      <main class="student-main" id="student-main">${user?.role === 'teacher' && currentHash.startsWith('/teacher/') ? renderTeacherSecondaryNav() : ''}${contentHTML}</main>
+      <main class="student-main" id="student-main">${user?.role === 'teacher' && currentHash.startsWith('/teacher/') ? renderTeacherSecondaryNav() : ''}${adminModuleNavHTML}${contentHTML}</main>
       ${subNavHTML}
     </div>
   `
 
   // Global overlays must not inherit page grids, transforms or overflow clipping.
-  unmountTeacherGlobalOverlays()
-  if (user?.role === 'student' || (user?.role === 'teacher' && currentHash.startsWith('/teacher/'))) {
+  unmountUnifiedTaskMessageCenter()
+  if (['student', 'teacher', 'admin'].includes(user?.role)) {
     const overlays = document.getElementById('discimind-global-overlays') || document.createElement('div')
     overlays.id = 'discimind-global-overlays'
     overlays.className = 'discimind-global-overlays'
-    const onFullAiPage = window.location.hash.includes(user.role === 'student' ? '/student/ai-chat' : '/teacher/ai')
-    overlays.innerHTML = user.role === 'student'
-      ? `<div class="global-task-center" id="global-task-center"></div>${renderStudentNotificationCenter()}${onFullAiPage ? '' : renderStudentAiFloat(user)}`
-      : renderTeacherGlobalOverlays({ fullAiPage: onFullAiPage })
+    const onFullAiPage = user.role === 'student' && window.location.hash.includes('/student/ai-chat')
+    overlays.innerHTML = `${renderUnifiedTaskMessageCenter(user)}${user.role === 'student' && !onFullAiPage ? renderStudentAiFloat(user) : ''}`
     if (!overlays.isConnected) document.body.appendChild(overlays)
   }
 
@@ -205,22 +197,37 @@ const menuHTML = menuItems.map((item, index) => {
   // 初始设置
   updateWrapperState()
 
+  let settledDocumentScroll = { x: window.scrollX, y: window.scrollY }
+  let scrollSettleTimer = null
+
   if (sidebar) {
     sidebar.addEventListener('mouseenter', () => { isHoveringSidebar = true; if (collapseTimer) clearTimeout(collapseTimer); expandSidebar() })
     sidebar.addEventListener('mouseleave', () => { isHoveringSidebar = false; collapseTimer = setTimeout(collapseSidebar, 50) })
   }
 
   if (pinBtn) {
-    pinBtn.addEventListener('click', () => {
+    pinBtn.addEventListener('click', event => {
+      const preservedScroll = { ...settledDocumentScroll }
+      event.preventDefault()
       sidebarPinned = !sidebarPinned
+      pinBtn.setAttribute('aria-pressed', String(sidebarPinned))
+      pinBtn.title = sidebarPinned ? '取消固定' : '固定展开'
+      pinBtn.querySelector('.pin-text').textContent = sidebarPinned ? '取消固定' : '固定展开'
+      if (user?.role === 'admin') localStorage.setItem(ADMIN_SIDEBAR_PIN_KEY, sidebarPinned ? '1' : '0')
       if (sidebarPinned) { pinBtn.classList.add('pinned'); pinBtn.querySelector('.pin-icon-svg').innerHTML = iconPinFilled(); expandSidebar() }
       else { pinBtn.classList.remove('pinned'); pinBtn.querySelector('.pin-icon-svg').innerHTML = iconPin(); if (!isHoveringSidebar) { clearTimeout(collapseTimer); collapseTimer = setTimeout(collapseSidebar, 50) } }
       updateWrapperState()
+      pinBtn.focus({ preventScroll: true })
+      window.requestAnimationFrame(() => window.scrollTo(preservedScroll.x, preservedScroll.y))
     })
   }
 
   let scrollTicking = false
   window.addEventListener('scroll', () => {
+    clearTimeout(scrollSettleTimer)
+    scrollSettleTimer = setTimeout(() => {
+      settledDocumentScroll = { x: window.scrollX, y: window.scrollY }
+    }, 120)
     if (!scrollTicking) { window.requestAnimationFrame(() => { if (!isHoveringSidebar && !sidebarPinned && sidebarExpanded) collapseSidebar(); scrollTicking = false }); scrollTicking = true }
   }, { passive: true })
 
@@ -237,7 +244,12 @@ const menuHTML = menuItems.map((item, index) => {
 
   // 用户信息入口
   document.getElementById('sidebar-user-info')?.addEventListener('click', () => {
-    if (user.role === 'student') window.location.hash = '#/student/profile'
+    const profileHash = {
+      student: '#/student/profile',
+      teacher: '#/teacher/profile',
+      admin: '#/admin/profile',
+    }[user.role]
+    if (profileHash) window.location.hash = profileHash
   })
 
   // 菜单点击 — 有子项的展开二级导航，无子项的直接跳转
@@ -246,6 +258,10 @@ const menuHTML = menuItems.map((item, index) => {
       const hash = item.dataset.hash
       const hasChildren = item.dataset.hasChildren === '1'
       if (hasChildren) {
+        if (user?.role === 'admin') {
+          if (hash) window.location.hash = hash
+          return
+        }
         // 展开/切换二级导航：先高亮当前项，再渲染子面板
         document.querySelectorAll('.sidebar-menu-item').forEach(i => i.classList.remove('active'))
         item.classList.add('active')
@@ -297,18 +313,17 @@ const menuHTML = menuItems.map((item, index) => {
   bindSubNavClicks()
 
   if (user?.role === 'student') initStudentAiFloat(user)
-  if (user?.role === 'student') mountStudentNotificationCenter()
-  if (user?.role === 'teacher' && currentHash.startsWith('/teacher/')) {
-    const dedicatedAssistantSurface = window.location.hash.includes('/teacher/ai') || window.location.hash.includes('/teacher/preparation/immersive')
-    mountTeacherGlobalOverlays({ fullAiPage: dedicatedAssistantSurface })
-  }
-  mountTaskCenter(user)
+  mountUnifiedTaskMessageCenter(user)
 }
 
 function getMenuItemId(item) {
   if (item?.id) return item.id
   const source = item?.hash || item?.label || 'menu-item'
   return String(source).replace(/^#/, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'menu-item'
+}
+
+function readBooleanStorage(key) {
+  try { return window.localStorage.getItem(key) === '1' } catch { return false }
 }
 
 function shouldExpandSidebarInitially(user) {
@@ -488,7 +503,7 @@ function renderStudentAiFloat(user) {
   if (user?.role !== 'student') return ''
   return `
     <div class="ai-float-widget" id="student-ai-float" aria-label="AI 对话悬浮入口">
-      <button class="ai-float-hide" id="student-ai-float-hide" type="button" title="贴边折叠" aria-label="贴边折叠 AI 助手">›</button>
+      <button class="ai-float-hide" id="student-ai-float-hide" type="button" title="贴边折叠" aria-label="贴边折叠 AI 助手">${getIcon('arrow-right')}</button>
       <button class="ai-float-main" id="student-ai-float-open" type="button" title="点击打开，按住拖动" aria-label="打开或拖动 AI 学习助手" aria-expanded="false">
         <span class="ai-float-orb">${iconMessage()}</span>
       </button>
@@ -500,8 +515,8 @@ function renderStudentAiFloat(user) {
             <span id="student-ai-mini-context">当前页面内快速问答</span>
           </div>
           <div class="ai-mini-head-actions">
-            <button class="ai-mini-maximize" id="student-ai-mini-maximize" type="button" aria-label="进入完整对话" title="进入完整对话">↗</button>
-            <button class="ai-mini-close" id="student-ai-mini-close" type="button" aria-label="收起 AI 对话窗">×</button>
+            <button class="ai-mini-maximize" id="student-ai-mini-maximize" type="button" aria-label="进入完整对话" title="进入完整对话">${getIcon('arrow-right')}</button>
+            <button class="ai-mini-close" id="student-ai-mini-close" type="button" aria-label="收起 AI 对话窗">${getIcon('close')}</button>
           </div>
         </div>
         <div class="ai-mini-messages" id="student-ai-mini-messages">
@@ -514,8 +529,8 @@ function renderStudentAiFloat(user) {
         </div>
         <form class="ai-mini-form" id="student-ai-mini-form">
           <div class="ai-mini-attachments">
-            <label title="添加图片或文件">＋<input id="student-ai-mini-files" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" hidden></label>
-            <button id="student-ai-mini-voice" type="button" title="语音输入" aria-label="语音输入">🎙</button>
+            <label title="添加图片或文件">${getIcon('document')}<input id="student-ai-mini-files" type="file" multiple accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" hidden></label>
+            <button id="student-ai-mini-voice" type="button" title="语音输入" aria-label="语音输入">${getIcon('microphone')}</button>
             <div id="student-ai-mini-attachment-list" aria-live="polite"></div>
           </div>
           <textarea id="student-ai-mini-input" maxlength="${AI_FLOAT_MAX_INPUT}" rows="2" placeholder="输入学习问题，Enter 发送"></textarea>
@@ -579,7 +594,7 @@ function initStudentAiFloat(user) {
         nextY = above >= topLimit ? above : Math.min(maxY, miniRect.bottom + 10)
       }
     }
-    const taskIsland = document.querySelector('.global-task-center')
+    const taskIsland = document.querySelector('.unified-center-trigger')
     if (taskIsland?.offsetParent) {
       const taskRect = taskIsland.getBoundingClientRect()
       const aiLeft = window.innerWidth - AI_FLOAT_EDGE_MARGIN - rect.width
@@ -605,7 +620,7 @@ function initStudentAiFloat(user) {
     widget.style.bottom = 'auto'
     widget.style.left = 'auto'
     widget.style.right = `${AI_FLOAT_EDGE_MARGIN}px`
-    hideButton.textContent = '›'
+    hideButton.innerHTML = getIcon('arrow-right')
     hideButton.setAttribute('aria-label', '向右贴边隐藏 AI 助手')
     updateMiniPanelPlacement()
   }
@@ -658,7 +673,13 @@ function initStudentAiFloat(user) {
 
   function hydrateMiniMessages() {
     bindMiniMessageActions()
-    renderMathInMarkdownElements(messagesEl)
+    loadStudentAiDependencies().then(({ markdown }) => {
+      messagesEl.querySelectorAll('.message-markdown').forEach((node, index) => {
+        const message = miniState.messages[index]
+        if (message?.content && !message.streaming) node.innerHTML = markdown.renderMarkdownToHtml(message.content)
+      })
+      markdown.renderMathInMarkdownElements(messagesEl)
+    }).catch(() => {})
   }
 
   function shouldShowMiniAction(message) {
@@ -672,15 +693,15 @@ function initStudentAiFloat(user) {
       messagesEl.innerHTML = '<div class="ai-mini-empty">可以直接问课程概念、错题思路或复习计划。</div>'
       return
     }
-    messagesEl.innerHTML = miniState.messages.map((message) => {
+    messagesEl.innerHTML = miniState.messages.map((message, index) => {
       const role = message.role === 'user' ? 'user' : 'assistant'
       const content = message.content
-        ? renderMarkdownToHtml(message.content)
+        ? escapeHtml(message.content).replace(/\n/g, '<br>')
         : (message.streaming ? '<span class="ai-mini-thinking">正在思考中...</span>' : '')
       const actionHtml = shouldShowMiniAction(message)
         ? `<div class="ai-mini-actions"><button type="button" data-ai-mini-action="${escapeHtml(message.action.type)}" data-target="${escapeHtml(miniActionTarget(message.action))}">${escapeHtml(message.action.label || '前往')}</button></div>`
         : ''
-      return `<div class="ai-mini-message ${role}${message.streaming ? ' streaming' : ''}" data-mini-message-id="${escapeHtml(message.id || '')}">
+      return `<div class="ai-mini-message ${role}${message.streaming ? ' streaming' : ''}" data-mini-message-index="${index}" data-mini-message-id="${escapeHtml(message.id || '')}">
         <div class="message-markdown">${content}</div>
         ${actionHtml}
       </div>`
@@ -727,7 +748,7 @@ function initStudentAiFloat(user) {
 
   function renderAttachments() {
     if (!attachmentList) return
-    attachmentList.innerHTML = miniState.attachments.map(item => `<span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}<button type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(item.name)}">×</button></span>`).join('')
+    attachmentList.innerHTML = miniState.attachments.map(item => `<span title="${escapeHtml(item.name)}">${escapeHtml(item.name)}<button type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="移除 ${escapeHtml(item.name)}">${getIcon('close')}</button></span>`).join('')
     attachmentList.querySelectorAll('[data-remove-attachment]').forEach(button => button.addEventListener('click', () => {
       miniState.attachments = miniState.attachments.filter(item => item.id !== button.dataset.removeAttachment)
       renderAttachments()
@@ -743,7 +764,8 @@ function initStudentAiFloat(user) {
     try {
       const conversationId = await ensureMiniConversation()
       for (const file of queue) {
-        const result = await uploadAiChatAttachment(file, conversationId)
+        const { api } = await loadStudentAiDependencies()
+        const result = await api.uploadAiChatAttachment(file, conversationId)
         miniState.attachments.push(result.data || result)
         renderAttachments()
       }
@@ -758,7 +780,8 @@ function initStudentAiFloat(user) {
 
   async function ensureMiniConversation() {
     if (miniState.conversationId) return miniState.conversationId
-    const result = await createAiChatConversation({
+    const { api } = await loadStudentAiDependencies()
+    const result = await api.createAiChatConversation({
       title: '悬浮对话',
       mode: 'general',
     })
@@ -791,7 +814,8 @@ function initStudentAiFloat(user) {
     let streamHadError = false
     try {
       const conversationId = await ensureMiniConversation()
-      await streamAiChatMessage(conversationId, { content: text, attachments: outgoingAttachments.map(item => item.id), assistantSurface: 'floating', learningContext: currentLearningContext() }, {
+      const { api, markdown } = await loadStudentAiDependencies()
+      await api.streamAiChatMessage(conversationId, { content: text, attachments: outgoingAttachments.map(item => item.id), assistantSurface: 'floating', learningContext: currentLearningContext() }, {
         signal: miniState.abortController.signal,
         onEvent: (eventName, payload) => {
           if (eventName === 'delta') {
@@ -808,6 +832,10 @@ function initStudentAiFloat(user) {
         },
       })
       if (streamHadError) renderMiniMessages()
+      else if (assistantMessage.content) {
+        const node = messagesEl.querySelector(`[data-mini-message-id="${assistantMessage.id}"] .message-markdown`)
+        if (node) node.innerHTML = markdown.renderMarkdownToHtml(assistantMessage.content)
+      }
     } catch (err) {
       if (err.name === 'AbortError') {
         assistantMessage.content = '已停止生成。'

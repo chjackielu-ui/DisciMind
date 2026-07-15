@@ -72,6 +72,14 @@ app.use('/api/auth', authRoutes);
 const notificationRoutes = require('./routes/notification.routes');
 app.use('/api/notifications', notificationRoutes);
 
+// ---------- 三端统一任务与消息中心（聚合任务和通知，不合并底层表） ----------
+const workCenterRoutes = require('./routes/work-center.routes');
+app.use('/api/work-center', workCenterRoutes);
+
+// ---------- 课程 -> 教学班 -> 课程文件（所有下载必须经过鉴权） ----------
+const courseFileRoutes = require('./routes/course-file.routes');
+app.use('/api/courses', courseFileRoutes);
+
 // ---------- 学生端基础模块 ----------
 const studentRoutes = require('./routes/student.routes');
 app.use('/api/student', studentRoutes);

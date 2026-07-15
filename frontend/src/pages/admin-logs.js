@@ -5,6 +5,7 @@ import { getOperationLogs } from '../api/admin.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
+import { escapeHtml } from '../utils/format.js'
 
 export async function renderAdminLogs(app) {
   let user = getUser()
@@ -17,7 +18,7 @@ export async function renderAdminLogs(app) {
   }
 
   let state = { list: [], total: 0, page: 1, pageSize: 15, loading: true, error: null }
-  let filters = { operation_type: '', start_date: '', end_date: '' }
+  let filters = { keyword: '', start_date: '', end_date: '' }
 
   async function loadData() {
     state.loading = true; state.error = null
@@ -61,15 +62,15 @@ export async function renderAdminLogs(app) {
       rows = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--stu-text-muted);">暂无操作日志</td></tr>`
     } else {
       for (const log of state.list) {
-        const typeLabel = typeLabels[log.operation_type] || log.operation_type
+        const typeLabel = typeLabels[log.operation_type] || log.operation_type || '-'
         const time = log.created_at ? new Date(log.created_at).toLocaleString('zh-CN') : '-'
         rows += `<tr>
-          <td>${log.operation_log_id}</td>
-          <td>${log.real_name || log.username || '-'}</td>
-          <td><span class="tag ${log.role === 'admin' ? 'tag-admin' : log.role === 'teacher' ? 'tag-teacher' : 'tag-student'}">${log.role || '-'}</span></td>
-          <td>${typeLabel}</td>
-          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${log.operation_desc || ''}">${log.operation_desc || '-'}</td>
-          <td>${time}</td>
+          <td>${escapeHtml(log.operation_log_id)}</td>
+          <td>${escapeHtml(log.real_name || log.username || '-')}</td>
+          <td><span class="tag ${log.role === 'admin' ? 'tag-admin' : log.role === 'teacher' ? 'tag-teacher' : 'tag-student'}">${escapeHtml(log.role || '-')}</span></td>
+          <td>${escapeHtml(typeLabel)}</td>
+          <td class="admin-log-description" title="${escapeHtml(log.operation_desc || '')}">${escapeHtml(log.operation_desc || '-')}</td>
+          <td>${escapeHtml(time)}</td>
         </tr>`
       }
     }
@@ -85,14 +86,14 @@ export async function renderAdminLogs(app) {
 
     return `
       <div style="margin-bottom:12px;">
-        <a href="#/admin/knowledge" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">← 返回系统管理</a>
+        <a href="#/admin/dashboard" style="font-size:0.85rem;color:var(--primary);text-decoration:none;">返回管理看板</a>
       </div>
       <div class="section-header">
         <h2>操作日志</h2>
       </div>
 
       <div class="search-bar">
-        <input type="text" placeholder="搜索操作描述..." value="${filters.operation_type}" id="search-input" />
+        <input type="search" placeholder="搜索操作类型、描述、对象或操作人..." value="${escapeHtml(filters.keyword)}" id="search-input" />
         <input type="date" id="filter-start" value="${filters.start_date}" title="开始日期" />
         <input type="date" id="filter-end" value="${filters.end_date}" title="结束日期" />
         <button class="btn-sm btn-primary" id="btn-search">搜索</button>
@@ -118,7 +119,7 @@ export async function renderAdminLogs(app) {
     renderDashboardLayout(app, { title: '操作日志', menuItems: ADMIN_MENU_ITEMS, contentHTML, user })
 
     document.getElementById('btn-search')?.addEventListener('click', () => {
-      filters.operation_type = document.getElementById('search-input')?.value || ''
+      filters.keyword = document.getElementById('search-input')?.value.trim() || ''
       filters.start_date = document.getElementById('filter-start')?.value || ''
       filters.end_date = document.getElementById('filter-end')?.value || ''
       state.page = 1
@@ -126,7 +127,7 @@ export async function renderAdminLogs(app) {
     })
 
     document.getElementById('btn-reset')?.addEventListener('click', () => {
-      filters = { operation_type: '', start_date: '', end_date: '' }
+      filters = { keyword: '', start_date: '', end_date: '' }
       state.page = 1
       loadData()
     })
@@ -142,5 +143,3 @@ export async function renderAdminLogs(app) {
 
   await loadData()
 }
-
-

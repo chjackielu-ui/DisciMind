@@ -1,0 +1,27 @@
+{
+  "schema": "role-floating-component-audit.v1",
+  "passed": true,
+  "checks": {
+    "shared_center_rendered_once": true,
+    "shared_center_unmounted_on_route_change": true,
+    "student_ai_render_role_guard": true,
+    "student_ai_dependencies_lazy": true,
+    "legacy_student_task_not_imported": true,
+    "legacy_student_messages_not_imported": true,
+    "legacy_teacher_overlay_not_imported": true,
+    "browser_role_dom_and_network": true
+  },
+  "runtime_check_count": 24,
+  "policy": {
+    "student": [
+      "UnifiedTaskMessageCenter",
+      "student AI learning assistant"
+    ],
+    "teacher": [
+      "UnifiedTaskMessageCenter"
+    ],
+    "admin": [
+      "UnifiedTaskMessageCenter"
+    ]
+  }
+}

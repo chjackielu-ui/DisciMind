@@ -57,12 +57,16 @@ test('学生资源路径只由分发回流路由注册，避免旧共享模型�
   assert.equal((appSource.match(/app\.use\('\/api\/student', studentResourceRoutes\)/g) || []).length, 1);
 });
 
-test('教师全局助手离开教师路由时同时清理监听和 DOM 根节点', () => {
+test('统一任务消息中心在门户切换时清理，旧教师全局助手不再挂载', () => {
   const routerSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/utils/router.js'), 'utf8');
-  const assistantSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/components/teacher-global-assistant.js'), 'utf8');
-  assert.match(routerSource, /if \(!path\.startsWith\('\/teacher\/'\)\) unmountTeacherGlobalOverlays\(\)/);
-  assert.match(assistantSource, /querySelectorAll\('#teacher-assistant-root'\)\.forEach\(root => root\.remove\(\)\)/);
-  assert.match(assistantSource, /path\.startsWith\('\/teacher\/'\)/);
+  const dashboardSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/utils/dashboard.js'), 'utf8');
+  assert.match(routerSource, /import \{ unmountUnifiedTaskMessageCenter \}/);
+  const cleanupStart = routerSource.indexOf("if (!/^\\/(student|teacher|admin)\\//.test(path)) {");
+  assert.notEqual(cleanupStart, -1);
+  assert.match(routerSource.slice(cleanupStart, cleanupStart + 180), /unmountUnifiedTaskMessageCenter\(\)/);
+  assert.match(dashboardSource, /unmountUnifiedTaskMessageCenter\(\)[\s\S]*renderUnifiedTaskMessageCenter\(user\)/);
+  assert.equal(routerSource.includes('teacher-global-assistant'), false);
+  assert.equal(dashboardSource.includes('teacher-global-assistant'), false);
 });
 
 test('教师二级导航只保留一级模块内部跳转', () => {

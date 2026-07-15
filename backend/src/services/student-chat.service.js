@@ -282,7 +282,6 @@ async function sendMessage(userId, conversationId, body) {
     userId,
     messages: aiMessages,
     options: { temperature: 0.7 },
-    fallbackMock: true,
   });
 
   // 5. 保存 AI 回复
@@ -292,9 +291,9 @@ async function sendMessage(userId, conversationId, body) {
       user_id: userId,
       role: 'ASSISTANT',
       content: aiResult.content,
-      is_ai_generated: aiResult.provider !== 'mock',
-      ai_provider: aiResult.provider !== 'mock' ? aiResult.provider : null,
-      model_name: aiResult.model !== 'mock' ? aiResult.model : null,
+      is_ai_generated: true,
+      ai_provider: aiResult.provider,
+      model_name: aiResult.model,
       agent_type: conversation.agent_type,
     },
   });

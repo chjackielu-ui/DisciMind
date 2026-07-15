@@ -1,0 +1,1830 @@
+{
+  "schema": "cross-portal-browser-acceptance.v1",
+  "generated_at_epoch": 1784100049.4280803,
+  "frontend_url": "http://localhost:5173",
+  "api_url": "http://localhost:3000/api",
+  "marker": "browser1784099985868",
+  "passed": true,
+  "checks": [
+    {
+      "id": "admin.1920.sidebar.fixed_geometry",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1920.sidebar.scroll_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1920.sidebar.grid_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1920.sidebar.widths",
+      "passed": true,
+      "detail": {
+        "collapsed": 80,
+        "expanded": 250
+      }
+    },
+    {
+      "id": "admin.1920.sidebar.viewport",
+      "passed": true,
+      "detail": {
+        "left": 20,
+        "top": 20,
+        "width": 80,
+        "height": 1040
+      }
+    },
+    {
+      "id": "admin.1920.sidebar.internal_scroll",
+      "passed": true,
+      "detail": {
+        "overflow_y": "auto",
+        "scroll_height": 764,
+        "client_height": 764
+      }
+    },
+    {
+      "id": "admin.1920.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "admin.1920.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "admin.1920.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "admin.1920.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "admin.1920.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1920.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1728,
+        "top": 920.5625,
+        "right": 1902,
+        "bottom": 977.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1920.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1728,\"y\":921}"
+    },
+    {
+      "id": "admin.1920.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 1512,
+        "top": 643.734375,
+        "right": 1902,
+        "bottom": 916.5625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "admin.1920.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1920.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1920,
+        "clientWidth": 1920
+      }
+    },
+    {
+      "id": "admin.1920.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1920.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "admin.1920.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1440.sidebar.fixed_geometry",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1440.sidebar.scroll_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1440.sidebar.grid_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1440.sidebar.widths",
+      "passed": true,
+      "detail": {
+        "collapsed": 80,
+        "expanded": 250
+      }
+    },
+    {
+      "id": "admin.1440.sidebar.viewport",
+      "passed": true,
+      "detail": {
+        "left": 20,
+        "top": 20,
+        "width": 80,
+        "height": 860
+      }
+    },
+    {
+      "id": "admin.1440.sidebar.internal_scroll",
+      "passed": true,
+      "detail": {
+        "overflow_y": "auto",
+        "scroll_height": 584,
+        "client_height": 584
+      }
+    },
+    {
+      "id": "admin.1440.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "admin.1440.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "admin.1440.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "admin.1440.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "admin.1440.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1440.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1248,
+        "top": 763.0625,
+        "right": 1422,
+        "bottom": 820.0625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1440.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1248,\"y\":763}"
+    },
+    {
+      "id": "admin.1440.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 1032,
+        "top": 486.234375,
+        "right": 1422,
+        "bottom": 759.0625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "admin.1440.center.view_all_inline",
+      "passed": true,
+      "detail": "filters visible and route unchanged"
+    },
+    {
+      "id": "admin.1440.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1440.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      }
+    },
+    {
+      "id": "admin.1440.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1440.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "admin.1440.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1366.sidebar.fixed_geometry",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1366.sidebar.scroll_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1366.sidebar.grid_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1366.sidebar.widths",
+      "passed": true,
+      "detail": {
+        "collapsed": 80,
+        "expanded": 250
+      }
+    },
+    {
+      "id": "admin.1366.sidebar.viewport",
+      "passed": true,
+      "detail": {
+        "left": 20,
+        "top": 20,
+        "width": 80,
+        "height": 728
+      }
+    },
+    {
+      "id": "admin.1366.sidebar.internal_scroll",
+      "passed": true,
+      "detail": {
+        "overflow_y": "auto",
+        "scroll_height": 452,
+        "client_height": 452
+      }
+    },
+    {
+      "id": "admin.1366.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "admin.1366.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "admin.1366.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "admin.1366.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "admin.1366.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1366.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1174,
+        "top": 647.5625,
+        "right": 1348,
+        "bottom": 704.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1366.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1174,\"y\":648}"
+    },
+    {
+      "id": "admin.1366.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 958,
+        "top": 370.734375,
+        "right": 1348,
+        "bottom": 643.5625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "admin.1366.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1366.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1366,
+        "clientWidth": 1366
+      }
+    },
+    {
+      "id": "admin.1366.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1366.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "admin.1366.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1024.sidebar.fixed_geometry",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1024.sidebar.scroll_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1024.sidebar.grid_stable",
+      "passed": true,
+      "detail": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    {
+      "id": "admin.1024.sidebar.widths",
+      "passed": true,
+      "detail": {
+        "collapsed": 80,
+        "expanded": 250
+      }
+    },
+    {
+      "id": "admin.1024.sidebar.viewport",
+      "passed": true,
+      "detail": {
+        "left": 20,
+        "top": 20,
+        "width": 80,
+        "height": 728
+      }
+    },
+    {
+      "id": "admin.1024.sidebar.internal_scroll",
+      "passed": true,
+      "detail": {
+        "overflow_y": "auto",
+        "scroll_height": 452,
+        "client_height": 452
+      }
+    },
+    {
+      "id": "admin.1024.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "admin.1024.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "admin.1024.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "admin.1024.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "admin.1024.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1024.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 832,
+        "top": 647.5625,
+        "right": 1006,
+        "bottom": 704.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "admin.1024.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":832,\"y\":648}"
+    },
+    {
+      "id": "admin.1024.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 616,
+        "top": 370.734375,
+        "right": 1006,
+        "bottom": 643.5625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "admin.1024.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1024.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1024,
+        "clientWidth": 1024
+      }
+    },
+    {
+      "id": "admin.1024.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "admin.1024.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "admin.1024.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1920.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "teacher.1920.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "teacher.1920.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "teacher.1920.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "teacher.1920.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1920.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1728,
+        "top": 920.5625,
+        "right": 1902,
+        "bottom": 977.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1920.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1728,\"y\":921}"
+    },
+    {
+      "id": "teacher.1920.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 1512,
+        "top": 617.671875,
+        "right": 1902,
+        "bottom": 916.5625,
+        "width": 390,
+        "height": 298.890625
+      }
+    },
+    {
+      "id": "teacher.1920.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1920.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1920,
+        "clientWidth": 1920
+      }
+    },
+    {
+      "id": "teacher.1920.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1920.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "teacher.1920.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1440.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "teacher.1440.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "teacher.1440.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "teacher.1440.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "teacher.1440.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1440.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1248,
+        "top": 763.0625,
+        "right": 1422,
+        "bottom": 820.0625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1440.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1248,\"y\":763}"
+    },
+    {
+      "id": "teacher.1440.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 1032,
+        "top": 460.171875,
+        "right": 1422,
+        "bottom": 759.0625,
+        "width": 390,
+        "height": 298.890625
+      }
+    },
+    {
+      "id": "teacher.1440.center.view_all_inline",
+      "passed": true,
+      "detail": "filters visible and route unchanged"
+    },
+    {
+      "id": "teacher.1440.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1440.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      }
+    },
+    {
+      "id": "teacher.1440.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1440.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "teacher.1440.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1366.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "teacher.1366.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "teacher.1366.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "teacher.1366.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "teacher.1366.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1366.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1174,
+        "top": 647.5625,
+        "right": 1348,
+        "bottom": 704.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1366.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1174,\"y\":648}"
+    },
+    {
+      "id": "teacher.1366.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 958,
+        "top": 344.671875,
+        "right": 1348,
+        "bottom": 643.5625,
+        "width": 390,
+        "height": 298.890625
+      }
+    },
+    {
+      "id": "teacher.1366.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1366.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1366,
+        "clientWidth": 1366
+      }
+    },
+    {
+      "id": "teacher.1366.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1366.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "teacher.1366.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1024.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "teacher.1024.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "teacher.1024.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=0"
+    },
+    {
+      "id": "teacher.1024.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "teacher.1024.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1024.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 832,
+        "top": 608.40625,
+        "right": 1006,
+        "bottom": 665.40625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "teacher.1024.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":832,\"y\":608}"
+    },
+    {
+      "id": "teacher.1024.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 616,
+        "top": 305.515625,
+        "right": 1006,
+        "bottom": 604.40625,
+        "width": 390,
+        "height": 298.890625
+      }
+    },
+    {
+      "id": "teacher.1024.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1024.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1024,
+        "clientWidth": 1024
+      }
+    },
+    {
+      "id": "teacher.1024.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "teacher.1024.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "teacher.1024.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1920.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "student.1920.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "student.1920.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=1"
+    },
+    {
+      "id": "student.1920.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "student.1920.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1920.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1728,
+        "top": 920.5625,
+        "right": 1902,
+        "bottom": 977.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1920.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1728,\"y\":921}"
+    },
+    {
+      "id": "student.1920.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 1512,
+        "top": 643.734375,
+        "right": 1902,
+        "bottom": 916.5625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "student.1920.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1920.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1920,
+        "clientWidth": 1920
+      }
+    },
+    {
+      "id": "student.1920.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1920.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "student.1920.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1440.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "student.1440.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "student.1440.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=1"
+    },
+    {
+      "id": "student.1440.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "student.1440.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1440.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1248,
+        "top": 763.0625,
+        "right": 1422,
+        "bottom": 820.0625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1440.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1248,\"y\":763}"
+    },
+    {
+      "id": "student.1440.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 1032,
+        "top": 486.234375,
+        "right": 1422,
+        "bottom": 759.0625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "student.1440.center.view_all_inline",
+      "passed": true,
+      "detail": "filters visible and route unchanged"
+    },
+    {
+      "id": "student.1440.center.detail_modal",
+      "passed": true,
+      "detail": "message detail modal opened without navigation"
+    },
+    {
+      "id": "student.1440.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1440.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      }
+    },
+    {
+      "id": "student.1440.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1440.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "student.1440.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1366.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "student.1366.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "student.1366.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=1"
+    },
+    {
+      "id": "student.1366.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "student.1366.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1366.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 1174,
+        "top": 647.5625,
+        "right": 1348,
+        "bottom": 704.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1366.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":1174,\"y\":648}"
+    },
+    {
+      "id": "student.1366.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 958,
+        "top": 370.734375,
+        "right": 1348,
+        "bottom": 643.5625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "student.1366.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1366.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1366,
+        "clientWidth": 1366
+      }
+    },
+    {
+      "id": "student.1366.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1366.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "student.1366.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1024.center.single",
+      "passed": true,
+      "detail": "one shared work center root"
+    },
+    {
+      "id": "student.1024.center.no_legacy",
+      "passed": true,
+      "detail": "legacy floating roots absent"
+    },
+    {
+      "id": "student.1024.ai_role",
+      "passed": true,
+      "detail": "student_ai_count=1"
+    },
+    {
+      "id": "student.1024.center.aria",
+      "passed": true,
+      "detail": "打开任务与消息中心"
+    },
+    {
+      "id": "student.1024.center.clamp_left_top",
+      "passed": true,
+      "detail": {
+        "left": 18,
+        "top": 18,
+        "right": 192,
+        "bottom": 75,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1024.center.clamp_right_bottom",
+      "passed": true,
+      "detail": {
+        "left": 832,
+        "top": 647.5625,
+        "right": 1006,
+        "bottom": 704.5625,
+        "width": 174,
+        "height": 57
+      }
+    },
+    {
+      "id": "student.1024.center.position_saved",
+      "passed": true,
+      "detail": "{\"x\":832,\"y\":648}"
+    },
+    {
+      "id": "student.1024.center.panel_in_view",
+      "passed": true,
+      "detail": {
+        "left": 616,
+        "top": 370.734375,
+        "right": 1006,
+        "bottom": 643.5625,
+        "width": 390,
+        "height": 272.828125
+      }
+    },
+    {
+      "id": "student.1024.center.no_control_overlap",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1024.layout.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scrollWidth": 1024,
+        "clientWidth": 1024
+      }
+    },
+    {
+      "id": "student.1024.ai.no_forbidden_requests",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "student.1024.browser.console",
+      "passed": true,
+      "detail": {
+        "console": [],
+        "page": []
+      }
+    },
+    {
+      "id": "student.1024.browser.api_status",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "course.teacher.fixture_visible",
+      "passed": true,
+      "detail": {
+        "course_id": 1,
+        "class_id": 1,
+        "file_id": 100,
+        "title": "浏览器课程文件-browser1784099985868"
+      }
+    },
+    {
+      "id": "course.teacher.manage_dom",
+      "passed": true,
+      "detail": "upload_count=1"
+    },
+    {
+      "id": "course.teacher.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scroll_width": 1440,
+        "client_width": 1440
+      }
+    },
+    {
+      "id": "course.teacher.console",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "course.admin.fixture_visible",
+      "passed": true,
+      "detail": {
+        "course_id": 1,
+        "class_id": 1,
+        "file_id": 100,
+        "title": "浏览器课程文件-browser1784099985868"
+      }
+    },
+    {
+      "id": "course.admin.manage_dom",
+      "passed": true,
+      "detail": "upload_count=1"
+    },
+    {
+      "id": "course.admin.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scroll_width": 1440,
+        "client_width": 1440
+      }
+    },
+    {
+      "id": "course.admin.console",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "course.student.fixture_visible",
+      "passed": true,
+      "detail": {
+        "course_id": 1,
+        "class_id": 1,
+        "file_id": 100,
+        "title": "浏览器课程文件-browser1784099985868"
+      }
+    },
+    {
+      "id": "course.student.manage_dom",
+      "passed": true,
+      "detail": "upload_count=0"
+    },
+    {
+      "id": "course.student.no_horizontal_overflow",
+      "passed": true,
+      "detail": {
+        "scroll_width": 1440,
+        "client_width": 1440
+      }
+    },
+    {
+      "id": "course.student.console",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "id": "browser_fixture.cleanup",
+      "passed": true,
+      "detail": {
+        "marker": "browser1784099985868",
+        "document_ids": [
+          100
+        ],
+        "deleted_notifications": 7,
+        "deleted_operation_logs": 1,
+        "deleted_distributions": 1,
+        "deleted_documents": 1,
+        "deleted_users": 0,
+        "deleted_physical_files": 1
+      }
+    }
+  ],
+  "errors": [],
+  "diagnostics": {
+    "admin_sidebar_1920x1080": {
+      "expanded": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1920,
+          "height": 2306.140625
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1756,
+          "height": 1748.9375
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1166,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 250,
+          "height": 1040
+        },
+        "sidebar_class": "student-sidebar expanded",
+        "scroll_top": 300,
+        "scroll_width": 1920,
+        "client_width": 1920,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 787,
+        "menu_client_height": 787
+      },
+      "collapsed": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1920,
+          "height": 2306.140625
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1756,
+          "height": 1748.9375
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1166,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 80,
+          "height": 1040
+        },
+        "sidebar_class": "student-sidebar collapsed",
+        "scroll_top": 300,
+        "scroll_width": 1920,
+        "client_width": 1920,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 764,
+        "menu_client_height": 764
+      },
+      "delta": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    "admin_sidebar_1440x900": {
+      "expanded": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1440,
+          "height": 2397.625
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1276,
+          "height": 1840.421875
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 846,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 250,
+          "height": 860
+        },
+        "sidebar_class": "student-sidebar expanded",
+        "scroll_top": 300,
+        "scroll_width": 1440,
+        "client_width": 1440,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 607,
+        "menu_client_height": 607
+      },
+      "collapsed": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1440,
+          "height": 2397.625
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1276,
+          "height": 1840.421875
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 846,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 80,
+          "height": 860
+        },
+        "sidebar_class": "student-sidebar collapsed",
+        "scroll_top": 300,
+        "scroll_width": 1440,
+        "client_width": 1440,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 584,
+        "menu_client_height": 584
+      },
+      "delta": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    "admin_sidebar_1366x768": {
+      "expanded": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1366,
+          "height": 2397.625
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1202,
+          "height": 1840.421875
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 796.65625,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 250,
+          "height": 728
+        },
+        "sidebar_class": "student-sidebar expanded",
+        "scroll_top": 300,
+        "scroll_width": 1366,
+        "client_width": 1366,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 475,
+        "menu_client_height": 475
+      },
+      "collapsed": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1366,
+          "height": 2397.625
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 1202,
+          "height": 1840.421875
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 796.65625,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 80,
+          "height": 728
+        },
+        "sidebar_class": "student-sidebar collapsed",
+        "scroll_top": 300,
+        "scroll_width": 1366,
+        "client_width": 1366,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 452,
+        "menu_client_height": 452
+      },
+      "delta": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    },
+    "admin_sidebar_1024x768": {
+      "expanded": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1024,
+          "height": 2743
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 860,
+          "height": 2185.796875
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 568.65625,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 250,
+          "height": 728
+        },
+        "sidebar_class": "student-sidebar expanded",
+        "scroll_top": 300,
+        "scroll_width": 1024,
+        "client_width": 1024,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 475,
+        "menu_client_height": 475
+      },
+      "collapsed": {
+        "main": {
+          "left": 0,
+          "top": -300,
+          "width": 1024,
+          "height": 2743
+        },
+        "grid": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 860,
+          "height": 2185.796875
+        },
+        "chart": {
+          "left": 124,
+          "top": 217.203125,
+          "width": 568.65625,
+          "height": 389.8125
+        },
+        "sidebar": {
+          "left": 20,
+          "top": 20,
+          "width": 80,
+          "height": 728
+        },
+        "sidebar_class": "student-sidebar collapsed",
+        "scroll_top": 300,
+        "scroll_width": 1024,
+        "client_width": 1024,
+        "grid_rows": 5,
+        "menu_overflow_y": "auto",
+        "menu_scroll_height": 452,
+        "menu_client_height": 452
+      },
+      "delta": {
+        "main_left": 0,
+        "main_width": 0,
+        "grid_width": 0,
+        "chart_width": 0.0,
+        "scroll_top": 0,
+        "grid_rows": 0
+      }
+    }
+  },
+  "screenshots": [
+    "artifacts/cross-portal-rebuild/admin-dashboard-1920x1080.png",
+    "artifacts/cross-portal-rebuild/admin-dashboard-1440x900.png",
+    "artifacts/cross-portal-rebuild/admin-dashboard-1366x768.png",
+    "artifacts/cross-portal-rebuild/admin-dashboard-1024x768.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1920x1080.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1440x900.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1366x768.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1024x768.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1920x1080.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1440x900.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1366x768.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1024x768.png",
+    "artifacts/cross-portal-rebuild/course-files-teacher-1440x900.png",
+    "artifacts/cross-portal-rebuild/course-files-admin-1440x900.png",
+    "artifacts/cross-portal-rebuild/course-files-student-1440x900.png"
+  ],
+  "cleanup": {
+    "marker": "browser1784099985868",
+    "document_ids": [
+      100
+    ],
+    "deleted_notifications": 7,
+    "deleted_operation_logs": 1,
+    "deleted_distributions": 1,
+    "deleted_documents": 1,
+    "deleted_users": 0,
+    "deleted_physical_files": 1
+  }
+}

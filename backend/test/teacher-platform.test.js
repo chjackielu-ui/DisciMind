@@ -85,18 +85,70 @@ async function waitForArtifact(artifactId) {
   throw new Error('教案导出超时')
 }
 
+const generatedArtifactRoot = path.resolve(__dirname, '../storage/generated-artifacts')
+
+function resolveGeneratedArtifactFile(storagePath) {
+  const absolutePath = path.resolve(generatedArtifactRoot, storagePath)
+  const relativePath = path.relative(generatedArtifactRoot, absolutePath)
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error(`拒绝清理生成产物目录之外的文件：${storagePath}`)
+  }
+  return absolutePath
+}
+
+async function cleanupGeneratedArtifact(queued) {
+  if (!queued?.artifact_id) return
+  const artifact = await prisma.generatedArtifact.findUnique({
+    where: { id: queued.artifact_id },
+    include: { exports: true },
+  })
+  if (!artifact) return
+
+  const storagePaths = [...new Set([
+    artifact.storagePath,
+    ...artifact.exports.map(item => item.storagePath),
+  ].filter(Boolean))]
+
+  await prisma.$transaction(async tx => {
+    await tx.notification.deleteMany({
+      where: { business_type: 'lesson_plan_artifact', business_id: artifact.id },
+    })
+    await tx.knowledgeDocument.deleteMany({ where: { source_artifact_id: artifact.id } })
+    await tx.learningFlowResourceLink.deleteMany({ where: { artifactId: artifact.id } })
+    await tx.generatedArtifactExport.deleteMany({ where: { artifactId: artifact.id } })
+    await tx.generatedArtifact.delete({ where: { id: artifact.id } })
+    if (artifact.taskId) await tx.asyncTask.deleteMany({ where: { id: artifact.taskId } })
+  })
+
+  for (const storagePath of storagePaths) {
+    const absolutePath = resolveGeneratedArtifactFile(storagePath)
+    await fs.unlink(absolutePath).catch(error => {
+      if (error.code !== 'ENOENT') throw error
+    })
+    await fs.rmdir(path.dirname(absolutePath)).catch(error => {
+      if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error
+    })
+  }
+}
+
 test('教案 DOCX 与 PDF 真实生成并进入任务/产物中心', async () => {
   const ctx = await demoContext()
   const plan = await prisma.lessonPlan.findFirst({ where: { teacher_user_id: ctx.teacher.user_id, topic: '模型评估与过拟合诊断' } })
-  for (const format of ['DOCX', 'PDF']) {
-    const queued = await preparation.exportPlan(ctx.user, plan.lesson_plan_id, format)
-    const exported = await waitForArtifact(queued.artifact_id)
-    const bytes = await fs.readFile(path.resolve(__dirname, '../storage/generated-artifacts', exported.storagePath))
-    assert.ok(bytes.length > 500)
-    if (format === 'PDF') assert.equal(bytes.subarray(0, 4).toString(), '%PDF')
-    else assert.equal(bytes.subarray(0, 2).toString(), 'PK')
-    const task = await prisma.asyncTask.findUnique({ where: { id: queued.task_id } })
-    assert.equal(task.status, 'SUCCEEDED')
+  const queuedArtifacts = []
+  try {
+    for (const format of ['DOCX', 'PDF']) {
+      const queued = await preparation.exportPlan(ctx.user, plan.lesson_plan_id, format)
+      queuedArtifacts.push(queued)
+      const exported = await waitForArtifact(queued.artifact_id)
+      const bytes = await fs.readFile(resolveGeneratedArtifactFile(exported.storagePath))
+      assert.ok(bytes.length > 500)
+      if (format === 'PDF') assert.equal(bytes.subarray(0, 4).toString(), '%PDF')
+      else assert.equal(bytes.subarray(0, 2).toString(), 'PK')
+      const task = await prisma.asyncTask.findUnique({ where: { id: queued.task_id } })
+      assert.equal(task.status, 'SUCCEEDED')
+    }
+  } finally {
+    for (const queued of queuedArtifacts.reverse()) await cleanupGeneratedArtifact(queued)
   }
 })
 
@@ -104,16 +156,20 @@ test('学生讲义导出自动进入教师资源中心', async () => {
   const ctx = await demoContext()
   const plan = await prisma.lessonPlan.findFirst({ where: { teacher_user_id: ctx.teacher.user_id, topic: '模型评估与过拟合诊断' } })
   const queued = await preparation.exportPlan(ctx.user, plan.lesson_plan_id, 'DOCX', 'STUDENT_HANDOUT')
-  await waitForArtifact(queued.artifact_id)
-  let resource = null
-  for (let count = 0; count < 40 && !resource; count += 1) {
-    resource = await prisma.knowledgeDocument.findFirst({ where: { source_artifact_id: queued.artifact_id, deleted_at: null } })
-    if (!resource) await delay(25)
+  try {
+    await waitForArtifact(queued.artifact_id)
+    let resource = null
+    for (let count = 0; count < 40 && !resource; count += 1) {
+      resource = await prisma.knowledgeDocument.findFirst({ where: { source_artifact_id: queued.artifact_id, deleted_at: null } })
+      if (!resource) await delay(25)
+    }
+    assert.ok(resource)
+    assert.equal(resource.resource_kind, 'student_handout')
+    assert.equal(resource.version_source, 'AI_GENERATED')
+    assert.equal(resource.file_url.includes('/generated-artifacts/'), true)
+  } finally {
+    await cleanupGeneratedArtifact(queued)
   }
-  assert.ok(resource)
-  assert.equal(resource.resource_kind, 'student_handout')
-  assert.equal(resource.version_source, 'AI_GENERATED')
-  assert.equal(resource.file_url.includes('/generated-artifacts/'), true)
 })
 
 test('资源下发幂等且学生阅读完成状态真实回流', async () => {

@@ -14,6 +14,9 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
 import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
+import { notifyAdmin, confirmAdmin } from '../utils/admin-ui.js'
+import { loadAdminAccess, hasAdminPermission } from '../utils/admin-access.js'
+import { renderCourseFilesPanel, mountCourseFilesPanel } from '../components/course-files-panel.js'
 
 // ========================
 // 常量映射
@@ -67,6 +70,14 @@ export async function renderAdminCourseDetail(app, params) {
     }
   }
 
+  let canManage = false
+  try {
+    const access = await loadAdminAccess(user.user_id)
+    canManage = hasAdminPermission(access, 'admin.teaching.manage')
+  } catch {
+    canManage = false
+  }
+
   const displayName = getUserDisplayName()
 
   // ---- 初始骨架 ----
@@ -77,7 +88,7 @@ export async function renderAdminCourseDetail(app, params) {
       <div class="dashboard-content">
         <div style="margin-bottom:20px;">
           <button class="btn-back" onclick="window.location.hash='#/admin/courses'">
-            ← 返回课程列表
+            返回课程列表
           </button>
         </div>
         <div class="loading-state">
@@ -95,6 +106,14 @@ export async function renderAdminCourseDetail(app, params) {
   let allKnowledgePoints = []
   let teachingClasses = []
   let teacherUsers = []
+  const auxiliaryErrors = []
+
+  function requireResponseList(result, label) {
+    const data = result?.data
+    const list = Array.isArray(data) ? data : data?.list
+    if (!Array.isArray(list)) throw new Error(`${label}接口返回了不受支持的数据结构`)
+    return list
+  }
 
   try {
     const res = await getAdminCourseDetail(courseId)
@@ -110,20 +129,30 @@ export async function renderAdminCourseDetail(app, params) {
   }
 
   // ---- 加载附加数据 ----
-  try {
-    const [chapterRes, kpRes, classRes, teacherUserRes] = await Promise.all([
-      getCourseChapters(courseId),
-      getCourseKnowledgePoints(courseId),
-      getTeachingClasses(courseId),
-      getAdminUsers({ role: 'teacher', page_size: 100 }).catch(() => ({ data: { list: [] } })),
-    ])
-    chapters = chapterRes.data?.list || []
-    allKnowledgePoints = kpRes.data?.list || []
-    teachingClasses = classRes.data?.list || []
-    teacherUsers = teacherUserRes.data?.list || []
-  } catch (err) {
-    console.warn('[admin-course-detail] 加载附加数据失败:', err.message)
-  }
+  const auxiliaryResults = await Promise.allSettled([
+    getCourseChapters(courseId),
+    getCourseKnowledgePoints(courseId),
+    getTeachingClasses(courseId),
+    getAdminUsers({ role: 'teacher', page_size: 100 }),
+  ])
+  const auxiliaryTargets = [
+    ['章节', (list) => { chapters = list }],
+    ['知识点', (list) => { allKnowledgePoints = list }],
+    ['教学班级', (list) => { teachingClasses = list }],
+    ['教师候选人', (list) => { teacherUsers = list }],
+  ]
+  auxiliaryResults.forEach((result, index) => {
+    const [label, assign] = auxiliaryTargets[index]
+    if (result.status === 'rejected') {
+      auxiliaryErrors.push(`${label}加载失败：${result.reason?.message || '未知错误'}`)
+      return
+    }
+    try {
+      assign(requireResponseList(result.value, label))
+    } catch (error) {
+      auxiliaryErrors.push(`${label}加载失败：${error.message}`)
+    }
+  })
 
   // ---- 筛选已绑定教师的用户 ID 集合 ----
   const boundTeacherUserIds = new Set(
@@ -137,10 +166,11 @@ export async function renderAdminCourseDetail(app, params) {
     // 课程编辑弹窗内嵌在 contentHTML 中
     const contentHTML = `
       <div class="dashboard-content">
+        ${auxiliaryErrors.length ? `<div class="admin-inline-warning" role="alert"><div><strong>部分课程数据暂时不可用</strong><p>${auxiliaryErrors.map(escapeHtml).join('；')}</p></div><button type="button" class="btn-sm btn-secondary" id="btn-retry-course-sections">重新加载</button></div>` : ''}
         <!-- 返回按钮 -->
         <div style="margin-bottom:20px;">
           <button class="btn-back" onclick="window.location.hash='#/admin/courses'">
-            ← 返回课程列表
+            返回课程列表
           </button>
         </div>
 
@@ -163,14 +193,14 @@ export async function renderAdminCourseDetail(app, params) {
               ${course.description ? `<div style="color:var(--text-muted);font-size:0.85rem;margin-top:6px;">${escapeHtml(course.description)}</div>` : ''}
             </div>
             <div style="display:flex;gap:10px;flex-shrink:0;">
-              <button class="btn btn-primary" id="btn-edit-course-info" style="font-size:0.85rem;padding:6px 14px;">编辑课程</button>
+              ${canManage ? '<button class="btn btn-primary" id="btn-edit-course-info" style="font-size:0.85rem;padding:6px 14px;">编辑课程</button>' : ''}
             </div>
           </div>
           <div style="display:flex;gap:20px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);flex-wrap:wrap;">
-            <span>${chapters.length} 个章节</span>
-            <span>${allKnowledgePoints.length} 个知识点</span>
-            <span>${teachingClasses.length} 个教学班级</span>
-            <span>👨‍${teachers.length} 位教师</span>
+            <span id="course-summary-chapters">${chapters.length} 个章节</span>
+            <span id="course-summary-points">${allKnowledgePoints.length} 个知识点</span>
+            <span id="course-summary-classes">${teachingClasses.length} 个教学班级</span>
+            <span id="course-summary-teachers">${teachers.length} 位教师</span>
           </div>
         </div>
 
@@ -185,16 +215,19 @@ export async function renderAdminCourseDetail(app, params) {
           <button class="tab-btn" data-tab="classes" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
             教学班级
           </button>
+          <button class="tab-btn" data-tab="files" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
+            课程文件
+          </button>
           <button class="tab-btn" data-tab="teachers" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
-            👨‍授课教师
+            授课教师
           </button>
         </div>
 
         <!-- ====== 章节管理 Tab ====== -->
         <div class="tab-content" id="tab-chapters" style="display:block;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">章节列表（${chapters.length}）</h3>
-            <button class="btn btn-primary" id="btn-create-chapter" style="font-size:0.85rem;padding:6px 14px;">＋ 新建章节</button>
+            <h3 id="course-chapter-heading" style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">章节列表（${chapters.length}）</h3>
+            ${canManage && course.status === 'active' ? '<button class="btn btn-primary" id="btn-create-chapter" style="font-size:0.85rem;padding:6px 14px;">新建章节</button>' : ''}
           </div>
           <div id="chapters-list-container">
             ${renderChapterList(chapters)}
@@ -204,13 +237,13 @@ export async function renderAdminCourseDetail(app, params) {
         <!-- ====== 知识点管理 Tab ====== -->
         <div class="tab-content" id="tab-knowledge" style="display:none;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-            <h3 style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">知识点（${allKnowledgePoints.length}）</h3>
+            <h3 id="course-point-heading" style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">知识点（${allKnowledgePoints.length}）</h3>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
               <select id="kp-chapter-filter" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.85rem;">
                 <option value="">全部章节</option>
                 ${chapters.map(ch => `<option value="${ch.chapter_id}">${escapeHtml(ch.chapter_name)}</option>`).join('')}
               </select>
-              <button class="btn btn-primary" id="btn-create-kp" style="font-size:0.85rem;padding:6px 14px;">＋ 新建知识点</button>
+              ${canManage && course.status === 'active' ? '<button class="btn btn-primary" id="btn-create-kp" style="font-size:0.85rem;padding:6px 14px;">新建知识点</button>' : ''}
             </div>
           </div>
           <div id="kp-list-container">
@@ -221,19 +254,24 @@ export async function renderAdminCourseDetail(app, params) {
         <!-- ====== 教学班级 Tab ====== -->
         <div class="tab-content" id="tab-classes" style="display:none;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">教学班级（${teachingClasses.length}）</h3>
-            <button class="btn btn-primary" id="btn-create-class" style="font-size:0.85rem;padding:6px 14px;">＋ 新建班级</button>
+            <h3 id="course-class-heading" style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">教学班级（${teachingClasses.length}）</h3>
+            ${canManage && course.status === 'active' ? '<button class="btn btn-primary" id="btn-create-class" style="font-size:0.85rem;padding:6px 14px;">新建教学班</button>' : ''}
           </div>
           <div id="classes-list-container">
             ${renderClassList(teachingClasses)}
           </div>
         </div>
 
+        <!-- ====== 课程文件 Tab ====== -->
+        <div class="tab-content" id="tab-files" style="display:none;">
+          ${renderCourseFilesPanel({ user, course, classes: teachingClasses, canManage })}
+        </div>
+
         <!-- ====== 授课教师 Tab ====== -->
         <div class="tab-content" id="tab-teachers" style="display:none;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">授课教师（${teachers.length}）</h3>
-            <button class="btn btn-primary" id="btn-add-teacher" style="font-size:0.85rem;padding:6px 14px;">＋ 添加教师</button>
+            <h3 id="course-teacher-heading" style="font-size:1.1rem;font-weight:600;color:var(--stu-dark);margin:0;">授课教师（${teachers.length}）</h3>
+            ${canManage && course.status === 'active' ? '<button class="btn btn-primary" id="btn-add-teacher" style="font-size:0.85rem;padding:6px 14px;">添加教师</button>' : ''}
           </div>
           <div id="teachers-list-container">
             ${renderTeacherList(teachers)}
@@ -242,24 +280,24 @@ export async function renderAdminCourseDetail(app, params) {
       </div>
 
       <!-- ====== 编辑课程弹窗 ====== -->
-      <div class="modal-overlay" id="course-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div class="modal-overlay" id="course-edit-modal" role="dialog" aria-modal="true" aria-labelledby="course-edit-modal-title" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:520px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-          <h3 style="margin-bottom:20px;font-size:1.2rem;">编辑课程</h3>
+          <h3 id="course-edit-modal-title" style="margin-bottom:20px;font-size:1.2rem;">编辑课程</h3>
           <form id="course-edit-form">
             <div class="form-group" style="margin-bottom:14px;">
-              <label>课程名称 <span class="required">*</span></label>
+              <label for="edit-course-name">课程名称 <span class="required">*</span></label>
               <input type="text" id="edit-course-name" required value="${escapeHtml(course.course_name)}">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>课程编码 <span class="required">*</span></label>
+              <label for="edit-course-code">课程编码 <span class="required">*</span></label>
               <input type="text" id="edit-course-code" required value="${escapeHtml(course.course_code)}">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>学科分类</label>
+              <label for="edit-subject-category">学科分类</label>
               <input type="text" id="edit-subject-category" value="${escapeHtml(course.subject_category || '')}">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>课程描述</label>
+              <label for="edit-description">课程描述</label>
               <textarea id="edit-description" class="auto-resize-ta" rows="3">${escapeHtml(course.description || '')}</textarea>
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
@@ -271,20 +309,20 @@ export async function renderAdminCourseDetail(app, params) {
       </div>
 
       <!-- ====== 章节弹窗（新建/编辑） ====== -->
-      <div class="modal-overlay" id="chapter-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div class="modal-overlay" id="chapter-modal" role="dialog" aria-modal="true" aria-labelledby="chapter-modal-title" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
           <h3 id="chapter-modal-title" style="margin-bottom:20px;font-size:1.2rem;">新建章节</h3>
           <form id="chapter-form">
             <div class="form-group" style="margin-bottom:14px;">
-              <label>章节名称 <span class="required">*</span></label>
+              <label for="form-chapter-name">章节名称 <span class="required">*</span></label>
               <input type="text" id="form-chapter-name" required placeholder="例如：第一章 基础知识">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>章节序号</label>
+              <label for="form-chapter-order">章节序号</label>
               <input type="number" id="form-chapter-order" min="0" step="1" placeholder="例如：1">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>章节描述</label>
+              <label for="form-chapter-desc">章节描述</label>
               <textarea id="form-chapter-desc" class="auto-resize-ta" rows="2" placeholder="可选描述..."></textarea>
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
@@ -296,27 +334,27 @@ export async function renderAdminCourseDetail(app, params) {
       </div>
 
       <!-- ====== 知识点弹窗（新建/编辑） ====== -->
-      <div class="modal-overlay" id="kp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div class="modal-overlay" id="kp-modal" role="dialog" aria-modal="true" aria-labelledby="kp-modal-title" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:520px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
           <h3 id="kp-modal-title" style="margin-bottom:20px;font-size:1.2rem;">新建知识点</h3>
           <form id="kp-form">
             <div class="form-group" style="margin-bottom:14px;">
-              <label>所属章节 <span class="required">*</span></label>
+              <label for="form-kp-chapter">所属章节 <span class="required">*</span></label>
               <select id="form-kp-chapter" required style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
                 <option value="">请选择章节</option>
                 ${chapters.map(ch => `<option value="${ch.chapter_id}">${escapeHtml(ch.chapter_name)}</option>`).join('')}
               </select>
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>知识点名称 <span class="required">*</span></label>
+              <label for="form-kp-name">知识点名称 <span class="required">*</span></label>
               <input type="text" id="form-kp-name" required placeholder="例如：线性回归">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>知识点编码 <span class="required">*</span></label>
+              <label for="form-kp-code">知识点编码 <span class="required">*</span></label>
               <input type="text" id="form-kp-code" required placeholder="例如：LR001">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>难度等级</label>
+              <label for="form-kp-difficulty">难度等级</label>
               <select id="form-kp-difficulty" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
                 <option value="basic">基础</option>
                 <option value="medium" selected>中等</option>
@@ -324,11 +362,11 @@ export async function renderAdminCourseDetail(app, params) {
               </select>
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>描述</label>
+              <label for="form-kp-desc">描述</label>
               <textarea id="form-kp-desc" class="auto-resize-ta" rows="2" placeholder="可选描述..."></textarea>
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>别名（逗号分隔）</label>
+              <label for="form-kp-aliases">别名（逗号分隔）</label>
               <input type="text" id="form-kp-aliases" placeholder="例如：线性回归模型, LR">
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
@@ -340,20 +378,20 @@ export async function renderAdminCourseDetail(app, params) {
       </div>
 
       <!-- ====== 教学班级弹窗（新建/编辑） ====== -->
-      <div class="modal-overlay" id="class-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div class="modal-overlay" id="class-modal" role="dialog" aria-modal="true" aria-labelledby="class-modal-title" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
           <h3 id="class-modal-title" style="margin-bottom:20px;font-size:1.2rem;">新建教学班级</h3>
           <form id="class-form">
             <div class="form-group" style="margin-bottom:14px;">
-              <label>班级名称 <span class="required">*</span></label>
+              <label for="form-class-name">班级名称 <span class="required">*</span></label>
               <input type="text" id="form-class-name" required placeholder="例如：2024级计算机科学1班">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>学期</label>
+              <label for="form-class-semester">学期</label>
               <input type="text" id="form-class-semester" placeholder="例如：2024-2025学年第一学期">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>班级描述</label>
+              <label for="form-class-desc">班级描述</label>
               <textarea id="form-class-desc" class="auto-resize-ta" rows="2" placeholder="可选描述..."></textarea>
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
@@ -365,12 +403,12 @@ export async function renderAdminCourseDetail(app, params) {
       </div>
 
       <!-- ====== 添加教师弹窗 ====== -->
-      <div class="modal-overlay" id="teacher-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div class="modal-overlay" id="teacher-modal" role="dialog" aria-modal="true" aria-labelledby="teacher-modal-title" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div class="modal-content" style="background:#fff;border-radius:16px;padding:28px;width:480px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-          <h3 style="margin-bottom:20px;font-size:1.2rem;">添加授课教师</h3>
+          <h3 id="teacher-modal-title" style="margin-bottom:20px;font-size:1.2rem;">添加授课教师</h3>
           <form id="teacher-form">
             <div class="form-group" style="margin-bottom:14px;">
-              <label>选择教师 <span class="required">*</span></label>
+              <label for="form-teacher-user">选择教师 <span class="required">*</span></label>
               <select id="form-teacher-user" required style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
                 <option value="">请选择教师</option>
                 ${teacherUsers
@@ -381,7 +419,7 @@ export async function renderAdminCourseDetail(app, params) {
               ${teacherUsers.filter(tu => !boundTeacherUserIds.has(tu.user_id)).length === 0 ? '<p style="color:var(--text-muted);font-size:0.85rem;margin-top:6px;">暂无可选教师（所有教师已添加）</p>' : ''}
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-              <label>教师角色 <span class="required">*</span></label>
+              <label for="form-teacher-role">教师角色 <span class="required">*</span></label>
               <select id="form-teacher-role" required style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
                 <option value="main_teacher">主讲教师</option>
                 <option value="assistant">助教</option>
@@ -412,6 +450,10 @@ export async function renderAdminCourseDetail(app, params) {
     bindKnowledgePointEvents()
     bindTeachingClassEvents()
     bindTeacherEvents()
+    mountCourseFilesPanel({ user, course, classes: teachingClasses, canManage })
+    document.getElementById('btn-retry-course-sections')?.addEventListener('click', () => {
+      renderAdminCourseDetail(app, params)
+    })
   }
 
   renderFullPage()
@@ -429,7 +471,7 @@ export async function renderAdminCourseDetail(app, params) {
       contentHTML: `
         <div class="dashboard-content">
           <div style="margin-bottom:20px;">
-            <button class="btn-back" onclick="window.location.hash='#/admin/courses'">← 返回课程列表</button>
+            <button class="btn-back" onclick="window.location.hash='#/admin/courses'">返回课程列表</button>
           </div>
           <div class="error-state">
             <div class="error-icon"></div>
@@ -462,8 +504,7 @@ export async function renderAdminCourseDetail(app, params) {
               </div>
               <div style="display:flex;align-items:center;gap:14px;flex-shrink:0;">
                 <span style="font-size:0.85rem;color:var(--text-muted);">${ch.knowledge_point_count != null ? ch.knowledge_point_count : allKnowledgePoints.filter(kp => kp.chapter_id === ch.chapter_id).length} 个知识点</span>
-                <button class="btn-edit-chapter" data-chapter-id="${ch.chapter_id}" style="padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.8rem;">编辑</button>
-                <button class="btn-delete-chapter" data-chapter-id="${ch.chapter_id}" style="padding:4px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;">删除</button>
+                ${canManage && course.status === 'active' ? `<button class="btn-edit-chapter" data-chapter-id="${ch.chapter_id}" style="padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.8rem;">编辑</button><button class="btn-delete-chapter" data-chapter-id="${ch.chapter_id}" style="padding:4px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;">删除</button>` : ''}
               </div>
             </div>
           </div>
@@ -493,10 +534,7 @@ export async function renderAdminCourseDetail(app, params) {
               </div>
               ${kp.aliases ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:6px;">别名：${escapeHtml(kp.aliases)}</div>` : ''}
               ${kp.description ? `<div style="font-size:0.8rem;color:var(--text-muted);">${escapeHtml(kp.description)}</div>` : ''}
-              <div style="display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-                <button class="btn-edit-kp" data-kp-id="${kp.knowledge_point_id}" style="flex:1;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.8rem;">编辑</button>
-                <button class="btn-delete-kp" data-kp-id="${kp.knowledge_point_id}" style="flex:1;padding:5px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;">删除</button>
-              </div>
+              ${canManage && course.status === 'active' ? `<div style="display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);"><button class="btn-edit-kp" data-kp-id="${kp.knowledge_point_id}" style="flex:1;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.8rem;">编辑</button><button class="btn-delete-kp" data-kp-id="${kp.knowledge_point_id}" style="flex:1;padding:5px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;">删除</button></div>` : ''}
             </div>
           `
         }).join('')}
@@ -518,13 +556,10 @@ export async function renderAdminCourseDetail(app, params) {
               ${tc.description ? `<div style="margin-top:4px;color:var(--text-muted);">${escapeHtml(tc.description)}</div>` : ''}
             </div>
             <div style="display:flex;gap:16px;font-size:0.8rem;color:var(--text-muted);padding-top:10px;border-top:1px solid var(--border);margin-bottom:12px;">
-              <span>👨‍🎓 ${tc.student_count || 0} 名学生</span>
+              <span>${tc.student_count || 0} 名学生</span>
               <span>${formatDate(tc.created_at, 'date')}</span>
             </div>
-            <div style="display:flex;gap:8px;">
-              <button class="btn-edit-class" data-class-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;font-size:0.85rem;">编辑</button>
-              <button class="btn-delete-class" data-class-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.85rem;">删除</button>
-            </div>
+            ${canManage && course.status === 'active' ? `<div style="display:flex;gap:8px;"><button class="btn-edit-class" data-class-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;font-size:0.85rem;">编辑</button><button class="btn-delete-class" data-class-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.85rem;">归档/删除</button></div>` : ''}
           </div>
         `).join('')}
       </div>
@@ -549,7 +584,7 @@ export async function renderAdminCourseDetail(app, params) {
             <span style="font-size:0.85rem;padding:3px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--border);flex-shrink:0;">
               ${ROLE_LABEL[t.teacher_role] || t.teacher_role || '未知'}
             </span>
-            <button class="btn-remove-teacher" data-teacher-user-id="${t.teacher_user_id || t.user_id}" style="padding:5px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;flex-shrink:0;">移除</button>
+            ${canManage && course.status === 'active' ? `<button class="btn-remove-teacher" data-teacher-user-id="${t.teacher_user_id || t.user_id}" style="padding:5px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;flex-shrink:0;">移除</button>` : ''}
           </div>
         `).join('')}
       </div>
@@ -566,34 +601,31 @@ export async function renderAdminCourseDetail(app, params) {
       chapters: document.getElementById('tab-chapters'),
       knowledge: document.getElementById('tab-knowledge'),
       classes: document.getElementById('tab-classes'),
+      files: document.getElementById('tab-files'),
       teachers: document.getElementById('tab-teachers'),
+    }
+
+    const activateTab = (tab) => {
+      tabs.forEach(t => {
+        const active = t.dataset.tab === tab
+        t.classList.toggle('active', active)
+        t.style.color = active ? 'var(--stu-primary)' : 'var(--text-secondary)'
+        t.style.borderBottomColor = active ? 'var(--stu-primary)' : 'transparent'
+      })
+      Object.keys(contents).forEach(key => {
+        if (contents[key]) contents[key].style.display = key === tab ? 'block' : 'none'
+      })
     }
 
     tabs.forEach(btn => {
       btn.addEventListener('click', () => {
         const tab = btn.dataset.tab
-        tabs.forEach(t => {
-          t.classList.remove('active')
-          t.style.color = 'var(--text-secondary)'
-          t.style.borderBottomColor = 'transparent'
-        })
-        btn.classList.add('active')
-        btn.style.color = 'var(--stu-primary)'
-        btn.style.borderBottomColor = 'var(--stu-primary)'
-
-        Object.keys(contents).forEach(key => {
-          if (contents[key]) {
-            contents[key].style.display = key === tab ? 'block' : 'none'
-          }
-        })
+        activateTab(tab)
       })
     })
 
-    // Activate first tab
-    if (tabs.length > 0) {
-      tabs[0].style.color = 'var(--stu-primary)'
-      tabs[0].style.borderBottomColor = 'var(--stu-primary)'
-    }
+    const requestedTab = new URLSearchParams(window.location.hash.split('?')[1] || '').get('tab')
+    activateTab(contents[requestedTab] ? requestedTab : 'chapters')
   }
 
   // ========================
@@ -621,7 +653,7 @@ export async function renderAdminCourseDetail(app, params) {
         description: document.getElementById('edit-description').value.trim() || undefined,
       }
       if (!data.course_name || !data.course_code) {
-        alert('课程名称和编码为必填项')
+        notifyAdmin('课程名称和编码为必填项', true)
         return
       }
       try {
@@ -631,7 +663,7 @@ export async function renderAdminCourseDetail(app, params) {
         renderFullPage()
         initAllAutoResize()
       } catch (err) {
-        alert(err.message || '更新课程失败')
+        notifyAdmin(err.message || '更新课程失败', true)
       }
     })
   }
@@ -656,7 +688,7 @@ export async function renderAdminCourseDetail(app, params) {
       const description = document.getElementById('form-chapter-desc').value.trim()
 
       if (!chapterName) {
-        alert('章节名称为必填项')
+        notifyAdmin('章节名称为必填项', true)
         return
       }
 
@@ -677,7 +709,7 @@ export async function renderAdminCourseDetail(app, params) {
         closeChapterModal()
         await refreshChapters()
       } catch (err) {
-        alert(err.message || '保存章节失败')
+        notifyAdmin(err.message || '保存章节失败', true)
       }
     })
 
@@ -694,12 +726,12 @@ export async function renderAdminCourseDetail(app, params) {
     document.querySelectorAll('.btn-delete-chapter').forEach(btn => {
       btn.addEventListener('click', async () => {
         const chapterId = parseInt(btn.dataset.chapterId, 10)
-        if (!confirm('确定删除该章节吗？关联的知识点也将被删除。')) return
+        if (!(await confirmAdmin({ title: '删除章节', message: '仅空章节可以删除；存在知识点、错题或教案时系统会拒绝操作。', confirmLabel: '删除空章节', danger: true }))) return
         try {
           await deleteChapter(chapterId)
           await refreshChapters()
         } catch (err) {
-          alert(err.message || '删除章节失败')
+          notifyAdmin(err.message || '删除章节失败', true)
         }
       })
     })
@@ -720,14 +752,50 @@ export async function renderAdminCourseDetail(app, params) {
     editingChapterId = null
   }
 
+  function updateCourseCounters() {
+    const teachers = course.teachers || []
+    const values = {
+      'course-summary-chapters': `${chapters.length} 个章节`,
+      'course-summary-points': `${allKnowledgePoints.length} 个知识点`,
+      'course-summary-classes': `${teachingClasses.length} 个教学班级`,
+      'course-summary-teachers': `${teachers.length} 位教师`,
+      'course-chapter-heading': `章节列表（${chapters.length}）`,
+      'course-point-heading': `知识点（${allKnowledgePoints.length}）`,
+      'course-class-heading': `教学班级（${teachingClasses.length}）`,
+      'course-teacher-heading': `授课教师（${teachers.length}）`,
+    }
+    Object.entries(values).forEach(([id, label]) => {
+      const element = document.getElementById(id)
+      if (element) element.textContent = label
+    })
+  }
+
+  function updateChapterDropdowns() {
+    const options = chapters.map((chapter) => `<option value="${chapter.chapter_id}">${escapeHtml(chapter.chapter_name)}</option>`).join('')
+    const filter = document.getElementById('kp-chapter-filter')
+    const form = document.getElementById('form-kp-chapter')
+    if (filter) {
+      const selected = filter.value
+      filter.innerHTML = `<option value="">全部章节</option>${options}`
+      if ([...filter.options].some((option) => option.value === selected)) filter.value = selected
+    }
+    if (form) {
+      const selected = form.value
+      form.innerHTML = `<option value="">请选择章节</option>${options}`
+      if ([...form.options].some((option) => option.value === selected)) form.value = selected
+    }
+  }
+
   async function refreshChapters() {
     const container = document.getElementById('chapters-list-container')
     if (!container) return
     container.innerHTML = '<div class="empty-hint" style="padding:40px 0;">加载中...</div>'
     try {
       const res = await getCourseChapters(courseId)
-      chapters = res.data?.list || []
+      chapters = requireResponseList(res, '章节')
       container.innerHTML = renderChapterList(chapters)
+      updateChapterDropdowns()
+      updateCourseCounters()
       bindChapterEvents()
     } catch (err) {
       container.innerHTML = '<div class="error-state"><div class="error-message">加载章节失败</div></div>'
@@ -757,11 +825,11 @@ export async function renderAdminCourseDetail(app, params) {
       const aliases = document.getElementById('form-kp-aliases').value.trim()
 
       if (!chapterId) {
-        alert('请选择所属章节')
+        notifyAdmin('请选择所属章节', true)
         return
       }
       if (!name || !code) {
-        alert('知识点名称和编码为必填项')
+        notifyAdmin('知识点名称和编码为必填项', true)
         return
       }
 
@@ -772,7 +840,7 @@ export async function renderAdminCourseDetail(app, params) {
         knowledge_point_code: code,
         difficulty_level: difficulty,
         description: desc || undefined,
-        aliases: aliases || undefined,
+        aliases: aliases ? aliases.split(/[，,]/).map((item) => item.trim()).filter(Boolean) : [],
       }
 
       try {
@@ -783,8 +851,9 @@ export async function renderAdminCourseDetail(app, params) {
         }
         closeKpModal()
         await refreshKnowledgePoints()
+        await refreshChapters()
       } catch (err) {
-        alert(err.message || '保存知识点失败')
+        notifyAdmin(err.message || '保存知识点失败', true)
       }
     })
 
@@ -806,12 +875,13 @@ export async function renderAdminCourseDetail(app, params) {
     document.querySelectorAll('.btn-delete-kp').forEach(btn => {
       btn.addEventListener('click', async () => {
         const kpId = parseInt(btn.dataset.kpId, 10)
-        if (!confirm('确定删除该知识点吗？')) return
+        if (!(await confirmAdmin({ title: '删除知识点', message: '仅未被题目、任务、学习记录或子知识点引用时可以删除。', confirmLabel: '确认删除', danger: true }))) return
         try {
           await deleteKnowledgePoint(kpId)
           await refreshKnowledgePoints()
+          await refreshChapters()
         } catch (err) {
-          alert(err.message || '删除知识点失败')
+          notifyAdmin(err.message || '删除知识点失败', true)
         }
       })
     })
@@ -853,7 +923,8 @@ export async function renderAdminCourseDetail(app, params) {
     container.innerHTML = '<div class="empty-hint" style="padding:40px 0;">加载中...</div>'
     try {
       const res = await getCourseKnowledgePoints(courseId)
-      allKnowledgePoints = res.data?.list || []
+      allKnowledgePoints = requireResponseList(res, '知识点')
+      updateCourseCounters()
       applyKpFilter()
     } catch (err) {
       container.innerHTML = '<div class="error-state"><div class="error-message">加载知识点失败</div></div>'
@@ -880,7 +951,7 @@ export async function renderAdminCourseDetail(app, params) {
       const description = document.getElementById('form-class-desc').value.trim()
 
       if (!name) {
-        alert('班级名称为必填项')
+        notifyAdmin('班级名称为必填项', true)
         return
       }
 
@@ -901,7 +972,7 @@ export async function renderAdminCourseDetail(app, params) {
         closeClassModal()
         await refreshTeachingClasses()
       } catch (err) {
-        alert(err.message || '保存班级失败')
+        notifyAdmin(err.message || '保存班级失败', true)
       }
     })
 
@@ -918,12 +989,12 @@ export async function renderAdminCourseDetail(app, params) {
     document.querySelectorAll('.btn-delete-class').forEach(btn => {
       btn.addEventListener('click', async () => {
         const classId = parseInt(btn.dataset.classId, 10)
-        if (!confirm('确定删除该教学班级吗？此操作不可撤销。')) return
+        if (!(await confirmAdmin({ title: '归档或删除教学班', message: '无业务记录时删除；存在选课、知识库或任务记录时将安全归档。', confirmLabel: '继续', danger: true }))) return
         try {
           await deleteTeachingClass(classId)
           await refreshTeachingClasses()
         } catch (err) {
-          alert(err.message || '删除班级失败')
+          notifyAdmin(err.message || '删除班级失败', true)
         }
       })
     })
@@ -950,8 +1021,9 @@ export async function renderAdminCourseDetail(app, params) {
     container.innerHTML = '<div class="empty-hint" style="padding:40px 0;">加载中...</div>'
     try {
       const res = await getTeachingClasses(courseId)
-      teachingClasses = res.data?.list || []
+      teachingClasses = requireResponseList(res, '教学班级')
       container.innerHTML = renderClassList(teachingClasses)
+      updateCourseCounters()
       bindTeachingClassEvents()
     } catch (err) {
       container.innerHTML = '<div class="error-state"><div class="error-message">加载班级失败</div></div>'
@@ -981,11 +1053,11 @@ export async function renderAdminCourseDetail(app, params) {
       const teacherRole = document.getElementById('form-teacher-role').value
 
       if (!teacherUserId) {
-        alert('请选择教师')
+        notifyAdmin('请选择教师', true)
         return
       }
       if (!teacherRole) {
-        alert('请选择教师角色')
+        notifyAdmin('请选择教师角色', true)
         return
       }
 
@@ -994,7 +1066,7 @@ export async function renderAdminCourseDetail(app, params) {
         document.getElementById('teacher-modal').style.display = 'none'
         await refreshTeachers()
       } catch (err) {
-        alert(err.message || '添加教师失败')
+        notifyAdmin(err.message || '添加教师失败', true)
       }
     })
 
@@ -1002,12 +1074,12 @@ export async function renderAdminCourseDetail(app, params) {
     document.querySelectorAll('.btn-remove-teacher').forEach(btn => {
       btn.addEventListener('click', async () => {
         const teacherUserId = parseInt(btn.dataset.teacherUserId, 10)
-        if (!confirm('确定移除该教师吗？')) return
+        if (!(await confirmAdmin({ title: '移除授课教师', message: '确定移除该教师吗？', confirmLabel: '移除', danger: true }))) return
         try {
           await unbindCourseTeacher(courseId, teacherUserId)
           await refreshTeachers()
         } catch (err) {
-          alert(err.message || '移除教师失败')
+          notifyAdmin(err.message || '移除教师失败', true)
         }
       })
     })
@@ -1026,15 +1098,16 @@ export async function renderAdminCourseDetail(app, params) {
       // Also reload teacher users for the add dropdown
       try {
         const teacherUserRes = await getAdminUsers({ role: 'teacher', page_size: 100 })
-        teacherUsers = teacherUserRes.data?.list || []
-      } catch {
-        // non-fatal
+        teacherUsers = requireResponseList(teacherUserRes, '教师候选人')
+      } catch (error) {
+        notifyAdmin(`教师候选人刷新失败：${error.message || '未知错误'}`, true)
       }
 
       const teachers = course.teachers || []
       const newBoundIds = new Set(teachers.map(t => t.teacher_user_id || t.user_id).filter(Boolean))
 
       container.innerHTML = renderTeacherList(teachers)
+      updateCourseCounters()
       bindTeacherEvents()
 
       // Update the teacher modal dropdown options
@@ -1069,4 +1142,3 @@ export async function renderAdminCourseDetail(app, params) {
     }
   }
 }
-

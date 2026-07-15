@@ -1,5 +1,5 @@
 // AI 统一调用服务
-// 提供统一的 AI 调用入口，支持真实 API 调用和 mock 降级
+// 提供统一的 AI 调用入口，仅使用真实供应商配置；不可用时返回明确错误
 // 从 ai_model_configs 表读取配置，记录 ai_call_logs
 //
 // 支持的 usageType: qa / grading / question_generation / recommendation / summary
@@ -8,8 +8,9 @@
 // 不再依赖 ai_model_configs 表配置。
 
 const prisma = require('../config/prisma');
-const axios = require('axios');
 const { getBailianClient } = require('./bailian-openai.service');
+const providerFactory = require('../modules/ai/provider.factory');
+const traceService = require('./ai-trace.service');
 
 // ========================
 // 工具函数
@@ -34,75 +35,6 @@ function estimateTokens(text) {
 }
 
 // ========================
-// Mock 响应生成
-// ========================
-
-function generateMockResponse(usageType, messages) {
-  const lastMessage = Array.isArray(messages) && messages.length > 0
-    ? messages[messages.length - 1]
-    : { content: '' };
-  const userContent = typeof lastMessage === 'string' ? lastMessage : (lastMessage.content || '');
-
-  switch (usageType) {
-    case 'qa':
-      return {
-        content: `以下内容由 AI 生成，仅供学习参考，请结合课程资料核对。\n\n关于"${userContent.slice(0, 50)}${userContent.length > 50 ? '...' : ''}"的问题：\n\n当前 AI 服务处于离线模式。系统使用预置知识库进行回答。建议您参考课程讲义和教材中的相关章节获取更详细的信息。如果这个问题对您的学习很重要，可以向任课教师请教或在课程讨论区提问。`,
-        model: 'mock',
-        provider: 'mock',
-        tokens: { prompt: estimateTokens(userContent), completion: 100, total: estimateTokens(userContent) + 100 },
-      };
-
-    case 'grading':
-      return {
-        content: JSON.stringify({
-          score: null,
-          comment: 'AI 评分服务未配置，请教师手动评分。',
-          rubric_matched: [],
-          rubric_missing: [],
-        }),
-        model: 'mock',
-        provider: 'mock',
-        tokens: { prompt: 0, completion: 0, total: 0 },
-      };
-
-    case 'question_generation':
-      return {
-        content: JSON.stringify([]),
-        model: 'mock',
-        provider: 'mock',
-        tokens: { prompt: 0, completion: 0, total: 0 },
-      };
-
-    case 'recommendation':
-      return {
-        content: JSON.stringify({
-          reason_summary: '基于当前学习数据，系统建议复习薄弱知识点。',
-          items: [],
-        }),
-        model: 'mock',
-        provider: 'mock',
-        tokens: { prompt: 0, completion: 0, total: 0 },
-      };
-
-    case 'summary':
-      return {
-        content: 'AI 摘要服务未配置。请阅读原始文档获取完整内容。',
-        model: 'mock',
-        provider: 'mock',
-        tokens: { prompt: 0, completion: 0, total: 0 },
-      };
-
-    default:
-      return {
-        content: '当前 AI 服务不可用，请稍后再试。',
-        model: 'mock',
-        provider: 'mock',
-        tokens: { prompt: 0, completion: 0, total: 0 },
-      };
-  }
-}
-
-// ========================
 // AI 配置查询
 // ========================
 
@@ -116,14 +48,16 @@ async function getAiConfig(usageType) {
       enabled: true,
       usage_type: usageType.toUpperCase(),
     },
-    orderBy: { created_at: 'asc' },
+    orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
+    include: { provider_config: true },
   });
 
   // 如果没有精确匹配，查找通用配置
   if (!config) {
     config = await prisma.aiModelConfig.findFirst({
       where: { enabled: true },
-      orderBy: { created_at: 'asc' },
+      orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
+      include: { provider_config: true },
     });
   }
 
@@ -142,23 +76,29 @@ async function getAiConfig(usageType) {
  * @param {number} options.userId - 用户 ID
  * @param {Array<{role: string, content: string}>} options.messages - 消息列表
  * @param {Object} options.options - 额外选项 (temperature, maxTokens 等)
- * @param {boolean} options.fallbackMock - 无配置时是否降级到 mock（默认 true）
  * @returns {Promise<{content: string, model: string, provider: string, tokens: object}>}
  */
-async function callAI({ usageType, userId, messages, options = {}, fallbackMock = true }) {
+async function callAI({ usageType, userId, messages, options = {} }) {
   const startTime = Date.now();
   const prismaUsageType = usageType.toUpperCase();
+  let trace = null;
+  let activeConfig = null;
+
+  try {
+    trace = await traceService.startTrace({ user_id: userId, entry_point: 'legacy_ai_service', scene: usageType, input: messages });
+  } catch (traceError) {
+    console.error('[ai.service] 无法创建追踪记录:', traceError.message);
+  }
 
   try {
     // 1. 查询配置
     const config = await getAiConfig(usageType);
 
-    if (!config) {
-      if (fallbackMock) {
-        console.log(`[ai.service] 无可用 AI 配置 (usageType=${usageType})，使用 mock 响应`);
-        return generateMockResponse(usageType, messages);
-      }
-      throw Object.assign(new Error('无可用的 AI 模型配置'), { code: 50002 });
+    if (!config?.provider_config || !config.provider_config.enabled) throw Object.assign(new Error('无可用的 AI 模型与供应商配置'), { code: 50002 });
+    activeConfig = config;
+    if (trace) {
+      await prisma.aiRequestTrace.update({ where: { id: trace.id }, data: { provider_id: config.provider_id, model_config_id: config.ai_model_config_id } });
+      await traceService.addStep(trace.id, { step_type: 'configuration', title: '解析供应商与模型配置', output_summary: { provider: config.provider_config.provider_code, model: config.model_code || config.model_name } });
     }
 
     // 2. 检查日调用限制
@@ -174,8 +114,6 @@ async function callAI({ usageType, userId, messages, options = {}, fallbackMock 
         },
       });
       if (userCallCount >= config.single_user_daily_limit) {
-        console.log(`[ai.service] 用户 ${userId} 达到日调用限制 (${config.single_user_daily_limit})，降级 mock`);
-        if (fallbackMock) return generateMockResponse(usageType, messages);
         throw Object.assign(new Error('今日 AI 调用次数已达上限'), { code: 50002 });
       }
     }
@@ -189,18 +127,14 @@ async function callAI({ usageType, userId, messages, options = {}, fallbackMock 
         },
       });
       if (totalCallCount >= config.daily_call_limit) {
-        console.log(`[ai.service] 模型 ${config.model_name} 达到日调用限制，降级 mock`);
-        if (fallbackMock) return generateMockResponse(usageType, messages);
         throw Object.assign(new Error('模型日调用次数已达上限'), { code: 50002 });
       }
     }
 
     // 3. 构建请求
-    const baseUrl = config.base_url || 'https://api.openai.com/v1';
-    const apiKey = config.api_key_encrypted || '';
-    const modelName = config.model_name || 'gpt-3.5-turbo';
+    const modelName = config.model_code || config.model_name;
     const temperature = options.temperature ?? config.temperature ?? 0.7;
-    const maxTokens = options.maxTokens ?? config.max_context_length ?? 2048;
+    const maxTokens = options.maxTokens ?? config.max_output_tokens ?? 2048;
 
     // 过滤消息，只保留 role 和 content
     const sanitizedMessages = messages.map((m) => ({
@@ -210,37 +144,20 @@ async function callAI({ usageType, userId, messages, options = {}, fallbackMock 
 
     const promptTokens = sanitizedMessages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
 
-    // 4. 调用 AI API（OpenAI 兼容接口）
-    const response = await axios.post(
-      `${baseUrl}/chat/completions`,
-      {
-        model: modelName,
-        messages: sanitizedMessages,
-        temperature,
-        max_tokens: maxTokens,
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        timeout: 60000,
-      },
-    );
-
-    const completionTokens = response.data.usage?.completion_tokens || estimateTokens(
-      response.data.choices?.[0]?.message?.content || '',
-    );
-    const totalTokens = (response.data.usage?.total_tokens || 0) || (promptTokens + completionTokens);
+    // 4. 通过统一 Provider Adapter 调用真实接口。
+    const { adapter } = await providerFactory.getProvider(config.provider_id);
+    const response = await adapter.chat({ model: modelName, messages: sanitizedMessages, temperature, maxTokens });
+    const completionTokens = response.usage?.completion_tokens || estimateTokens(response.content || '');
+    const totalTokens = response.usage?.total_tokens || (promptTokens + completionTokens);
     const responseTimeMs = Date.now() - startTime;
-    const content = response.data.choices?.[0]?.message?.content || '';
+    const content = response.content || '';
 
     // 5. 记录调用日志
     try {
       await prisma.aiCallLog.create({
         data: {
           user_id: userId,
-          provider: config.provider,
+          provider: config.provider_config.provider_code,
           model_name: modelName,
           usage_type: prismaUsageType,
           prompt_tokens: promptTokens,
@@ -254,46 +171,27 @@ async function callAI({ usageType, userId, messages, options = {}, fallbackMock 
       console.error('[ai.service] 记录 ai_call_logs 失败:', logErr.message);
     }
 
-    return {
+    const result = {
       content,
       model: modelName,
-      provider: config.provider,
+      provider: config.provider_config.provider_code,
       tokens: { prompt: promptTokens, completion: completionTokens, total: totalTokens },
     };
+
+    if (trace) {
+      await traceService.addStep(trace.id, { step_type: 'model_generation', title: '模型生成', latency_ms: responseTimeMs, output_summary: { status: 'success', total_tokens: totalTokens } });
+      await traceService.completeTrace(trace.id, { status: 'success', output: content, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: totalTokens, latency_ms: responseTimeMs });
+    }
+
+    return result;
 
   } catch (err) {
     const responseTimeMs = Date.now() - startTime;
 
-    // Axios 错误
-    if (err.response || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
-      console.error(`[ai.service] AI API 调用失败:`, err.message);
-
-      // 记录失败日志
-      try {
-        await prisma.aiCallLog.create({
-          data: {
-            user_id: userId,
-            provider: 'unknown',
-            model_name: 'unknown',
-            usage_type: prismaUsageType,
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-            status: 'FAILED',
-            response_time_ms: responseTimeMs,
-            error_message: err.message,
-          },
-        });
-      } catch (logErr) {
-        console.error('[ai.service] 记录失败日志异常:', logErr.message);
-      }
-
-      if (fallbackMock) {
-        console.log('[ai.service] AI 调用失败，降级到 mock');
-        return generateMockResponse(usageType, messages);
-      }
-      throw Object.assign(new Error('AI 服务调用失败'), { code: 50002 });
-    }
+    try {
+      await prisma.aiCallLog.create({ data: { user_id: userId, provider: activeConfig?.provider_config?.provider_code || 'unconfigured', model_name: activeConfig?.model_code || activeConfig?.model_name || null, usage_type: prismaUsageType, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, status: 'FAILED', response_time_ms: responseTimeMs, error_message: String(err.message || 'AI 服务调用失败').slice(0, 500) } });
+      if (trace) await traceService.completeTrace(trace.id, { status: 'failed', latency_ms: responseTimeMs, error_type: err.code || 'AI_CALL_FAILED', error_message: err.message });
+    } catch (logErr) { console.error('[ai.service] 记录失败日志异常:', logErr.message); }
 
     // 业务错误（带 code 的）
     if (err.code) throw err;
@@ -348,21 +246,7 @@ ${correctAnswer ? `参考评分标准：${correctAnswer}` : ''}
         { role: 'user', content: userPrompt },
       ],
       options: { temperature: 0.3 },
-      fallbackMock: true,
     });
-
-    // 如果返回的是 mock 内容，说明 AI 不可用
-    if (result.provider === 'mock') {
-      return {
-        score: null,
-        comment: 'AI 评分服务不可用，请教师手动评分',
-        rubric_matched: [],
-        rubric_missing: [],
-        is_ai_generated: false,
-        ai_provider: null,
-        model_name: null,
-      };
-    }
 
     // 尝试解析 AI 返回的 JSON
     let parsed;
@@ -807,7 +691,6 @@ module.exports = {
   callAI,
   gradeShortAnswer,
   generateQuestions,
-  generateMockResponse,
   generateWrongQuestionVariants,
   generateWrongQuestionSimilar,
   analyzeWrongReason,

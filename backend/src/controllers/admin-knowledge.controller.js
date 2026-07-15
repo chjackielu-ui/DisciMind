@@ -25,7 +25,7 @@ async function reviewDocument(req, res) {
       return fail(res, 40001, '审核状态不合法，仅支持 approved / rejected');
     }
 
-    const data = await knowledgeService.reviewDocument(documentId, review_status, review_comment || null, req.user.user_id);
+    const data = await knowledgeService.reviewDocument(documentId, review_status, review_comment || null, req);
     return success(res, data, '文档审核完成');
   } catch (err) {
     console.error('[admin-knowledge] reviewDocument error:', err.message);

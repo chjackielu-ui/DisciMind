@@ -1,0 +1,419 @@
+{
+  "schema": "unified-center-api-acceptance.v1",
+  "generated_at_epoch": 1784100336.1171927,
+  "base_url": "http://localhost:3000/api",
+  "marker": "uwc1784100333391",
+  "passed": true,
+  "checks": [
+    {
+      "id": "login.admin_demo.role",
+      "passed": true,
+      "detail": "role=admin"
+    },
+    {
+      "id": "login.teacher_demo.role",
+      "passed": true,
+      "detail": "role=teacher"
+    },
+    {
+      "id": "login.student_demo.role",
+      "passed": true,
+      "detail": "role=student"
+    },
+    {
+      "id": "login.student_b.role",
+      "passed": true,
+      "detail": "role=student"
+    },
+    {
+      "id": "summary.admin_demo.tasks.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.admin_demo.tasks.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.admin_demo.messages.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.admin_demo.messages.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.admin_demo.fixture_visible",
+      "passed": true,
+      "detail": "fixture notification=220"
+    },
+    {
+      "id": "summary.admin_demo.counts",
+      "passed": true,
+      "detail": "unread=1"
+    },
+    {
+      "id": "messages.admin_demo.owned",
+      "passed": true,
+      "detail": "ids=[220]"
+    },
+    {
+      "id": "messages.admin_demo.isolated",
+      "passed": true,
+      "detail": "foreign intersection=[]"
+    },
+    {
+      "id": "messages.admin_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "messages.admin_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.admin_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "feed.admin_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.admin_demo.fixture_visible",
+      "passed": true,
+      "detail": "fixture is present in aggregated feed"
+    },
+    {
+      "id": "tasks.admin_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "tasks.admin_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.teacher_demo.tasks.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.teacher_demo.tasks.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.teacher_demo.messages.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.teacher_demo.messages.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.teacher_demo.fixture_visible",
+      "passed": true,
+      "detail": "fixture notification=221"
+    },
+    {
+      "id": "summary.teacher_demo.counts",
+      "passed": true,
+      "detail": "unread=9"
+    },
+    {
+      "id": "messages.teacher_demo.owned",
+      "passed": true,
+      "detail": "ids=[221]"
+    },
+    {
+      "id": "messages.teacher_demo.isolated",
+      "passed": true,
+      "detail": "foreign intersection=[]"
+    },
+    {
+      "id": "messages.teacher_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "messages.teacher_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.teacher_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "feed.teacher_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.teacher_demo.fixture_visible",
+      "passed": true,
+      "detail": "fixture is present in aggregated feed"
+    },
+    {
+      "id": "tasks.teacher_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "tasks.teacher_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.student_demo.tasks.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.student_demo.tasks.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.student_demo.messages.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.student_demo.messages.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.student_demo.fixture_visible",
+      "passed": true,
+      "detail": "fixture notification=222"
+    },
+    {
+      "id": "summary.student_demo.counts",
+      "passed": true,
+      "detail": "unread=1"
+    },
+    {
+      "id": "messages.student_demo.owned",
+      "passed": true,
+      "detail": "ids=[222]"
+    },
+    {
+      "id": "messages.student_demo.isolated",
+      "passed": true,
+      "detail": "foreign intersection=[]"
+    },
+    {
+      "id": "messages.student_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "messages.student_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.student_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "feed.student_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.student_demo.fixture_visible",
+      "passed": true,
+      "detail": "fixture is present in aggregated feed"
+    },
+    {
+      "id": "tasks.student_demo.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "tasks.student_demo.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.student_b.tasks.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.student_b.tasks.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.student_b.messages.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "summary.student_b.messages.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "summary.student_b.fixture_visible",
+      "passed": true,
+      "detail": "fixture notification=223"
+    },
+    {
+      "id": "summary.student_b.counts",
+      "passed": true,
+      "detail": "unread=1"
+    },
+    {
+      "id": "messages.student_b.owned",
+      "passed": true,
+      "detail": "ids=[223]"
+    },
+    {
+      "id": "messages.student_b.isolated",
+      "passed": true,
+      "detail": "foreign intersection=[]"
+    },
+    {
+      "id": "messages.student_b.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "messages.student_b.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.student_b.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "feed.student_b.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "feed.student_b.fixture_visible",
+      "passed": true,
+      "detail": "fixture is present in aggregated feed"
+    },
+    {
+      "id": "tasks.student_b.contract",
+      "passed": true,
+      "detail": "missing keys=none"
+    },
+    {
+      "id": "tasks.student_b.role_scope",
+      "passed": true,
+      "detail": "unexpected scopes=none"
+    },
+    {
+      "id": "detail.admin_demo.cross_user_404",
+      "passed": true,
+      "detail": "foreign notification=221"
+    },
+    {
+      "id": "detail.teacher_demo.cross_user_404",
+      "passed": true,
+      "detail": "foreign notification=222"
+    },
+    {
+      "id": "detail.student_demo.cross_user_404",
+      "passed": true,
+      "detail": "foreign notification=223"
+    },
+    {
+      "id": "detail.student_b.cross_user_404",
+      "passed": true,
+      "detail": "foreign notification=220"
+    },
+    {
+      "id": "detail.admin_demo.content",
+      "passed": true,
+      "detail": "title=统一中心验收 uwc1784100333391 admin_demo"
+    },
+    {
+      "id": "read.admin_demo.state",
+      "passed": true,
+      "detail": "status=read"
+    },
+    {
+      "id": "read.admin_demo.count",
+      "passed": true,
+      "detail": "before=1, after=0"
+    },
+    {
+      "id": "detail.teacher_demo.content",
+      "passed": true,
+      "detail": "title=统一中心验收 uwc1784100333391 teacher_demo"
+    },
+    {
+      "id": "read.teacher_demo.state",
+      "passed": true,
+      "detail": "status=read"
+    },
+    {
+      "id": "read.teacher_demo.count",
+      "passed": true,
+      "detail": "before=9, after=8"
+    },
+    {
+      "id": "detail.student_demo.content",
+      "passed": true,
+      "detail": "title=统一中心验收 uwc1784100333391 student_demo"
+    },
+    {
+      "id": "read.student_demo.state",
+      "passed": true,
+      "detail": "status=read"
+    },
+    {
+      "id": "read.student_demo.count",
+      "passed": true,
+      "detail": "before=1, after=0"
+    },
+    {
+      "id": "read_all.student_b.isolated",
+      "passed": true,
+      "detail": "updated_count=1"
+    },
+    {
+      "id": "read_all.student_b.count",
+      "passed": true,
+      "detail": "unread count returned to zero"
+    },
+    {
+      "id": "cleanup.notification_count",
+      "passed": true,
+      "detail": "deleted=4"
+    },
+    {
+      "id": "cleanup.no_fixture_visible",
+      "passed": true,
+      "detail": "all fixture message detail routes return 404 after hard cleanup"
+    }
+  ],
+  "errors": [],
+  "fixture_cleanup": {
+    "marker": "uwc1784100333391",
+    "deleted_notifications": 4
+  }
+}

@@ -6,6 +6,8 @@ import { getAdminCourses, createAdminCourse, deleteAdminCourse } from '../api/ad
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
+import { confirmAdmin } from '../utils/admin-ui.js'
+import { loadAdminAccess, hasAdminPermission } from '../utils/admin-access.js'
 
 function escapeHtml(str) {
   if (str == null) return ''
@@ -50,6 +52,14 @@ export async function renderAdminCourses(app) {
       window.location.hash = '#/login'
       return
     }
+  }
+
+  let canManage = false
+  try {
+    const access = await loadAdminAccess(user.user_id)
+    canManage = hasAdminPermission(access, 'admin.teaching.manage')
+  } catch {
+    canManage = false
   }
 
   // ---- 状态 ----
@@ -121,14 +131,7 @@ export async function renderAdminCourses(app) {
           <option value="archived" ${statusFilter === 'archived' ? 'selected' : ''}>已归档</option>
         </select>
         <button class="btn-sm btn-secondary" id="btn-search">搜索</button>
-        <button class="btn-sm btn-primary" id="btn-create-course" style="margin-left:auto;">+ 创建课程</button>
-      </div>
-    `
-
-    const subNavHTML = `
-      <div class="sub-nav" style="display:flex;gap:0;margin-bottom:16px;background:var(--bg);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
-        <a href="#/admin/courses" style="flex:1;padding:10px 16px;text-align:center;font-weight:600;color:var(--primary);background:rgba(99,102,241,0.06);text-decoration:none;border-bottom:2px solid var(--primary);font-size:0.9rem;">课程管理</a>
-        <a href="#/admin/classes" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">班级管理</a>
+        ${canManage ? '<button class="btn-sm btn-primary" id="btn-create-course" style="margin-left:auto;">创建课程</button>' : ''}
       </div>
     `
 
@@ -138,7 +141,6 @@ export async function renderAdminCourses(app) {
         <div class="section-header">
           <h2>课程管理</h2>
         </div>
-        ${subNavHTML}
         ${searchBarHTML}
         <div class="loading-state">
           <div class="loading-spinner"></div>
@@ -172,12 +174,11 @@ export async function renderAdminCourses(app) {
           <h2>课程管理</h2>
           <span style="color:var(--stu-text-muted);font-size:0.85rem;">共 ${totalCount} 门课程</span>
         </div>
-        ${subNavHTML}
         ${searchBarHTML}
         <div class="empty-state">
-          <div class="empty-icon">📚</div>
+          <div class="empty-icon" aria-hidden="true"></div>
           <p>${emptyMsg}</p>
-          ${!(keyword || statusFilter !== 'all') ? '<button class="btn-sm btn-primary" id="btn-create-course-empty" style="margin-top:12px;">创建课程</button>' : ''}
+          ${canManage && !(keyword || statusFilter !== 'all') ? '<button class="btn-sm btn-primary" id="btn-create-course-empty" style="margin-top:12px;">创建课程</button>' : ''}
         </div>
       `
     }
@@ -207,7 +208,7 @@ export async function renderAdminCourses(app) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0;margin-left:12px;">
               ${statusTag}
-              ${!isArchived ? `<button class="btn-sm btn-danger btn-archive" data-course-id="${courseId}">归档</button>` : ''}
+              ${canManage && !isArchived ? `<button class="btn-sm btn-danger btn-archive" data-course-id="${courseId}">归档</button>` : ''}
             </div>
           </div>
         </div>
@@ -228,7 +229,6 @@ export async function renderAdminCourses(app) {
         <h2>课程管理</h2>
         <span style="color:var(--stu-text-muted);font-size:0.85rem;">共 ${totalCount} 门课程</span>
       </div>
-      ${subNavHTML}
       ${searchBarHTML}
       ${courseGridHTML}
       ${paginationHTML}
@@ -275,26 +275,26 @@ export async function renderAdminCourses(app) {
   function buildCreateModal() {
     return `
       <div class="modal-overlay" id="modal-overlay">
-        <div class="modal-box">
-          <h3>创建新课程</h3>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="create-course-title">
+          <h3 id="create-course-title">创建新课程</h3>
           <div class="form-group">
-            <label>课程名称 <span style="color:#DC2626;">*</span></label>
+            <label for="field-course-name">课程名称 <span style="color:#DC2626;">*</span></label>
             <input type="text" id="field-course-name" placeholder="请输入课程名称" />
           </div>
           <div class="form-group">
-            <label>课程代码 <span style="color:#DC2626;">*</span></label>
+            <label for="field-course-code">课程代码 <span style="color:#DC2626;">*</span></label>
             <input type="text" id="field-course-code" placeholder="例如：CS101" />
           </div>
           <div class="form-group">
-            <label>科目分类 <span style="color:#DC2626;">*</span></label>
+            <label for="field-subject-category">科目分类 <span style="color:#DC2626;">*</span></label>
             <input type="text" id="field-subject-category" placeholder="例如：计算机科学" />
           </div>
           <div class="form-group">
-            <label>课程描述</label>
+            <label for="field-description">课程描述</label>
             <textarea id="field-description" placeholder="请输入课程描述（可选）"></textarea>
           </div>
           <div class="form-group">
-            <label>封面图片 URL</label>
+            <label for="field-cover-url">封面图片 URL</label>
             <input type="text" id="field-cover-url" placeholder="请输入封面图片链接（可选）" />
           </div>
           <div class="modal-actions">
@@ -389,7 +389,7 @@ export async function renderAdminCourses(app) {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation()
         const courseId = btn.dataset.courseId
-        if (!confirm('确定要归档该课程吗？归档后课程将不再显示在启用列表中。')) return
+        if (!(await confirmAdmin({ title: '归档课程', message: '确定要归档该课程吗？归档后课程将不再显示在启用列表中。', confirmLabel: '归档', danger: true }))) return
         try {
           btn.disabled = true
           await deleteAdminCourse(courseId)
@@ -428,4 +428,3 @@ export async function renderAdminCourses(app) {
   // ---- 启动 ----
   await loadCourses()
 }
-

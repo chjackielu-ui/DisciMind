@@ -48,7 +48,12 @@ async function approveAgent(adminId, reviewId, rawOperationId) {
     prisma.userAgentVersion.update({ where: { id: submitted.agentVersionId }, data: { reviewStatus: 'APPROVED', reviewReason: null, publishedAt: new Date() } }),
     prisma.userAgent.update({ where: { id: submitted.agentId }, data: { currentPublicVersionId: submitted.agentVersionId, currentDraftVersionId: null, status: 'PUBLIC', visibility: 'PUBLIC' } }),
     prisma.agentReviewRecord.create({ data: { agentId: submitted.agentId, agentVersionId: submitted.agentVersionId, reviewerUserId: adminId, action: 'APPROVED', operationId } }),
-    prisma.operationLog.create({ data: { user_id: adminId, role: 'ADMIN', operation_type: 'APPROVE_USER_AGENT', target_type: 'user_agent', target_id: submitted.agentId } }),
+    prisma.operationLog.create({ data: {
+      user_id: adminId, role: 'ADMIN', operation_type: 'APPROVE_USER_AGENT', target_type: 'user_agent', target_id: submitted.agentId,
+      request_id: operationId, action_status: 'success',
+      before_summary_json: { review_status: submitted.agentVersion.reviewStatus, version_id: submitted.agentVersionId },
+      after_summary_json: { review_status: 'APPROVED', version_id: submitted.agentVersionId, visibility: 'PUBLIC' },
+    } }),
   ]);
   require('../agent-marketplace/agent-ranking.service').invalidateRankingCache();
   return { approved: true, agentId: submitted.agentId };
@@ -65,7 +70,12 @@ async function rejectAgent(adminId, reviewId, input) {
     prisma.userAgentVersion.update({ where: { id: submitted.agentVersionId }, data: { reviewStatus: 'REJECTED', reviewReason: input.reason } }),
     prisma.userAgent.update({ where: { id: submitted.agentId }, data: { status: submitted.targetAgent.currentPublicVersionId ? 'PUBLIC' : 'REJECTED' } }),
     prisma.agentReviewRecord.create({ data: { agentId: submitted.agentId, agentVersionId: submitted.agentVersionId, reviewerUserId: adminId, action: 'REJECTED', reason: input.reason, operationId } }),
-    prisma.operationLog.create({ data: { user_id: adminId, role: 'ADMIN', operation_type: 'REJECT_USER_AGENT', operation_desc: input.reason, target_type: 'user_agent', target_id: submitted.agentId } }),
+    prisma.operationLog.create({ data: {
+      user_id: adminId, role: 'ADMIN', operation_type: 'REJECT_USER_AGENT', operation_desc: input.reason,
+      target_type: 'user_agent', target_id: submitted.agentId, request_id: operationId, action_status: 'success',
+      before_summary_json: { review_status: submitted.agentVersion.reviewStatus, version_id: submitted.agentVersionId },
+      after_summary_json: { review_status: 'REJECTED', version_id: submitted.agentVersionId, reason: input.reason },
+    } }),
   ]);
   require('../agent-marketplace/agent-ranking.service').invalidateRankingCache();
   return { rejected: true, agentId: submitted.agentId };
@@ -74,9 +84,18 @@ async function rejectAgent(adminId, reviewId, input) {
 async function offlineAgent(adminId, agentId, rawOperationId, reason = '管理员下架') {
   const agent = await prisma.userAgent.findFirst({ where: { id: Number(agentId), deletedAt: null } });
   assert(agent, '智能体不存在', 40002, 404);
+  const operationId = scopedOperationId(adminId, rawOperationId, `offline-agent-${agent.id}`);
+  const existing = await prisma.operationLog.findFirst({ where: { request_id: operationId, operation_type: 'OFFLINE_USER_AGENT' } });
+  if (existing) return { offline: true, id: agent.id };
+  assert(agent.status !== 'OFFLINE', '智能体已经下架，请刷新后重试。', 40901, 409);
   await prisma.$transaction([
     prisma.userAgent.update({ where: { id: agent.id }, data: { status: 'OFFLINE', visibility: 'PRIVATE' } }),
-    prisma.operationLog.create({ data: { user_id: adminId, role: 'ADMIN', operation_type: 'OFFLINE_USER_AGENT', operation_desc: reason, target_type: 'user_agent', target_id: agent.id } }),
+    prisma.operationLog.create({ data: {
+      user_id: adminId, role: 'ADMIN', operation_type: 'OFFLINE_USER_AGENT', operation_desc: reason,
+      target_type: 'user_agent', target_id: agent.id, request_id: operationId, action_status: 'success',
+      before_summary_json: { status: agent.status, visibility: agent.visibility },
+      after_summary_json: { status: 'OFFLINE', visibility: 'PRIVATE', reason },
+    } }),
   ]);
   require('../agent-marketplace/agent-ranking.service').invalidateRankingCache();
   return { offline: true, id: agent.id };
@@ -111,7 +130,12 @@ async function reviewKnowledge(adminId, reviewId, input, approved) {
   await prisma.$transaction([
     prisma.knowledgeBase.update({ where: { knowledge_base_id: submitted.knowledgeBaseId }, data: { marketplace_visibility: approved ? 'PUBLIC' : 'REJECTED', marketplace_status: approved ? 'PUBLIC' : 'REJECTED' } }),
     prisma.knowledgeBaseReviewRecord.create({ data: { knowledgeBaseId: submitted.knowledgeBaseId, reviewerUserId: adminId, action, reason: input.reason || null, operationId } }),
-    prisma.operationLog.create({ data: { user_id: adminId, role: 'ADMIN', operation_type: `${action}_AGENT_KNOWLEDGE_BASE`, operation_desc: input.reason || null, target_type: 'knowledge_base', target_id: submitted.knowledgeBaseId } }),
+    prisma.operationLog.create({ data: {
+      user_id: adminId, role: 'ADMIN', operation_type: `${action}_AGENT_KNOWLEDGE_BASE`, operation_desc: input.reason || null,
+      target_type: 'knowledge_base', target_id: submitted.knowledgeBaseId, request_id: operationId, action_status: 'success',
+      before_summary_json: { visibility: submitted.knowledgeBase.marketplace_visibility, status: submitted.knowledgeBase.marketplace_status },
+      after_summary_json: { visibility: approved ? 'PUBLIC' : 'REJECTED', status: approved ? 'PUBLIC' : 'REJECTED', reason: input.reason || null },
+    } }),
   ]);
   return { approved, rejected: !approved, knowledgeBaseId: submitted.knowledgeBaseId };
 }
@@ -121,12 +145,29 @@ async function listReports() {
   return { list: reports.map((item) => ({ id: item.id, reason: item.reason, detail: item.detail, status: item.status, createdAt: item.createdAt, reporter: { id: item.userId, name: item.user.profile?.real_name || item.user.username }, agent: { id: item.agentId, name: item.agent.currentPublicVersion?.name || '未命名智能体', creator: item.agent.creator.profile?.real_name || item.agent.creator.username } })) };
 }
 async function resolveReport(adminId, reportId, input) {
-  const report = await prisma.agentReport.findFirst({ where: { id: Number(reportId), status: 'PENDING' } });
-  assert(report, '举报不存在或已处理', 40901, 409);
+  const report = await prisma.agentReport.findUnique({ where: { id: Number(reportId) }, include: { agent: true } });
+  assert(report, '举报不存在', 40002, 404);
+  const operationId = scopedOperationId(adminId, input.operationId, `resolve-agent-report-${report.id}`);
+  const existing = await prisma.operationLog.findFirst({ where: { request_id: operationId, operation_type: 'RESOLVE_AGENT_REPORT' } });
+  if (existing) return { resolved: true, offline: Boolean(existing.after_summary_json?.offline_agent) };
+  assert(report.status === 'PENDING', '举报已经处理，请刷新后重试。', 40901, 409);
   await prisma.$transaction(async (tx) => {
     await tx.agentReport.update({ where: { id: report.id }, data: { status: 'RESOLVED', resolverUserId: adminId, resolution: input.resolution, resolvedAt: new Date() } });
-    if (input.offlineAgent) await tx.userAgent.update({ where: { id: report.agentId }, data: { status: 'OFFLINE', visibility: 'PRIVATE' } });
-    await tx.operationLog.create({ data: { user_id: adminId, role: 'ADMIN', operation_type: 'RESOLVE_AGENT_REPORT', operation_desc: input.resolution, target_type: 'agent_report', target_id: report.id } });
+    if (input.offlineAgent) {
+      await tx.userAgent.update({ where: { id: report.agentId }, data: { status: 'OFFLINE', visibility: 'PRIVATE' } });
+      await tx.operationLog.create({ data: {
+        user_id: adminId, role: 'ADMIN', operation_type: 'OFFLINE_USER_AGENT', operation_desc: input.resolution,
+        target_type: 'user_agent', target_id: report.agentId, request_id: `${operationId}:offline`, action_status: 'success',
+        before_summary_json: { status: report.agent.status, visibility: report.agent.visibility, source_report_id: report.id },
+        after_summary_json: { status: 'OFFLINE', visibility: 'PRIVATE', source_report_id: report.id },
+      } });
+    }
+    await tx.operationLog.create({ data: {
+      user_id: adminId, role: 'ADMIN', operation_type: 'RESOLVE_AGENT_REPORT', operation_desc: input.resolution,
+      target_type: 'agent_report', target_id: report.id, request_id: operationId, action_status: 'success',
+      before_summary_json: { status: report.status, agent_id: report.agentId },
+      after_summary_json: { status: 'RESOLVED', agent_id: report.agentId, resolution: input.resolution, offline_agent: input.offlineAgent },
+    } });
   });
   require('../agent-marketplace/agent-ranking.service').invalidateRankingCache();
   return { resolved: true, offline: input.offlineAgent };

@@ -16,6 +16,7 @@ import {
 import { iconBook, iconSearch, iconRefresh, iconUser, iconStar } from '../utils/icons.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
+import { renderCourseFilesPanel, mountCourseFilesPanel } from '../components/course-files-panel.js'
 
 // ========================
 // 主渲染函数
@@ -113,6 +114,9 @@ export async function renderTeacherCourseDetail(app, params) {
           <button class="tab-btn active" data-tab="classes" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
             教学班级
           </button>
+          <button class="tab-btn" data-tab="files" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
+            课程文件
+          </button>
           <button class="tab-btn" data-tab="chapters" style="padding:10px 22px;border:none;background:none;font-size:0.95rem;font-weight:600;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all 0.2s;">
             章节与知识点
           </button>
@@ -131,6 +135,10 @@ export async function renderTeacherCourseDetail(app, params) {
           <div id="classes-list-container">
             ${renderClassesList(classes)}
           </div>
+        </div>
+
+        <div class="tab-content" id="tab-files" style="display:none;">
+          ${renderCourseFilesPanel({ user, course, classes })}
         </div>
 
         <!-- 章节与知识点 Tab -->
@@ -350,6 +358,7 @@ export async function renderTeacherCourseDetail(app, params) {
 
     // ---- 绑定事件 ----
     bindTabEvents()
+    mountCourseFilesPanel({ user, course, classes })
     bindClassEvents()
     bindOfferingEvents()
     bindChapterEvents()
@@ -460,6 +469,7 @@ export async function renderTeacherCourseDetail(app, params) {
     const tabs = document.querySelectorAll('.tab-btn')
     const contents = {
       classes: document.getElementById('tab-classes'),
+      files: document.getElementById('tab-files'),
       chapters: document.getElementById('tab-chapters'),
       info: document.getElementById('tab-info'),
     }
@@ -482,11 +492,15 @@ export async function renderTeacherCourseDetail(app, params) {
       })
     })
 
-    // Activate first tab
-    if (tabs.length > 0) {
-      tabs[0].style.color = 'var(--stu-primary)'
-      tabs[0].style.borderBottomColor = 'var(--stu-primary)'
-    }
+    const requested = new URLSearchParams(window.location.hash.split('?')[1] || '').get('tab')
+    const initial = contents[requested] ? requested : 'classes'
+    tabs.forEach((button) => {
+      const active = button.dataset.tab === initial
+      button.classList.toggle('active', active)
+      button.style.color = active ? 'var(--stu-primary)' : 'var(--text-secondary)'
+      button.style.borderBottomColor = active ? 'var(--stu-primary)' : 'transparent'
+    })
+    Object.entries(contents).forEach(([key, content]) => { if (content) content.style.display = key === initial ? 'block' : 'none' })
   }
 
   // ========================
@@ -937,6 +951,5 @@ export async function renderTeacherCourseDetail(app, params) {
     document.getElementById('course-edit-modal').style.display = 'none'
   }
 }
-
 
 

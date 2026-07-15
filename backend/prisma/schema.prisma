@@ -314,21 +314,21 @@ enum RunStatus {
 }
 
 enum NotificationType {
-  TASK_PUBLISHED       @map("task_published")
-  TASK_DEADLINE        @map("task_deadline")
-  TASK_SUBMITTED       @map("task_submitted")
-  EXAM_SUBMITTED       @map("exam_submitted")
-  DOCUMENT_REVIEW      @map("document_review")
-  DOCUMENT_PARSED      @map("document_parsed")
+  TASK_PUBLISHED        @map("task_published")
+  TASK_DEADLINE         @map("task_deadline")
+  TASK_SUBMITTED        @map("task_submitted")
+  EXAM_SUBMITTED        @map("exam_submitted")
+  DOCUMENT_REVIEW       @map("document_review")
+  DOCUMENT_PARSED       @map("document_parsed")
   KNOWLEDGE_APPLICATION @map("knowledge_application")
-  AI_GRADING_DONE      @map("ai_grading_done")
-  FILE_GENERATED       @map("file_generated")
-  AI_TASK_DONE         @map("ai_task_done")
-  STUDENT_RISK         @map("student_risk")
-  CLASS_ALERT          @map("class_alert")
-  FREQUENT_QUESTION    @map("frequent_question")
-  RESOURCE_SHARED      @map("resource_shared")
-  SYSTEM_NOTICE        @map("system_notice")
+  AI_GRADING_DONE       @map("ai_grading_done")
+  FILE_GENERATED        @map("file_generated")
+  AI_TASK_DONE          @map("ai_task_done")
+  STUDENT_RISK          @map("student_risk")
+  CLASS_ALERT           @map("class_alert")
+  FREQUENT_QUESTION     @map("frequent_question")
+  RESOURCE_SHARED       @map("resource_shared")
+  SYSTEM_NOTICE         @map("system_notice")
 }
 
 enum LessonPlanStatus {
@@ -366,93 +366,94 @@ model User {
   created_at    DateTime   @default(now())
   updated_at    DateTime   @updatedAt
 
-  profile                      UserProfile?
-  teacher_course_relations     CourseTeacherRelation[]        @relation("TeacherCourseRelations")
-  student_course_enrollments   StudentCourseEnrollment[]      @relation("StudentEnrollments")
-  owned_knowledge_bases        KnowledgeBase[]                @relation("KnowledgeBaseOwner")
-  owned_documents              KnowledgeDocument[]            @relation("DocumentOwner")
-  reviewed_documents           KnowledgeDocument[]            @relation("DocumentReviewer")
-  document_reviews             KnowledgeDocumentReview[]      @relation("DocumentReviewUser")
-  ai_conversations             AiConversation[]               @relation("AiConversationUser")
-  subject_chat_runs            SubjectChatRun[]               @relation("SubjectChatRunUser")
-  chat_conversations           ChatConversation[]
-  chat_messages                ChatMessage[]
-  student_question_records     StudentQuestionRecord[]        @relation("StudentQuestions")
-  reviewed_question_analysis   QuestionAnalysisRecord[]       @relation("QuestionAnalysisReviewer")
-  created_question_banks       QuestionBank[]                 @relation("QuestionBankCreator")
-  created_questions            Question[]                     @relation("QuestionCreator")
-  generated_questions          Question[]                     @relation("QuestionGenerator")
-  ai_question_generation_logs  AiQuestionGenerationLog[]      @relation("AiQuestionGenerationCreator")
-  created_tasks                LearningTask[]                 @relation("TaskCreator")
-  task_submissions             TaskSubmission[]               @relation("TaskSubmissionStudent")
-  answer_records               AnswerRecord[]                 @relation("AnswerRecordStudent")
-  practice_sessions            PracticeSession[]              @relation("PracticeSessionStudent")
-  programming_submissions      ProgrammingSubmission[]        @relation("ProgrammingSubmissionStudent")
-  wrong_questions              WrongQuestion[]                @relation("WrongQuestionStudent")
-  wrong_question_tags          WrongQuestionTag[]
-  wrong_question_collections   WrongQuestionCollection[]
-  ai_generation_jobs           AiGenerationJob[]
-  study_records                StudyRecord[]                  @relation("StudyRecordStudent")
-  mastery_records              StudentMasteryRecord[]         @relation("MasteryRecordStudent")
-  portraits                    StudentPortrait[]              @relation("StudentPortraitUser")
-  portrait_snapshots           StudentPortraitSnapshot[]      @relation("StudentPortraitSnapshotUser")
-  research_profiles            StudentResearchProfile[]       @relation("StudentResearchProfileUser")
-  competition_profiles         StudentCompetitionProfile[]    @relation("StudentCompetitionProfileUser")
-  recommendation_records       RecommendationRecord[]         @relation("RecommendationStudent")
-  learning_paths               LearningPath[]                 @relation("LearningPathStudent")
-  review_plans                 ReviewPlan[]                   @relation("ReviewPlanStudent")
-  video_resources              VideoResource[]                @relation("VideoCreator")
-  video_generation_tasks       VideoGenerationTask[]          @relation("VideoGenerationCreator")
-  ai_call_logs                 AiCallLog[]
-  agent_run_records            AgentRunRecord[]
-  agent_conversations          AgentConversation[]            @relation("AgentConversationStudent")
-  agent_interventions          AgentIntervention[]            @relation("AgentInterventionStudent")
-  agent_diagnostic_reports     AgentDiagnosticReport[]        @relation("AgentDiagnosticReportStudent")
-  notifications_received       Notification[]                 @relation("NotificationReceiver")
-  notifications_sent           Notification[]                 @relation("NotificationSender")
-  operation_logs               OperationLog[]
-  feedback_records             FeedbackRecord[]
-  safety_check_records         SafetyCheckRecord[]
-  refresh_tokens               RefreshToken[]
-  auth_sessions                AuthSession[]
-  owned_workflow_templates     LearningWorkflowTemplate[]
-  created_workflow_versions    LearningWorkflowVersion[]
-  learning_sessions            LearningSession[]
-  learning_goals               LearningGoal[]
-  ai_flow_generation_jobs      AiFlowGenerationJob[]
-  marketplace_agents_created   UserAgent[]                    @relation("MarketplaceAgentCreator")
-  marketplace_conversations    MarketplaceAgentConversation[] @relation("MarketplaceConversationUser")
-  marketplace_memories         AgentMemory[]                  @relation("MarketplaceMemoryUser")
-  marketplace_agent_invocations MarketplaceAgentInvocation[]  @relation("MarketplaceInvocationUser")
-  marketplace_favorites        AgentFavorite[]
-  marketplace_ratings          AgentRating[]
-  marketplace_reports          AgentReport[]                  @relation("MarketplaceReportUser")
-  marketplace_reports_resolved AgentReport[]                  @relation("MarketplaceReportResolver")
-  marketplace_agent_reviews    AgentReviewRecord[]            @relation("MarketplaceAgentReviewer")
-  marketplace_kb_reviews       KnowledgeBaseReviewRecord[]    @relation("MarketplaceKnowledgeReviewer")
-  async_tasks                  AsyncTask[]
-  generated_artifacts          GeneratedArtifact[]            @relation("GeneratedArtifactOwner")
-  learning_flow_resource_links LearningFlowResourceLink[]     @relation("LearningFlowResourceOwner")
-  created_flow_resource_links  LearningFlowResourceLink[]     @relation("LearningFlowResourceCreator")
-  learning_flow_preloads       LearningFlowPreload[]
-  generated_artifact_exports   GeneratedArtifactExport[]
-  active_learning_context      StudentLearningContext?
-  learning_plans               StudentLearningPlan[]
-  primary_teaching_classes     TeachingClass[]                 @relation("TeachingClassPrimaryTeacher")
+  profile                       UserProfile?
+  teacher_course_relations      CourseTeacherRelation[]             @relation("TeacherCourseRelations")
+  student_course_enrollments    StudentCourseEnrollment[]           @relation("StudentEnrollments")
+  owned_knowledge_bases         KnowledgeBase[]                     @relation("KnowledgeBaseOwner")
+  owned_documents               KnowledgeDocument[]                 @relation("DocumentOwner")
+  reviewed_documents            KnowledgeDocument[]                 @relation("DocumentReviewer")
+  document_reviews              KnowledgeDocumentReview[]           @relation("DocumentReviewUser")
+  ai_conversations              AiConversation[]                    @relation("AiConversationUser")
+  subject_chat_runs             SubjectChatRun[]                    @relation("SubjectChatRunUser")
+  chat_conversations            ChatConversation[]
+  chat_messages                 ChatMessage[]
+  student_question_records      StudentQuestionRecord[]             @relation("StudentQuestions")
+  reviewed_question_analysis    QuestionAnalysisRecord[]            @relation("QuestionAnalysisReviewer")
+  created_question_banks        QuestionBank[]                      @relation("QuestionBankCreator")
+  created_questions             Question[]                          @relation("QuestionCreator")
+  generated_questions           Question[]                          @relation("QuestionGenerator")
+  ai_question_generation_logs   AiQuestionGenerationLog[]           @relation("AiQuestionGenerationCreator")
+  created_tasks                 LearningTask[]                      @relation("TaskCreator")
+  task_submissions              TaskSubmission[]                    @relation("TaskSubmissionStudent")
+  answer_records                AnswerRecord[]                      @relation("AnswerRecordStudent")
+  practice_sessions             PracticeSession[]                   @relation("PracticeSessionStudent")
+  programming_submissions       ProgrammingSubmission[]             @relation("ProgrammingSubmissionStudent")
+  wrong_questions               WrongQuestion[]                     @relation("WrongQuestionStudent")
+  wrong_question_tags           WrongQuestionTag[]
+  wrong_question_collections    WrongQuestionCollection[]
+  ai_generation_jobs            AiGenerationJob[]
+  study_records                 StudyRecord[]                       @relation("StudyRecordStudent")
+  mastery_records               StudentMasteryRecord[]              @relation("MasteryRecordStudent")
+  portraits                     StudentPortrait[]                   @relation("StudentPortraitUser")
+  portrait_snapshots            StudentPortraitSnapshot[]           @relation("StudentPortraitSnapshotUser")
+  research_profiles             StudentResearchProfile[]            @relation("StudentResearchProfileUser")
+  competition_profiles          StudentCompetitionProfile[]         @relation("StudentCompetitionProfileUser")
+  recommendation_records        RecommendationRecord[]              @relation("RecommendationStudent")
+  learning_paths                LearningPath[]                      @relation("LearningPathStudent")
+  review_plans                  ReviewPlan[]                        @relation("ReviewPlanStudent")
+  video_resources               VideoResource[]                     @relation("VideoCreator")
+  video_generation_tasks        VideoGenerationTask[]               @relation("VideoGenerationCreator")
+  ai_call_logs                  AiCallLog[]
+  agent_run_records             AgentRunRecord[]
+  agent_conversations           AgentConversation[]                 @relation("AgentConversationStudent")
+  agent_interventions           AgentIntervention[]                 @relation("AgentInterventionStudent")
+  agent_diagnostic_reports      AgentDiagnosticReport[]             @relation("AgentDiagnosticReportStudent")
+  notifications_received        Notification[]                      @relation("NotificationReceiver")
+  notifications_sent            Notification[]                      @relation("NotificationSender")
+  operation_logs                OperationLog[]
+  feedback_records              FeedbackRecord[]
+  safety_check_records          SafetyCheckRecord[]
+  refresh_tokens                RefreshToken[]
+  auth_sessions                 AuthSession[]
+  owned_workflow_templates      LearningWorkflowTemplate[]
+  created_workflow_versions     LearningWorkflowVersion[]
+  learning_sessions             LearningSession[]
+  learning_goals                LearningGoal[]
+  ai_flow_generation_jobs       AiFlowGenerationJob[]
+  marketplace_agents_created    UserAgent[]                         @relation("MarketplaceAgentCreator")
+  marketplace_conversations     MarketplaceAgentConversation[]      @relation("MarketplaceConversationUser")
+  marketplace_memories          AgentMemory[]                       @relation("MarketplaceMemoryUser")
+  marketplace_agent_invocations MarketplaceAgentInvocation[]        @relation("MarketplaceInvocationUser")
+  marketplace_favorites         AgentFavorite[]
+  marketplace_ratings           AgentRating[]
+  marketplace_reports           AgentReport[]                       @relation("MarketplaceReportUser")
+  marketplace_reports_resolved  AgentReport[]                       @relation("MarketplaceReportResolver")
+  marketplace_agent_reviews     AgentReviewRecord[]                 @relation("MarketplaceAgentReviewer")
+  marketplace_kb_reviews        KnowledgeBaseReviewRecord[]         @relation("MarketplaceKnowledgeReviewer")
+  async_tasks                   AsyncTask[]
+  generated_artifacts           GeneratedArtifact[]                 @relation("GeneratedArtifactOwner")
+  learning_flow_resource_links  LearningFlowResourceLink[]          @relation("LearningFlowResourceOwner")
+  created_flow_resource_links   LearningFlowResourceLink[]          @relation("LearningFlowResourceCreator")
+  learning_flow_preloads        LearningFlowPreload[]
+  generated_artifact_exports    GeneratedArtifactExport[]
+  active_learning_context       StudentLearningContext?
+  learning_plans                StudentLearningPlan[]
+  primary_teaching_classes      TeachingClass[]                     @relation("TeachingClassPrimaryTeacher")
   teaching_class_authorizations TeachingClassTeacherAuthorization[]
-  advised_admin_classes        AdminClass[]                    @relation("AdminClassAdvisor")
-  created_lesson_plans         LessonPlan[]                    @relation("LessonPlanCreator")
-  created_lesson_plan_versions LessonPlanVersion[]             @relation("LessonPlanVersionCreator")
-  lesson_plan_agent_executions LessonPlanAgentExecution[]      @relation("LessonPlanAgentExecutionTeacher")
-  analytics_snapshots          TeacherAnalyticsSnapshot[]
-  teacher_interventions        TeacherStudentIntervention[]    @relation("TeacherInterventionTeacher")
-  student_interventions        TeacherStudentIntervention[]    @relation("TeacherInterventionStudent")
-  task_recipients              LearningTaskRecipient[]         @relation("TaskRecipientStudent")
-  resource_distributions_sent  ResourceDistribution[]          @relation("ResourceDistributionSender")
-  resource_recipients          ResourceRecipient[]              @relation("ResourceRecipientStudent")
-  owned_editable_documents     EditableTeachingDocument[]       @relation("EditableDocumentOwner")
-  created_editable_versions    EditableTeachingDocumentVersion[] @relation("EditableDocumentVersionCreator")
-  created_document_revisions   DocumentRevision[]               @relation("DocumentRevisionCreator")
+  advised_admin_classes         AdminClass[]                        @relation("AdminClassAdvisor")
+  created_lesson_plans          LessonPlan[]                        @relation("LessonPlanCreator")
+  created_lesson_plan_versions  LessonPlanVersion[]                 @relation("LessonPlanVersionCreator")
+  lesson_plan_agent_executions  LessonPlanAgentExecution[]          @relation("LessonPlanAgentExecutionTeacher")
+  analytics_snapshots           TeacherAnalyticsSnapshot[]
+  teacher_interventions         TeacherStudentIntervention[]        @relation("TeacherInterventionTeacher")
+  student_interventions         TeacherStudentIntervention[]        @relation("TeacherInterventionStudent")
+  task_recipients               LearningTaskRecipient[]             @relation("TaskRecipientStudent")
+  resource_distributions_sent   ResourceDistribution[]              @relation("ResourceDistributionSender")
+  resource_recipients           ResourceRecipient[]                 @relation("ResourceRecipientStudent")
+  owned_editable_documents      EditableTeachingDocument[]          @relation("EditableDocumentOwner")
+  created_editable_versions     EditableTeachingDocumentVersion[]   @relation("EditableDocumentVersionCreator")
+  created_document_revisions    DocumentRevision[]                  @relation("DocumentRevisionCreator")
+  admin_role_assignments        AdminUserRole[]                     @relation("AdminRoleAssignedUser")
 
   @@index([role])
   @@index([status])
@@ -482,7 +483,7 @@ model AsyncTask {
   attemptCount        Int                   @default(0) @map("attempt_count")
   maxAttempts         Int                   @default(3) @map("max_attempts")
   metadataJson        Json?                 @map("metadata_json")
-  requestPayloadJson Json?                 @map("request_payload_json")
+  requestPayloadJson  Json?                 @map("request_payload_json")
   agentId             Int?                  @map("agent_id")
   conversationId      Int?                  @map("conversation_id")
   parentTaskId        Int?                  @map("parent_task_id")
@@ -500,9 +501,9 @@ model AsyncTask {
   createdAt           DateTime              @default(now()) @map("created_at")
   updatedAt           DateTime              @updatedAt @map("updated_at")
 
-  user              User               @relation(fields: [userId], references: [user_id], onDelete: Cascade)
-  generatedArtifact GeneratedArtifact? @relation("GeneratedArtifactTask")
-  agent             UserAgent?         @relation("AsyncTaskAgent", fields: [agentId], references: [id], onDelete: SetNull)
+  user              User                          @relation(fields: [userId], references: [user_id], onDelete: Cascade)
+  generatedArtifact GeneratedArtifact?            @relation("GeneratedArtifactTask")
+  agent             UserAgent?                    @relation("AsyncTaskAgent", fields: [agentId], references: [id], onDelete: SetNull)
   conversation      MarketplaceAgentConversation? @relation("AsyncTaskConversation", fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@unique([userId, operationId], map: "async_tasks_user_operation_key")
@@ -561,22 +562,22 @@ model AuthSession {
 }
 
 model UserProfile {
-  profile_id     Int      @id @default(autoincrement())
-  user_id        Int      @unique
-  real_name      String   @db.VarChar(50)
-  gender         Gender   @default(UNKNOWN)
-  student_no     String?  @unique @db.VarChar(50)
-  teacher_no     String?  @unique @db.VarChar(50)
-  college        String?  @db.VarChar(100)
-  major          String?  @db.VarChar(100)
-  grade          String?  @db.VarChar(20)
-  admin_class_id Int?
-  avatar_url     String?  @db.VarChar(500)
-  professional_title String? @db.VarChar(100)
+  profile_id          Int      @id @default(autoincrement())
+  user_id             Int      @unique
+  real_name           String   @db.VarChar(50)
+  gender              Gender   @default(UNKNOWN)
+  student_no          String?  @unique @db.VarChar(50)
+  teacher_no          String?  @unique @db.VarChar(50)
+  college             String?  @db.VarChar(100)
+  major               String?  @db.VarChar(100)
+  grade               String?  @db.VarChar(20)
+  admin_class_id      Int?
+  avatar_url          String?  @db.VarChar(500)
+  professional_title  String?  @db.VarChar(100)
   teacher_preferences Json?
-  default_course_id Int?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  default_course_id   Int?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
   user        User        @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
   admin_class AdminClass? @relation(fields: [admin_class_id], references: [admin_class_id])
@@ -586,17 +587,17 @@ model UserProfile {
 }
 
 model AdminClass {
-  admin_class_id Int      @id @default(autoincrement())
-  class_name     String   @db.VarChar(100)
-  college_id     Int?
-  major_id       Int?
-  college        String?  @db.VarChar(100)
-  major          String?  @db.VarChar(100)
-  grade          String?  @db.VarChar(20)
+  admin_class_id  Int      @id @default(autoincrement())
+  class_name      String   @db.VarChar(100)
+  college_id      Int?
+  major_id        Int?
+  college         String?  @db.VarChar(100)
+  major           String?  @db.VarChar(100)
+  grade           String?  @db.VarChar(20)
   advisor_user_id Int?
   status          String   @default("active") @db.VarChar(20)
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 
   students             UserProfile[]
   college_entity       College?                  @relation(fields: [college_id], references: [college_id], onDelete: SetNull)
@@ -723,15 +724,15 @@ model Course {
 }
 
 model CourseOffering {
-  course_offering_id Int      @id @default(autoincrement())
+  course_offering_id Int       @id @default(autoincrement())
   course_id          Int
   semester_id        Int
   start_date         DateTime?
   end_date           DateTime?
   teaching_progress  Json?
-  status             String   @default("active") @db.VarChar(20)
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
+  status             String    @default("active") @db.VarChar(20)
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
 
   course           Course           @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
   semester         AcademicSemester @relation(fields: [semester_id], references: [semester_id], onDelete: Restrict)
@@ -760,25 +761,25 @@ model CourseTeacherRelation {
 }
 
 model TeachingClass {
-  teaching_class_id   Int      @id @default(autoincrement())
+  teaching_class_id   Int       @id @default(autoincrement())
   course_id           Int
   course_offering_id  Int?
   teacher_user_id     Int?
-  teaching_class_name String   @db.VarChar(100)
-  code                String?  @unique @db.VarChar(80)
-  semester            String?  @db.VarChar(50)
-  description         String?  @db.Text
+  teaching_class_name String    @db.VarChar(100)
+  code                String?   @unique @db.VarChar(80)
+  semester            String?   @db.VarChar(50)
+  description         String?   @db.Text
   schedule            Json?
-  location            String?  @db.VarChar(200)
+  location            String?   @db.VarChar(200)
   capacity            Int?
-  status              String   @default("active") @db.VarChar(20)
+  status              String    @default("active") @db.VarChar(20)
   archived_at         DateTime?
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
 
-  course                      Course                      @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  course_offering             CourseOffering?             @relation(fields: [course_offering_id], references: [course_offering_id], onDelete: SetNull)
-  primary_teacher             User?                       @relation("TeachingClassPrimaryTeacher", fields: [teacher_user_id], references: [user_id], onDelete: SetNull)
+  course                      Course                              @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  course_offering             CourseOffering?                     @relation(fields: [course_offering_id], references: [course_offering_id], onDelete: SetNull)
+  primary_teacher             User?                               @relation("TeachingClassPrimaryTeacher", fields: [teacher_user_id], references: [user_id], onDelete: SetNull)
   teacher_authorizations      TeachingClassTeacherAuthorization[]
   admin_class_links           TeachingClassAdminClass[]
   enrollments                 StudentCourseEnrollment[]
@@ -803,14 +804,14 @@ model TeachingClass {
 }
 
 model TeachingClassTeacherAuthorization {
-  authorization_id Int      @id @default(autoincrement())
-  teaching_class_id Int
-  teacher_user_id   Int
-  role              String   @default("assistant") @db.VarChar(30)
-  status            String   @default("active") @db.VarChar(20)
+  authorization_id   Int      @id @default(autoincrement())
+  teaching_class_id  Int
+  teacher_user_id    Int
+  role               String   @default("assistant") @db.VarChar(30)
+  status             String   @default("active") @db.VarChar(20)
   granted_by_user_id Int?
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
 
   teaching_class TeachingClass @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
   teacher        User          @relation(fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
@@ -984,78 +985,79 @@ model KnowledgeBase {
 }
 
 model KnowledgeDocument {
-  document_id        Int          @id @default(autoincrement())
-  knowledge_base_id  Int?
-  title              String       @db.VarChar(200)
-  original_filename  String       @db.VarChar(255)
-  file_ext           String       @db.VarChar(20)
-  file_size_bytes    Int?
-  mime_type          String?      @db.VarChar(100)
-  storage_type       StorageType  @default(LOCAL)
-  file_url           String       @db.VarChar(500)
-  scope_type         ScopeType
-  visibility         Visibility   @default(PRIVATE)
-  course_id          Int?
-  teaching_class_id  Int?
-  lesson_plan_id     Int?
-  source_artifact_id Int?
-  owner_user_id      Int
-  is_teaching_resource Boolean @default(false)
-  resource_kind      String?      @db.VarChar(50)
-  resource_category  String?      @db.VarChar(100)
-  external_url       String?      @db.VarChar(1000)
-  metadata_json      Json?
-  resource_group_id  String?      @db.VarChar(64)
-  resource_version   Int          @default(1)
-  version_source     String       @default("LOCAL_IMPORT") @db.VarChar(32)
-  folder_path        String?      @db.VarChar(500)
-  tags_json          Json?
-  is_favorite        Boolean      @default(false)
-  resource_status    String       @default("ACTIVE") @db.VarChar(24)
-  last_used_at       DateTime?
-  parse_status       ParseStatus  @default(UPLOADED)
-  review_status      ReviewStatus @default(PENDING)
-  reviewer_user_id   Int?
-  review_comment     String?      @db.Text
-  dify_dataset_id    String?      @db.VarChar(255)
-  dify_document_id   String?      @db.VarChar(255)
-  dify_batch_id      String?      @db.VarChar(255)
-  file_checksum      String?      @db.VarChar(64)
-  marketplace_status String       @default("UPLOADING") @db.VarChar(32)
-  operation_id       String?      @unique @db.VarChar(64)
-  deleted_at         DateTime?
-  error_message      String?      @db.Text
-  error_code         String?      @db.VarChar(100)
-  error_stage        String?      @db.VarChar(32)
-  retryable          Boolean      @default(true)
-  failed_at          DateTime?
-  attempt_count      Int          @default(0)
-  processing_state   String       @default("uploaded") @db.VarChar(32)
-  cleaned_text       String?      @db.LongText
-  page_count         Int?
-  chunk_size         Int          @default(800)
-  chunk_overlap      Int          @default(120)
-  separator_strategy String       @default("structure") @db.VarChar(32)
-  created_at         DateTime     @default(now())
-  updated_at         DateTime     @updatedAt
+  document_id          Int          @id @default(autoincrement())
+  knowledge_base_id    Int?
+  title                String       @db.VarChar(200)
+  original_filename    String       @db.VarChar(255)
+  file_ext             String       @db.VarChar(20)
+  file_size_bytes      Int?
+  mime_type            String?      @db.VarChar(100)
+  storage_type         StorageType  @default(LOCAL)
+  file_url             String       @db.VarChar(500)
+  scope_type           ScopeType
+  visibility           Visibility   @default(PRIVATE)
+  course_id            Int?
+  teaching_class_id    Int?
+  lesson_plan_id       Int?
+  source_artifact_id   Int?
+  owner_user_id        Int
+  is_teaching_resource Boolean      @default(false)
+  resource_kind        String?      @db.VarChar(50)
+  resource_category    String?      @db.VarChar(100)
+  external_url         String?      @db.VarChar(1000)
+  metadata_json        Json?
+  resource_group_id    String?      @db.VarChar(64)
+  resource_version     Int          @default(1)
+  version_source       String       @default("LOCAL_IMPORT") @db.VarChar(32)
+  folder_path          String?      @db.VarChar(500)
+  tags_json            Json?
+  is_favorite          Boolean      @default(false)
+  resource_status      String       @default("ACTIVE") @db.VarChar(24)
+  last_used_at         DateTime?
+  parse_status         ParseStatus  @default(UPLOADED)
+  review_status        ReviewStatus @default(PENDING)
+  reviewer_user_id     Int?
+  review_comment       String?      @db.Text
+  dify_dataset_id      String?      @db.VarChar(255)
+  dify_document_id     String?      @db.VarChar(255)
+  dify_batch_id        String?      @db.VarChar(255)
+  file_checksum        String?      @db.VarChar(64)
+  marketplace_status   String       @default("UPLOADING") @db.VarChar(32)
+  operation_id         String?      @unique @db.VarChar(64)
+  deleted_at           DateTime?
+  error_message        String?      @db.Text
+  error_code           String?      @db.VarChar(100)
+  error_stage          String?      @db.VarChar(32)
+  retryable            Boolean      @default(true)
+  failed_at            DateTime?
+  attempt_count        Int          @default(0)
+  processing_state     String       @default("uploaded") @db.VarChar(32)
+  cleaned_text         String?      @db.LongText
+  page_count           Int?
+  chunk_size           Int          @default(800)
+  chunk_overlap        Int          @default(120)
+  separator_strategy   String       @default("structure") @db.VarChar(32)
+  created_at           DateTime     @default(now())
+  updated_at           DateTime     @updatedAt
 
-  knowledge_base      KnowledgeBase?            @relation(fields: [knowledge_base_id], references: [knowledge_base_id], onDelete: SetNull)
-  course              Course?                   @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  teaching_class      TeachingClass?            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  knowledge_base      KnowledgeBase?             @relation(fields: [knowledge_base_id], references: [knowledge_base_id], onDelete: SetNull)
+  course              Course?                    @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class      TeachingClass?             @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
   lesson_plan         LessonPlan?                @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: SetNull)
-  source_artifact     GeneratedArtifact?          @relation(fields: [source_artifact_id], references: [id], onDelete: SetNull)
-  owner               User                      @relation("DocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
-  reviewer            User?                     @relation("DocumentReviewer", fields: [reviewer_user_id], references: [user_id], onDelete: SetNull)
+  source_artifact     GeneratedArtifact?         @relation(fields: [source_artifact_id], references: [id], onDelete: SetNull)
+  owner               User                       @relation("DocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  reviewer            User?                      @relation("DocumentReviewer", fields: [reviewer_user_id], references: [user_id], onDelete: SetNull)
   chunks              KnowledgeDocumentChunk[]
   reviews             KnowledgeDocumentReview[]
   message_sources     MessageSource[]
   summaries           DocumentSummaryRecord[]
   marketplace_sources AgentMessageSource[]
-  task_attachments     TeachingTaskAttachment[]
-  distributions        ResourceDistribution[]
-  editable_documents   EditableTeachingDocument[] @relation("EditableDocumentSourceResource")
+  task_attachments    TeachingTaskAttachment[]
+  distributions       ResourceDistribution[]
+  editable_documents  EditableTeachingDocument[] @relation("EditableDocumentSourceResource")
 
   @@unique([knowledge_base_id, file_checksum])
+  @@unique([resource_group_id, resource_version], map: "kd_resource_group_version_key")
   @@index([knowledge_base_id])
   @@index([owner_user_id])
   @@index([course_id])
@@ -1063,7 +1065,6 @@ model KnowledgeDocument {
   @@index([lesson_plan_id])
   @@index([source_artifact_id], map: "kd_source_artifact_idx")
   @@index([owner_user_id, is_teaching_resource])
-  @@unique([resource_group_id, resource_version], map: "kd_resource_group_version_key")
   @@index([owner_user_id, resource_status, last_used_at], map: "kd_owner_status_used_idx")
   @@index([parse_status])
   @@index([review_status])
@@ -1073,7 +1074,7 @@ model KnowledgeDocument {
 }
 
 model ResourceDistribution {
-  distribution_id  Int       @id @default(autoincrement())
+  distribution_id   Int       @id @default(autoincrement())
   resource_id       Int
   sender_user_id    Int
   course_id         Int?
@@ -1089,10 +1090,10 @@ model ResourceDistribution {
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
-  resource      KnowledgeDocument @relation(fields: [resource_id], references: [document_id], onDelete: Restrict)
-  sender        User              @relation("ResourceDistributionSender", fields: [sender_user_id], references: [user_id], onDelete: Restrict)
-  course        Course?           @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  teachingClass TeachingClass?    @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  resource      KnowledgeDocument   @relation(fields: [resource_id], references: [document_id], onDelete: Restrict)
+  sender        User                @relation("ResourceDistributionSender", fields: [sender_user_id], references: [user_id], onDelete: Restrict)
+  course        Course?             @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teachingClass TeachingClass?      @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
   recipients    ResourceRecipient[]
 
   @@index([resource_id, resource_version], map: "rd_resource_version_idx")
@@ -1106,12 +1107,12 @@ model ResourceRecipient {
   recipient_id    Int       @id @default(autoincrement())
   distribution_id Int
   student_user_id Int
-  read_at          DateTime?
-  downloaded_at    DateTime?
-  completed_at     DateTime?
-  status           String    @default("UNREAD") @db.VarChar(24)
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  read_at         DateTime?
+  downloaded_at   DateTime?
+  completed_at    DateTime?
+  status          String    @default("UNREAD") @db.VarChar(24)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
 
   distribution ResourceDistribution @relation(fields: [distribution_id], references: [distribution_id], onDelete: Cascade)
   student      User                 @relation("ResourceRecipientStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
@@ -1167,19 +1168,19 @@ model KnowledgeDocumentReview {
 // ========================
 
 model AiConversation {
-  id        Int        @id @default(autoincrement())
-  userId    Int        @map("user_id")
-  title     String     @default("新对话") @db.VarChar(200)
-  mode      AiChatMode @default(GENERAL)
-  subject   String?    @db.VarChar(64)
-  agentType String?    @map("agent_type") @db.VarChar(64)
-  agentRuntimeStateJson Json? @map("agent_runtime_state_json")
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
+  id                    Int        @id @default(autoincrement())
+  userId                Int        @map("user_id")
+  title                 String     @default("新对话") @db.VarChar(200)
+  mode                  AiChatMode @default(GENERAL)
+  subject               String?    @db.VarChar(64)
+  agentType             String?    @map("agent_type") @db.VarChar(64)
+  agentRuntimeStateJson Json?      @map("agent_runtime_state_json")
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
 
-  user     User             @relation("AiConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
-  messages AiMessage[]
-  runs     SubjectChatRun[]
+  user                        User                         @relation("AiConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  messages                    AiMessage[]
+  runs                        SubjectChatRun[]
   marketplaceAgentInvocations MarketplaceAgentInvocation[]
 
   @@index([userId])
@@ -1200,12 +1201,12 @@ model AiMessage {
   sourcesJson           Json?       @map("sources_json")
   createdAt             DateTime    @default(now()) @map("created_at")
 
-  conversation                AiConversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation                AiConversation               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   marketplaceAgentInvocations MarketplaceAgentInvocation[]
 
+  @@unique([conversationId, clientRequestId])
   @@index([conversationId])
   @@index([role])
-  @@unique([conversationId, clientRequestId])
   @@map("ai_messages")
 }
 
@@ -1696,44 +1697,44 @@ model QuestionOption {
 }
 
 model LearningTask {
-  task_id            Int        @id @default(autoincrement())
-  course_id          Int
-  teaching_class_id  Int
-  created_by_user_id Int
-  task_type          TaskType
-  title              String     @db.VarChar(200)
-  description        String?    @db.Text
-  start_time         DateTime?
-  deadline           DateTime?
-  allow_late_submit  Boolean    @default(false)
-  duration_minutes   Int?
-  allowed_attempts   Int        @default(1)
-  allow_pause        Boolean    @default(false)
-  save_draft         Boolean    @default(true)
-  randomize_questions Boolean   @default(false)
-  randomize_options  Boolean    @default(false)
-  show_score_policy  String     @default("after_submit") @db.VarChar(30)
-  show_answer_policy String     @default("after_deadline") @db.VarChar(30)
-  show_analysis_policy String   @default("after_deadline") @db.VarChar(30)
-  auto_grade         Boolean    @default(true)
-  ai_grade_subjective Boolean   @default(false)
-  full_screen_mode   Boolean    @default(false)
-  source_mode        String     @default("question_bank") @db.VarChar(30)
-  total_score        Float?
-  pass_score         Float?
-  instructions       String?    @db.Text
-  rules              String?    @db.Text
-  configuration_json Json?
-  published_at       DateTime?
-  score_release_at   DateTime?
-  analysis_release_at DateTime?
-  status             TaskStatus @default(DRAFT)
-  created_at         DateTime   @default(now())
-  updated_at         DateTime   @updatedAt
+  task_id              Int        @id @default(autoincrement())
+  course_id            Int
+  teaching_class_id    Int
+  created_by_user_id   Int
+  task_type            TaskType
+  title                String     @db.VarChar(200)
+  description          String?    @db.Text
+  start_time           DateTime?
+  deadline             DateTime?
+  allow_late_submit    Boolean    @default(false)
+  duration_minutes     Int?
+  allowed_attempts     Int        @default(1)
+  allow_pause          Boolean    @default(false)
+  save_draft           Boolean    @default(true)
+  randomize_questions  Boolean    @default(false)
+  randomize_options    Boolean    @default(false)
+  show_score_policy    String     @default("after_submit") @db.VarChar(30)
+  show_answer_policy   String     @default("after_deadline") @db.VarChar(30)
+  show_analysis_policy String     @default("after_deadline") @db.VarChar(30)
+  auto_grade           Boolean    @default(true)
+  ai_grade_subjective  Boolean    @default(false)
+  full_screen_mode     Boolean    @default(false)
+  source_mode          String     @default("question_bank") @db.VarChar(30)
+  total_score          Float?
+  pass_score           Float?
+  instructions         String?    @db.Text
+  rules                String?    @db.Text
+  configuration_json   Json?
+  published_at         DateTime?
+  score_release_at     DateTime?
+  analysis_release_at  DateTime?
+  status               TaskStatus @default(DRAFT)
+  created_at           DateTime   @default(now())
+  updated_at           DateTime   @updatedAt
 
-  course                Course               @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  teaching_class        TeachingClass        @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
-  creator               User                 @relation("TaskCreator", fields: [created_by_user_id], references: [user_id], onDelete: Cascade)
+  course                Course                   @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  teaching_class        TeachingClass            @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: Cascade)
+  creator               User                     @relation("TaskCreator", fields: [created_by_user_id], references: [user_id], onDelete: Cascade)
   question_links        TaskQuestion[]
   knowledge_point_links TaskKnowledgePoint[]
   submissions           TaskSubmission[]
@@ -1750,10 +1751,10 @@ model LearningTask {
 }
 
 model TaskQuestion {
-  task_question_id Int @id @default(autoincrement())
+  task_question_id Int    @id @default(autoincrement())
   task_id          Int
   question_id      Int
-  question_order   Int @default(0)
+  question_order   Int    @default(0)
   score            Float?
 
   task     LearningTask @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
@@ -1764,14 +1765,14 @@ model TaskQuestion {
 }
 
 model LearningTaskRecipient {
-  recipient_id      Int      @id @default(autoincrement())
+  recipient_id      Int       @id @default(autoincrement())
   task_id           Int
   student_user_id   Int
   teaching_class_id Int
-  delivery_status   String   @default("delivered") @db.VarChar(20)
+  delivery_status   String    @default("delivered") @db.VarChar(20)
   viewed_at         DateTime?
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
   task    LearningTask @relation(fields: [task_id], references: [task_id], onDelete: Cascade)
   student User         @relation("TaskRecipientStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
@@ -2494,21 +2495,47 @@ model VideoGenerationTask {
 
 model AiModelConfig {
   ai_model_config_id      Int       @id @default(autoincrement())
+  provider_id             Int?
   provider                String    @db.VarChar(50)
   model_name              String    @db.VarChar(100)
+  model_code              String?   @db.VarChar(120)
+  display_name            String?   @db.VarChar(160)
+  model_type              String    @default("chat") @db.VarChar(40)
   base_url                String?   @db.VarChar(500)
   api_key_encrypted       String?   @db.Text
+  capabilities_json       Json?
   max_context_length      Int?
+  max_output_tokens       Int?
+  supports_stream         Boolean   @default(false)
+  supports_tools          Boolean   @default(false)
+  supports_vision         Boolean   @default(false)
+  supports_audio          Boolean   @default(false)
+  supports_embedding      Boolean   @default(false)
+  supports_rerank         Boolean   @default(false)
+  input_price             Decimal?  @db.Decimal(16, 8)
+  output_price            Decimal?  @db.Decimal(16, 8)
+  currency                String?   @default("CNY") @db.VarChar(12)
+  is_default              Boolean   @default(false)
+  parameters_json         Json?
   temperature             Float?
   enabled                 Boolean   @default(true)
   usage_type              UsageType
   daily_call_limit        Int?
   single_user_daily_limit Int?
   token_budget            Int?
+  created_by              Int?
+  updated_by              Int?
   created_at              DateTime  @default(now())
   updated_at              DateTime  @updatedAt
 
+  provider_config AiProvider?     @relation(fields: [provider_id], references: [id], onDelete: SetNull)
+  agent_configs   AiAgentConfig[]
+
+  @@unique([provider_id, model_code], map: "ai_model_provider_code_key")
+  @@index([provider_id])
   @@index([provider])
+  @@index([model_type])
+  @@index([is_default])
   @@index([usage_type])
   @@index([enabled])
   @@map("ai_model_configs")
@@ -2516,20 +2543,46 @@ model AiModelConfig {
 
 model AiAgentConfig {
   agent_config_id        Int       @id @default(autoincrement())
+  agent_key              String?   @unique @db.VarChar(100)
   agent_type             AgentType
   agent_name             String    @db.VarChar(100)
+  description            String?   @db.Text
+  runtime_type           String    @default("dify_workflow") @db.VarChar(40)
+  provider_id            Int?
+  model_config_id        Int?
+  base_url_override      String?   @db.VarChar(500)
+  prompt_version_id      Int?
   dify_base_url          String?   @db.VarChar(500)
   dify_api_key_encrypted String?   @db.Text
   dify_app_id            String?   @db.VarChar(255)
   dify_workflow_id       String?   @db.VarChar(255)
   dify_dataset_id        String?   @db.VarChar(255)
   response_mode          String    @default("blocking") @db.VarChar(20)
+  status                 String    @default("draft") @db.VarChar(24)
+  version                Int       @default(1)
   enabled                Boolean   @default(true)
+  timeout_ms             Int       @default(120000)
+  max_retries            Int       @default(1)
+  max_output_tokens      Int?
+  knowledge_config_json  Json?
+  tool_config_json       Json?
+  runtime_config_json    Json?
+  created_by             Int?
+  updated_by             Int?
+  published_at           DateTime?
+  archived_at            DateTime?
   created_at             DateTime  @default(now())
   updated_at             DateTime  @updatedAt
 
   agent_run_records AgentRunRecord[]
+  provider_config   AiProvider?         @relation(fields: [provider_id], references: [id], onDelete: SetNull)
+  model_config      AiModelConfig?      @relation(fields: [model_config_id], references: [ai_model_config_id], onDelete: SetNull)
+  versions          AdminAgentVersion[]
 
+  @@index([provider_id])
+  @@index([model_config_id])
+  @@index([runtime_type])
+  @@index([status])
   @@index([agent_type])
   @@index([enabled])
   @@map("ai_agent_configs")
@@ -2747,28 +2800,28 @@ model Notification {
 }
 
 model TeacherReminder {
-  id               Int      @id @default(autoincrement())
-  teacherUserId    Int      @map("teacher_user_id")
-  title            String   @db.VarChar(200)
-  description      String?  @db.Text
-  reminderType     String   @default("manual") @map("reminder_type") @db.VarChar(40)
-  priority         String   @default("normal") @db.VarChar(20)
-  courseId         Int?     @map("course_id")
-  teachingClassId  Int?     @map("teaching_class_id")
-  businessType     String?  @map("business_type") @db.VarChar(50)
-  businessId       Int?     @map("business_id")
-  startAt          DateTime @map("start_at")
-  remindAt         DateTime @map("remind_at")
-  endAt            DateTime? @map("end_at")
-  recurrenceRule   Json?    @map("recurrence_rule")
-  advanceMinutes   Int      @default(0) @map("advance_minutes")
-  status           String   @default("pending") @db.VarChar(20)
-  snoozedUntil     DateTime? @map("snoozed_until")
-  completedAt      DateTime? @map("completed_at")
-  dismissedAt      DateTime? @map("dismissed_at")
-  notes            String?  @db.Text
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id              Int       @id @default(autoincrement())
+  teacherUserId   Int       @map("teacher_user_id")
+  title           String    @db.VarChar(200)
+  description     String?   @db.Text
+  reminderType    String    @default("manual") @map("reminder_type") @db.VarChar(40)
+  priority        String    @default("normal") @db.VarChar(20)
+  courseId        Int?      @map("course_id")
+  teachingClassId Int?      @map("teaching_class_id")
+  businessType    String?   @map("business_type") @db.VarChar(50)
+  businessId      Int?      @map("business_id")
+  startAt         DateTime  @map("start_at")
+  remindAt        DateTime  @map("remind_at")
+  endAt           DateTime? @map("end_at")
+  recurrenceRule  Json?     @map("recurrence_rule")
+  advanceMinutes  Int       @default(0) @map("advance_minutes")
+  status          String    @default("pending") @db.VarChar(20)
+  snoozedUntil    DateTime? @map("snoozed_until")
+  completedAt     DateTime? @map("completed_at")
+  dismissedAt     DateTime? @map("dismissed_at")
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@index([teacherUserId, status, remindAt])
   @@index([courseId, teachingClassId])
@@ -2777,21 +2830,29 @@ model TeacherReminder {
 }
 
 model OperationLog {
-  operation_log_id Int       @id @default(autoincrement())
-  user_id          Int?
-  role             UserRole?
-  operation_type   String    @db.VarChar(100)
-  operation_desc   String?   @db.Text
-  target_type      String?   @db.VarChar(50)
-  target_id        Int?
-  ip_address       String?   @db.VarChar(50)
-  created_at       DateTime  @default(now())
+  operation_log_id    Int       @id @default(autoincrement())
+  user_id             Int?
+  role                UserRole?
+  operation_type      String    @db.VarChar(100)
+  operation_desc      String?   @db.Text
+  target_type         String?   @db.VarChar(50)
+  target_id           Int?
+  ip_address          String?   @db.VarChar(50)
+  request_id          String?   @db.VarChar(100)
+  action_status       String    @default("success") @db.VarChar(24)
+  before_summary_json Json?
+  after_summary_json  Json?
+  failure_reason      String?   @db.VarChar(500)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
 
   user User? @relation(fields: [user_id], references: [user_id], onDelete: SetNull)
 
   @@index([user_id])
   @@index([operation_type])
   @@index([target_type])
+  @@index([request_id])
+  @@index([action_status, created_at])
   @@map("operation_logs")
 }
 
@@ -2894,7 +2955,7 @@ model UserAgent {
   subjectScope           String               @default("GENERAL") @map("subject_scope") @db.VarChar(24)
   courseId               Int?                 @map("course_id")
   subjectCode            String?              @map("subject_code") @db.VarChar(64)
-  allowedCourseIdsJson   Json?                 @map("allowed_course_ids_json")
+  allowedCourseIdsJson   Json?                @map("allowed_course_ids_json")
   isCrossSubjectUtility  Boolean              @default(false) @map("is_cross_subject_utility")
   categoryId             Int?                 @map("category_id")
   usageCount             Int                  @default(0) @map("usage_count")
@@ -2928,7 +2989,7 @@ model UserAgent {
   reports              AgentReport[]
   reviews              AgentReviewRecord[]
   generatedArtifacts   GeneratedArtifact[]
-  asyncTasks           AsyncTask[]                     @relation("AsyncTaskAgent")
+  asyncTasks           AsyncTask[]                    @relation("AsyncTaskAgent")
   invocations          MarketplaceAgentInvocation[]
 
   @@index([creatorUserId, status])
@@ -3029,13 +3090,13 @@ model MarketplaceAgentConversation {
   updatedAt            DateTime  @updatedAt @map("updated_at")
   deletedAt            DateTime? @map("deleted_at")
 
-  user               User                      @relation("MarketplaceConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
-  agent              UserAgent                 @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  agentVersion       UserAgentVersion          @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  user               User                         @relation("MarketplaceConversationUser", fields: [userId], references: [user_id], onDelete: Cascade)
+  agent              UserAgent                    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentVersion       UserAgentVersion             @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
   messages           MarketplaceAgentMessage[]
   generatedArtifacts GeneratedArtifact[]
-  asyncTasks          AsyncTask[]                    @relation("AsyncTaskConversation")
-  invocations         MarketplaceAgentInvocation[]
+  asyncTasks         AsyncTask[]                  @relation("AsyncTaskConversation")
+  invocations        MarketplaceAgentInvocation[]
 
   @@index([userId, updatedAt])
   @@index([agentId])
@@ -3101,18 +3162,18 @@ model GeneratedArtifact {
   expiresAt             DateTime?               @map("expires_at")
   deletedAt             DateTime?               @map("deleted_at")
 
-  owner         User                         @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
-  agent         UserAgent?                   @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  conversation  MarketplaceAgentConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  lessonPlan    LessonPlan?                  @relation(fields: [lessonPlanId], references: [lesson_plan_id], onDelete: SetNull)
-  task          AsyncTask?                   @relation("GeneratedArtifactTask", fields: [taskId], references: [id], onDelete: SetNull)
-  course        Course?                      @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
-  resourceLinks LearningFlowResourceLink[]
-  exports       GeneratedArtifactExport[]
-  parentArtifact GeneratedArtifact?            @relation("GeneratedArtifactVariants", fields: [parentArtifactId], references: [id], onDelete: SetNull)
-  variants       GeneratedArtifact[]            @relation("GeneratedArtifactVariants")
+  owner             User                          @relation("GeneratedArtifactOwner", fields: [ownerUserId], references: [user_id], onDelete: Cascade)
+  agent             UserAgent?                    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  conversation      MarketplaceAgentConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  lessonPlan        LessonPlan?                   @relation(fields: [lessonPlanId], references: [lesson_plan_id], onDelete: SetNull)
+  task              AsyncTask?                    @relation("GeneratedArtifactTask", fields: [taskId], references: [id], onDelete: SetNull)
+  course            Course?                       @relation(fields: [courseId], references: [course_id], onDelete: SetNull)
+  resourceLinks     LearningFlowResourceLink[]
+  exports           GeneratedArtifactExport[]
+  parentArtifact    GeneratedArtifact?            @relation("GeneratedArtifactVariants", fields: [parentArtifactId], references: [id], onDelete: SetNull)
+  variants          GeneratedArtifact[]           @relation("GeneratedArtifactVariants")
   teachingResources KnowledgeDocument[]
-  editableDocuments EditableTeachingDocument[]  @relation("EditableDocumentSourceArtifact")
+  editableDocuments EditableTeachingDocument[]    @relation("EditableDocumentSourceArtifact")
 
   @@unique([ownerUserId, conversationId, operationId], map: "generated_artifacts_owner_conversation_operation_key")
   @@index([ownerUserId, status, updatedAt])
@@ -3222,7 +3283,7 @@ model LearningFlowPreload {
   workflowTemplate LearningWorkflowTemplate @relation(fields: [workflowTemplateId], references: [template_id], onDelete: Restrict, map: "lf_preload_template_fkey")
   learningGoal     LearningGoal             @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict, map: "lf_preload_goal_fkey")
   learningSession  LearningSession?         @relation(fields: [learningSessionId], references: [session_id], onDelete: Restrict, map: "lf_preload_session_fkey")
-  learningPlan     StudentLearningPlan?      @relation(fields: [learningPlanId], references: [id], onDelete: SetNull, map: "lf_preload_plan_fkey")
+  learningPlan     StudentLearningPlan?     @relation(fields: [learningPlanId], references: [id], onDelete: SetNull, map: "lf_preload_plan_fkey")
 
   @@index([userId, status, updatedAt], map: "learning_flow_preloads_user_status_updated_idx")
   @@index([userId, preloadKey, expiresAt], map: "learning_flow_preloads_user_key_expires_idx")
@@ -3309,13 +3370,13 @@ model StudentLearningPlan {
   createdAt             DateTime                        @default(now()) @map("created_at")
   updatedAt             DateTime                        @updatedAt @map("updated_at")
 
-  student          User                     @relation(fields: [studentUserId], references: [user_id], onDelete: Cascade)
-  course           Course                   @relation(fields: [courseId], references: [course_id], onDelete: Restrict)
-  knowledgePoint   KnowledgePoint?           @relation(fields: [knowledgePointId], references: [knowledge_point_id], onDelete: SetNull)
-  learningGoal     LearningGoal              @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict)
-  workflowTemplate LearningWorkflowTemplate? @relation(fields: [workflowTemplateId], references: [template_id], onDelete: SetNull)
-  workflowVersion  LearningWorkflowVersion   @relation(fields: [workflowVersionId], references: [version_id], onDelete: Restrict)
-  learningSession  LearningSession?          @relation(fields: [learningSessionId], references: [session_id], onDelete: SetNull)
+  student          User                       @relation(fields: [studentUserId], references: [user_id], onDelete: Cascade)
+  course           Course                     @relation(fields: [courseId], references: [course_id], onDelete: Restrict)
+  knowledgePoint   KnowledgePoint?            @relation(fields: [knowledgePointId], references: [knowledge_point_id], onDelete: SetNull)
+  learningGoal     LearningGoal               @relation(fields: [learningGoalId], references: [goal_id], onDelete: Restrict)
+  workflowTemplate LearningWorkflowTemplate?  @relation(fields: [workflowTemplateId], references: [template_id], onDelete: SetNull)
+  workflowVersion  LearningWorkflowVersion    @relation(fields: [workflowVersionId], references: [version_id], onDelete: Restrict)
+  learningSession  LearningSession?           @relation(fields: [learningSessionId], references: [session_id], onDelete: SetNull)
   preloads         LearningFlowPreload[]
   resourceLinks    LearningFlowResourceLink[]
 
@@ -3363,7 +3424,7 @@ model AgentMessageSource {
   pageNumber      Int?     @map("page_number")
   quote           String   @db.Text
   score           Float?
-  externalUrl     String?   @map("external_url") @db.VarChar(1000)
+  externalUrl     String?  @map("external_url") @db.VarChar(1000)
   createdAt       DateTime @default(now()) @map("created_at")
 
   message       MarketplaceAgentMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
@@ -3423,9 +3484,9 @@ model MarketplaceAgentInvocation {
   user           User                          @relation("MarketplaceInvocationUser", fields: [userId], references: [user_id], onDelete: Cascade)
   conversation   MarketplaceAgentConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sourceMessage  MarketplaceAgentMessage?      @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
-  aiConversation AiConversation?                @relation(fields: [aiConversationId], references: [id], onDelete: Cascade)
-  aiMessage      AiMessage?                     @relation(fields: [aiMessageId], references: [id], onDelete: SetNull)
-  agent          UserAgent                      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  aiConversation AiConversation?               @relation(fields: [aiConversationId], references: [id], onDelete: Cascade)
+  aiMessage      AiMessage?                    @relation(fields: [aiMessageId], references: [id], onDelete: SetNull)
+  agent          UserAgent                     @relation(fields: [agentId], references: [id], onDelete: Restrict)
 
   @@index([userId, createdAt])
   @@index([conversationId, sequence])
@@ -3735,7 +3796,7 @@ model LearningGoal {
   resource_links            LearningFlowResourceLink[]
   preloads                  LearningFlowPreload[]
   student_learning_contexts StudentLearningContext[]
-  learning_plans           StudentLearningPlan[]
+  learning_plans            StudentLearningPlan[]
 
   @@unique([student_user_id, operation_id], map: "lg_student_operation_key")
   @@index([student_user_id, created_at], map: "lg_student_created_idx")
@@ -3918,39 +3979,39 @@ model AiFlowGenerationJob {
 // ========================
 
 model LessonPlan {
-  lesson_plan_id      Int              @id @default(autoincrement())
-  teacher_user_id    Int
-  course_id          Int
-  course_offering_id Int?
-  teaching_class_id  Int?
-  chapter_id         Int?
-  topic              String           @db.VarChar(240)
-  teaching_date      DateTime?
-  duration_minutes   Int              @default(45)
-  lesson_type        String?          @db.VarChar(50)
-  location           String?          @db.VarChar(200)
-  textbook           String?          @db.VarChar(500)
-  input_json         Json?
+  lesson_plan_id       Int              @id @default(autoincrement())
+  teacher_user_id      Int
+  course_id            Int
+  course_offering_id   Int?
+  teaching_class_id    Int?
+  chapter_id           Int?
+  topic                String           @db.VarChar(240)
+  teaching_date        DateTime?
+  duration_minutes     Int              @default(45)
+  lesson_type          String?          @db.VarChar(50)
+  location             String?          @db.VarChar(200)
+  textbook             String?          @db.VarChar(500)
+  input_json           Json?
   source_snapshot_json Json?
-  status             LessonPlanStatus @default(DRAFT)
-  current_version    Int              @default(0)
-  progress           Int              @default(0)
-  errors_json        Json?
-  generation_task_id Int?
-  published_at       DateTime?
-  archived_at        DateTime?
-  created_at         DateTime         @default(now())
-  updated_at         DateTime         @updatedAt
+  status               LessonPlanStatus @default(DRAFT)
+  current_version      Int              @default(0)
+  progress             Int              @default(0)
+  errors_json          Json?
+  generation_task_id   Int?
+  published_at         DateTime?
+  archived_at          DateTime?
+  created_at           DateTime         @default(now())
+  updated_at           DateTime         @updatedAt
 
-  teacher         User            @relation("LessonPlanCreator", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
-  course          Course          @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
-  course_offering CourseOffering? @relation(fields: [course_offering_id], references: [course_offering_id], onDelete: SetNull)
-  teaching_class  TeachingClass?  @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
-  chapter         Chapter?        @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
-  versions        LessonPlanVersion[]
-  agent_executions LessonPlanAgentExecution[]
-  resources       KnowledgeDocument[]
-  artifacts       GeneratedArtifact[]
+  teacher            User                       @relation("LessonPlanCreator", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
+  course             Course                     @relation(fields: [course_id], references: [course_id], onDelete: Cascade)
+  course_offering    CourseOffering?            @relation(fields: [course_offering_id], references: [course_offering_id], onDelete: SetNull)
+  teaching_class     TeachingClass?             @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  chapter            Chapter?                   @relation(fields: [chapter_id], references: [chapter_id], onDelete: SetNull)
+  versions           LessonPlanVersion[]
+  agent_executions   LessonPlanAgentExecution[]
+  resources          KnowledgeDocument[]
+  artifacts          GeneratedArtifact[]
   editable_documents EditableTeachingDocument[]
 
   @@index([teacher_user_id, status, updated_at])
@@ -4001,13 +4062,13 @@ model EditableTeachingDocument {
   updated_at         DateTime  @updatedAt
   deleted_at         DateTime?
 
-  owner           User                             @relation("EditableDocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
-  lesson_plan     LessonPlan?                      @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: SetNull)
-  course          Course?                          @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
-  teaching_class  TeachingClass?                   @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
-  source_resource KnowledgeDocument?               @relation("EditableDocumentSourceResource", fields: [source_resource_id], references: [document_id], onDelete: SetNull)
-  source_artifact GeneratedArtifact?               @relation("EditableDocumentSourceArtifact", fields: [source_artifact_id], references: [id], onDelete: SetNull)
-  current_version EditableTeachingDocumentVersion? @relation("EditableDocumentCurrentVersion", fields: [current_version_id], references: [id], onDelete: SetNull)
+  owner           User                              @relation("EditableDocumentOwner", fields: [owner_user_id], references: [user_id], onDelete: Cascade)
+  lesson_plan     LessonPlan?                       @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: SetNull)
+  course          Course?                           @relation(fields: [course_id], references: [course_id], onDelete: SetNull)
+  teaching_class  TeachingClass?                    @relation(fields: [teaching_class_id], references: [teaching_class_id], onDelete: SetNull)
+  source_resource KnowledgeDocument?                @relation("EditableDocumentSourceResource", fields: [source_resource_id], references: [document_id], onDelete: SetNull)
+  source_artifact GeneratedArtifact?                @relation("EditableDocumentSourceArtifact", fields: [source_artifact_id], references: [id], onDelete: SetNull)
+  current_version EditableTeachingDocumentVersion?  @relation("EditableDocumentCurrentVersion", fields: [current_version_id], references: [id], onDelete: SetNull)
   versions        EditableTeachingDocumentVersion[] @relation("EditableDocumentVersions")
   revisions       DocumentRevision[]
 
@@ -4020,28 +4081,28 @@ model EditableTeachingDocument {
 }
 
 model EditableTeachingDocumentVersion {
-  id                Int       @id @default(autoincrement())
-  document_id       Int
-  version_number    Int
-  parent_version_id Int?
-  title             String    @db.VarChar(240)
-  content_json      Json
-  sanitized_html    String    @db.LongText
-  plain_text        String    @db.LongText
-  outline_json      Json
-  metadata_json     Json?
-  source_type       String    @default("TEACHER_MANUAL") @db.VarChar(40)
-  change_summary    String?   @db.VarChar(500)
+  id                 Int       @id @default(autoincrement())
+  document_id        Int
+  version_number     Int
+  parent_version_id  Int?
+  title              String    @db.VarChar(240)
+  content_json       Json
+  sanitized_html     String    @db.LongText
+  plain_text         String    @db.LongText
+  outline_json       Json
+  metadata_json      Json?
+  source_type        String    @default("TEACHER_MANUAL") @db.VarChar(40)
+  change_summary     String?   @db.VarChar(500)
   created_by_user_id Int
-  created_at        DateTime  @default(now())
-  published_at      DateTime?
+  created_at         DateTime  @default(now())
+  published_at       DateTime?
 
-  document         EditableTeachingDocument          @relation("EditableDocumentVersions", fields: [document_id], references: [id], onDelete: Cascade)
-  current_for      EditableTeachingDocument?         @relation("EditableDocumentCurrentVersion")
-  parent           EditableTeachingDocumentVersion?  @relation("EditableDocumentVersionParents", fields: [parent_version_id], references: [id], onDelete: SetNull)
-  children         EditableTeachingDocumentVersion[] @relation("EditableDocumentVersionParents")
-  creator          User                              @relation("EditableDocumentVersionCreator", fields: [created_by_user_id], references: [user_id], onDelete: Restrict)
-  revisions        DocumentRevision[]
+  document    EditableTeachingDocument          @relation("EditableDocumentVersions", fields: [document_id], references: [id], onDelete: Cascade)
+  current_for EditableTeachingDocument?         @relation("EditableDocumentCurrentVersion")
+  parent      EditableTeachingDocumentVersion?  @relation("EditableDocumentVersionParents", fields: [parent_version_id], references: [id], onDelete: SetNull)
+  children    EditableTeachingDocumentVersion[] @relation("EditableDocumentVersionParents")
+  creator     User                              @relation("EditableDocumentVersionCreator", fields: [created_by_user_id], references: [user_id], onDelete: Restrict)
+  revisions   DocumentRevision[]
 
   @@unique([document_id, version_number])
   @@index([parent_version_id])
@@ -4050,17 +4111,17 @@ model EditableTeachingDocumentVersion {
 }
 
 model DocumentRevision {
-  id                Int      @id @default(autoincrement())
-  document_id       Int
-  version_id        Int
-  operation_id      String   @unique @db.VarChar(80)
-  revision_type     String   @db.VarChar(40)
-  instruction       String?  @db.Text
-  before_content    Json?
-  after_content     Json
-  source_context    Json?
+  id                 Int      @id @default(autoincrement())
+  document_id        Int
+  version_id         Int
+  operation_id       String   @unique @db.VarChar(80)
+  revision_type      String   @db.VarChar(40)
+  instruction        String?  @db.Text
+  before_content     Json?
+  after_content      Json
+  source_context     Json?
   created_by_user_id Int
-  created_at        DateTime @default(now())
+  created_at         DateTime @default(now())
 
   document EditableTeachingDocument        @relation(fields: [document_id], references: [id], onDelete: Cascade)
   version  EditableTeachingDocumentVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
@@ -4073,21 +4134,21 @@ model DocumentRevision {
 }
 
 model LessonPlanAgentExecution {
-  execution_id    Int      @id @default(autoincrement())
-  lesson_plan_id  Int
-  teacher_user_id Int
-  agent_key       String   @db.VarChar(80)
-  stage_key       String   @db.VarChar(80)
-  status          String   @default("queued") @db.VarChar(24)
-  input_hash      String?  @db.VarChar(128)
-  input_json      Json?
-  output_json     Json?
+  execution_id      Int       @id @default(autoincrement())
+  lesson_plan_id    Int
+  teacher_user_id   Int
+  agent_key         String    @db.VarChar(80)
+  stage_key         String    @db.VarChar(80)
+  status            String    @default("queued") @db.VarChar(24)
+  input_hash        String?   @db.VarChar(128)
+  input_json        Json?
+  output_json       Json?
   data_sources_json Json?
-  error_message   String?  @db.Text
-  started_at      DateTime?
-  completed_at    DateTime?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  error_message     String?   @db.Text
+  started_at        DateTime?
+  completed_at      DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
   lesson_plan LessonPlan @relation(fields: [lesson_plan_id], references: [lesson_plan_id], onDelete: Cascade)
   teacher     User       @relation("LessonPlanAgentExecutionTeacher", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
@@ -4099,18 +4160,18 @@ model LessonPlanAgentExecution {
 }
 
 model TeacherAnalyticsSnapshot {
-  snapshot_id       Int      @id @default(autoincrement())
+  snapshot_id       Int       @id @default(autoincrement())
   teacher_user_id   Int
   course_id         Int
   teaching_class_id Int?
-  analysis_type     String   @db.VarChar(80)
+  analysis_type     String    @db.VarChar(80)
   range_start       DateTime?
   range_end         DateTime?
   filter_json       Json?
   result_json       Json
   data_sources_json Json
-  cache_key         String?  @unique @db.VarChar(160)
-  generated_at      DateTime @default(now())
+  cache_key         String?   @unique @db.VarChar(160)
+  generated_at      DateTime  @default(now())
   expires_at        DateTime?
 
   teacher        User           @relation(fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
@@ -4123,18 +4184,18 @@ model TeacherAnalyticsSnapshot {
 }
 
 model TeacherStudentIntervention {
-  intervention_id   Int      @id @default(autoincrement())
+  intervention_id   Int       @id @default(autoincrement())
   teacher_user_id   Int
   student_user_id   Int
   course_id         Int
   teaching_class_id Int?
-  intervention_type String   @db.VarChar(50)
-  content            String   @db.Text
-  status             String   @default("open") @db.VarChar(20)
-  follow_up_at       DateTime?
-  closed_at          DateTime?
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
+  intervention_type String    @db.VarChar(50)
+  content           String    @db.Text
+  status            String    @default("open") @db.VarChar(20)
+  follow_up_at      DateTime?
+  closed_at         DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
   teacher        User           @relation("TeacherInterventionTeacher", fields: [teacher_user_id], references: [user_id], onDelete: Cascade)
   student        User           @relation("TeacherInterventionStudent", fields: [student_user_id], references: [user_id], onDelete: Cascade)
@@ -4217,4 +4278,993 @@ model HomeworkMarkRecord {
   @@index([submission_id])
   @@index([teacher_id])
   @@map("homework_mark_records")
+}
+
+// ========================
+// Admin management center: AI configuration, RBAC and trusted traces
+// ========================
+
+model AiProvider {
+  id                Int       @id @default(autoincrement())
+  provider_code     String    @unique @db.VarChar(80)
+  display_name      String    @db.VarChar(160)
+  provider_type     String    @db.VarChar(40)
+  base_url          String?   @db.VarChar(500)
+  auth_type         String    @default("bearer") @db.VarChar(40)
+  enabled           Boolean   @default(true)
+  connection_status String    @default("unchecked") @db.VarChar(24)
+  last_checked_at   DateTime?
+  last_latency_ms   Int?
+  timeout_ms        Int       @default(10000)
+  max_retries       Int       @default(1)
+  extra_config_json Json?
+  secret_ciphertext String?   @db.LongText
+  secret_iv         String?   @db.VarChar(64)
+  secret_auth_tag   String?   @db.VarChar(64)
+  secret_last_four  String?   @db.VarChar(8)
+  secret_updated_at DateTime?
+  source_type       String    @default("database") @db.VarChar(24)
+  created_by        Int?
+  updated_by        Int?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  models AiModelConfig[]
+  agents AiAgentConfig[]
+
+  @@index([provider_type])
+  @@index([enabled, connection_status])
+  @@index([created_at])
+  @@map("ai_providers")
+}
+
+model AdminAgentVersion {
+  id                 Int       @id @default(autoincrement())
+  agent_config_id    Int
+  version_number     Int
+  status             String    @default("draft") @db.VarChar(24)
+  model_config_id    Int?
+  prompt_version_id  Int?
+  knowledge_snapshot Json?
+  tool_snapshot      Json?
+  parameter_snapshot Json?
+  change_summary     String?   @db.VarChar(500)
+  rollback_from_id   Int?
+  created_by         Int?
+  published_by       Int?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  published_at       DateTime?
+  archived_at        DateTime?
+
+  agent_config AiAgentConfig @relation(fields: [agent_config_id], references: [agent_config_id], onDelete: Restrict)
+
+  @@unique([agent_config_id, version_number])
+  @@index([agent_config_id, status])
+  @@index([model_config_id])
+  @@index([published_at])
+  @@map("agent_versions")
+}
+
+model AdminRole {
+  id          Int      @id @default(autoincrement())
+  role_code   String   @unique @db.VarChar(80)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  built_in    Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  role_permissions AdminRolePermission[]
+  user_roles       AdminUserRole[]
+
+  @@index([enabled])
+  @@map("admin_roles")
+}
+
+model AdminPermission {
+  id             Int      @id @default(autoincrement())
+  permission_key String   @unique @db.VarChar(120)
+  module         String   @db.VarChar(80)
+  name           String   @db.VarChar(160)
+  description    String?  @db.VarChar(500)
+  sensitive      Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  role_permissions AdminRolePermission[]
+
+  @@index([module])
+  @@map("admin_permissions")
+}
+
+model AdminRolePermission {
+  id            Int      @id @default(autoincrement())
+  role_id       Int
+  permission_id Int
+  granted_by    Int?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  role       AdminRole       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission AdminPermission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, permission_id])
+  @@index([permission_id])
+  @@map("admin_role_permissions")
+}
+
+model AdminUserRole {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  role_id    Int
+  granted_by Int?
+  expires_at DateTime?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  user User      @relation("AdminRoleAssignedUser", fields: [user_id], references: [user_id], onDelete: Cascade)
+  role AdminRole @relation(fields: [role_id], references: [id], onDelete: Restrict)
+
+  @@unique([user_id, role_id])
+  @@index([user_id, expires_at])
+  @@index([role_id])
+  @@map("admin_user_roles")
+}
+
+model AiPromptVersion {
+  id             Int       @id @default(autoincrement())
+  prompt_key     String    @db.VarChar(120)
+  version_number Int
+  title          String    @db.VarChar(200)
+  content        String    @db.LongText
+  variables_json Json?
+  checksum       String    @db.VarChar(64)
+  status         String    @default("draft") @db.VarChar(24)
+  created_by     Int?
+  published_by   Int?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  published_at   DateTime?
+  archived_at    DateTime?
+
+  @@unique([prompt_key, version_number])
+  @@index([prompt_key, status])
+  @@map("ai_prompt_versions")
+}
+
+model AiRequestTrace {
+  id                  Int       @id @default(autoincrement())
+  request_id          String    @unique @db.VarChar(100)
+  trace_id            String    @unique @db.VarChar(100)
+  user_id             Int?
+  course_id           Int?
+  teaching_class_id   Int?
+  entry_point         String    @db.VarChar(100)
+  scene               String?   @db.VarChar(100)
+  agent_config_id     Int?
+  agent_version_id    Int?
+  provider_id         Int?
+  model_config_id     Int?
+  prompt_version_id   Int?
+  workflow_version_id Int?
+  input_summary       String?   @db.Text
+  output_summary      String?   @db.Text
+  status              String    @default("running") @db.VarChar(24)
+  retrieval_hit       Boolean   @default(false)
+  retry_count         Int       @default(0)
+  risk_flag           Boolean   @default(false)
+  prompt_tokens       Int?
+  completion_tokens   Int?
+  total_tokens        Int?
+  latency_ms          Int?
+  error_type          String?   @db.VarChar(100)
+  error_message       String?   @db.VarChar(500)
+  started_at          DateTime  @default(now())
+  completed_at        DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  steps      AiTraceStep[]
+  retrievals AiTraceRetrieval[]
+  tool_calls AiTraceToolCall[]
+  feedback   AiTraceFeedback[]
+
+  @@index([user_id, created_at])
+  @@index([course_id, created_at])
+  @@index([agent_config_id, created_at])
+  @@index([provider_id, model_config_id])
+  @@index([status, created_at])
+  @@index([risk_flag, created_at])
+  @@map("ai_request_traces")
+}
+
+model AiTraceStep {
+  id              Int       @id @default(autoincrement())
+  trace_id        Int
+  parent_step_id  Int?
+  sequence_number Int
+  step_type       String    @db.VarChar(80)
+  title           String    @db.VarChar(200)
+  status          String    @default("running") @db.VarChar(24)
+  input_summary   Json?
+  output_summary  Json?
+  latency_ms      Int?
+  error_type      String?   @db.VarChar(100)
+  error_message   String?   @db.VarChar(500)
+  started_at      DateTime  @default(now())
+  completed_at    DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  trace      AiRequestTrace     @relation(fields: [trace_id], references: [id], onDelete: Restrict)
+  retrievals AiTraceRetrieval[]
+  tool_calls AiTraceToolCall[]
+
+  @@unique([trace_id, sequence_number])
+  @@index([trace_id, step_type])
+  @@index([parent_step_id])
+  @@index([status])
+  @@map("ai_trace_steps")
+}
+
+model AiTraceRetrieval {
+  id                Int      @id @default(autoincrement())
+  trace_id          Int
+  step_id           Int?
+  knowledge_base_id Int?
+  document_id       Int?
+  chunk_id          Int?
+  document_title    String?  @db.VarChar(500)
+  source_uri        String?  @db.VarChar(1000)
+  chapter           String?  @db.VarChar(300)
+  page_number       Int?
+  excerpt_redacted  String?  @db.Text
+  retrieval_score   Float?
+  rerank_score      Float?
+  cited             Boolean  @default(false)
+  adopted           Boolean  @default(false)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  trace AiRequestTrace @relation(fields: [trace_id], references: [id], onDelete: Restrict)
+  step  AiTraceStep?   @relation(fields: [step_id], references: [id], onDelete: SetNull)
+
+  @@index([trace_id])
+  @@index([step_id])
+  @@index([knowledge_base_id, document_id])
+  @@index([cited, created_at])
+  @@map("ai_trace_retrievals")
+}
+
+model AiTraceToolCall {
+  id             Int       @id @default(autoincrement())
+  trace_id       Int
+  step_id        Int?
+  tool_name      String    @db.VarChar(160)
+  status         String    @db.VarChar(24)
+  input_summary  Json?
+  output_summary Json?
+  latency_ms     Int?
+  error_message  String?   @db.VarChar(500)
+  started_at     DateTime  @default(now())
+  completed_at   DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  trace AiRequestTrace @relation(fields: [trace_id], references: [id], onDelete: Restrict)
+  step  AiTraceStep?   @relation(fields: [step_id], references: [id], onDelete: SetNull)
+
+  @@index([trace_id])
+  @@index([step_id])
+  @@index([tool_name, status])
+  @@map("ai_trace_tool_calls")
+}
+
+model AiTraceFeedback {
+  id                  Int      @id @default(autoincrement())
+  trace_id            Int
+  user_id             Int?
+  feedback_type       String   @db.VarChar(40)
+  comment_redacted    String?  @db.Text
+  teacher_disposition String?  @db.VarChar(40)
+  teacher_revision    String?  @db.LongText
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  trace AiRequestTrace @relation(fields: [trace_id], references: [id], onDelete: Restrict)
+
+  @@index([trace_id, created_at])
+  @@index([user_id])
+  @@map("ai_trace_feedback")
+}
+
+// ========================
+// Admin management center: learning, knowledge and teaching governance
+// ========================
+
+model LearningFlowValidationResult {
+  id                   Int       @id @default(autoincrement())
+  workflow_template_id Int
+  workflow_version_id  Int?
+  validation_type      String    @db.VarChar(80)
+  severity             String    @db.VarChar(24)
+  node_id              String?   @db.VarChar(120)
+  message              String    @db.VarChar(500)
+  evidence_json        Json?
+  status               String    @default("open") @db.VarChar(24)
+  checked_by           Int?
+  resolved_by          Int?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+  resolved_at          DateTime?
+
+  @@index([workflow_template_id, status])
+  @@index([workflow_version_id])
+  @@index([validation_type, severity])
+  @@index([created_at])
+  @@map("learning_flow_validation_results")
+}
+
+model LearningFlowEffectSnapshot {
+  id                   Int      @id @default(autoincrement())
+  workflow_template_id Int
+  workflow_version_id  Int?
+  range_start          DateTime
+  range_end            DateTime
+  sample_size          Int      @default(0)
+  completion_rate      Float?
+  interruption_rate    Float?
+  average_duration_ms  Int?
+  mastery_delta        Float?
+  wrong_fix_rate       Float?
+  skip_rate            Float?
+  data_quality_json    Json?
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@unique([workflow_template_id, workflow_version_id, range_start, range_end], map: "lf_effect_window_key")
+  @@index([workflow_template_id, created_at])
+  @@map("learning_flow_effect_snapshots")
+}
+
+model KnowledgeHealthSnapshot {
+  id                 Int      @id @default(autoincrement())
+  knowledge_base_id  Int
+  course_id          Int?
+  health_score       Float?
+  knowledge_coverage Float?
+  chapter_coverage   Float?
+  document_count     Int      @default(0)
+  chunk_count        Int      @default(0)
+  retrieval_count    Int      @default(0)
+  retrieval_hit_rate Float?
+  open_issue_count   Int      @default(0)
+  sample_size        Int      @default(0)
+  calculation_method String   @db.VarChar(200)
+  metrics_json       Json?
+  snapshot_at        DateTime @default(now())
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  @@index([knowledge_base_id, snapshot_at])
+  @@index([course_id, snapshot_at])
+  @@index([health_score])
+  @@map("knowledge_health_snapshots")
+}
+
+model KnowledgeQualityIssue {
+  id                Int       @id @default(autoincrement())
+  knowledge_base_id Int
+  document_id       Int?
+  chunk_id          Int?
+  issue_type        String    @db.VarChar(80)
+  severity          String    @db.VarChar(24)
+  title             String    @db.VarChar(240)
+  description       String?   @db.Text
+  evidence_json     Json?
+  suggested_action  String?   @db.VarChar(500)
+  status            String    @default("open") @db.VarChar(24)
+  assigned_to       Int?
+  resolved_by       Int?
+  created_by        Int?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  resolved_at       DateTime?
+
+  @@index([knowledge_base_id, status])
+  @@index([document_id])
+  @@index([issue_type, severity])
+  @@index([created_at])
+  @@map("knowledge_quality_issues")
+}
+
+model KnowledgeQueryFailure {
+  id                    Int      @id @default(autoincrement())
+  knowledge_base_id     Int?
+  course_id             Int?
+  knowledge_point_id    Int?
+  normalized_query_hash String   @db.VarChar(64)
+  query_redacted        String   @db.Text
+  failure_type          String   @db.VarChar(60)
+  highest_score         Float?
+  affected_user_count   Int      @default(0)
+  occurrence_count      Int      @default(1)
+  status                String   @default("open") @db.VarChar(24)
+  first_seen_at         DateTime @default(now())
+  last_seen_at          DateTime @default(now())
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  @@unique([knowledge_base_id, normalized_query_hash, failure_type], map: "kb_query_failure_key")
+  @@index([course_id, knowledge_point_id])
+  @@index([status, occurrence_count])
+  @@index([last_seen_at])
+  @@map("knowledge_query_failures")
+}
+
+model TeachingIssue {
+  id                 Int       @id @default(autoincrement())
+  issue_type         String    @db.VarChar(80)
+  severity           String    @db.VarChar(24)
+  title              String    @db.VarChar(240)
+  description        String    @db.Text
+  course_id          Int?
+  teaching_class_id  Int?
+  knowledge_point_id Int?
+  affected_count     Int       @default(0)
+  confidence         Float?
+  detection_method   String    @db.VarChar(200)
+  status             String    @default("open") @db.VarChar(24)
+  owner_user_id      Int?
+  created_by         Int?
+  updated_by         Int?
+  detected_at        DateTime  @default(now())
+  review_at          DateTime?
+  closed_at          DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  evidence      TeachingIssueEvidence[]
+  interventions TeachingIntervention[]
+
+  @@index([issue_type, severity])
+  @@index([course_id, teaching_class_id])
+  @@index([knowledge_point_id])
+  @@index([status, detected_at])
+  @@map("teaching_issues")
+}
+
+model TeachingIssueEvidence {
+  id                Int       @id @default(autoincrement())
+  teaching_issue_id Int
+  evidence_type     String    @db.VarChar(80)
+  source_type       String    @db.VarChar(80)
+  source_id         String?   @db.VarChar(120)
+  metric_name       String?   @db.VarChar(120)
+  metric_value      Float?
+  sample_size       Int?
+  evidence_json     Json?
+  observed_at       DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  issue TeachingIssue @relation(fields: [teaching_issue_id], references: [id], onDelete: Restrict)
+
+  @@index([teaching_issue_id])
+  @@index([source_type, source_id])
+  @@index([observed_at])
+  @@map("teaching_issue_evidence")
+}
+
+model TeachingIntervention {
+  id                Int       @id @default(autoincrement())
+  teaching_issue_id Int?
+  intervention_type String    @db.VarChar(80)
+  title             String    @db.VarChar(240)
+  content           String?   @db.Text
+  status            String    @default("draft") @db.VarChar(24)
+  scheduled_at      DateTime?
+  executed_at       DateTime?
+  review_at         DateTime?
+  closed_at         DateTime?
+  created_by        Int?
+  updated_by        Int?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  issue   TeachingIssue?               @relation(fields: [teaching_issue_id], references: [id], onDelete: SetNull)
+  targets TeachingInterventionTarget[]
+  results TeachingInterventionResult[]
+
+  @@index([teaching_issue_id])
+  @@index([status, scheduled_at])
+  @@map("teaching_interventions")
+}
+
+model TeachingInterventionTarget {
+  id              Int       @id @default(autoincrement())
+  intervention_id Int
+  target_type     String    @db.VarChar(50)
+  target_id       Int
+  delivery_status String    @default("pending") @db.VarChar(24)
+  delivered_at    DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  intervention TeachingIntervention @relation(fields: [intervention_id], references: [id], onDelete: Restrict)
+
+  @@unique([intervention_id, target_type, target_id])
+  @@index([target_type, target_id])
+  @@index([delivery_status])
+  @@map("teaching_intervention_targets")
+}
+
+model TeachingInterventionResult {
+  id              Int      @id @default(autoincrement())
+  intervention_id Int
+  target_type     String?  @db.VarChar(50)
+  target_id       Int?
+  metric_name     String   @db.VarChar(120)
+  baseline_value  Float?
+  result_value    Float?
+  sample_size     Int      @default(0)
+  evidence_json   Json?
+  measured_at     DateTime @default(now())
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  intervention TeachingIntervention @relation(fields: [intervention_id], references: [id], onDelete: Restrict)
+
+  @@index([intervention_id, measured_at])
+  @@index([target_type, target_id])
+  @@map("teaching_intervention_results")
+}
+
+model AgentEvaluationSet {
+  id            Int       @id @default(autoincrement())
+  name          String    @db.VarChar(200)
+  description   String?   @db.Text
+  domain        String?   @db.VarChar(100)
+  status        String    @default("draft") @db.VarChar(24)
+  version       Int       @default(1)
+  passing_score Float?
+  created_by    Int?
+  updated_by    Int?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+  published_at  DateTime?
+  archived_at   DateTime?
+
+  cases AgentEvaluationCase[]
+  runs  AgentEvaluationRun[]
+
+  @@index([status, created_at])
+  @@map("agent_evaluation_sets")
+}
+
+model AgentEvaluationCase {
+  id                Int      @id @default(autoincrement())
+  evaluation_set_id Int
+  case_key          String   @db.VarChar(120)
+  title             String   @db.VarChar(240)
+  input_json        Json
+  expected_json     Json?
+  rubric_json       Json?
+  source_trace_id   Int?
+  enabled           Boolean  @default(true)
+  created_by        Int?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  evaluation_set AgentEvaluationSet      @relation(fields: [evaluation_set_id], references: [id], onDelete: Restrict)
+  results        AgentEvaluationResult[]
+
+  @@unique([evaluation_set_id, case_key])
+  @@index([enabled])
+  @@map("agent_evaluation_cases")
+}
+
+model AgentEvaluationRun {
+  id                      Int       @id @default(autoincrement())
+  evaluation_set_id       Int
+  agent_config_id         Int
+  agent_version_id        Int?
+  model_config_id         Int?
+  status                  String    @default("queued") @db.VarChar(24)
+  total_cases             Int       @default(0)
+  completed_cases         Int       @default(0)
+  passed_cases            Int       @default(0)
+  aggregate_json          Json?
+  judge_model_id          Int?
+  judge_prompt_version_id Int?
+  created_by              Int?
+  started_at              DateTime?
+  completed_at            DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  evaluation_set AgentEvaluationSet      @relation(fields: [evaluation_set_id], references: [id], onDelete: Restrict)
+  results        AgentEvaluationResult[]
+
+  @@index([evaluation_set_id, status])
+  @@index([agent_config_id, agent_version_id])
+  @@index([created_at])
+  @@map("agent_evaluation_runs")
+}
+
+model AgentEvaluationResult {
+  id                 Int      @id @default(autoincrement())
+  evaluation_run_id  Int
+  evaluation_case_id Int
+  status             String   @db.VarChar(24)
+  output_json        Json?
+  score              Float?
+  passed             Boolean?
+  metric_scores_json Json?
+  scoring_evidence   Json?
+  latency_ms         Int?
+  total_tokens       Int?
+  cost_amount        Decimal? @db.Decimal(16, 8)
+  human_reviewed     Boolean  @default(false)
+  reviewed_by        Int?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  run  AgentEvaluationRun  @relation(fields: [evaluation_run_id], references: [id], onDelete: Restrict)
+  case AgentEvaluationCase @relation(fields: [evaluation_case_id], references: [id], onDelete: Restrict)
+
+  @@unique([evaluation_run_id, evaluation_case_id])
+  @@index([evaluation_case_id])
+  @@index([passed, score])
+  @@map("agent_evaluation_results")
+}
+
+// ========================
+// Admin management center: rollout, digital twin, assets, profiles and risks
+// ========================
+
+model AiExperiment {
+  id                  Int       @id @default(autoincrement())
+  experiment_key      String    @unique @db.VarChar(100)
+  name                String    @db.VarChar(200)
+  description         String?   @db.Text
+  target_type         String    @db.VarChar(60)
+  target_id           Int?
+  course_id           Int?
+  teaching_class_id   Int?
+  assignment_salt     String    @db.VarChar(100)
+  success_metric_json Json
+  stop_condition_json Json?
+  status              String    @default("draft") @db.VarChar(24)
+  version             Int       @default(1)
+  enabled             Boolean   @default(true)
+  created_by          Int?
+  updated_by          Int?
+  starts_at           DateTime?
+  ends_at             DateTime?
+  published_at        DateTime?
+  archived_at         DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  variants    AiExperimentVariant[]
+  assignments AiRolloutAssignment[]
+
+  @@index([status, starts_at, ends_at])
+  @@index([course_id, teaching_class_id])
+  @@map("ai_experiments")
+}
+
+model AiExperimentVariant {
+  id                 Int      @id @default(autoincrement())
+  experiment_id      Int
+  variant_key        String   @db.VarChar(80)
+  name               String   @db.VarChar(160)
+  is_control         Boolean  @default(false)
+  allocation_bp      Int      @default(0)
+  configuration_json Json
+  enabled            Boolean  @default(true)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  experiment  AiExperiment          @relation(fields: [experiment_id], references: [id], onDelete: Restrict)
+  assignments AiRolloutAssignment[]
+
+  @@unique([experiment_id, variant_key])
+  @@index([experiment_id, enabled])
+  @@map("ai_experiment_variants")
+}
+
+model AiRolloutAssignment {
+  id              Int       @id @default(autoincrement())
+  experiment_id   Int
+  variant_id      Int
+  user_id         Int
+  assignment_hash String    @db.VarChar(64)
+  assigned_at     DateTime  @default(now())
+  expires_at      DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  experiment AiExperiment        @relation(fields: [experiment_id], references: [id], onDelete: Restrict)
+  variant    AiExperimentVariant @relation(fields: [variant_id], references: [id], onDelete: Restrict)
+
+  @@unique([experiment_id, user_id])
+  @@index([variant_id])
+  @@index([user_id, expires_at])
+  @@map("ai_rollout_assignments")
+}
+
+model DigitalTwinSnapshot {
+  id                     Int      @id @default(autoincrement())
+  teaching_class_id      Int
+  course_id              Int
+  range_start            DateTime
+  range_end              DateTime
+  sample_size            Int      @default(0)
+  calculation_method     String   @db.VarChar(200)
+  confidence             Float?
+  knowledge_graph_json   Json?
+  mastery_matrix_json    Json?
+  learning_path_json     Json?
+  risk_distribution_json Json?
+  data_quality_json      Json?
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  simulations DigitalTwinSimulation[]
+
+  @@index([teaching_class_id, created_at])
+  @@index([course_id, created_at])
+  @@map("digital_twin_snapshots")
+}
+
+model DigitalTwinSimulation {
+  id                     Int      @id @default(autoincrement())
+  snapshot_id            Int
+  intervention_type      String   @db.VarChar(80)
+  parameters_json        Json?
+  affected_student_count Int?
+  expected_delta_min     Float?
+  expected_delta_max     Float?
+  confidence             Float?
+  method_explanation     String   @db.Text
+  uncertainty_note       String   @db.Text
+  created_by             Int?
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  snapshot DigitalTwinSnapshot @relation(fields: [snapshot_id], references: [id], onDelete: Restrict)
+
+  @@index([snapshot_id, created_at])
+  @@map("digital_twin_simulations")
+}
+
+model AiTeachingAsset {
+  id                 Int       @id @default(autoincrement())
+  asset_key          String    @unique @db.VarChar(100)
+  asset_type         String    @db.VarChar(80)
+  title              String    @db.VarChar(240)
+  summary            String?   @db.Text
+  course_id          Int?
+  knowledge_point_id Int?
+  source_type        String    @db.VarChar(80)
+  source_id          String?   @db.VarChar(120)
+  source_trace_id    Int?
+  status             String    @default("draft") @db.VarChar(24)
+  version            Int       @default(1)
+  enabled            Boolean   @default(true)
+  created_by         Int?
+  updated_by         Int?
+  published_at       DateTime?
+  archived_at        DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  versions AiTeachingAssetVersion[]
+  reviews  AiTeachingAssetReview[]
+  usage    AiTeachingAssetUsage[]
+
+  @@index([asset_type, status])
+  @@index([course_id, knowledge_point_id])
+  @@index([source_trace_id])
+  @@map("ai_teaching_assets")
+}
+
+model AiTeachingAssetVersion {
+  id             Int      @id @default(autoincrement())
+  asset_id       Int
+  version_number Int
+  content_json   Json
+  change_summary String?  @db.VarChar(500)
+  checksum       String   @db.VarChar(64)
+  created_by     Int?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  asset AiTeachingAsset @relation(fields: [asset_id], references: [id], onDelete: Restrict)
+
+  @@unique([asset_id, version_number])
+  @@index([created_at])
+  @@map("ai_teaching_asset_versions")
+}
+
+model AiTeachingAssetReview {
+  id          Int      @id @default(autoincrement())
+  asset_id    Int
+  action      String   @db.VarChar(24)
+  reason      String?  @db.Text
+  reviewer_id Int?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  asset AiTeachingAsset @relation(fields: [asset_id], references: [id], onDelete: Restrict)
+
+  @@index([asset_id, created_at])
+  @@index([reviewer_id])
+  @@map("ai_teaching_asset_reviews")
+}
+
+model AiTeachingAssetUsage {
+  id           Int      @id @default(autoincrement())
+  asset_id     Int
+  user_id      Int?
+  usage_type   String   @db.VarChar(60)
+  target_type  String?  @db.VarChar(60)
+  target_id    Int?
+  outcome_json Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  asset AiTeachingAsset @relation(fields: [asset_id], references: [id], onDelete: Restrict)
+
+  @@index([asset_id, created_at])
+  @@index([user_id])
+  @@index([target_type, target_id])
+  @@map("ai_teaching_asset_usage")
+}
+
+model StudentStrategyProfile {
+  id                  Int      @id @default(autoincrement())
+  student_user_id     Int
+  course_id           Int?
+  profile_type        String   @db.VarChar(80)
+  profile_version     Int      @default(1)
+  confidence          Float
+  range_start         DateTime
+  range_end           DateTime
+  sample_size         Int      @default(0)
+  metrics_json        Json
+  recommendation_json Json?
+  calculation_method  String   @db.VarChar(200)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  evidence StudentStrategyEvidence[]
+
+  @@unique([student_user_id, course_id, profile_version, range_start, range_end], map: "strategy_profile_window_key")
+  @@index([student_user_id, created_at])
+  @@index([course_id, profile_type])
+  @@index([confidence])
+  @@map("student_strategy_profiles")
+}
+
+model StudentStrategyEvidence {
+  id            Int       @id @default(autoincrement())
+  profile_id    Int
+  evidence_type String    @db.VarChar(80)
+  source_type   String    @db.VarChar(80)
+  source_id     String?   @db.VarChar(120)
+  metric_name   String    @db.VarChar(120)
+  metric_value  Float?
+  weight        Float?
+  evidence_json Json?
+  observed_at   DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  profile StudentStrategyProfile @relation(fields: [profile_id], references: [id], onDelete: Restrict)
+
+  @@index([profile_id])
+  @@index([source_type, source_id])
+  @@map("student_strategy_evidence")
+}
+
+model AiRiskRule {
+  id             Int       @id @default(autoincrement())
+  rule_key       String    @unique @db.VarChar(120)
+  name           String    @db.VarChar(200)
+  risk_type      String    @db.VarChar(80)
+  severity       String    @db.VarChar(24)
+  detection_type String    @db.VarChar(40)
+  condition_json Json
+  action_json    Json?
+  status         String    @default("draft") @db.VarChar(24)
+  version        Int       @default(1)
+  enabled        Boolean   @default(true)
+  created_by     Int?
+  updated_by     Int?
+  published_at   DateTime?
+  archived_at    DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  events AiRiskEvent[]
+
+  @@index([risk_type, enabled])
+  @@index([severity, status])
+  @@map("ai_risk_rules")
+}
+
+model AiRiskEvent {
+  id               Int       @id @default(autoincrement())
+  event_key        String    @unique @db.VarChar(100)
+  risk_rule_id     Int?
+  risk_type        String    @db.VarChar(80)
+  severity         String    @db.VarChar(24)
+  title            String    @db.VarChar(240)
+  description      String?   @db.Text
+  user_id          Int?
+  request_trace_id Int?
+  agent_config_id  Int?
+  provider_id      Int?
+  model_config_id  Int?
+  status           String    @default("open") @db.VarChar(24)
+  assignee_id      Int?
+  resolution       String?   @db.Text
+  confirmed        Boolean?
+  detected_at      DateTime  @default(now())
+  resolved_at      DateTime?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  rule     AiRiskRule?           @relation(fields: [risk_rule_id], references: [id], onDelete: SetNull)
+  evidence AiRiskEventEvidence[]
+  actions  AiRiskAction[]
+
+  @@index([risk_type, severity])
+  @@index([status, detected_at])
+  @@index([user_id, detected_at])
+  @@index([request_trace_id])
+  @@index([agent_config_id, provider_id])
+  @@map("ai_risk_events")
+}
+
+model AiRiskEventEvidence {
+  id                Int      @id @default(autoincrement())
+  risk_event_id     Int
+  evidence_type     String   @db.VarChar(80)
+  source_type       String   @db.VarChar(80)
+  source_id         String?  @db.VarChar(120)
+  evidence_redacted String?  @db.Text
+  evidence_json     Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  event AiRiskEvent @relation(fields: [risk_event_id], references: [id], onDelete: Restrict)
+
+  @@index([risk_event_id])
+  @@index([source_type, source_id])
+  @@map("ai_risk_event_evidence")
+}
+
+model AiRiskAction {
+  id             Int      @id @default(autoincrement())
+  risk_event_id  Int
+  action_type    String   @db.VarChar(80)
+  status         String   @db.VarChar(24)
+  action_summary String?  @db.VarChar(500)
+  actor_user_id  Int?
+  request_id     String?  @db.VarChar(100)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  event AiRiskEvent @relation(fields: [risk_event_id], references: [id], onDelete: Restrict)
+
+  @@index([risk_event_id, created_at])
+  @@index([actor_user_id])
+  @@index([request_id])
+  @@map("ai_risk_actions")
 }

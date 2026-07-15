@@ -5,6 +5,9 @@ import { getAdminKnowledgeDocuments, reviewKnowledgeDocument } from '../api/admi
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
+import { notifyAdmin, confirmAdmin, promptAdmin } from '../utils/admin-ui.js'
+import { escapeHtml } from '../utils/format.js'
+import { loadAdminAccess, hasAdminPermission } from '../utils/admin-access.js'
 
 export async function renderAdminKnowledge(app) {
   let user = getUser()
@@ -17,6 +20,12 @@ export async function renderAdminKnowledge(app) {
   }
 
   const displayName = getUserDisplayName()
+  let access
+  try { access = await loadAdminAccess(user.user_id) } catch (error) {
+    renderDashboardLayout(app, { menuItems: ADMIN_MENU_ITEMS, user, contentHTML: `<div class="error-state"><div class="error-message">${escapeHtml(error.message)}</div></div>` })
+    return
+  }
+  const canManage = hasAdminPermission(access, 'admin.knowledge.manage')
   let state = { list: [], total: 0, page: 1, pageSize: 10, loading: true, error: null }
   let filters = { keyword: '', scope_type: '', review_status: '', parse_status: '' }
 
@@ -43,7 +52,7 @@ export async function renderAdminKnowledge(app) {
       return `<div class="loading-state"><div class="loading-spinner"></div><p>加载中...</p></div>`
     }
     if (state.error) {
-      return `<div class="error-state"><div class="error-icon"></div><div class="error-message">${state.error}</div><button class="btn-retry" onclick="location.reload()">重试</button></div>`
+      return `<div class="error-state"><div class="error-icon"></div><div class="error-message">${escapeHtml(state.error)}</div><button class="btn-retry" id="admin-knowledge-retry">重试</button></div>`
     }
 
     const totalPages = Math.ceil(state.total / state.pageSize) || 1
@@ -67,18 +76,18 @@ export async function renderAdminKnowledge(app) {
       rows = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--stu-text-muted);">暂无知识库文档</td></tr>`
     } else {
       for (const doc of state.list) {
-        const canReview = doc.review_status === 'pending'
+        const canReview = canManage && doc.review_status === 'pending'
         rows += `<tr>
-          <td>${doc.document_id}</td>
-          <td><strong>${doc.title}</strong></td>
-          <td>${doc.owner_name || '-'}</td>
-          <td><span class="tag tag-student">${scopeLabel(doc.scope_type)}</span></td>
-          <td><span class="tag tag-pending">${parseLabel(doc.parse_status)}</span></td>
+          <td>${escapeHtml(doc.document_id)}</td>
+          <td><strong>${escapeHtml(doc.title)}</strong></td>
+          <td>${escapeHtml(doc.owner_name || '-')}</td>
+          <td><span class="tag tag-student">${escapeHtml(scopeLabel(doc.scope_type))}</span></td>
+          <td><span class="tag tag-pending">${escapeHtml(parseLabel(doc.parse_status))}</span></td>
           <td>${reviewTag(doc.review_status)}</td>
-          <td>${doc.file_ext || '-'} / ${doc.file_size_bytes ? (doc.file_size_bytes / 1024).toFixed(0) + 'KB' : '-'}</td>
+          <td>${escapeHtml(doc.file_ext || '-')} / ${doc.file_size_bytes ? `${escapeHtml((doc.file_size_bytes / 1024).toFixed(0))}KB` : '-'}</td>
           <td>
             <div class="action-btns">
-              ${canReview ? `<button class="btn-review" data-id="${doc.document_id}" data-action="approve">通过</button><button class="btn-review" data-id="${doc.document_id}" data-action="reject">拒绝</button>` : '<span style="color:var(--stu-text-muted);font-size:0.82rem;">已审核</span>'}
+              ${canReview ? `<button class="btn-review" data-id="${doc.document_id}" data-action="approve">通过</button><button class="btn-review" data-id="${doc.document_id}" data-action="reject">拒绝</button>` : `<span style="color:var(--stu-text-muted);font-size:0.82rem;">${doc.review_status === 'pending' ? '仅可查看' : '已审核'}</span>`}
             </div>
           </td>
         </tr>`
@@ -94,40 +103,33 @@ export async function renderAdminKnowledge(app) {
       </div>`
     }
 
-    const subNavHTML = `
-      <div class="sub-nav" style="display:flex;gap:0;margin-bottom:16px;background:var(--bg);border-radius:12px;overflow:hidden;border:1px solid var(--border);">
-        <a href="#/admin/knowledge" style="flex:1;padding:10px 16px;text-align:center;font-weight:600;color:var(--primary);background:rgba(99,102,241,0.06);text-decoration:none;border-bottom:2px solid var(--primary);font-size:0.9rem;">知识库管理</a>
-        <a href="#/admin/logs" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">操作日志</a>
-        <a href="#/admin/notifications" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">通知管理</a>
-        <a href="#/admin/ai-config" style="flex:1;padding:10px 16px;text-align:center;font-weight:500;color:var(--text-secondary);text-decoration:none;font-size:0.9rem;">🤖 AI 配置</a>
-      </div>
-    `
-
     return `
       <div class="section-header">
-        <h2>系统管理</h2>
-      </div>
-
-      ${subNavHTML}
-
-      <div class="section-header" style="margin-top:0;border:none;">
-        <h3 style="font-size:1rem;font-weight:600;margin:0;">知识库文档</h3>
+        <div><h2>知识文档</h2><p>查看真实文档、解析状态和审核状态，并执行有审计记录的内容审核。</p></div>
       </div>
 
       <div class="search-bar">
-        <input type="text" placeholder="搜索文档标题..." value="${filters.keyword}" id="search-input" />
-        <select id="filter-scope">
+        <input type="text" aria-label="搜索文档" placeholder="搜索文档标题或文件名..." value="${escapeHtml(filters.keyword)}" id="search-input" />
+        <select id="filter-scope" aria-label="知识范围">
           <option value="">全部范围</option>
           <option value="platform" ${filters.scope_type === 'platform' ? 'selected' : ''}>平台</option>
           <option value="course" ${filters.scope_type === 'course' ? 'selected' : ''}>课程</option>
           <option value="class" ${filters.scope_type === 'class' ? 'selected' : ''}>班级</option>
           <option value="personal" ${filters.scope_type === 'personal' ? 'selected' : ''}>个人</option>
         </select>
-        <select id="filter-review">
+        <select id="filter-review" aria-label="审核状态">
           <option value="">全部审核状态</option>
           <option value="pending" ${filters.review_status === 'pending' ? 'selected' : ''}>待审核</option>
           <option value="approved" ${filters.review_status === 'approved' ? 'selected' : ''}>已通过</option>
           <option value="rejected" ${filters.review_status === 'rejected' ? 'selected' : ''}>已拒绝</option>
+        </select>
+        <select id="filter-parse" aria-label="解析状态">
+          <option value="">全部解析状态</option>
+          <option value="uploaded" ${filters.parse_status === 'uploaded' ? 'selected' : ''}>已上传</option>
+          <option value="parsing" ${filters.parse_status === 'parsing' ? 'selected' : ''}>解析中</option>
+          <option value="parsed" ${filters.parse_status === 'parsed' ? 'selected' : ''}>已解析</option>
+          <option value="embedded" ${filters.parse_status === 'embedded' ? 'selected' : ''}>已向量化</option>
+          <option value="failed" ${filters.parse_status === 'failed' ? 'selected' : ''}>失败</option>
         </select>
         <button class="btn-sm btn-primary" id="btn-search">搜索</button>
       </div>
@@ -150,10 +152,13 @@ export async function renderAdminKnowledge(app) {
     const contentHTML = getContentHTML()
     renderDashboardLayout(app, { menuItems: ADMIN_MENU_ITEMS, contentHTML, user })
 
+    document.getElementById('admin-knowledge-retry')?.addEventListener('click', loadData)
+
     document.getElementById('btn-search')?.addEventListener('click', () => {
       filters.keyword = document.getElementById('search-input')?.value || ''
       filters.scope_type = document.getElementById('filter-scope')?.value || ''
       filters.review_status = document.getElementById('filter-review')?.value || ''
+      filters.parse_status = document.getElementById('filter-parse')?.value || ''
       state.page = 1
       loadData()
     })
@@ -171,14 +176,17 @@ export async function renderAdminKnowledge(app) {
         const docId = parseInt(btn.dataset.id, 10)
         const action = btn.dataset.action
         const status = action === 'approve' ? 'approved' : 'rejected'
-        const comment = action === 'approve' ? '管理员审核通过' : '管理员审核拒绝'
-        if (!confirm(`确定要${action === 'approve' ? '通过' : '拒绝'}该文档的审核吗？`)) return
+        let comment = '管理员审核通过'
+        if (action === 'reject') {
+          comment = await promptAdmin({ title: '驳回知识文档', label: '驳回原因', placeholder: '请输入可审计的驳回原因' })
+          if (!comment) return notifyAdmin('驳回必须填写原因', true)
+        } else if (!(await confirmAdmin({ title: '审核知识文档', message: '确定通过该文档的审核吗？', confirmLabel: '通过' }))) return
         try {
           await reviewKnowledgeDocument(docId, status, comment)
-          alert('审核完成')
+          notifyAdmin('审核完成')
           loadData()
         } catch (err) {
-          alert('审核失败: ' + err.message)
+          notifyAdmin('审核失败: ' + err.message, true)
         }
       })
     })
@@ -186,5 +194,3 @@ export async function renderAdminKnowledge(app) {
 
   await loadData()
 }
-
-

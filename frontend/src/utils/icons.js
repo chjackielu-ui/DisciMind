@@ -162,6 +162,30 @@ export function iconSort() {
   `)
 }
 
+// 关闭
+export function iconClose() {
+  return svgWrap(`
+    <line x1="18" y1="6" x2="6" y2="18"/>
+    <line x1="6" y1="6" x2="18" y2="18"/>
+  `)
+}
+
+export function iconArrowRight() {
+  return svgWrap(`
+    <line x1="5" y1="12" x2="19" y2="12"/>
+    <polyline points="13 6 19 12 13 18"/>
+  `)
+}
+
+export function iconMicrophone() {
+  return svgWrap(`
+    <rect x="9" y="2" width="6" height="12" rx="3"/>
+    <path d="M5 10a7 7 0 0 0 14 0"/>
+    <line x1="12" y1="17" x2="12" y2="22"/>
+    <line x1="8" y1="22" x2="16" y2="22"/>
+  `)
+}
+
 // 工作流/学习流 — 节点连线
 export function iconWorkflow() {
   return svgWrap(`
@@ -216,6 +240,9 @@ export const NAV_ICONS = {
   search: iconSearch,
   refresh: iconRefresh,
   sort: iconSort,
+  close: iconClose,
+  'arrow-right': iconArrowRight,
+  microphone: iconMicrophone,
 }
 
 /**
