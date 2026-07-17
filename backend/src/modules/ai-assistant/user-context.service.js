@@ -1,4 +1,5 @@
 const prisma = require('../../config/prisma');
+const { getAccessibleCourseIds } = require('../../services/teacher-access.service');
 
 function normalize(value) {
   return String(value || '').toLowerCase().replace(/[\s_\-—·（）()]+/g, '');
@@ -30,6 +31,9 @@ async function buildUserContext(input = {}) {
     throw Object.assign(new Error('认证用户上下文缺失'), { code: 40101, status: 401, expose: true });
   }
   const role = String(input.user?.role || '').toLowerCase();
+  const teacherCourseIds = ['teacher', 'admin'].includes(role)
+    ? await getAccessibleCourseIds({ ...input.user, role })
+    : [];
   const [profile, activeLearningContext, enrollments] = await Promise.all([
     prisma.userProfile.findUnique({ where: { user_id: authenticatedUserId }, select: { real_name: true, grade: true, major: true, default_course_id: true } }),
     role === 'student' ? prisma.studentLearningContext.findFirst({
@@ -42,6 +46,13 @@ async function buildUserContext(input = {}) {
       orderBy: { joined_at: 'desc' },
     }) : Promise.resolve([]),
   ]);
+
+  const authorizedTeacherCourses = ['teacher', 'admin'].includes(role)
+    ? await prisma.course.findMany({
+      where: teacherCourseIds === null ? {} : { course_id: { in: teacherCourseIds } },
+      orderBy: { course_id: 'asc' },
+    })
+    : [];
 
   const explicitCourseId = Number(input.courseId);
   let enrollment = Number.isInteger(explicitCourseId)
@@ -67,7 +78,26 @@ async function buildUserContext(input = {}) {
     courseSelectionReason = 'single_enrollment';
   }
 
-  const selectedCourse = enrollment?.course || null;
+  let teacherCourse = Number.isInteger(explicitCourseId)
+    ? authorizedTeacherCourses.find(course => course.course_id === explicitCourseId) || null
+    : null;
+  if (teacherCourse) courseSelectionReason = 'request_scope';
+  if (!teacherCourse && authorizedTeacherCourses.length) {
+    const ranked = authorizedTeacherCourses
+      .map(course => ({ course, score: courseScore(course, input.query, input.subjectCode) }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (ranked[0] && (!ranked[1] || ranked[0].score > ranked[1].score)) {
+      teacherCourse = ranked[0].course;
+      courseSelectionReason = 'query_match';
+    }
+  }
+  if (!teacherCourse && authorizedTeacherCourses.length === 1) {
+    teacherCourse = authorizedTeacherCourses[0];
+    courseSelectionReason = 'single_authorized_course';
+  }
+
+  const selectedCourse = enrollment?.course || teacherCourse || null;
   let knowledgePoint = null;
   const explicitKnowledgePointId = Number(input.knowledgePointId);
   if (selectedCourse && Number.isInteger(explicitKnowledgePointId)) {

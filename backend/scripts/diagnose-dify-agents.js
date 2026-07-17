@@ -6,7 +6,6 @@
 
 const path = require('path');
 const dotenv = require('dotenv');
-const crypto = require('crypto');
 const http = require('http');
 
 // ---------- Parse CLI args ----------
@@ -64,8 +63,6 @@ function safeConfig(prefix) {
   if (!apiKey) return { configured: false, enabled, baseURL, reason: 'API Key missing' };
   if (!baseURL) return { configured: false, enabled, baseURL, reason: 'Base URL missing' };
 
-  const fingerprint = crypto.createHash('sha256').update(apiKey).digest('hex').substring(0, 8);
-  const suffix = apiKey.substring(Math.max(0, apiKey.length - 4));
   const hasQuotes = apiKey.startsWith('"') || apiKey.startsWith("'");
   const hasNewline = apiKey.includes('\n') || apiKey.includes('\r');
   const trimChanged = process.env[`${prefix}_API_KEY`] !== apiKey;
@@ -74,10 +71,6 @@ function safeConfig(prefix) {
     configured: true,
     enabled,
     baseURL,
-    apiKeyPrefix: apiKey.substring(0, 4),
-    apiKeyLength: apiKey.length,
-    apiKeyFingerprint: fingerprint,
-    apiKeySuffix: suffix,
     hasQuotes,
     hasNewline,
     trimChanged,
@@ -234,18 +227,14 @@ for (const [agentKey, agentDef] of agentsToTest) {
     continue;
   }
 
-  console.log(`  Key prefix: ${config.apiKeyPrefix}`);
-  console.log(`  Key length: ${config.apiKeyLength}`);
-  console.log(`  Key fingerprint: ${config.apiKeyFingerprint}`);
   if (config.hasQuotes) console.log(`  WARNING: Key contains quote characters!`);
   if (config.hasNewline) console.log(`  WARNING: Key contains newline characters!`);
   if (config.trimChanged) console.log(`  WARNING: Key changed after trim (had whitespace)`);
 
   // Make the actual HTTP request
   const fullUrl = `${config.baseURL}${agentDef.endpoint}`;
-  const authHeader = `Bearer ${config.apiKeyPrefix}-***`;
   console.log(`  Request: POST ${fullUrl}`);
-  console.log(`  Auth: ${authHeader}`);
+  console.log(`  Auth header configured: yes`);
 
   try {
     const body = agentDef.buildBody(config);
@@ -297,7 +286,6 @@ for (const [agentKey, agentDef] of agentsToTest) {
         console.log(`  Response validation: FAILED`);
         console.log(`  Reason: ${validation.reason}`);
         console.log(`  Phase: ${validation.phase}`);
-        console.log(`  Response preview: ${httpResult.body.slice(0, 300)}`);
         console.log(`  Result: FAIL (response validation)`);
         allPassed = false;
       }
@@ -309,18 +297,15 @@ for (const [agentKey, agentDef] of agentsToTest) {
       console.log(`    - Stale environment value`);
       console.log(`    - Key overridden by another environment source`);
       console.log(`    - Wrong Authorization header`);
-      console.log(`  Response: ${httpResult.body.slice(0, 500)}`);
       console.log(`  Result: FAIL (authentication)`);
       allPassed = false;
     } else if (httpResult.status === 404) {
       console.log(`  Authentication: success (HTTP ${httpResult.status} means auth passed)`);
       console.log(`  Error: endpoint not found (check if ${agentDef.type} type matches: ${agentDef.endpoint})`);
-      console.log(`  Response: ${httpResult.body.slice(0, 300)}`);
       console.log(`  Result: FAIL (endpoint)`);
       allPassed = false;
     } else {
       console.log(`  Authentication: success (non-401 response)`);
-      console.log(`  Response body: ${httpResult.body.slice(0, 300)}`);
       console.log(`  Result: FAIL (HTTP ${httpResult.status})`);
       allPassed = false;
     }

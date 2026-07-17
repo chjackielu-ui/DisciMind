@@ -511,7 +511,7 @@ async function completeTurn(turn, signal, onDelta = () => {}, onEvent = () => {}
       sources: combinedSources,
       clientRequestId: turn.assistantClientRequestId,
     });
-    return { ...saved, content, sources: combinedSources, charts: turn.charts, artifacts: orchestration?.artifacts || [], traceId: orchestration?.traceId || null, confirmationRequired: orchestration?.confirmationRequired === true, provider: { degraded: providerDegraded }, persistence: { saved: true } };
+    return { ...saved, content, sources: combinedSources, charts: turn.charts, artifacts: orchestration?.artifacts || [], pendingAction: orchestration?.pendingAction || null, traceId: orchestration?.traceId || null, confirmationRequired: orchestration?.confirmationRequired === true, provider: { degraded: providerDegraded }, persistence: { saved: true } };
   } catch (error) {
     if (error.publicCode !== 'AI_MESSAGE_SAVE_FAILED') throw error;
     return {
@@ -528,6 +528,7 @@ async function completeTurn(turn, signal, onDelta = () => {}, onEvent = () => {}
       sources: combinedSources,
       charts: turn.charts,
       artifacts: orchestration?.artifacts || [],
+      pendingAction: orchestration?.pendingAction || null,
       traceId: orchestration?.traceId || null,
       confirmationRequired: orchestration?.confirmationRequired === true,
       provider: { degraded: providerDegraded },

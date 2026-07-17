@@ -163,6 +163,10 @@ function normalizedAgentRefs(records) {
   return records.map(({ agent, version }) => ({ agentId: agent.id, name: version.name, agentType: agent.agentType }));
 }
 
+function retrievalKnowledgeBases(explicit = [], bound = []) {
+  return explicit.length ? [...explicit] : [...bound];
+}
+
 async function retrieveFromKnowledgeBases(knowledgeBases, question, options = {}) {
   const usable = knowledgeBases.filter(isKnowledgeBaseAvailable);
   if (!usable.length) return { records: [], fallback: knowledgeBases.length > 0, unavailable: false };
@@ -202,7 +206,10 @@ async function retrieveFromKnowledgeBases(knowledgeBases, question, options = {}
 async function resolveRetrieval(userId, version, question, explicitRefs = []) {
   const explicit = await resolveKnowledgeBaseRefs(userId, explicitRefs);
   let bound = [];
-  if (version.responseMode === 'KNOWLEDGE_FIRST') {
+  // An explicit @ selection is an allow-list, not an addition to an Agent's
+  // private bindings. Mixing the two can make a selected handbook question
+  // return evidence from an unrelated Agent knowledge base.
+  if (!explicit.length && version.responseMode === 'KNOWLEDGE_FIRST') {
     const [scope, bindings] = await Promise.all([
       loadUserScope(userId),
       prisma.agentKnowledgeBase.findMany({
@@ -214,7 +221,7 @@ async function resolveRetrieval(userId, version, question, explicitRefs = []) {
     bound = bindings.map(item => item.knowledgeBase)
       .filter(kb => kb && !kb.deleted_at && kb.status === 'active' && canAccessKnowledgeBase(kb, userId, scope));
   }
-  const merged = [...explicit, ...bound.filter(item => !explicit.some(value => value.knowledge_base_id === item.knowledge_base_id))];
+  const merged = retrievalKnowledgeBases(explicit, bound);
   if (!merged.length) return { records: [], fallback: false, unavailable: false, knowledgeBases: [] };
   const result = await retrieveFromKnowledgeBases(merged, question, { topK: version.topK, scoreThreshold: version.scoreThreshold });
   return { ...result, knowledgeBases: merged };
@@ -233,6 +240,7 @@ module.exports = {
   resolveAgentRefs,
   normalizedKnowledgeRefs,
   normalizedAgentRefs,
+  retrievalKnowledgeBases,
   retrieveFromKnowledgeBases,
   resolveRetrieval,
 };

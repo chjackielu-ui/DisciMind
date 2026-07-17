@@ -416,7 +416,7 @@ export function deleteTeacherNotifications(data) { return request('/teacher/noti
 export function getSentNotificationStats(params = {}) { return get('/teacher/notifications/sent-stats', { params }) }
 
 // ========================
-// AI 功能（占位）
+// AI 题目、摘要、视频检索与学习分析
 // ========================
 
 export function aiGenerateQuestions(data) {

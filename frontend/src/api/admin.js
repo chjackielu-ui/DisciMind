@@ -316,7 +316,7 @@ export function markAllNotificationsRead(filters = {}) {
   return put('/admin/notifications/read-all', filters)
 }
 
-// ==================== AI 配置（占位） ====================
+// ==================== 旧版 AI 配置兼容接口 ====================
 export function getAiModelConfigs() {
   return get('/admin/ai-model-configs')
 }

@@ -1,6 +1,12 @@
-// TODO: 智能体类型徽章组件
-// 后续实现：用不同颜色/图标区分 Dify、自研、教学、科研等类型
+import { escapeHtml } from '../../utils/format.js'
 
-export default function AgentTypeBadge() {
-  return null;
+const LABELS = Object.freeze({
+  dify: 'Dify', self: '自研', langgraph: 'LangGraph', model_direct: '模型直连',
+  course_qa: '课程问答', trainer: '训练师', explainer: '讲解师', diagnostician: '诊断师',
+})
+
+export default function AgentTypeBadge(type) {
+  const key = String(type || 'self').trim().toLowerCase()
+  const cssKey = /^[a-z0-9_-]+$/.test(key) ? key : 'self'
+  return `<span class="agent-type-badge agent-type-badge--${cssKey}">${escapeHtml(LABELS[key] || type || '自研')}</span>`
 }

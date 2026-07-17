@@ -122,11 +122,16 @@ export function createUnifiedComposer(options) {
     attachments: [...(options.attachments || [])], mention: null, activeIndex: 0, busy: false, uploading: false, composing: false,
   }
   const maxLength = Number(options.maxLength || 4000)
+  let toolbarExtension = null
 
   const render = (keepFocus = false) => {
     const selectionStart = root.querySelector('textarea')?.selectionStart ?? state.value.length
-    root.innerHTML = `<form class="unified-composer" autocomplete="off">${contextTags(state)}${pendingAttachmentsHTML(state.attachments)}<div class="composer-input-row"><textarea maxlength="${maxLength}" placeholder="${escapeHtml(options.placeholder || '输入问题，使用 @ 引用知识库，使用 \\ 调用智能体')}">${escapeHtml(state.value)}</textarea><button class="composer-send" type="submit" ${state.busy || state.uploading ? 'disabled' : ''}>${state.uploading ? '上传中' : '发送'}</button></div><div class="composer-toolbar"><div><button type="button" data-composer-kb title="引用知识库" aria-label="引用知识库">${composerTool('knowledge', '知识库')}</button><button type="button" data-composer-agent title="调用智能体" aria-label="调用智能体">${composerTool('agent', '智能体')}</button>${options.allowImages === false ? '' : `<button type="button" data-composer-image title="添加图片或文件" aria-label="添加图片或文件">${composerTool('file', '文件')}</button>`}${options.allowVoice === false ? '' : `<button type="button" data-composer-voice title="语音输入" aria-label="语音输入">${composerTool('voice', '语音')}</button>`}</div><div><span data-composer-count>${state.value.length}/${maxLength}</span><button type="button" data-composer-stop ${state.busy ? '' : 'hidden'} title="停止生成">${composerTool('stop', '停止')}</button></div></div><div data-composer-menu-host>${menuHTML(state)}</div><input type="file" data-composer-file accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" multiple hidden></form>`
+    toolbarExtension?.destroy?.()
+    toolbarExtension = null
+    root.innerHTML = `<form class="unified-composer" autocomplete="off">${contextTags(state)}${pendingAttachmentsHTML(state.attachments)}<div class="composer-input-row"><textarea maxlength="${maxLength}" placeholder="${escapeHtml(options.placeholder || '输入问题，使用 @ 引用知识库，使用 \\ 调用智能体')}">${escapeHtml(state.value)}</textarea><button class="composer-send" type="submit" ${state.busy || state.uploading || (!state.value.trim() && !state.attachments.length) ? 'disabled' : ''}>${state.uploading ? '上传中' : '发送'}</button></div><div class="composer-toolbar"><div class="composer-toolbar-primary"><button type="button" data-composer-kb title="引用知识库" aria-label="引用知识库">${composerTool('knowledge', '知识库')}</button><button type="button" data-composer-agent title="调用智能体" aria-label="调用智能体">${composerTool('agent', '智能体')}</button>${options.allowImages === false ? '' : `<button type="button" data-composer-image title="添加图片或文件" aria-label="添加图片或文件">${composerTool('file', '文件')}</button>`}${options.allowVoice === false ? '' : `<button type="button" data-composer-voice title="语音输入" aria-label="语音输入">${composerTool('voice', '语音')}</button>`}<div class="composer-toolbar-extension" data-composer-toolbar-extension></div></div><div class="composer-toolbar-status"><span data-composer-count>${state.value.length}/${maxLength}</span><button type="button" data-composer-stop ${state.busy ? '' : 'hidden'} title="停止生成">${composerTool('stop', '停止')}</button></div></div><div data-composer-menu-host>${menuHTML(state)}</div><input type="file" data-composer-file accept="image/jpeg,image/png,image/webp,.pdf,.docx,.txt,.md,.csv" multiple hidden></form>`
     bind()
+    const extensionHost = root.querySelector('[data-composer-toolbar-extension]')
+    if (extensionHost && options.mountToolbarExtension) toolbarExtension = options.mountToolbarExtension(extensionHost) || null
     if (keepFocus) {
       const textarea = root.querySelector('textarea')
       textarea.focus(); textarea.setSelectionRange(Math.min(selectionStart, textarea.value.length), Math.min(selectionStart, textarea.value.length))
@@ -154,6 +159,8 @@ export function createUnifiedComposer(options) {
     options.onDraftChange?.(api.getPayload())
     const count = root.querySelector('[data-composer-count]')
     if (count) count.textContent = `${state.value.length}/${maxLength}`
+    const sendButton = root.querySelector('.composer-send')
+    if (sendButton) sendButton.disabled = state.busy || state.uploading || (!state.value.trim() && !state.attachments.length)
     if (state.composing) return
     const previous = state.mention
     const next = detectMention(textarea)
@@ -259,7 +266,8 @@ export function createUnifiedComposer(options) {
     setBusy: (busy) => { state.busy = Boolean(busy); render(false) },
     setSources: ({ knowledgeBases, agents }) => { if (Array.isArray(knowledgeBases)) state.knowledgeBases = knowledgeBases; if (Array.isArray(agents)) state.agents = agents; renderMenu() },
     focus: () => root.querySelector('textarea')?.focus(),
-    destroy: () => { root.innerHTML = '' },
+    getToolbarExtension: () => toolbarExtension,
+    destroy: () => { toolbarExtension?.destroy?.(); toolbarExtension = null; root.innerHTML = '' },
   }
   render(false)
   return api

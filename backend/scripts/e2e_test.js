@@ -7,9 +7,9 @@
  */
 require('dotenv').config();
 
-// Allow command-line args: node e2e_test.js <username> <password>
-const TEST_USERNAME = process.argv[2] || process.env.TEST_USERNAME || 'e2etest';
-const TEST_PASSWORD = process.argv[3] || process.env.TEST_PASSWORD || 'test123456';
+const TEST_USERNAME = process.env.TEST_USERNAME;
+const TEST_PASSWORD = process.env.TEST_PASSWORD;
+if (!TEST_USERNAME || !TEST_PASSWORD) throw new Error('TEST_USERNAME and TEST_PASSWORD environment variables are required');
 
 const PORT = process.env.PORT || 3000;
 const BASE = `http://localhost:${PORT}/api`;

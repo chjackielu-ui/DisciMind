@@ -5,6 +5,8 @@
 import { getToken, clearAuth, refreshSessionViaStorage, refreshAuthSession, canRefreshCurrentSession } from '../utils/auth.js'
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000
+const DEFAULT_UPLOAD_TIMEOUT_MS = 120000
 
 let refreshLock = null // 防止并发刷新
 
@@ -24,6 +26,61 @@ function shouldTryRefresh(url, options) {
   if (options._retry || options._skipAuthRefresh) return false
   if (url.startsWith('/auth/login') || url.startsWith('/auth/refresh') || url.startsWith('/auth/logout') || url.startsWith('/auth/session/refresh')) return false
   return true
+}
+
+function createRequestSignal(sourceSignal, timeoutMs) {
+  const controller = new AbortController()
+  let timedOut = false
+  const relayAbort = () => controller.abort(sourceSignal?.reason)
+  if (sourceSignal?.aborted) relayAbort()
+  else sourceSignal?.addEventListener?.('abort', relayAbort, { once: true })
+  const timer = window.setTimeout(() => {
+    timedOut = true
+    controller.abort(new DOMException('Request timed out', 'TimeoutError'))
+  }, timeoutMs)
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup() {
+      window.clearTimeout(timer)
+      sourceSignal?.removeEventListener?.('abort', relayAbort)
+    },
+  }
+}
+
+async function fetchJson(fullUrl, fetchOptions, options, headers, timeoutMs) {
+  const requestSignal = createRequestSignal(fetchOptions.signal, timeoutMs)
+  try {
+    const response = await fetch(fullUrl, { ...fetchOptions, signal: requestSignal.signal, headers, credentials: 'include' })
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      try { return { response, result: await response.json() } } catch { throw new Error('服务器返回数据格式异常') }
+    }
+    const bodyText = await response.text().catch(() => '')
+    const message = bodyText.match(/Cannot\s+\w+\s+[^<\s]+/)?.[0]
+    console.error('[request] 非 JSON 错误响应', {
+      method: (options.method || 'GET').toUpperCase(), url: fullUrl,
+      status: response.status, contentType, excerpt: bodyText.slice(0, 200),
+    })
+    throw new Error(message || `接口请求失败（HTTP ${response.status}）`)
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      const timeoutError = new Error('请求超时，请稍后重试')
+      timeoutError.code = 'REQUEST_TIMEOUT'
+      timeoutError.retryable = true
+      throw timeoutError
+    }
+    if (fetchOptions.signal?.aborted || error?.name === 'AbortError') {
+      const abortError = new Error('请求已取消')
+      abortError.code = 'REQUEST_CANCELLED'
+      abortError.retryable = false
+      throw abortError
+    }
+    if (error?.code || error?.message === '服务器返回数据格式异常' || /HTTP \d+/.test(error?.message || '')) throw error
+    throw new Error('网络请求失败，请检查网络连接或后端服务是否启动')
+  } finally {
+    requestSignal.cleanup()
+  }
 }
 
 /**
@@ -69,41 +126,10 @@ export async function request(url, options = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const { params, _retry, _skipAuthRefresh, ...fetchOptions } = options
+  const { params, _retry, _skipAuthRefresh, timeoutMs, ...fetchOptions } = options
   const fullUrl = buildUrl(url, params)
-
-  let response
-  try {
-    response = await fetch(fullUrl, {
-      ...fetchOptions,
-      headers,
-      credentials: 'include',
-    })
-  } catch (err) {
-    throw new Error('网络请求失败，请检查网络连接或后端服务是否启动')
-  }
-
-  const contentType = response.headers.get('content-type') || ''
-  let result
-  if (contentType.includes('application/json')) {
-    try {
-      result = await response.json()
-    } catch {
-      throw new Error('服务器返回数据格式异常')
-    }
-  } else {
-    const text = await response.text().catch(() => '')
-    const message = text.match(/Cannot\s+\w+\s+[^<\s]+/)?.[0]
-    // 开发诊断日志：打印实际请求信息
-    console.error('[request] 非 JSON 错误响应', {
-      method: (options.method || 'GET').toUpperCase(),
-      url: fullUrl,
-      status: response.status,
-      contentType,
-      excerpt: text.slice(0, 200),
-    })
-    throw new Error(message || `接口请求失败（HTTP ${response.status}）`)
-  }
+  const effectiveTimeout = Math.max(1000, Math.min(300000, Number(timeoutMs) || (isFormData ? DEFAULT_UPLOAD_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS)))
+  const { response, result } = await fetchJson(fullUrl, fetchOptions, options, headers, effectiveTimeout)
 
   // 认证错误：token 缺失 (40101) 或 token 无效/过期 (40102)
   if (result.code === 40101 || result.code === 40102) {

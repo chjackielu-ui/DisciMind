@@ -66,6 +66,7 @@ const FINAL_SESSION_STATUSES = new Set([
   'graded',
   'abandoned',
 ]);
+const MAX_AI_QUESTIONS_PER_PRACTICE = 50;
 
 function toLower(value) {
   if (value == null) return null;
@@ -84,6 +85,47 @@ function toPositiveInt(value, fieldName, required = true) {
     throw Object.assign(new Error(`${fieldName} 参数不合法`), { code: 40001 });
   }
   return parsed;
+}
+
+function toNonNegativeInt(value, fieldName) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw Object.assign(new Error(`${fieldName} 必须是非负整数`), { code: 40001 });
+  }
+  return parsed;
+}
+
+function normalizeSourceMix(params, totalQuestionCount) {
+  const raw = params?.sourceMix ?? params?.source_mix;
+  if (raw == null) {
+    return {
+      explicit: false,
+      bankQuestionCount: totalQuestionCount,
+      aiQuestionCount: 0,
+    };
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw Object.assign(new Error('sourceMix 参数不合法'), { code: 40001 });
+  }
+  const bankQuestionCount = toNonNegativeInt(
+    raw.bankQuestionCount ?? raw.bank_question_count,
+    'sourceMix.bankQuestionCount',
+  );
+  const aiQuestionCount = toNonNegativeInt(
+    raw.aiQuestionCount ?? raw.ai_question_count,
+    'sourceMix.aiQuestionCount',
+  );
+  if (bankQuestionCount + aiQuestionCount !== totalQuestionCount) {
+    throw Object.assign(new Error('题库题数量与 AI 题数量之和必须等于总题数'), { code: 40001 });
+  }
+  if (aiQuestionCount > MAX_AI_QUESTIONS_PER_PRACTICE) {
+    throw Object.assign(new Error(`AI 题数量不能超过 ${MAX_AI_QUESTIONS_PER_PRACTICE}`), { code: 40001 });
+  }
+  return { explicit: true, bankQuestionCount, aiQuestionCount };
+}
+
+function questionContentKey(value) {
+  return String(value || '').toLocaleLowerCase('zh-CN').replace(/[\s\p{P}\p{S}]+/gu, '');
 }
 
 function normalizeQuestionTypes(questionTypes) {
@@ -369,6 +411,7 @@ async function fetchQuestionLinks({
   prismaDifficulty,
   knowledgePointId = null,
   excludeIds = [],
+  includeAiGenerated = true,
 }) {
   const questionWhere = {
     status: 'active',
@@ -376,6 +419,7 @@ async function fetchQuestionLinks({
     ...(prismaDifficulty ? { difficulty_level: prismaDifficulty } : {}),
     ...(knowledgePointId ? { knowledge_point_id: knowledgePointId } : {}),
     ...(excludeIds.length > 0 ? { question_id: { notIn: excludeIds } } : {}),
+    ...(!includeAiGenerated ? { is_ai_generated: false } : {}),
   };
 
   const include = {
@@ -424,6 +468,21 @@ async function fetchQuestionLinks({
   });
 
   return collected;
+}
+
+async function rankBankQuestionsByRecentUse(userId, questions) {
+  if (!questions.length) return [];
+  const recent = await prisma.practiceSessionQuestion.findMany({
+    where: { practice_session: { student_user_id: Number(userId) } },
+    select: { question_id: true },
+    orderBy: { created_at: 'desc' },
+    take: 500,
+  });
+  const useCounts = new Map();
+  recent.forEach((item) => useCounts.set(item.question_id, (useCounts.get(item.question_id) || 0) + 1));
+  return shuffle(questions).sort((left, right) => (
+    (useCounts.get(left.question_id) || 0) - (useCounts.get(right.question_id) || 0)
+  ));
 }
 
 async function getKnowledgePointsForGeneration(courseId) {
@@ -543,6 +602,7 @@ async function generateAndPersistQuestions({
   count,
   userId,
   preferredKnowledgePointId = null,
+  excludedContents = [],
 }) {
   if (count <= 0) return [];
 
@@ -612,6 +672,7 @@ async function generateAndPersistQuestions({
   }
 
   const createdQuestions = [];
+  const seenContent = new Set(excludedContents.map(questionContentKey).filter(Boolean));
 
   for (const [index, item] of generated.slice(0, count).entries()) {
     const publicType = toLower(item.question_type) === 'blank'
@@ -625,6 +686,8 @@ async function generateAndPersistQuestions({
       'MEDIUM';
     const content = item.question_content || item.content || '';
     if (!content) continue;
+    const contentKey = questionContentKey(content);
+    if (!contentKey || seenContent.has(contentKey)) continue;
 
     const correctAnswer = buildCorrectAnswer(publicType, item.correct_answer);
     const options = normalizeGeneratedOptions(publicType, item.options || [], correctAnswer);
@@ -675,6 +738,7 @@ async function generateAndPersistQuestions({
     });
 
     createdQuestions.push(question);
+    seenContent.add(contentKey);
   }
 
   await prisma.aiQuestionGenerationLog.update({
@@ -755,10 +819,16 @@ async function createPracticeSessionFromQuestions({
 async function startPractice(userId, params) {
   const courseId = toPositiveInt(params.subjectId ?? params.subject_id ?? params.courseId ?? params.course_id, 'subjectId');
   const classId = toPositiveInt(params.classId ?? params.class_id ?? params.teachingClassId ?? params.teaching_class_id, 'classId', false);
-  const questionCount = toPositiveInt(params.questionCount ?? params.question_count, 'questionCount');
+  const rawQuestionCount = params.totalQuestionCount ?? params.total_question_count ?? params.questionCount ?? params.question_count;
+  const questionCount = toPositiveInt(rawQuestionCount, 'questionCount');
+  const legacyQuestionCount = params.questionCount ?? params.question_count;
+  if (legacyQuestionCount != null && Number(legacyQuestionCount) !== questionCount) {
+    throw Object.assign(new Error('questionCount 与 totalQuestionCount 必须一致'), { code: 40001 });
+  }
   if (questionCount > 100) {
     throw Object.assign(new Error('questionCount 不能超过 100'), { code: 40001 });
   }
+  const sourceMix = normalizeSourceMix(params, questionCount);
 
   const { publicTypes, prismaTypes } = normalizeQuestionTypes(params.questionTypes ?? params.question_types);
   const difficulty = normalizeDifficulty(params.difficulty);
@@ -772,33 +842,71 @@ async function startPractice(userId, params) {
     classId: resolvedClassId,
     prismaTypes,
     prismaDifficulty: difficulty?.prismaDifficulty || null,
+    includeAiGenerated: false,
   });
+  const rankedBankQuestions = await rankBankQuestionsByRecentUse(userId, existingQuestions);
+  let bankQuestions = rankedBankQuestions.slice(0, sourceMix.bankQuestionCount);
+  const bankShortage = sourceMix.bankQuestionCount - bankQuestions.length;
+  const aiTarget = sourceMix.aiQuestionCount + bankShortage;
+  const aiQuestions = [];
+  const degradationReasons = [];
+  let lastAiError = null;
 
-  let selectedQuestions = shuffle(existingQuestions).slice(0, questionCount);
-  let generatedCount = 0;
-  let warning = null;
+  if (bankShortage > 0) {
+    degradationReasons.push(`题库不足 ${bankShortage} 道，已请求 AI 补足`);
+  }
+
+  for (let attempt = 0; aiQuestions.length < aiTarget && attempt < 2; attempt += 1) {
+    try {
+      const generated = await generateAndPersistQuestions({
+        course,
+        classId: resolvedClassId,
+        publicTypes,
+        publicDifficulty: difficulty?.publicDifficulty || null,
+        count: aiTarget - aiQuestions.length,
+        userId,
+        excludedContents: [...bankQuestions, ...aiQuestions].map((question) => question.content),
+      });
+      aiQuestions.push(...generated);
+      if (!generated.length) break;
+    } catch (err) {
+      lastAiError = err;
+    }
+  }
+
+  let selectedQuestions = [...bankQuestions, ...aiQuestions].slice(0, questionCount);
+  if (selectedQuestions.length < questionCount) {
+    const usedIds = new Set(selectedQuestions.map((question) => question.question_id));
+    const fallbackBank = rankedBankQuestions
+      .filter((question) => !usedIds.has(question.question_id))
+      .slice(0, questionCount - selectedQuestions.length);
+    if (fallbackBank.length) {
+      bankQuestions = bankQuestions.concat(fallbackBank);
+      selectedQuestions.push(...fallbackBank);
+      degradationReasons.push(`AI 题不足，已用题库题回填 ${fallbackBank.length} 道`);
+    }
+  }
 
   if (selectedQuestions.length < questionCount) {
-    const missingCount = questionCount - selectedQuestions.length;
-    const generatedQuestions = await generateAndPersistQuestions({
-      course,
-      classId: resolvedClassId,
-      publicTypes,
-      publicDifficulty: difficulty?.publicDifficulty || null,
-      count: missingCount,
-      userId,
-    });
-    generatedCount = generatedQuestions.length;
-    selectedQuestions = selectedQuestions.concat(generatedQuestions).slice(0, questionCount);
+    const safeReason = lastAiError ? 'AI 服务暂时不可用' : '可用题目不足';
+    throw Object.assign(new Error(`${safeReason}，当前无法完整生成 ${questionCount} 道题，请调整配比后重试`), { code: 40002 });
   }
 
-  if (selectedQuestions.length === 0) {
-    throw Object.assign(new Error('题库题目不足，且 AI 未能生成可用题目'), { code: 40002 });
-  }
-
-  if (selectedQuestions.length < questionCount) {
-    warning = `题目不足，实际生成 ${selectedQuestions.length} 道题`;
-  }
+  selectedQuestions = shuffle(selectedQuestions.slice(0, questionCount));
+  const actualAiQuestionCount = selectedQuestions.filter((question) => Boolean(question.is_ai_generated)).length;
+  const actualBankQuestionCount = questionCount - actualAiQuestionCount;
+  const degraded = actualBankQuestionCount !== sourceMix.bankQuestionCount || actualAiQuestionCount !== sourceMix.aiQuestionCount;
+  const sourceMixAudit = {
+    requestedBankQuestionCount: sourceMix.bankQuestionCount,
+    requestedAiQuestionCount: sourceMix.aiQuestionCount,
+    actualBankQuestionCount,
+    actualAiQuestionCount,
+    degraded,
+    degradationReasons: degraded ? degradationReasons : [],
+  };
+  const warning = degraded
+    ? `实际组成：题库题 ${actualBankQuestionCount} 道，AI 题 ${actualAiQuestionCount} 道。${degradationReasons.join('；')}`
+    : null;
 
   const sessionPayload = await createPracticeSessionFromQuestions({
     userId,
@@ -806,7 +914,7 @@ async function startPractice(userId, params) {
     classId: resolvedClassId,
     mode: attemptConfig.mode,
     answerMode: attemptConfig.answerMode,
-    navigationConfig: attemptConfig.navigationConfig,
+    navigationConfig: { ...attemptConfig.navigationConfig, sourceMix: sourceMixAudit },
     expiresAt,
     sourceType: SOURCE_TYPE.SELF_PRACTICE,
     selectedQuestions,
@@ -814,7 +922,8 @@ async function startPractice(userId, params) {
 
   return {
     session: sessionPayload.session,
-    generated_count: generatedCount,
+    generated_count: actualAiQuestionCount,
+    source_mix: sourceMixAudit,
     warning,
     questions: sessionPayload.questions,
   };
@@ -2946,4 +3055,9 @@ module.exports = {
   markWrongQuestionMastered,
   startSimilarPractice,
   startWrongQuestionPractice,
+  __test: {
+    normalizeSourceMix,
+    questionContentKey,
+    MAX_AI_QUESTIONS_PER_PRACTICE,
+  },
 };

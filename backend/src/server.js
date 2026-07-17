@@ -19,6 +19,7 @@ const PORT = process.env.PORT || 3000;
 let expirationInterval = null;
 let artifactCleanupTimer = null;
 let httpServer = null;
+let shutdownPromise = null;
 
 function startArtifactCleanupScheduler() {
   if (String(process.env.ARTIFACT_CLEANUP_ENABLED || 'true').toLowerCase() === 'false') return;
@@ -69,24 +70,59 @@ function stopExpirationScanner() {
   }
 }
 
+function closeHttpServer(server, timeoutMs = 8000) {
+  if (!server?.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error); else resolve();
+    };
+    const timer = setTimeout(() => {
+      server.closeAllConnections?.();
+      finish();
+    }, timeoutMs);
+    timer.unref?.();
+    server.close(finish);
+    server.closeIdleConnections?.();
+  });
+}
+
 // 优雅关闭
 function setupGracefulShutdown() {
-  const shutdown = async (signal) => {
+  const shutdown = (signal) => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
     console.log(`[server] 收到 ${signal} 信号，正在关闭...`);
-    stopExpirationScanner();
-    stopArtifactCleanupScheduler();
-    generationRegistry.cancelAll();
-    await getAsyncTaskWorker().stop().catch((error) => console.error('[tasks] Worker 停止失败:', error.message));
-    getLearningNarrationModule().close();
-    await require('./modules/learning-agent/graph/checkpointer.service').closeCheckpointer()
-      .catch((error) => console.error('[checkpointer] 关闭失败:', error.message));
-    httpServer?.close();
-    // 给正在处理的请求一点时间完成
-    setTimeout(() => process.exit(0), 2000);
+      let exitCode = 0;
+      try {
+        stopExpirationScanner();
+        stopArtifactCleanupScheduler();
+        generationRegistry.cancelAll();
+        await getAsyncTaskWorker().stop().catch((error) => console.error('[tasks] Worker 停止失败:', error.message));
+        getLearningNarrationModule().close();
+        await require('./modules/learning-agent/graph/checkpointer.service').closeCheckpointer()
+          .catch((error) => console.error('[checkpointer] 关闭失败:', error.message));
+        await closeHttpServer(httpServer);
+      } catch (error) {
+        exitCode = 1;
+        console.error('[server] 关闭服务失败:', error.message);
+      } finally {
+        await prisma.$disconnect().catch((error) => {
+          exitCode = 1;
+          console.error('[db] 断开数据库连接失败:', error.message);
+        });
+        console.log('[server] 已安全关闭');
+        process.exit(exitCode);
+      }
+    })();
+    return shutdownPromise;
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
 }
 
 // 启动前测试数据库连接，避免启动后出现连接池超时

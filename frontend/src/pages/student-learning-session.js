@@ -2760,7 +2760,12 @@ let currentDraft = {
   questionId: null,
 };
 
+function revokePreviewFiles(files = []) {
+  files.forEach((file) => { if (String(file?.previewUrl || '').startsWith('blob:')) URL.revokeObjectURL(file.previewUrl); });
+}
+
 function resetCurrentDraft() {
+  revokePreviewFiles(currentDraft.uploadedFiles);
   currentDraft = {
     text: '',
     selectedOptions: [],
@@ -2863,7 +2868,7 @@ function buildComposerHtml(itype, isChoice, isFreeText, placeholder, submitLabel
   const uploadedCount = currentDraft.uploadedFiles.length;
   const previewsHtml = currentDraft.uploadedFiles.map((f, i) => `
     <div class="lws-composer-file-preview">
-      <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
+      <img src="${escAttr(f.previewUrl || f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
       <button class="lws-composer-file-remove" data-file-index="${i}" title="删除">&times;</button>
     </div>`).join('');
 
@@ -2978,7 +2983,7 @@ async function handleComposerFileSelect(fileList) {
       if (previewsEl) {
         previewsEl.innerHTML = currentDraft.uploadedFiles.map((f, i) => `
           <div class="lws-composer-file-preview">
-            <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
+            <img src="${escAttr(f.previewUrl || f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
             <button class="lws-composer-file-remove" data-file-index="${i}" title="删除">&times;</button>
           </div>`).join('');
       }
@@ -3001,13 +3006,14 @@ async function handleComposerFileSelect(fileList) {
 
 function removeComposerFile(index) {
   if (index >= 0 && index < currentDraft.uploadedFiles.length) {
+    revokePreviewFiles([currentDraft.uploadedFiles[index]]);
     currentDraft.uploadedFiles.splice(index, 1);
     const previewsEl = document.getElementById('lws-composer-file-previews');
     const countEl = document.querySelector('.lws-composer-file-count');
     if (previewsEl) {
       previewsEl.innerHTML = currentDraft.uploadedFiles.map((f, i) => `
         <div class="lws-composer-file-preview">
-          <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
+          <img src="${escAttr(f.previewUrl || f.fileUrl)}" alt="${escAttr(f.fileName || '')}" class="lws-composer-thumb">
           <button class="lws-composer-file-remove" data-file-index="${i}" title="删除">&times;</button>
         </div>`).join('');
     }
@@ -3074,7 +3080,7 @@ async function submitLearningInput(interaction) {
         text: currentDraft.text || answer,
         answer,
         selectedOptions,
-        fileRefs: currentDraft.uploadedFiles,
+        fileRefs: currentDraft.uploadedFiles.map(({ previewUrl, ...file }) => file),
         questionId: interaction.questionId,
       },
       answer: selectedOptions.length === 1 ? selectedOptions[0] : answer,
@@ -4362,6 +4368,7 @@ function closeModal() {
 let uploadedFiles = [];
 
 function resetUploadedFiles() {
+  revokePreviewFiles(uploadedFiles);
   uploadedFiles = [];
 }
 
@@ -4433,6 +4440,7 @@ async function handleFileSelect(fileList) {
 
 function removeFile(index) {
   if (index >= 0 && index < uploadedFiles.length) {
+    revokePreviewFiles([uploadedFiles[index]]);
     uploadedFiles.splice(index, 1);
     renderFilePreviews();
   }
@@ -4451,7 +4459,7 @@ function renderFilePreviews() {
     .map(
       (f, i) => `
       <div class="lws-file-preview-item">
-        <img src="${escAttr(f.fileUrl)}" alt="${escAttr(f.fileName)}" class="lws-file-thumb">
+        <img src="${escAttr(f.previewUrl || f.fileUrl)}" alt="${escAttr(f.fileName)}" class="lws-file-thumb">
         <span class="lws-file-name">${escHtml(f.fileName)}</span>
         <button class="lws-file-remove" data-file-index="${i}" title="删除">&times;</button>
       </div>`,

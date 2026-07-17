@@ -5,6 +5,13 @@
  */
 
 const BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000/api';
+const TEST_PASSWORD = process.env.DISCIMIND_TEST_PASSWORD;
+const STUDENT_ACCOUNT = process.env.DISCIMIND_TEST_STUDENT_ACCOUNT;
+const TEACHER_ACCOUNT = process.env.DISCIMIND_TEST_TEACHER_ACCOUNT;
+
+if (!TEST_PASSWORD || !STUDENT_ACCOUNT || !TEACHER_ACCOUNT) {
+  throw new Error('DISCIMIND_TEST_PASSWORD, DISCIMIND_TEST_STUDENT_ACCOUNT and DISCIMIND_TEST_TEACHER_ACCOUNT are required');
+}
 
 // ========== 工具函数 ==========
 async function api(method, path, { token, body, headers } = {}) {
@@ -45,7 +52,7 @@ async function runTests() {
   console.log('\n📋 测试1: 认证 — Cookie 不能独立恢复登录');
   {
     // 登录获取 sessionStorage 数据
-    const loginResult = await login('student_demo', '123456');
+    const loginResult = await login(STUDENT_ACCOUNT, TEST_PASSWORD);
     const accessToken = loginResult.accessToken;
     const sessionId = loginResult.sessionId;
     assert(!!accessToken, '登录后获取 accessToken');
@@ -78,7 +85,7 @@ async function runTests() {
   // ========================
   console.log('\n📋 测试2: 教师任务 attempt 创建');
   {
-    const { accessToken } = await login('student_demo', '123456');
+    const { accessToken } = await login(STUDENT_ACCOUNT, TEST_PASSWORD);
 
     // 尝试为已存在的演示任务创建 attempt
     // seed.js 中创建了 task_id=1 的任务
@@ -108,7 +115,7 @@ async function runTests() {
   // ========================
   console.log('\n📋 测试3: active attempt 返回规则');
   {
-    const { accessToken } = await login('student_demo', '123456');
+    const { accessToken } = await login(STUDENT_ACCOUNT, TEST_PASSWORD);
 
     const result = await api('GET', '/practice/active', { token: accessToken });
     const data = result.data?.data || {};
@@ -130,7 +137,7 @@ async function runTests() {
   // ========================
   console.log('\n📋 测试4: 会话刷新接口');
   {
-    const { accessToken, sessionId } = await login('student_demo', '123456');
+    const { accessToken, sessionId } = await login(STUDENT_ACCOUNT, TEST_PASSWORD);
 
     // 有效刷新
     const refresh = await api('POST', '/auth/session/refresh', {
@@ -163,7 +170,7 @@ async function runTests() {
   // ========================
   console.log('\n📋 测试5: 教师端成绩查询（含attempt兼容）');
   {
-    const { accessToken } = await login('teacher_demo', '123456');
+    const { accessToken } = await login(TEACHER_ACCOUNT, TEST_PASSWORD);
 
     // 查询任务1的提交列表
     const result = await api('GET', '/teacher/tasks/1/submissions', { token: accessToken });

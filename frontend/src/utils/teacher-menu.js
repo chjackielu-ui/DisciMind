@@ -41,13 +41,14 @@ export const TEACHER_MENU_ITEMS = [
     label: '智慧备课',
     icon: 'document',
     hash: '#/teacher/preparation',
-    matchHash: (h) => h === '/teacher/preparation' || h === '/teacher/preparation/immersive' || h === '/teacher/lesson-plan' || h === '/teacher/artifacts',
+    matchHash: (h) => h === '/teacher/preparation' || h === '/teacher/preparation/immersive' || h === '/teacher/lesson-plan',
   },
   {
     id: 'teacher-artifacts',
     label: '产物中心',
     icon: 'folder',
     hash: '#/teacher/artifacts',
+    matchHash: (h) => /^\/teacher\/artifacts(?:\/|$)/.test(h),
   },
   {
     id: 'teacher-ai',

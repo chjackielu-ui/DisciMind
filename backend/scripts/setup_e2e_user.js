@@ -2,8 +2,9 @@ require('dotenv').config();
 const prisma = require('../src/config/prisma');
 
 async function main() {
-  // Find e2etest user
-  const user = await prisma.user.findUnique({ where: { username: 'e2etest' } });
+  const username = process.env.TEST_USERNAME;
+  if (!username) throw new Error('TEST_USERNAME environment variable is required');
+  const user = await prisma.user.findUnique({ where: { username } });
   if (!user) { console.log('User not found'); return; }
   console.log('User:', user.username, user.user_id);
 

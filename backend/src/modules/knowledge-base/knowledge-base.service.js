@@ -6,6 +6,12 @@ const dify = require('../learning-agent/adapters/dify-knowledge.adapter');
 const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { scopedOperationId } = require('../agent-marketplace/operation-id');
 const asyncTasks = require('../async-task/async-task.service');
+const {
+  normalizeUploadFileName,
+  classifyRemoteIndexingError,
+  automaticIndexingRetryDelay,
+  maxAutomaticIndexingRetries,
+} = require('./knowledge-ingestion.utils');
 
 const STORAGE_ROOT = path.resolve(__dirname, '../../../storage/agent-knowledge');
 const MAX_KNOWLEDGE_BASES = Number(process.env.USER_MAX_KNOWLEDGE_BASES || 10);
@@ -85,10 +91,11 @@ function serializeKnowledgeBase(kb, userId, detail = false) {
   return data;
 }
 
-function validateUpload(file) {
+function validateUpload(file, submittedOriginalName = '') {
   assert(file, '请选择要上传的文件');
   assert(file.size > 0 && file.size <= MAX_FILE_BYTES, `单个文件不能超过 ${MAX_FILE_BYTES / 1024 / 1024} MB`);
-  const original = String(file.originalname || '').normalize('NFKC');
+  const original = normalizeUploadFileName(submittedOriginalName || file.originalname);
+  assert(original.length > 0 && original.length <= 255, '文件名长度不合法');
   assert(original === path.basename(original) && !/[\x00-\x1f<>:"|?*]/.test(original), '文件名不安全');
   const ext = path.extname(original).toLowerCase();
   assert(EXTENSIONS.has(ext), '仅支持 PDF、DOCX、MD、TXT 文件');
@@ -161,14 +168,14 @@ async function updateKnowledgeBase(userId, id, input) {
   return serializeKnowledgeBase(updated, userId, true);
 }
 
-async function uploadDocument(userId, kbId, file, rawOperationId) {
+async function uploadDocument(userId, kbId, file, rawOperationId, submittedOriginalName = '') {
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null } });
   assert(kb, '知识库不存在或无权上传', 40301, 403);
   assert(!['DELETING', 'DELETED', 'OFFLINE'].includes(kb.marketplace_status), '知识库当前不可上传文件');
   assert(String(rawOperationId || '').length >= 8, 'operationId 不合法');
   const currentCount = await prisma.knowledgeDocument.count({ where: { knowledge_base_id: kb.knowledge_base_id, deleted_at: null } });
   assert(currentCount < MAX_FILES, `单个知识库最多上传 ${MAX_FILES} 个文件`);
-  const checked = validateUpload(file);
+  const checked = validateUpload(file, submittedOriginalName);
   const operationId = scopedOperationId(userId, rawOperationId, `upload-kb-${kb.knowledge_base_id}`);
   const existing = await prisma.knowledgeDocument.findUnique({ where: { operation_id: operationId } });
   if (existing) return serializeDocument(existing);
@@ -213,7 +220,7 @@ async function uploadDocument(userId, kbId, file, rawOperationId) {
       resultId: kb.knowledge_base_id,
       resultUrl: '#/student/agents/knowledge',
       cancellable: true,
-      maxAttempts: 3,
+      maxAttempts: maxAutomaticIndexingRetries() + 1,
       metadataJson: { knowledgeBaseId: kb.knowledge_base_id, originalName: checked.original },
     });
     return serializeDocument(document);
@@ -324,6 +331,47 @@ function safeRemoteError(value) {
   return text.slice(0, 1000);
 }
 
+async function scheduleAutomaticIndexingRetry(userId, doc, classification) {
+  if (!classification.automaticRetry) return null;
+  const task = await prisma.asyncTask.findFirst({
+    where: {
+      userId: Number(userId), taskType: 'KNOWLEDGE_INDEXING',
+      relatedResourceType: 'KNOWLEDGE_DOCUMENT', relatedResourceId: String(doc.document_id),
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!task || ['CANCELLED', 'SUCCEEDED'].includes(task.status)) return null;
+  const metadata = task.metadataJson && typeof task.metadataJson === 'object' && !Array.isArray(task.metadataJson)
+    ? task.metadataJson : {};
+  const retryCount = Math.max(0, Number(metadata.difyIndexRetryCount || 0));
+  const maxRetries = Math.min(maxAutomaticIndexingRetries(), Math.max(0, Number(task.maxAttempts || 1) - 1));
+  if (retryCount >= maxRetries || Number(task.attemptCount || 0) >= Number(task.maxAttempts || 1)) return null;
+  const nextRetryCount = retryCount + 1;
+  const delayMs = automaticIndexingRetryDelay(nextRetryCount);
+  const nextRunAt = new Date(Date.now() + delayMs);
+  const retryMessage = `${classification.userMessage}（第 ${nextRetryCount}/${maxRetries} 次，预计 ${Math.ceil(delayMs / 60_000)} 分钟后）`;
+  await prisma.$transaction([
+    prisma.knowledgeDocument.update({ where: { document_id: doc.document_id }, data: {
+      processing_state: 'chunked', parse_status: 'CHUNKED', marketplace_status: 'PROCESSING',
+      error_code: classification.code, error_stage: 'indexing', error_message: retryMessage,
+      retryable: true, failed_at: null,
+    } }),
+    prisma.asyncTask.update({ where: { id: task.id }, data: {
+      status: 'QUEUED', stage: 'RATE_LIMIT_BACKOFF', progressMode: 'STAGE_ONLY',
+      errorCode: classification.code, errorMessage: retryMessage,
+      nextRunAt, completedAt: null, cancelledAt: null, dismissedAt: null,
+      requiresUserAction: false,
+      metadataJson: {
+        ...metadata,
+        difyIndexRetryCount: nextRetryCount,
+        difyIndexRetryReason: classification.code,
+        difyIndexNextRetryAt: nextRunAt.toISOString(),
+      },
+    } }),
+  ]);
+  return { taskId: task.id, retryCount: nextRetryCount, maxRetries, nextRunAt, retryMessage };
+}
+
 async function refreshStatus(userId, kbId, options = {}) {
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null }, include: { documents: { where: { deleted_at: null } } } });
   assert(kb, '知识库不存在或无权查看', 40301, 403);
@@ -334,12 +382,21 @@ async function refreshStatus(userId, kbId, options = {}) {
       const states = await dify.getDocumentIndexingStatus(kb.dify_dataset_id, doc.dify_batch_id);
       const remote = states.find((item) => item.id === doc.dify_document_id) || states[0];
       const status = mapIndexStatus(remote?.indexing_status || remote?.status);
-      const remoteError = status === 'FAILED' ? safeRemoteError(remote?.error) : null;
+      const classification = status === 'FAILED' ? classifyRemoteIndexingError(remote?.error) : null;
+      const scheduledRetry = classification
+        ? await scheduleAutomaticIndexingRetry(userId, doc, classification)
+        : null;
+      if (scheduledRetry) continue;
+      const remoteError = status === 'FAILED'
+        ? (classification?.automaticRetry
+          ? 'Embedding 服务持续限流，自动重试次数已用尽；请稍后点击“重试”再次处理。'
+          : safeRemoteError(classification?.userMessage || remote?.error))
+        : null;
       await prisma.knowledgeDocument.update({ where: { document_id: doc.document_id }, data: {
         marketplace_status: status,
         processing_state: status === 'READY' ? 'available' : status === 'FAILED' ? 'failed' : status === 'PARSING' ? 'parsing' : 'indexing',
         parse_status: status === 'READY' ? 'EMBEDDED' : status === 'FAILED' ? 'FAILED' : status === 'PARSING' ? 'PARSING' : 'EMBEDDING',
-        error_code: status === 'FAILED' ? 'DIFY_INDEXING_FAILED' : null,
+        error_code: status === 'FAILED' ? (classification?.code || 'DIFY_INDEXING_FAILED') : null,
         error_stage: status === 'FAILED' ? 'indexing' : null,
         error_message: remoteError,
         retryable: true,
@@ -348,7 +405,7 @@ async function refreshStatus(userId, kbId, options = {}) {
       const taskPatch = status === 'READY'
         ? { status: 'SUCCEEDED', stage: 'READY', progressMode: 'STAGE_ONLY', errorCode: null, errorMessage: null }
         : status === 'FAILED'
-          ? { status: 'FAILED', stage: 'INDEXING', progressMode: 'STAGE_ONLY', errorCode: 'DIFY_INDEXING_FAILED', errorMessage: remoteError }
+          ? { status: 'FAILED', stage: 'INDEXING', progressMode: 'STAGE_ONLY', errorCode: classification?.code || 'DIFY_INDEXING_FAILED', errorMessage: remoteError }
           : { status: 'WAITING_EXTERNAL', stage: status, progressMode: 'STAGE_ONLY' };
       await asyncTasks.updateRelatedTask(userId, 'KNOWLEDGE_DOCUMENT', doc.document_id, taskPatch)
         .catch((taskError) => console.error('[AgentKnowledge] task center sync failed', { documentId: doc.document_id, message: taskError.message }));

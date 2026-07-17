@@ -13,6 +13,13 @@ function feature(capabilities, key, fallback = false) {
   return capabilities?.features?.[key] || { supported: fallback, reason: fallback ? null : '当前模型未验证此能力' }
 }
 
+function searchIcon(kind) {
+  const paths = kind === 'settings'
+    ? '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.55 1.02l-.03.08h-4l-.03-.08A1.7 1.7 0 0 0 7.85 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 3.6 15a1.7 1.7 0 0 0-1.02-1.55l-.08-.03v-4l.08-.03A1.7 1.7 0 0 0 3.6 7.85a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 7.85 3.6 1.7 1.7 0 0 0 9.4 2.58l.03-.08h4l.03.08A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 7.85a1.7 1.7 0 0 0 1.02 1.55l.08.03v4l-.08.03A1.7 1.7 0 0 0 19.4 15Z"/>'
+    : '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
+}
+
 export function createSearchControls(root, options = {}) {
   const state = { value: { ...DEFAULTS, ...(options.value || {}) }, capabilities: options.capabilities || null, busy: false }
 
@@ -26,9 +33,9 @@ export function createSearchControls(root, options = {}) {
     const value = state.value
     root.innerHTML = `<div class="ai-search-controls ${state.busy ? 'is-busy' : ''}">
       <div class="ai-search-primary" role="group" aria-label="联网搜索模式">
-        <span class="ai-search-label"><i></i>联网</span>
+        <span class="ai-search-label">${searchIcon('network')}<span>联网</span></span>
         ${[['off', '关闭'], ['auto', '自动'], ['force', '强制']].map(([mode, label]) => `<button type="button" data-search-mode="${mode}" class="${value.mode === mode ? 'active' : ''}" ${state.busy ? 'disabled' : ''}>${label}</button>`).join('')}
-        <button type="button" class="ai-search-advanced-toggle" data-search-advanced aria-expanded="false">高级</button>
+        <button type="button" class="ai-search-advanced-toggle" data-search-advanced aria-expanded="false" title="联网搜索高级设置">${searchIcon('settings')}<span>高级</span></button>
       </div>
       <div class="ai-search-status">${value.mode === 'off' ? '不访问网络' : value.mode === 'force' ? '必须实际搜索，否则明确报错' : '仅在时效问题中搜索'}</div>
       <div class="ai-search-advanced" hidden>

@@ -114,6 +114,17 @@ test('canvas ports, zoom/pan conversion, graph restoration and node deletion rem
   assert.equal(canvas.horizontalEdgePath({ x: 100, y: 100 }, { x: 400, y: 160 }), 'M100 100 C235 100, 265 160, 400 160')
   const reversePath = canvas.horizontalEdgePath({ x: 400, y: 160 }, { x: 100, y: 300 })
   assert.match(reversePath, /^M400 160 C[\s\S]*250 80 C[\s\S]*100 300$/)
+
+  const repaired = canvas.normalizeGraphPorts({
+    entryNodeId: 'a', nodes: [node, { id: 'b', position: { x: 400, y: 80 } }],
+    edges: [
+      { id: 'self', source: 'a', target: 'a' },
+      { id: 'valid', source: 'a', target: 'b' },
+      { id: 'duplicate', sourceNodeId: 'a', targetNodeId: 'b' },
+      { id: 'dangling', source: 'b', target: 'missing' },
+    ],
+  })
+  assert.deepEqual(repaired.edges.map((edge) => edge.id), ['valid'])
 })
 
 test('automatic layout preserves topological left-to-right order without overlap', async () => {

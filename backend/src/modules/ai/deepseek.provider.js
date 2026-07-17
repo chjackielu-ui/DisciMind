@@ -1,6 +1,15 @@
-// TODO: DeepSeek Provider
-// 后续实现：封装 DeepSeek API 调用
+const { createProviderAdapter } = require('./provider.adapter');
 
-const deepseekProvider = {};
+function createDeepSeekProvider(options = {}) {
+  return createProviderAdapter({
+    provider_code: options.providerCode || 'deepseek',
+    provider_type: 'deepseek',
+    base_url: options.baseUrl || process.env.DEEPSEEK_BASE_URL,
+    auth_type: 'bearer',
+    timeout_ms: options.timeoutMs || process.env.AI_PROVIDER_TIMEOUT_MS,
+    max_retries: options.maxRetries ?? process.env.AI_PROVIDER_MAX_RETRIES,
+    extra_config_json: options.extraConfig || {},
+  }, { api_key: options.apiKey || process.env.DEEPSEEK_API_KEY }, options.runtime);
+}
 
-module.exports = deepseekProvider;
+module.exports = { createDeepSeekProvider };

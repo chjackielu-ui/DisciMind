@@ -37,8 +37,9 @@ async function stream(ticket, wsPath) {
 }
 
 async function main() {
-  const account = process.env.TEST_USERNAME || 'e2etest';
-  const password = process.env.TEST_PASSWORD || 'test123456';
+  const account = process.env.TEST_USERNAME;
+  const password = process.env.TEST_PASSWORD;
+  if (!account || !password) throw new Error('TEST_USERNAME and TEST_PASSWORD environment variables are required');
   const login = await api('/auth/login', { method: 'POST', body: JSON.stringify({ account, password }) });
   const token = login.accessToken || login.token;
   const user = await prisma.user.findUnique({ where: { username: account }, select: { user_id: true } });

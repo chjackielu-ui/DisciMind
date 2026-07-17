@@ -2,83 +2,116 @@
 // 包含路由守卫：未登录跳转登录页，已登录访问登录页自动跳转对应首页
 
 import { isLoggedIn, getUser, initializeAuth, getAuthStatus, AUTH_STATUS } from './auth.js'
-import { renderLoginPage } from '../pages/login.js'
-import { renderRegisterPage } from '../pages/register.js'
-import { renderStudentDashboard } from '../pages/student-dashboard.js'
-import { renderStudentCourses } from '../pages/student-courses.js'
-import { renderStudentCourseDetail } from '../pages/student-course-detail.js'
-import { renderStudentWrongQuestions } from '../pages/student-wrong-questions.js'
-import { renderStudentRecommendations } from '../pages/student-recommendations.js'
-import { renderStudentPortrait } from '../pages/student-portrait.js'
-import { renderStudentDiagnostician } from '../pages/student-diagnostician.js'
-import { renderStudentProfile } from '../pages/student-profile.js'
-import { renderStudentAiChat } from '../pages/student-ai-chat.js'
-import { renderStudentPracticeCenter } from '../pages/student-practice-center.js'
-import { renderStudentPracticeSession } from '../pages/student-practice-session.js'
-import { renderStudentTrainerSession } from '../pages/student-trainer-session.js'
-import { renderStudentTaskAnswer } from '../pages/student-task-answer.js'
-import { renderStudentTeachingTasks } from '../pages/student-teaching-tasks.js'
-import { renderStudentSubmissionResult } from '../pages/student-submission-result.js'
-import { renderStudentDocuments } from '../pages/student-documents.js'
-import { renderStudentVideos } from '../pages/student-videos.js'
-import { renderStudentAgentDetail } from '../pages/agent/AgentDetailPage.js'
-import { renderAgentMarket, renderMyAgents, renderFavoriteAgents, renderAgentDetail as renderMarketplaceAgentDetail } from '../pages/agent/AgentMarketPage.js'
-import { renderAgentCreate, renderAgentEdit } from '../pages/agent/AgentCreatePage.js'
-import { renderKnowledgeBases } from '../pages/agent/KnowledgeBasesPage.js'
-import { renderAgentChat } from '../pages/agent/AgentChatPage.js'
-import { renderGeneratedArtifacts, renderGeneratedArtifactDetail } from '../pages/agent/GeneratedArtifactsPage.js'
-import { renderAgentTasks } from '../pages/agent/AgentTasksPage.js'
-import { renderStudentLearningFlows } from '../pages/student-learning-flows.js'
-import { renderStudentLearningFlowEditor } from '../pages/student-learning-flow-editor.js'
-import { renderStudentLearningSession } from '../pages/student-learning-session.js'
-import { renderStudentLearningSummary } from '../pages/student-learning-summary.js'
 import { getActivePracticeAttempt } from '../api/student.js'
-import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
-import { renderTeacherCourses } from '../pages/teacher-courses.js'
-import { renderTeacherCourseDetail } from '../pages/teacher-course-detail.js'
-import { renderTeacherStudents } from '../pages/teacher-students.js'
-import { renderTeacherStudentDetail } from '../pages/teacher-student-detail.js'
-import { renderTeacherTasks } from '../pages/teacher-tasks.js'
-import { renderTeacherTaskCreate } from '../pages/teacher-task-create.js'
-import { renderTeacherTaskDetail } from '../pages/teacher-task-detail.js'
-import { renderTeacherQuestions } from '../pages/teacher-questions.js'
-import { renderTeacherQuestionCreate } from '../pages/teacher-question-create.js'
-import { renderTeacherKnowledge } from '../pages/teacher-knowledge.js'
-import { renderTeacherAnalytics } from '../pages/teacher-analytics.js'
-import { renderTeacherProfile } from '../pages/teacher-profile.js'
-import { renderTeacherClasses } from '../pages/teacher-classes.js'
-import { renderTeacherSystemManagement } from '../pages/teacher-system-management.js'
-import { renderTeacherLessonPlan } from '../pages/teacher-lesson-plan.js'
-import { renderTeacherHomework } from '../pages/teacher-homework.js'
-import { renderTeacherAiChat } from '../pages/teacher-ai-chat.js'
-import { renderTeacherPreparation } from '../pages/teacher-preparation.js'
-import { renderTeacherPreparationImmersive } from '../pages/teacher-preparation-immersive.js'
-import { renderTeacherArtifacts } from '../pages/teacher-artifacts.js'
-import { renderTeacherAgentMarketplace } from '../pages/teacher-agent-marketplace.js'
-import { renderAdminDashboard } from '../pages/admin-dashboard.js'
-import { renderAdminUsers } from '../pages/admin-users.js'
-import { renderAdminCourses } from '../pages/admin-courses.js'
-import { renderAdminCourseDetail } from '../pages/admin-course-detail.js'
-import { renderAdminClasses } from '../pages/admin-classes.js'
-import { renderAdminTeachingClasses } from '../pages/admin-teaching-classes.js'
-import { renderAdminKnowledge } from '../pages/admin-knowledge.js'
-import { renderAdminLogs } from '../pages/admin-logs.js'
-import { renderAdminNotifications } from '../pages/admin-notifications.js'
-import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
-import { renderAdminProfile } from '../pages/admin-profile.js'
-import { renderAdminAgentReviews } from '../pages/admin-agent-reviews.js'
-import { renderAdminTraces } from '../pages/admin-traces.js'
-import { renderAdminPermissions } from '../pages/admin-permissions.js'
-import {
-  renderAdminLearningFlows, renderAdminKnowledgeHealth, renderAdminTeachingIssues,
-  renderAdminEvaluations, renderAdminExperiments, renderAdminDigitalTwin,
-  renderAdminAssets, renderAdminStrategyProfiles, renderAdminRisks,
-} from '../pages/admin-governance.js'
 import { loadAdminAccess, hasAdminPermission } from './admin-access.js'
 import { ADMIN_MENU_ITEMS } from './admin-menu.js'
 import { renderDashboardLayout } from './dashboard.js'
 import { unmountUnifiedTaskMessageCenter } from '../components/unified-task-message-center.js'
 import { escapeHtml } from './format.js'
+
+// Route modules are loaded on demand. Keeping every student, teacher and admin
+// page in the entry chunk made even the login screen download the whole app.
+const lazyRender = (loader, exportName) => async (...args) => {
+  const module = await loader()
+  const renderer = module[exportName]
+  if (typeof renderer !== 'function') throw new Error(`页面模块缺少导出：${exportName}`)
+  return renderer(...args)
+}
+
+const renderLoginPage = lazyRender(() => import('../pages/login.js'), 'renderLoginPage')
+const renderRegisterPage = lazyRender(() => import('../pages/register.js'), 'renderRegisterPage')
+const renderStudentDashboard = lazyRender(() => import('../pages/student-dashboard.js'), 'renderStudentDashboard')
+const renderStudentCourses = lazyRender(() => import('../pages/student-courses.js'), 'renderStudentCourses')
+const renderStudentCourseDetail = lazyRender(() => import('../pages/student-course-detail.js'), 'renderStudentCourseDetail')
+const renderStudentWrongQuestions = lazyRender(() => import('../pages/student-wrong-questions.js'), 'renderStudentWrongQuestions')
+const renderStudentRecommendations = lazyRender(() => import('../pages/student-recommendations.js'), 'renderStudentRecommendations')
+const renderStudentPortrait = lazyRender(() => import('../pages/student-portrait.js'), 'renderStudentPortrait')
+const renderStudentDiagnostician = lazyRender(() => import('../pages/student-diagnostician.js'), 'renderStudentDiagnostician')
+const renderStudentProfile = lazyRender(() => import('../pages/student-profile.js'), 'renderStudentProfile')
+const renderStudentAiChat = lazyRender(() => import('../pages/student-ai-chat.js'), 'renderStudentAiChat')
+const renderStudentPracticeCenter = lazyRender(() => import('../pages/student-practice-center.js'), 'renderStudentPracticeCenter')
+const renderStudentPracticeSession = lazyRender(() => import('../pages/student-practice-session.js'), 'renderStudentPracticeSession')
+const renderStudentTrainerSession = lazyRender(() => import('../pages/student-trainer-session.js'), 'renderStudentTrainerSession')
+const renderStudentTaskAnswer = lazyRender(() => import('../pages/student-task-answer.js'), 'renderStudentTaskAnswer')
+const renderStudentTeachingTasks = lazyRender(() => import('../pages/student-teaching-tasks.js'), 'renderStudentTeachingTasks')
+const renderStudentSubmissionResult = lazyRender(() => import('../pages/student-submission-result.js'), 'renderStudentSubmissionResult')
+const renderStudentDocuments = lazyRender(() => import('../pages/student-documents.js'), 'renderStudentDocuments')
+const renderStudentVideos = lazyRender(() => import('../pages/student-videos.js'), 'renderStudentVideos')
+const renderStudentAgentDetail = lazyRender(() => import('../pages/agent/AgentDetailPage.js'), 'renderStudentAgentDetail')
+const renderAgentMarket = lazyRender(() => import('../pages/agent/AgentMarketPage.js'), 'renderAgentMarket')
+const renderMyAgents = lazyRender(() => import('../pages/agent/AgentMarketPage.js'), 'renderMyAgents')
+const renderFavoriteAgents = lazyRender(() => import('../pages/agent/AgentMarketPage.js'), 'renderFavoriteAgents')
+const renderMarketplaceAgentDetail = lazyRender(() => import('../pages/agent/AgentMarketPage.js'), 'renderAgentDetail')
+const renderAgentCreate = lazyRender(() => import('../pages/agent/AgentCreatePage.js'), 'renderAgentCreate')
+const renderAgentEdit = lazyRender(() => import('../pages/agent/AgentCreatePage.js'), 'renderAgentEdit')
+const renderKnowledgeBases = lazyRender(() => import('../pages/agent/KnowledgeBasesPage.js'), 'renderKnowledgeBases')
+const renderAgentChat = lazyRender(() => import('../pages/agent/AgentChatPage.js'), 'renderAgentChat')
+const renderGeneratedArtifacts = lazyRender(() => import('../pages/agent/GeneratedArtifactsPage.js'), 'renderGeneratedArtifacts')
+const renderGeneratedArtifactDetail = lazyRender(() => import('../pages/agent/GeneratedArtifactsPage.js'), 'renderGeneratedArtifactDetail')
+const renderAgentTasks = lazyRender(() => import('../pages/agent/AgentTasksPage.js'), 'renderAgentTasks')
+const renderStudentLearningFlows = lazyRender(() => import('../pages/student-learning-flows.js'), 'renderStudentLearningFlows')
+const renderStudentLearningFlowEditor = lazyRender(() => import('../pages/student-learning-flow-editor.js'), 'renderStudentLearningFlowEditor')
+const renderStudentLearningSession = lazyRender(() => import('../pages/student-learning-session.js'), 'renderStudentLearningSession')
+const renderStudentLearningSummary = lazyRender(() => import('../pages/student-learning-summary.js'), 'renderStudentLearningSummary')
+
+const renderTeacherDashboard = lazyRender(() => import('../pages/teacher-dashboard.js'), 'renderTeacherDashboard')
+const renderTeacherCourseDetail = lazyRender(() => import('../pages/teacher-course-detail.js'), 'renderTeacherCourseDetail')
+const renderTeacherStudentDetail = lazyRender(() => import('../pages/teacher-student-detail.js'), 'renderTeacherStudentDetail')
+const renderTeacherTasks = lazyRender(() => import('../pages/teacher-tasks.js'), 'renderTeacherTasks')
+const renderTeacherTaskCreate = lazyRender(() => import('../pages/teacher-task-create.js'), 'renderTeacherTaskCreate')
+const renderTeacherTaskDetail = lazyRender(() => import('../pages/teacher-task-detail.js'), 'renderTeacherTaskDetail')
+const renderTeacherQuestions = lazyRender(() => import('../pages/teacher-questions.js'), 'renderTeacherQuestions')
+const renderTeacherQuestionCreate = lazyRender(() => import('../pages/teacher-question-create.js'), 'renderTeacherQuestionCreate')
+const renderTeacherKnowledge = lazyRender(() => import('../pages/teacher-knowledge.js'), 'renderTeacherKnowledge')
+const renderTeacherAnalytics = lazyRender(() => import('../pages/teacher-analytics.js'), 'renderTeacherAnalytics')
+const renderTeacherProfile = lazyRender(() => import('../pages/teacher-profile.js'), 'renderTeacherProfile')
+const renderTeacherSystemManagement = lazyRender(() => import('../pages/teacher-system-management.js'), 'renderTeacherSystemManagement')
+const renderTeacherLessonPlan = lazyRender(() => import('../pages/teacher-lesson-plan.js'), 'renderTeacherLessonPlan')
+const renderTeacherHomework = lazyRender(() => import('../pages/teacher-homework.js'), 'renderTeacherHomework')
+const renderTeacherAiChat = lazyRender(() => import('../pages/teacher-ai-chat.js'), 'renderTeacherAiChat')
+const renderTeacherPreparation = lazyRender(() => import('../pages/teacher-preparation.js'), 'renderTeacherPreparation')
+const renderTeacherPreparationImmersive = lazyRender(() => import('../pages/teacher-preparation-immersive.js'), 'renderTeacherPreparationImmersive')
+const renderTeacherArtifacts = lazyRender(() => import('../pages/teacher-artifacts.js'), 'renderTeacherArtifacts')
+const renderTeacherArtifactDetail = lazyRender(() => import('../pages/teacher-artifacts.js'), 'renderTeacherArtifactDetail')
+const renderTeacherAgentMarketplace = lazyRender(() => import('../pages/teacher-agent-marketplace.js'), 'renderTeacherAgentMarketplace')
+
+function usesTeacherPortal() {
+  return ['teacher', 'admin'].includes(String(getUser()?.role || '').toLowerCase())
+}
+
+function renderRoleAwareArtifactList(app) {
+  if (usesTeacherPortal()) return navigateTo('#/teacher/artifacts')
+  return renderGeneratedArtifacts(app)
+}
+
+function renderRoleAwareArtifactDetail(app, params) {
+  if (usesTeacherPortal()) return navigateTo(`#/teacher/artifacts/${params.id}`)
+  return renderGeneratedArtifactDetail(app, params)
+}
+
+const renderAdminDashboard = lazyRender(() => import('../pages/admin-dashboard.js'), 'renderAdminDashboard')
+const renderAdminUsers = lazyRender(() => import('../pages/admin-users.js'), 'renderAdminUsers')
+const renderAdminCourses = lazyRender(() => import('../pages/admin-courses.js'), 'renderAdminCourses')
+const renderAdminCourseDetail = lazyRender(() => import('../pages/admin-course-detail.js'), 'renderAdminCourseDetail')
+const renderAdminClasses = lazyRender(() => import('../pages/admin-classes.js'), 'renderAdminClasses')
+const renderAdminTeachingClasses = lazyRender(() => import('../pages/admin-teaching-classes.js'), 'renderAdminTeachingClasses')
+const renderAdminKnowledge = lazyRender(() => import('../pages/admin-knowledge.js'), 'renderAdminKnowledge')
+const renderAdminLogs = lazyRender(() => import('../pages/admin-logs.js'), 'renderAdminLogs')
+const renderAdminNotifications = lazyRender(() => import('../pages/admin-notifications.js'), 'renderAdminNotifications')
+const renderAdminAiConfig = lazyRender(() => import('../pages/admin-ai-config.js'), 'renderAdminAiConfig')
+const renderAdminProfile = lazyRender(() => import('../pages/admin-profile.js'), 'renderAdminProfile')
+const renderAdminAgentReviews = lazyRender(() => import('../pages/admin-agent-reviews.js'), 'renderAdminAgentReviews')
+const renderAdminTraces = lazyRender(() => import('../pages/admin-traces.js'), 'renderAdminTraces')
+const renderAdminPermissions = lazyRender(() => import('../pages/admin-permissions.js'), 'renderAdminPermissions')
+const renderAdminLearningFlows = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminLearningFlows')
+const renderAdminKnowledgeHealth = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminKnowledgeHealth')
+const renderAdminTeachingIssues = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminTeachingIssues')
+const renderAdminEvaluations = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminEvaluations')
+const renderAdminExperiments = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminExperiments')
+const renderAdminDigitalTwin = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminDigitalTwin')
+const renderAdminAssets = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminAssets')
+const renderAdminStrategyProfiles = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminStrategyProfiles')
+const renderAdminRisks = lazyRender(() => import('../pages/admin-governance.js'), 'renderAdminRisks')
 
 // ============================================================
 // 教师端页面导入区域（教师端开发者在此添加 import）
@@ -96,6 +129,7 @@ import { escapeHtml } from './format.js'
 const staticRoutes = {
   '/login': { render: renderLoginPage, auth: false },
   '/register': { render: renderRegisterPage, auth: false },
+  '/artifacts': { render: renderRoleAwareArtifactList, auth: true, roles: ['student', 'teacher', 'admin'] },
   '/student/dashboard': { render: renderStudentDashboard, auth: true, roles: ['student'] },
   '/student/courses': { render: renderStudentCourses, auth: true, roles: ['student'] },
   '/student/practice': { render: renderStudentPracticeCenter, auth: true, roles: ['student'] },
@@ -116,8 +150,8 @@ const staticRoutes = {
   '/student/agents/favorites': { render: renderFavoriteAgents, auth: true, roles: ['student', 'teacher', 'admin'] },
   '/student/agents/create': { render: renderAgentCreate, auth: true, roles: ['student', 'teacher', 'admin'] },
   '/student/agent-tasks': { render: renderAgentTasks, auth: true, roles: ['student', 'teacher', 'admin'] },
-  '/student/artifacts': { render: renderGeneratedArtifacts, auth: true, roles: ['student', 'teacher', 'admin'] },
-  '/student/generated-artifacts': { render: () => navigateTo('#/student/artifacts'), auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/artifacts': { render: renderRoleAwareArtifactList, auth: true, roles: ['student', 'teacher', 'admin'] },
+  '/student/generated-artifacts': { render: () => navigateTo(usesTeacherPortal() ? '#/teacher/artifacts' : '#/student/artifacts'), auth: true, roles: ['student', 'teacher', 'admin'] },
   '/student/learning-flows': { render: renderStudentLearningFlows, auth: true, roles: ['student'] },
   '/student/learning-context': { render: () => navigateTo('#/student/learning-flows?panel=learning-plan'), auth: true, roles: ['student'] },
   '/teacher/dashboard': { render: renderTeacherDashboard, auth: true, roles: ['teacher', 'admin'] },
@@ -178,15 +212,22 @@ const staticRoutes = {
 // 动态路由（正则匹配）
 const dynamicRoutes = [
   {
+    pattern: /^\/artifacts\/(\d+)$/,
+    render: renderRoleAwareArtifactDetail,
+    auth: true,
+    roles: ['student', 'teacher', 'admin'],
+    paramNames: ['id'],
+  },
+  {
     pattern: /^\/student\/artifacts\/(\d+)$/,
-    render: renderGeneratedArtifactDetail,
+    render: renderRoleAwareArtifactDetail,
     auth: true,
     roles: ['student', 'teacher', 'admin'],
     paramNames: ['id'],
   },
   {
     pattern: /^\/student\/generated-artifacts\/(\d+)$/,
-    render: (_app, params) => navigateTo(`#/student/artifacts/${params.id}`),
+    render: (_app, params) => navigateTo(usesTeacherPortal() ? `#/teacher/artifacts/${params.id}` : `#/student/artifacts/${params.id}`),
     auth: true,
     roles: ['student', 'teacher', 'admin'],
     paramNames: ['id'],
@@ -221,7 +262,7 @@ const dynamicRoutes = [
   },
   {
     pattern: /^\/teacher\/artifacts\/(\d+)$/,
-    render: renderGeneratedArtifactDetail,
+    render: renderTeacherArtifactDetail,
     auth: true,
     roles: ['teacher', 'admin'],
     paramNames: ['id'],
@@ -462,6 +503,28 @@ function buildAuthCheckingHTML() {
     </div>`
 }
 
+function buildRouteLoadingHTML() {
+  return `
+    <div class="complex-shell" role="status" aria-live="polite">
+      <div class="complex-loading">
+        <div class="complex-spinner"></div>
+        <p>正在载入页面...</p>
+      </div>
+    </div>`
+}
+
+function renderRouteError(app, error) {
+  app.innerHTML = `
+    <div class="complex-shell">
+      <div class="complex-error" role="alert">
+        <h2>页面载入失败</h2>
+        <p>${escapeHtml(error?.message || '页面资源暂时不可用，请稍后重试。')}</p>
+        <button type="button" data-route-retry>重新载入</button>
+      </div>
+    </div>`
+  app.querySelector('[data-route-retry]')?.addEventListener('click', render, { once: true })
+}
+
 function renderAdminAccessState(app, user, title, message) {
   renderDashboardLayout(app, {
     user,
@@ -559,11 +622,19 @@ async function render() {
   }
 
   // 渲染页面
-  app.innerHTML = ''
+  app.innerHTML = buildRouteLoadingHTML()
   if (path.startsWith('/admin/')) {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }
-  const cleanup = await route.render(app, params)
+  let cleanup
+  try {
+    cleanup = await route.render(app, params)
+  } catch (error) {
+    if (seq !== renderSeq) return
+    console.error('页面载入失败', error)
+    renderRouteError(app, error)
+    return
+  }
   if (seq !== renderSeq) {
     if (typeof cleanup === 'function') await cleanup()
     return

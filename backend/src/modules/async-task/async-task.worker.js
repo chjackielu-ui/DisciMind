@@ -78,6 +78,11 @@ class AsyncTaskWorker {
       await exporter.exportFormat(artifactId, task.metadataJson?.format || 'DOCX', { taskId: task.id, signal });
       return { terminal: true };
     });
+    this.register('LESSON_PLAN_EXPORT', async (task, { signal }) => {
+      const exporter = require('../../services/teacher-preparation-document.service');
+      await exporter.retryLessonPlanExportTask(task, { signal });
+      return { terminal: true };
+    });
     this.register('ARTIFACT_CLEANUP', async (task) => {
       const cleanup = require('../file-generator/artifact-cleanup.service');
       await cleanup.runCleanup({ taskId: task.id });
@@ -136,9 +141,9 @@ class AsyncTaskWorker {
       }
       await knowledge.refreshStatus(task.userId, doc.knowledge_base_id, { throwOnSyncError: true });
       const refreshed = await prisma.asyncTask.findUnique({ where: { id: task.id } });
-      return TERMINAL_STATUSES.includes(refreshed?.status)
-        ? { terminal: true }
-        : { status: 'WAITING_EXTERNAL', nextRunAt: new Date(Date.now() + this.externalScanMs) };
+      if (TERMINAL_STATUSES.includes(refreshed?.status)) return { terminal: true };
+      if (refreshed?.status === 'QUEUED') return { status: 'QUEUED', nextRunAt: refreshed.nextRunAt };
+      return { status: 'WAITING_EXTERNAL', nextRunAt: new Date(Date.now() + this.externalScanMs) };
     }, { external: true, local: true });
     return this;
   }

@@ -3,7 +3,7 @@ const { getBailianClient } = require('../../services/bailian-openai.service');
 const { createPlan } = require('./workflow-planner');
 const { getCapabilities } = require('./capability.service');
 const { DashScopeSearchClient } = require('./dashscope-search.client');
-const { buildRegistry } = require('./tool-handlers.service');
+const { buildRegistry, standardizeKnowledgeSources } = require('./tool-handlers.service');
 const { FunctionCallExecutor, executeTool } = require('./function-call-executor');
 const agentRegistry = require('./agent-registry.service');
 const traceRepository = require('./trace-repository.service');
@@ -25,6 +25,19 @@ function searchMessages(messages) {
   return (messages || []).map(message => ({ role: message.role, content: textContent(message.content) })).filter(message => message.content);
 }
 
+function contextQueryForPlan(query, messages, plan) {
+  return plan?.intent?.kind === INTENTS.FILE
+    ? pendingActions.effectiveFileRequest(query, messages)
+    : query;
+}
+
+function fileCapabilityResponse(role) {
+  const audience = String(role || '').toLowerCase() === 'teacher'
+    ? '可以生成教学讲义、练习与试卷等教师产物'
+    : '可以生成学习讲义、练习与复习资料';
+  return `${audience}，并按任务支持 DOCX、PDF 等实际可用格式。\n\n这次只是能力咨询，我不会创建生成任务，也不会沿用或输出历史对话中的课程、范围和文件要求。只有当你明确说“请基于某课程或主题生成一份……，格式为……”时，我才会开始生成。`;
+}
+
 function emitFactory(factory, callback) {
   return (type, payload = {}) => {
     const event = factory.create(type, payload);
@@ -36,6 +49,30 @@ function emitFactory(factory, callback) {
 function sourceContext(result) {
   if (!result?.content && !result?.sources?.length) return '';
   return `<web_search_result>\n搜索回答草稿：\n${result.content || ''}\n\n实际网页来源：\n${(result.sources || []).map(item => `[ref_${item.index}] ${item.title} ${item.url}`).join('\n')}\n</web_search_result>`;
+}
+
+function normalizeKnowledgeBaseIds(values = []) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map(value => Number(value?.knowledgeBaseId ?? value?.knowledge_base_id ?? value))
+    .filter(value => Number.isInteger(value) && value > 0))];
+}
+
+function normalizePrefetchedKnowledgeSources(values = []) {
+  return (Array.isArray(values) ? values : []).filter(source => source && source.snippet).map((source, index) => ({
+    ...source,
+    index: Number.isInteger(Number(source.index)) && Number(source.index) > 0 ? Number(source.index) : index + 1,
+    sourceType: source.sourceType || 'knowledge_base',
+  }));
+}
+
+function mergeRetrievalSources(existing = [], incoming = []) {
+  const merged = [...existing];
+  for (const source of incoming) {
+    const key = `${source.knowledgeBaseId || ''}:${source.documentId || source.title || ''}:${source.segmentId || source.url || source.snippet || ''}`;
+    const duplicate = merged.some(item => `${item.knowledgeBaseId || ''}:${item.documentId || item.title || ''}:${item.segmentId || item.url || item.snippet || ''}` === key);
+    if (!duplicate) merged.push({ ...source, index: merged.length + 1 });
+  }
+  return merged.map((source, index) => ({ ...source, index: index + 1 }));
 }
 
 function formatLearningResult(tool, result, userContext) {
@@ -140,13 +177,15 @@ async function streamPlainCompletion(messages, input, emit) {
 async function run(input = {}) {
   const user = input.user;
   const query = String(input.query || '').trim();
+  const explicitKnowledgeBaseIds = normalizeKnowledgeBaseIds(input.knowledgeBaseIds);
   const plan = input.plan || createPlan({
     query, role: user?.role, searchOptions: input.searchOptions,
     manualAgentRefs: input.manualAgentRefs || input.resolvedAgents || [],
-    knowledgeBaseIds: input.knowledgeBaseIds || [], attachments: input.attachments || [],
+    knowledgeBaseIds: explicitKnowledgeBaseIds, attachments: input.attachments || [],
   });
+  const contextQuery = contextQueryForPlan(query, input.messages || [], plan);
   const userContext = input.userContext || await userContextService.buildUserContext({
-    user, query, conversationId: input.conversationId, courseId: input.courseId,
+    user, query: contextQuery, conversationId: input.conversationId, courseId: input.courseId,
     knowledgePointId: input.knowledgePointId, subjectCode: input.subjectCode,
   });
   const trace = await traceRepository.start({
@@ -155,11 +194,13 @@ async function run(input = {}) {
     entry_point: input.entryPoint || 'ai-assistant', scene: input.scene || 'unified_task_center',
     search_mode: plan.searchOptions.mode, intent: plan.intent, plan,
     context: { ...(input.context || {}), userContext: userContextService.publicUserContext(userContext) },
-    input: { query, manualAgentRefs: input.manualAgentRefs || [], knowledgeBaseIds: input.knowledgeBaseIds || [] },
+    input: { query, manualAgentRefs: input.manualAgentRefs || [], knowledgeBaseIds: explicitKnowledgeBaseIds },
   });
   const factory = new StreamEventFactory(trace.trace_id || randomUUID());
   const emit = emitFactory(factory, input.onEvent);
-  const startedAt = Date.now(); let sources = []; let searchResult = null; let agentResults = []; let result = null;
+  const startedAt = Date.now();
+  let sources = normalizePrefetchedKnowledgeSources(input.prefetchedKnowledgeSources);
+  let searchResult = null; let agentResults = []; let result = null;
   try {
     emit('run.started', { traceId: trace.trace_id, traceDatabaseId: trace.id, entryPoint: input.entryPoint });
     emit('module.started', { module: 'planning' });
@@ -195,7 +236,7 @@ async function run(input = {}) {
       let searchContent = ''; let reasoning = ''; let completed = null;
       for await (const event of searchClient.stream({ messages: searchMessages(input.messages), searchOptions: plan.searchOptions, capabilities, signal: input.signal, maxTokens: input.maxTokens })) {
         if (event.type === 'sources') {
-          sources = event.sources || [];
+          sources = mergeRetrievalSources(sources, event.sources || []);
           emit('search.sources', { sources, requestId: event.requestId });
           await Promise.all(sources.map(source => traceRepository.addRetrieval(trace.id, null, source).catch(() => null)));
         } else if (event.type === 'reasoning') {
@@ -208,7 +249,11 @@ async function run(input = {}) {
       }
       searchResult = { content: searchContent, reasoning, sources, ...(completed || {}) };
       emit('search.completed', { searchOccurred: searchResult.searchOccurred, requestId: searchResult.requestId, sourceCount: sources.length, omitted: searchResult.omitted || [] });
-      if (!plan.intent.complex && !selectedAgents.length) result = { content: searchContent, usage: searchResult.usage, calls: [] };
+      // A selected @knowledge-base must still pass through the synthesis stage
+      // after retrieval. A simple web-search result must never short-circuit it.
+      if (!plan.intent.complex && !selectedAgents.length && !explicitKnowledgeBaseIds.length) {
+        result = { content: searchContent, usage: searchResult.usage, calls: [] };
+      }
     }
 
     const registry = input.registry || buildRegistry({ searchClient: input.searchClient });
@@ -219,23 +264,58 @@ async function run(input = {}) {
       assistantMode: input.assistantMode || 'general', confirmed: input.confirmed === true, capabilities, userContext,
       requestId: input.requestId || null,
     };
-    if (plan.intent.kind === INTENTS.FILE) {
+    if (explicitKnowledgeBaseIds.length) {
+      const prefetchedKnowledgeBaseIds = new Set(normalizeKnowledgeBaseIds(input.prefetchedKnowledgeBaseIds));
+      const representedKnowledgeBaseIds = new Set(sources.map(source => Number(source.knowledgeBaseId)).filter(Number.isInteger));
+      const pendingKnowledgeBaseIds = explicitKnowledgeBaseIds.filter(id => !prefetchedKnowledgeBaseIds.has(id) && !representedKnowledgeBaseIds.has(id));
+      emit('knowledge.started', { knowledgeBaseIds: explicitKnowledgeBaseIds, forced: true, prefetched: pendingKnowledgeBaseIds.length === 0 });
+      if (pendingKnowledgeBaseIds.length) {
+        const args = { query, knowledgeBaseIds: pendingKnowledgeBaseIds };
+        const call = { id: randomUUID(), function: { name: 'knowledge_retrieve', arguments: JSON.stringify(args) } };
+        const preflight = registry.preflight('knowledge_retrieve', args, toolContext);
+        const executed = await executeTool(registry, call, toolContext, { preflight, seen: new Set() });
+        const retrieved = standardizeKnowledgeSources(executed.result?.records || []);
+        sources = mergeRetrievalSources(sources, retrieved);
+        await Promise.all(retrieved.map(source => traceRepository.addRetrieval(trace.id, null, source).catch(() => null)));
+      }
+      const explicitSources = sources.filter(source => explicitKnowledgeBaseIds.includes(Number(source.knowledgeBaseId)));
+      if (explicitSources.length) emit('knowledge.hits', { knowledgeBaseIds: explicitKnowledgeBaseIds, sourceCount: explicitSources.length, forced: true });
+      emit('knowledge.completed', { knowledgeBaseIds: explicitKnowledgeBaseIds, sourceCount: explicitSources.length, forced: true });
+    }
+    if (plan.intent.kind === INTENTS.FILE_CAPABILITY) {
+      const content = fileCapabilityResponse(user.role);
+      emit('answer.delta', { content }); input.onDelta?.(content);
+      result = { content, calls: [], capabilityOnly: true };
+    } else if (plan.intent.kind === INTENTS.FILE) {
       emit('tool.started', { tool: 'create_file_confirmation', riskLevel: 'high' });
       const confirmation = await pendingActions.createFileConfirmation({
         user, userContext, query, aiConversationId: input.conversationId,
         sourceRunId: input.sourceRunId, sourceMessageId: input.messageId,
         fileIntent: plan.intent.file, knowledgeBaseRefs: input.knowledgeBaseIds || [], attachments: input.attachments || [],
+        messages: input.messages || [],
       });
       let content;
+      let fileCalls = [];
+      let pendingAction = confirmation.pendingAction || null;
       if (confirmation.needsInput) {
         content = `我会使用当前登录身份准备文件，不需要学号。生成前还需要确认：\n\n${(confirmation.questions || []).map(item => `- ${item.question}`).join('\n')}`;
       } else {
-        const summary = confirmation.pendingAction.summary;
-        content = `已匹配系统文件生成助手，并建立可恢复的生成确认。\n\n- 文件：${summary.title}\n- 课程：${summary.courseName || '当前课程'}\n- 范围：${summary.knowledgePointNames?.join('、') || '课程范围'}\n- 题量：${summary.questionCount || '按讲义结构'}\n- 格式：${(summary.outputFormats || []).join('、')}\n\n确认前不会生成文件；你可以生成、预览、修改要求或取消。`;
+        const queuedAt = Date.now();
+        const generation = await pendingActions.act(user.user_id, confirmation.pendingAction.id, { action: 'generate' });
+        const summary = generation.pendingAction?.summary || confirmation.pendingAction.summary;
+        pendingAction = generation.pendingAction || confirmation.pendingAction;
+        if (generation.artifact) {
+          fileCalls = [{
+            name: 'queue_file_generation',
+            result: generation.artifact,
+            audit: { latency_ms: Date.now() - queuedAt, retry_count: 0 },
+          }];
+        }
+        content = `已调用系统文件生成助手并创建可恢复任务。\n\n- 文件：${summary.title}\n- 课程：${summary.courseName || '当前课程'}\n- 范围：${summary.knowledgePointNames?.join('、') || '课程范围'}\n- 题量：${summary.questionCount || '按讲义结构'}\n- 格式：${(summary.outputFormats || []).join('、')}\n\n任务已进入队列；可在当前对话或“任务与消息”中查看进度、取消或失败后重试，完成后可预览和下载。`;
       }
-      emit('tool.completed', { tool: 'create_file_confirmation', pendingActionId: confirmation.pendingAction?.id || null, needsInput: Boolean(confirmation.needsInput) });
+      emit('tool.completed', { tool: 'create_file_confirmation', pendingActionId: pendingAction?.id || null, needsInput: Boolean(confirmation.needsInput), queued: !confirmation.needsInput });
       emit('answer.delta', { content }); input.onDelta?.(content);
-      result = { content, calls: [], confirmationRequired: !confirmation.needsInput, confirmationSkills: ['file_generation'], pendingAction: confirmation.pendingAction || null };
+      result = { content, calls: fileCalls, confirmationRequired: false, confirmationSkills: [], pendingAction };
     } else if ((plan.intent.tools || []).length) {
       const calls = [];
       const results = [];
@@ -282,8 +362,8 @@ async function run(input = {}) {
       const publicAgent = agentRegistry.publicAgent(selected);
       emit('agent.started', { ...publicAgent, executionMode: agentExecutionMode, order: index + 1, dependsOn: agentSteps[index]?.dependsOn || [] });
       try {
-        if (input.knowledgeBaseIds?.length) emit('knowledge.started', { agentId: selected.agent.id, knowledgeBaseIds: input.knowledgeBaseIds });
-        const call = { id: randomUUID(), function: { name: 'execute_agent', arguments: JSON.stringify({ agentId: selected.agent.id, query: agentQuery, knowledgeBaseIds: input.knowledgeBaseIds || [] }) } };
+        if (explicitKnowledgeBaseIds.length) emit('knowledge.started', { agentId: selected.agent.id, knowledgeBaseIds: explicitKnowledgeBaseIds, reuse: true });
+        const call = { id: randomUUID(), function: { name: 'execute_agent', arguments: JSON.stringify({ agentId: selected.agent.id, query: agentQuery, knowledgeBaseIds: explicitKnowledgeBaseIds }) } };
         const executed = await executeTool(registry, call, toolContext, { seen: new Set() });
         const agentSources = Array.isArray(executed.result?.sources) ? executed.result.sources : [];
         for (const source of agentSources) {
@@ -295,7 +375,7 @@ async function run(input = {}) {
           await traceRepository.addRetrieval(trace.id, null, persisted).catch(() => null);
         }
         const sourceCount = agentSources.length;
-        if (input.knowledgeBaseIds?.length) {
+        if (explicitKnowledgeBaseIds.length) {
           if (sourceCount) emit('knowledge.hits', { agentId: selected.agent.id, sourceCount });
           emit('knowledge.completed', { agentId: selected.agent.id, sourceCount });
         }
@@ -340,6 +420,7 @@ async function run(input = {}) {
         if (searchResult) additions.push(sourceContext(searchResult));
         const knowledgeSources = sources.filter(item => String(item.sourceType || '').toLowerCase().includes('knowledge'));
         if (knowledgeSources.length) additions.push(`<knowledge_sources>\n${knowledgeSources.map(item => `[ref_${item.index}] ${item.knowledgeBaseName || item.siteName || '课程知识库'} / ${item.title}\n${item.snippet || ''}`).join('\n\n')}\n</knowledge_sources>`);
+        else if (explicitKnowledgeBaseIds.length) additions.push('<knowledge_retrieval_status>用户明确选择了知识库，但本轮真实检索没有命中资料。必须明确告知没有找到依据；不得绕过检索，直接用通用知识回答。</knowledge_retrieval_status>');
         if (agentResults.length) additions.push(`<agent_collaboration>\n${agentResults.map(item => `[${item.agentName}]\n${item.content}`).join('\n\n')}\n</agent_collaboration>`);
         const messages = [...(input.messages || [])];
         if (additions.length) messages.splice(Math.max(1, messages.length - 1), 0, { role: 'system', content: `以下是已通过权限校验并实际执行的工具结果。只能据实使用，不得编造：\n${additions.join('\n\n')}` });
@@ -382,4 +463,21 @@ async function run(input = {}) {
   }
 }
 
-module.exports = { run, textContent, searchMessages, sourceContext, formatLearningResult, toolArgumentsForIntent, chartFallbackText, resolveAgentExecutionMode, buildAgentSteps, serialAgentQuery, streamPlainCompletion };
+module.exports = {
+  run,
+  textContent,
+  searchMessages,
+  contextQueryForPlan,
+  fileCapabilityResponse,
+  sourceContext,
+  formatLearningResult,
+  toolArgumentsForIntent,
+  chartFallbackText,
+  resolveAgentExecutionMode,
+  buildAgentSteps,
+  serialAgentQuery,
+  streamPlainCompletion,
+  normalizeKnowledgeBaseIds,
+  normalizePrefetchedKnowledgeSources,
+  mergeRetrievalSources,
+};

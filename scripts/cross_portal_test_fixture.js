@@ -5,6 +5,13 @@ const fs = require('fs/promises');
 const path = require('path');
 const prisma = require('../backend/src/config/prisma');
 
+const TEST_ACCOUNTS = {
+  admin: process.env.DISCIMIND_TEST_ADMIN_ACCOUNT,
+  teacher: process.env.DISCIMIND_TEST_TEACHER_ACCOUNT,
+  student: process.env.DISCIMIND_TEST_STUDENT_ACCOUNT,
+  studentB: process.env.DISCIMIND_TEST_SECONDARY_STUDENT_ACCOUNT,
+};
+
 function fail(message) {
   process.stderr.write(`${message}\n`);
   process.exitCode = 1;
@@ -26,11 +33,12 @@ async function account(username) {
 }
 
 async function setupUnified(marker) {
+  Object.entries(TEST_ACCOUNTS).forEach(([role, username]) => required(username, `DISCIMIND_TEST_${role.toUpperCase()}_ACCOUNT`));
   const users = await Promise.all([
-    account('admin_demo'),
-    account('teacher_demo'),
-    account('student_demo'),
-    account('student_b'),
+    account(TEST_ACCOUNTS.admin),
+    account(TEST_ACCOUNTS.teacher),
+    account(TEST_ACCOUNTS.student),
+    account(TEST_ACCOUNTS.studentB),
   ]);
   const sender = users[0];
   await prisma.notification.deleteMany({ where: { idempotency_key: { startsWith: `cross-portal:${marker}:` } } });

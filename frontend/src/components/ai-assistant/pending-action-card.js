@@ -1,5 +1,6 @@
 import { escapeHtml } from '../../utils/format.js'
 import { downloadGeneratedArtifactExport } from '../../api/marketplace.js'
+import { getUser } from '../../utils/auth.js'
 
 const STATUS_LABELS = {
   WAITING_EXTERNAL: '等待确认', QUEUED: '已进入生成队列', RUNNING: '正在生成',
@@ -12,16 +13,26 @@ function value(summary, key, fallback = '—') {
   return current === undefined || current === null || current === '' ? fallback : current
 }
 
+export function roleAwareArtifactUrl(artifact) {
+  if (!artifact?.id) return '#'
+  const role = String(getUser()?.role || '').toLowerCase()
+  return ['teacher', 'admin'].includes(role)
+    ? `#/teacher/artifacts/${artifact.id}`
+    : `#/student/artifacts/${artifact.id}`
+}
+
 export function renderPendingActionCard(pendingAction) {
   if (!pendingAction?.id) return ''
   const summary = pendingAction.summary || {}
   const waiting = pendingAction.status === 'WAITING_EXTERNAL' && pendingAction.requiresUserAction !== false
+  const active = ['QUEUED', 'RUNNING'].includes(pendingAction.status)
+  const retryable = ['FAILED', 'CANCELLED'].includes(pendingAction.status)
   const knowledgePoints = summary.knowledgePointNames || summary.knowledgePoints || []
   const formats = summary.outputFormats || (summary.outputFormat ? [summary.outputFormat] : [])
   const artifact = pendingAction.artifact
   const downloadable = (artifact?.formats || []).filter(item => item.downloadAvailable)
-  return `<section class="ai-pending-action-card status-${escapeHtml(String(pendingAction.status || '').toLowerCase())}" data-ai-pending-action="${escapeHtml(pendingAction.id)}" aria-label="文件生成确认">
-    <header><div><span>文件生成确认</span><h4>${escapeHtml(value(summary, 'title', '待生成教育文件'))}</h4></div><b>${escapeHtml(STATUS_LABELS[pendingAction.status] || pendingAction.status || '等待确认')}</b></header>
+  return `<section class="ai-pending-action-card status-${escapeHtml(String(pendingAction.status || '').toLowerCase())}" data-ai-pending-action="${escapeHtml(pendingAction.id)}" aria-label="文件生成任务">
+    <header><div><span>${waiting ? '文件生成确认' : '文件生成任务'}</span><h4>${escapeHtml(value(summary, 'title', '待生成教育文件'))}</h4></div><b>${escapeHtml(STATUS_LABELS[pendingAction.status] || pendingAction.status || '等待确认')}</b></header>
     <dl>
       <div><dt>课程</dt><dd>${escapeHtml(value(summary, 'courseName'))}</dd></div>
       <div><dt>知识范围</dt><dd>${escapeHtml(knowledgePoints.length ? knowledgePoints.join('、') : '全课程')}</dd></div>
@@ -34,7 +45,7 @@ export function renderPendingActionCard(pendingAction) {
       ${summary.artifactType === 'EXAM_PAPER' ? `<label>题量<input name="questionCount" type="number" min="1" max="50" value="${escapeHtml(value(summary, 'questionCount', 20))}"></label><label>总分<input name="totalScore" type="number" min="1" max="1000" value="${escapeHtml(value(summary, 'totalScore', 100))}"></label><label>时长（分钟）<input name="duration" type="number" min="1" max="600" value="${escapeHtml(value(summary, 'duration', 90))}"></label>` : ''}
       <fieldset><legend>输出格式</legend><label><input type="checkbox" name="outputFormats" value="DOCX" ${!formats.length || formats.includes('DOCX') ? 'checked' : ''}> DOCX</label><label><input type="checkbox" name="outputFormats" value="PDF" ${formats.includes('PDF') ? 'checked' : ''}> PDF</label></fieldset>
       <div><button type="submit" class="primary">保存修改</button><button type="button" data-pending-modify-close>收起</button></div>
-    </form>` : `<div class="ai-pending-action-result"><p>${pendingAction.status === 'CANCELLED' ? '本次生成已取消。原对话与需求记录仍然保留。' : pendingAction.status === 'SUCCEEDED' ? '文件已生成并保存到成果中心。' : pendingAction.status === 'FAILED' ? '文件生成未完成，可前往任务中心查看失败原因并重试。' : '确认操作已提交，可在右上角“任务与消息”查看实时进度。'}</p>${artifact ? `<div><a href="${escapeHtml(artifact.previewUrl)}">预览成果</a>${downloadable.map(item => `<button type="button" data-pending-artifact="${artifact.id}" data-pending-format="${escapeHtml(item.format)}">下载 ${escapeHtml(item.format)}</button>`).join('')}</div>` : ''}</div>`}
+    </form>` : `<div class="ai-pending-action-result"><p>${pendingAction.status === 'CANCELLED' ? '本次生成已取消。原对话与需求记录仍然保留。' : ['COMPLETED', 'SUCCEEDED'].includes(pendingAction.status) ? '文件已生成并保存到成果中心。' : pendingAction.status === 'FAILED' ? '文件生成未完成，可重试或前往任务中心查看失败原因。' : '任务已提交，可在右上角“任务与消息”查看实时进度。'}</p><div>${active && pendingAction.cancellable !== false ? '<button type="button" class="danger" data-pending-command="cancel">停止任务</button>' : ''}${retryable ? '<button type="button" class="primary" data-pending-command="retry">重新生成</button>' : ''}${artifact ? `<a href="${escapeHtml(roleAwareArtifactUrl(artifact))}">预览成果</a>${downloadable.map(item => `<button type="button" data-pending-artifact="${artifact.id}" data-pending-format="${escapeHtml(item.format)}">下载 ${escapeHtml(item.format)}</button>`).join('')}` : ''}</div></div>`}
     <details class="ai-pending-preview" data-pending-preview hidden><summary>需求预览</summary><pre>${escapeHtml(JSON.stringify(summary, null, 2))}</pre></details>
   </section>`
 }
@@ -59,6 +70,7 @@ export function bindPendingActionCard(root, handlers = {}) {
     })
     card.querySelector('[data-pending-command="generate"]')?.addEventListener('click', event => handlers.onAction?.(id, 'generate', undefined, event.currentTarget))
     card.querySelector('[data-pending-command="cancel"]')?.addEventListener('click', event => handlers.onAction?.(id, 'cancel', undefined, event.currentTarget))
+    card.querySelector('[data-pending-command="retry"]')?.addEventListener('click', event => handlers.onAction?.(id, 'retry', undefined, event.currentTarget))
     form?.addEventListener('submit', event => {
       event.preventDefault()
       const data = new FormData(form)

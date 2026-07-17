@@ -26,6 +26,13 @@ const ALLOWED_MIMETYPES = [
 ];
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.txt', '.md'];
+const ALLOWED_MIMES_BY_EXTENSION = {
+  '.pdf': ['application/pdf'],
+  '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  '.doc': ['application/msword'],
+  '.txt': ['text/plain'],
+  '.md': ['text/markdown', 'text/x-markdown', 'text/plain'],
+};
 
 // multer 配置
 const documentUpload = multer({
@@ -42,7 +49,8 @@ const documentUpload = multer({
   },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
-    if (ALLOWED_MIMETYPES.includes(file.mimetype) || ALLOWED_EXTENSIONS.includes(ext)) {
+    const allowedMimes = ALLOWED_MIMES_BY_EXTENSION[ext] || [];
+    if (ALLOWED_EXTENSIONS.includes(ext) && ALLOWED_MIMETYPES.includes(file.mimetype) && allowedMimes.includes(file.mimetype)) {
       cb(null, true);
       return;
     }
@@ -99,6 +107,14 @@ router.get(
   authMiddleware,
   roleMiddleware(['student']),
   controller.getDocument,
+);
+
+// 下载必须验证资源归属或课程可见性，禁止直接暴露 storage 路径。
+router.get(
+  '/documents/:document_id/download',
+  authMiddleware,
+  roleMiddleware(['student']),
+  controller.downloadDocument,
 );
 
 // 删除文档

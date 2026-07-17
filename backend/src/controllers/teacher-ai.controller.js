@@ -52,7 +52,7 @@ async function streamMessage(req, res) {
     );
     completed = true;
     if (!result.persistence?.saved) writeSse(res, 'save_error', { ...result.persistence, requestId: req.id });
-    writeSse(res, 'done', { assistant_message: service.toMessage({ ...result.assistantMessage, sourcesJson: result.sources }), charts: result.charts, artifacts: result.artifacts, trace_id: result.traceId, confirmation_required: result.confirmationRequired, context: turn.context, provider: result.provider, persistence: result.persistence });
+    writeSse(res, 'done', { assistant_message: service.toMessage({ ...result.assistantMessage, sourcesJson: result.sources }), charts: result.charts, artifacts: result.artifacts, pending_action: result.pendingAction, trace_id: result.traceId, confirmation_required: result.confirmationRequired, context: turn.context, provider: result.provider, persistence: result.persistence });
     return res.end();
   } catch (error) {
     completed = true;

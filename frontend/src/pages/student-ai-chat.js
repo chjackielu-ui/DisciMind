@@ -215,6 +215,23 @@ function subjectLabel(subject) {
   return SUBJECTS.find(item => item.value === subject)?.label || '未选择学科'
 }
 
+function selectedCourseLabel(state) {
+  const course = state.courses.find(item => Number(item.course_id || item.id) === Number(state.courseId))
+  return course?.course_name || course?.name || (state.courses.length ? '请选择课程' : '暂无可用课程')
+}
+
+function inferSubjectFromCourse(course, fallback = 'machine_learning') {
+  if (!course) return fallback
+  const code = String(course.course_code || course.code || '').trim().toLowerCase()
+  if (SUBJECTS.some(item => item.value === code)) return code
+  const name = String(course.course_name || course.name || '').toLowerCase()
+  if (/机器学习|machine\s*learning/.test(name)) return 'machine_learning'
+  if (/计算机视觉|computer\s*vision/.test(name)) return 'computer_vision'
+  if (/自然语言|nlp|natural\s*language/.test(name)) return 'nlp'
+  if (/数据科学|data\s*science/.test(name)) return 'data_science'
+  return fallback
+}
+
 function agentLabel(agentType) {
   return AGENTS.find(item => String(item.value) === String(agentType))?.label || '历史 Agent 对话'
 }
@@ -300,13 +317,7 @@ function renderModePanel(state) {
         <label class="${state.mode === 'subject' ? '' : 'is-hidden'}">
           <span class="ai-visually-hidden">课程选择</span>
           <select class="complex-select" id="ai-course-select" ${state.generating || !state.courses.length ? 'disabled' : ''}>
-            <option value="">选择课程</option>${courseOptions}
-          </select>
-        </label>
-        <label class="${state.mode === 'subject' ? '' : 'is-hidden'}">
-          <span class="ai-visually-hidden">学科选择</span>
-          <select class="complex-select" id="ai-subject-select" ${state.generating ? 'disabled' : ''}>
-            ${SUBJECTS.map(item => `<option value="${item.value}" ${state.subject === item.value ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
+            <option value="">${state.courses.length ? '选择课程' : '暂无可用课程'}</option>${courseOptions}
           </select>
         </label>
         <label class="${state.mode === 'agent' ? '' : 'is-hidden'}">
@@ -615,7 +626,7 @@ function buildRunWorkbench(state) {
 function buildShell(state) {
   const currentTitle = state.currentConversation?.title || '新对话'
   const currentMode = state.mode === 'subject'
-    ? subjectLabel(state.subject)
+    ? selectedCourseLabel(state)
     : state.mode === 'agent'
       ? agentLabel(state.agentType)
       : modeLabel(state.mode)
@@ -658,7 +669,6 @@ function buildShell(state) {
               <button class="ai-toolbar-button" id="btn-regenerate" title="重新生成" ${state.generating || !state.messages.some(m => String(m.role).toLowerCase() === 'user') ? 'disabled' : ''}>${iconSvg('refresh')}<span>重新生成</span></button>
               <button class="ai-toolbar-button" id="btn-rename-current" title="重命名当前会话" ${state.generating || !state.currentId ? 'disabled' : ''}><span>重命名</span></button>
               <button class="ai-toolbar-button ai-toolbar-danger" id="btn-clear-current" title="清空当前对话" ${state.generating || !state.currentId ? 'disabled' : ''}>${iconSvg('trash')}<span>清空</span></button>
-              <button class="ai-toolbar-button ai-toolbar-stop" id="btn-stop-generation" title="停止生成" ${state.generating ? '' : 'disabled'}>${iconSvg('stop')}<span>停止</span></button>
             </div>
           </div>
 
@@ -670,7 +680,6 @@ function buildShell(state) {
 
           <div class="chat-input-area ai-chat-input-area">
             ${buildStarterQuestionRow(state)}
-            <div id="student-ai-search-controls" class="student-ai-search-host"></div>
             <div id="subject-unified-composer"></div>
             <p class="ai-input-disclaimer">AI 内容可能存在偏差，请结合课程资料核对。</p>
           </div>
@@ -769,7 +778,6 @@ export async function renderStudentAiChat(app) {
   document.getElementById('student-main')?.classList.add('student-main-ai-chat')
   let starterRequestSeq = 0
   let subjectComposer = null
-  let searchControls = null
 
   function syncModeFromConversation(conversation) {
     if (!conversation) return
@@ -1133,6 +1141,9 @@ export async function renderStudentAiChat(app) {
       const protocol = detail.protocol
       const assistant = ensureRunAssistantMessage()
       assistant.traceEvents = [...(assistant.traceEvents || []), protocol]
+      if (eventName === 'knowledge.started') state.loadingStageText = '正在检索已选择的知识库'
+      if (eventName === 'knowledge.hits') state.loadingStageText = `知识库已命中 ${Number(protocol.payload?.sourceCount || 0)} 条资料`
+      if (eventName === 'knowledge.completed') state.loadingStageText = Number(protocol.payload?.sourceCount || 0) > 0 ? '正在根据知识库资料组织回答' : '所选知识库未命中相关资料'
       if (eventName === 'search.sources') {
         const early = (protocol.payload?.sources || []).map(source => ({
           ...source,
@@ -1427,8 +1438,6 @@ export async function renderStudentAiChat(app) {
     applyStarterContext()
     subjectComposer?.destroy()
     subjectComposer = null
-    searchControls?.destroy()
-    searchControls = null
     main.innerHTML = buildShell(state)
     bindEvents()
     hydrateMessageContent(main)
@@ -1587,14 +1596,8 @@ export async function renderStudentAiChat(app) {
     if (courseId === state.courseId) return
     state.mode = 'subject'
     state.courseId = courseId
-    resetForModeChange()
-    void refreshCallableAgents()
-  }
-
-  function changeSubject(nextSubject) {
-    if (state.generating || state.subject === nextSubject) return
-    state.mode = 'subject'
-    state.subject = nextSubject
+    const course = state.courses.find(item => Number(item.course_id || item.id) === Number(courseId))
+    state.subject = inferSubjectFromCourse(course, state.subject)
     resetForModeChange()
     void refreshCallableAgents()
   }
@@ -1738,7 +1741,7 @@ export async function renderStudentAiChat(app) {
           courseId: state.courseId,
           learningContext: state.learningContext,
           subjectCode: selectedCourse?.course_code || selectedCourse?.code || state.subject,
-          searchOptions: searchControls?.getOptions() || state.searchOptions,
+          searchOptions: { ...state.searchOptions, assignedSiteList: [...(state.searchOptions.assignedSiteList || [])] },
           autoAgent: true,
           confirmed,
         }
@@ -1931,7 +1934,6 @@ export async function renderStudentAiChat(app) {
     document.querySelectorAll('[data-mode]').forEach(button => {
       button.addEventListener('click', () => changeMode(button.dataset.mode))
     })
-    document.getElementById('ai-subject-select')?.addEventListener('change', event => changeSubject(event.target.value))
     document.getElementById('ai-course-select')?.addEventListener('change', event => changeCourse(event.target.value))
     document.getElementById('ai-agent-select')?.addEventListener('change', event => changeAgent(event.target.value))
     document.getElementById('btn-new-conversation')?.addEventListener('click', startDraftConversation)
@@ -1956,16 +1958,6 @@ export async function renderStudentAiChat(app) {
     document.getElementById('ai-history-subject')?.addEventListener('change', event => { state.historySubject = event.target.value; refreshConversationList() })
     document.getElementById('ai-history-date')?.addEventListener('change', event => { state.historyDate = event.target.value; refreshConversationList() })
 
-    const searchRoot = document.getElementById('student-ai-search-controls')
-    if (searchRoot) {
-      searchControls = createSearchControls(searchRoot, {
-        value: state.searchOptions,
-        capabilities: state.capabilities,
-        onChange: value => { state.searchOptions = value },
-      })
-      searchControls.setBusy(state.generating)
-    }
-
     const subjectComposerRoot = document.getElementById('subject-unified-composer')
     if (subjectComposerRoot) {
       subjectComposer = createUnifiedComposer({
@@ -1978,6 +1970,15 @@ export async function renderStudentAiChat(app) {
         attachments: state.pendingImages,
         maxLength: MAX_INPUT_LENGTH,
         placeholder: state.mode === 'subject' ? '输入学科问题；@ 引用知识库，\\ 调用智能体' : '输入学习问题；@ 引用知识库，\\ 调用智能体',
+        mountToolbarExtension: host => {
+          const controls = createSearchControls(host, {
+            value: state.searchOptions,
+            capabilities: state.capabilities,
+            onChange: value => { state.searchOptions = value },
+          })
+          controls.setBusy(state.generating)
+          return controls
+        },
         onDraftChange: payload => {
           state.inputDraft = payload.content
           state.pendingImages = payload.attachments || []

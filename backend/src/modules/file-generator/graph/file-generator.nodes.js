@@ -101,7 +101,7 @@ async function queueFormat(state, format) {
       taskType: 'DOCUMENT_EXPORT', title: `导出 ${artifact.title}（${format}）`, description: `从同一份结构化内容生成 ${format}`,
       status: 'QUEUED', stage: `等待导出 ${format}`, progressMode: 'DETERMINATE', progress: 0,
       relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: artifact.id,
-      resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=${format}`,
+      resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/artifacts/${artifact.id}?format=${format}`,
       cancellable: true, metadataJson: { artifactId: artifact.id, format },
       requestPayload: artifact.requirementsJson, agentId: artifact.agentId, conversationId: artifact.conversationId,
     });
@@ -113,7 +113,7 @@ async function queueFormat(state, format) {
 async function exportDocx(state) { return { ...(await queueFormat(state, 'DOCX')), stage: 'export_pdf' }; }
 async function exportPdf(state) { return { ...(await queueFormat(state, 'PDF')), stage: 'finalize' }; }
 async function finalize(state) {
-  if (state.taskId) await tasks.updateTask(state.taskId, { status: 'SUCCEEDED', progress: 100, stage: '内容生成完成，格式导出已排队', resultType: 'ARTIFACT', resultId: state.artifactId, resultUrl: `#/student/artifacts/${state.artifactId}` });
+  if (state.taskId) await tasks.updateTask(state.taskId, { status: 'SUCCEEDED', progress: 100, stage: '内容生成完成，格式导出已排队', resultType: 'ARTIFACT', resultId: state.artifactId, resultUrl: `#/artifacts/${state.artifactId}` });
   return { stage: 'completed' };
 }
 

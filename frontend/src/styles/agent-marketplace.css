@@ -1905,12 +1905,15 @@
 .artifact-list-toolbar > button { width: auto; padding: 0 12px; color: #315f7a; font-weight: 700; cursor: pointer; }
 .artifact-list-toolbar > button:disabled { border-style: dashed; background: #f7f9fa; color: #a8b3ba; cursor: not-allowed; }
 
-.artifact-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: start; gap: 12px; }
+.artifact-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: stretch; grid-auto-rows: 1fr; gap: 12px; }
 .artifact-card {
   position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(44px, auto) minmax(36px, auto) minmax(48px, auto) auto minmax(100px, auto);
   min-width: 0;
   gap: 8px;
-  height: auto;
+  height: 100%;
+  box-sizing: border-box;
   padding: 14px;
   border-color: rgba(139, 158, 173, .20);
   border-radius: 14px;
@@ -1941,11 +1944,11 @@
 .artifact-status.is-generating,
 .artifact-status.is-exporting { border-color: #efe0bd; background: #fff8e9; color: #9a671e; }
 .artifact-status.is-failed { border-color: #f1d2cf; background: #fff3f2; color: #a9433e; }
-.artifact-card-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.artifact-card-title { display: flex; min-height: 44px; align-items: center; gap: 9px; min-width: 0; }
 .artifact-card-title .agent-icon { width: 36px !important; height: 36px !important; border-radius: 10px; }
 .artifact-card h2 { display: -webkit-box; min-width: 0; overflow: hidden; font-size: .94rem; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .artifact-card > p { display: -webkit-box; min-height: 34px; flex: none; overflow: hidden; color: #71838f; font-size: .76rem; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.artifact-card-context { display: flex; flex-wrap: wrap; gap: 5px; min-height: 48px; align-content: flex-start; }
+.artifact-card-context { display: flex; flex-wrap: wrap; gap: 5px; min-height: 48px; max-height: 48px; overflow: hidden; align-content: flex-start; }
 .artifact-card-context span {
   display: block;
   max-width: 100%;
@@ -1961,7 +1964,7 @@
 .artifact-card-context .is-agent { border-color: #dbe7ed; background: #f0f6f8; color: #3e6479; }
 .artifact-card-context .is-course { border-color: #d6ebe6; background: #eff8f5; color: #327468; }
 .artifact-card-context .is-knowledge { flex-basis: 100%; border-color: #e1e2f3; background: #f4f3fb; color: #62649a; }
-.artifact-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.artifact-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(51px, auto)); align-self: stretch; gap: 6px; }
 .artifact-card dl div { min-width: 0; padding: 8px 9px; border: 1px solid rgba(148, 163, 184, .09); border-radius: 9px; background: #f7f9fb; }
 .artifact-card dt { font-size: .63rem; }
 .artifact-card dd { overflow: hidden; margin-top: 3px; font-size: .76rem; line-height: 1.45; text-overflow: ellipsis; }
@@ -1969,7 +1972,7 @@
 .artifact-card dd.is-failed { color: #b44949; }
 .artifact-card dd.is-queued,
 .artifact-card dd.is-exporting { color: #9a671e; }
-.artifact-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 2px; }
+.artifact-card-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 30px; align-content: end; gap: 5px; min-height: 100px; margin-top: auto; }
 .artifact-card-actions a,
 .artifact-card-actions button {
   display: inline-flex;
@@ -2091,7 +2094,7 @@
 .knowledge-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:12px}.knowledge-card{display:flex;min-width:0;min-height:210px;flex-direction:column;padding:15px;border:1px solid #e0e7eb;border-radius:11px;background:#fff;box-shadow:0 3px 12px rgba(15,23,42,.035)}
 .knowledge-page>.agent-market-hero{min-height:auto;padding:17px 19px;border:1px solid #e0e7eb;border-radius:11px;background:#fff;box-shadow:0 3px 13px rgba(15,23,42,.035);color:#203743}.knowledge-page>.agent-market-hero h1{font-size:1.15rem}.knowledge-page>.agent-market-hero p{margin-top:4px;color:#71838e}.knowledge-page>.agent-market-hero .complex-btn{align-self:center}.knowledge-page .knowledge-tabs{margin-top:14px}
 .knowledge-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.knowledge-card-head>div{min-width:0}.knowledge-card-head h3{overflow:hidden;margin:0;color:#203743;font-size:.92rem;text-overflow:ellipsis;white-space:nowrap}.knowledge-card-head p{display:-webkit-box;min-height:34px;margin:6px 0 0;overflow:hidden;color:#71838e;font-size:.7rem;line-height:1.5;-webkit-box-orient:vertical;-webkit-line-clamp:2}.knowledge-meta{display:flex;flex-wrap:wrap;gap:5px 10px;margin:12px 0;color:#768893;font-size:.66rem}.knowledge-card .agent-card-actions{display:flex;align-items:center;gap:6px;margin-top:auto}.knowledge-card .agent-card-actions>button,.knowledge-card .agent-card-actions>label{white-space:nowrap}
-.knowledge-integrity-warning{margin:8px 0 0;padding:7px 8px;border-radius:7px;background:#fff6e7;color:#885f27;font-size:.68rem}.knowledge-more{position:relative;margin-left:auto}.knowledge-more summary{display:grid;width:31px;height:31px;place-items:center;border:1px solid #dbe3e8;border-radius:7px;color:#59717f;cursor:pointer;list-style:none}.knowledge-more summary::-webkit-details-marker{display:none}.knowledge-more>div{position:absolute;z-index:20;right:0;bottom:37px;display:grid;min-width:130px;padding:5px;border:1px solid #dce4e9;border-radius:8px;background:#fff;box-shadow:0 10px 28px rgba(15,23,42,.13)}.knowledge-more button{padding:7px 8px;border:0;border-radius:5px;background:#fff;color:#526b79;text-align:left;font:inherit;font-size:.68rem;cursor:pointer}.knowledge-more button:hover{background:#f3f7f9}.knowledge-more button.danger{color:#a9433e}
+.knowledge-integrity-warning{margin:8px 0 0;padding:7px 8px;border-radius:7px;background:#fff6e7;color:#885f27;font-size:.68rem}.knowledge-more-trigger{display:grid;width:31px;min-width:31px;height:31px;margin-left:auto;padding:0;place-items:center;border:1px solid #dbe3e8;border-radius:7px;background:#fff;color:#59717f;font:inherit;cursor:pointer}
 .agent-chat-shell{overflow:hidden}.agent-chat-shell .agent-chat-main{display:grid;grid-template-rows:minmax(0,1fr) auto;overflow:visible}.unified-composer{z-index:55}.composer-mention-menu{max-height:min(310px,45vh);overscroll-behavior:contain}
 .agent-memory-backdrop{position:absolute;z-index:65;inset:63px 0 0;border:0;background:rgba(15,30,40,.22);cursor:default}.agent-memory-backdrop[hidden]{display:none}.agent-memory-drawer{position:absolute;z-index:70;inset:63px 0 0 auto;width:min(390px,92%);visibility:hidden;transform:translateX(102%);transition:transform .18s ease,visibility 0s linear .18s}.agent-memory-drawer.open{visibility:visible;transform:translateX(0);transition-delay:0s}
 @media(max-width:1100px){.knowledge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:720px){.knowledge-grid{grid-template-columns:1fr}.knowledge-card{min-height:190px}.agent-memory-backdrop,.agent-memory-drawer{top:105px}}
@@ -2110,6 +2113,11 @@
 @media(max-width:760px){.knowledge-console-head{align-items:flex-start;flex-direction:column}.knowledge-console-head>div:last-child{width:100%}.knowledge-console-head>div:last-child button{flex:1}.knowledge-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.knowledge-toolbar{grid-template-columns:1fr 1fr}.knowledge-toolbar .knowledge-tabs,.knowledge-toolbar .knowledge-search{grid-column:1/-1}.knowledge-toolbar select{width:100%}.knowledge-grid{grid-template-columns:1fr}.knowledge-grid.is-list .knowledge-card{display:flex;min-height:210px}.knowledge-grid.is-list .knowledge-card-description,.knowledge-grid.is-list .knowledge-card-facts{display:-webkit-box}.knowledge-detail-overview{grid-template-columns:1fr 1fr}.knowledge-detail-drawer{width:100vw}.knowledge-preview-modal{padding:8px}}
 @media(max-width:480px){.knowledge-summary{grid-template-columns:1fr 1fr}.knowledge-card-actions{flex-wrap:wrap}.knowledge-card-actions .knowledge-more{margin-left:0}.knowledge-detail-title{align-items:flex-start;flex-direction:column}.knowledge-detail-overview{grid-template-columns:1fr}.knowledge-pipeline{overflow-x:auto}}
 @media(prefers-reduced-motion:reduce){#knowledge-list-root,.knowledge-card,.knowledge-card:hover,.knowledge-drawer-backdrop,.knowledge-detail-drawer,.knowledge-pipeline span.active::after,.knowledge-sync.is-busy svg{animation:none;transition:none;transform:none}}
+
+/* Card action menus render at body level so transformed grid cards cannot cover them. */
+.agent-card-menu-portal button.is-danger{color:#a9433e}
+.knowledge-card-actions .knowledge-more-trigger{width:31px;min-width:31px;margin-left:auto;padding:0}
+@media(max-width:480px){.knowledge-card-actions .knowledge-more-trigger{margin-left:0}}
 .knowledge-document-row .knowledge-pipeline{justify-content:flex-start}
 .agent-task-row{grid-template-columns:28px minmax(210px,1.2fr) minmax(210px,1.4fr) minmax(140px,.7fr) minmax(160px,.8fr)}
 @media(max-width:1100px){.agent-task-row{grid-template-columns:28px minmax(210px,1fr) minmax(210px,1fr) minmax(140px,.6fr)}.agent-task-state{grid-column:2/-1}}

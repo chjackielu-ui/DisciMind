@@ -13,21 +13,37 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const avatarDir = path.join(__dirname, '../../../storage/uploads/avatars');
 fs.mkdirSync(avatarDir, { recursive: true });
 
+const AVATAR_FORMATS = new Map([
+  ['image/png', { extension: '.png', accepted: new Set(['.png']) }],
+  ['image/jpeg', { extension: '.jpg', accepted: new Set(['.jpg', '.jpeg']) }],
+  ['image/webp', { extension: '.webp', accepted: new Set(['.webp']) }],
+  ['image/gif', { extension: '.gif', accepted: new Set(['.gif']) }],
+]);
+
+function avatarValidationError(message) {
+  const error = new Error(message);
+  error.code = 40001;
+  error.expose = true;
+  return error;
+}
+
 const avatarUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, avatarDir),
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
-      cb(null, `avatar-${req.user.user_id}-${Date.now()}${ext}`);
+      const format = AVATAR_FORMATS.get(String(file.mimetype || '').toLowerCase());
+      cb(null, `avatar-${req.user.user_id}-${Date.now()}${format?.extension || '.bin'}`);
     },
   }),
   limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (/^image\/(png|jpe?g|webp|gif)$/.test(file.mimetype)) {
+    const format = AVATAR_FORMATS.get(String(file.mimetype || '').toLowerCase());
+    const extension = path.extname(file.originalname || '').toLowerCase();
+    if (format?.accepted.has(extension)) {
       cb(null, true);
       return;
     }
-    cb(new Error('头像仅支持 PNG、JPG、WEBP 或 GIF 图片'));
+    cb(avatarValidationError('头像扩展名必须与 PNG、JPG、WEBP 或 GIF 文件类型一致'));
   },
 });
 

@@ -43,7 +43,7 @@ test('admin navigation exposes only completed modules and keeps one stable secon
 
 test('admin route transitions reset scroll after asynchronous page rendering', () => {
   const router = read('utils', 'router.js')
-  assert.match(router, /const cleanup = await route\.render\(app, params\)[\s\S]{0,300}window\.scrollTo\(0, 0\)/)
+  assert.match(router, /app\.innerHTML = buildRouteLoadingHTML\(\)[\s\S]*cleanup = await route\.render\(app, params\)[\s\S]*renderRouteError\(app, error\)[\s\S]*window\.scrollTo\(0, 0\)/)
 })
 
 test('admin sidebar pinning preserves the main document scroll position', () => {

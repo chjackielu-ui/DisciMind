@@ -7,4 +7,4 @@
 - image-generate.service.js：图片生成
 - video-generate.service.js：视频生成
 
-属于后期增强功能，当前阶段只预留目录结构。
+文本生成走统一 AI Service；图片生成走 OpenAI 兼容接口；视频生成仅在供应商显式配置安全的相对接口路径且模型声明 `video_generation` 能力时启用。

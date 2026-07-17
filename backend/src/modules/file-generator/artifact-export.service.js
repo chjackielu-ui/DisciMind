@@ -36,7 +36,7 @@ async function exportFormat(artifactId, format, options = {}) {
     await reconcileArtifactStatus(artifact.id);
     if (options.taskId) await tasks.updateTask(options.taskId, {
       status: 'SUCCEEDED', progress: 100, stage: `${normalized} 已生成`, resultType: 'ARTIFACT',
-      resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=${normalized}`,
+      resultId: artifact.id, resultUrl: `#/artifacts/${artifact.id}?format=${normalized}`,
     });
     return updated;
   } catch (error) {
@@ -51,7 +51,7 @@ async function exportFormat(artifactId, format, options = {}) {
       status: 'FAILED', stage: cancelled ? `${normalized} 导出已取消` : `${normalized} 导出失败`,
       errorCode: cancelled ? 'TASK_CANCELLED' : errorCode,
       errorMessage: cancelled ? `${normalized} 导出已取消，可重新生成。` : `${normalized} 导出失败，请稍后重试。`,
-      resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=${normalized}`,
+      resultType: 'ARTIFACT', resultId: artifact.id, resultUrl: `#/artifacts/${artifact.id}?format=${normalized}`,
     }).catch(() => {});
     throw error;
   }

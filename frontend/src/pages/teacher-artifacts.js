@@ -289,3 +289,109 @@ export async function renderTeacherArtifacts(app) {
   let user = getUser(); try { const response = await getMe(); user = response.data.user; setAuth(getToken(), user) } catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
   state.selected.clear(); renderDashboardLayout(app, { title: '产物中心', menuItems: TEACHER_MENU_ITEMS, contentHTML: shell(), user }); bind(); await Promise.all([loadCourses(), loadRows()])
 }
+
+const GENERATED_DETAIL_STATUS = {
+  DRAFT: '准备中', GENERATING: '生成中', CONTENT_READY: '内容已生成', EXPORTING: '导出中', READY: '可下载',
+  FAILED: '生成失败', EXPIRED: '已过期', DELETING: '删除中', DELETED: '已删除', DOWNLOADABLE: '可下载', CANCELLED: '已取消',
+}
+
+function detailStatus(artifact) {
+  return GENERATED_DETAIL_STATUS[artifact.publicStatus] || GENERATED_DETAIL_STATUS[artifact.status] || artifact.status || '处理中'
+}
+
+function detailMeta(label, value) {
+  return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || '—')}</dd></div>`
+}
+
+function artifactDetailMarkup(artifact) {
+  const exports = artifact.exports || []
+  const readyExports = exports.filter(item => item.downloadAvailable && item.status === 'READY')
+  const requirements = artifact.requirements || {}
+  const points = artifact.knowledgePoints?.map(item => item.name || item.title).filter(Boolean)
+    || requirements.knowledgePointNames || []
+  const active = ['DRAFT', 'GENERATING', 'CONTENT_READY', 'EXPORTING'].includes(artifact.status)
+    || ['QUEUED', 'RUNNING'].includes(artifact.sourceTask?.status)
+  const failed = artifact.status === 'FAILED' || artifact.publicStatus === 'FAILED'
+  const aiHash = artifact.sourceAiConversationId ? `#/teacher/ai?conversationId=${artifact.sourceAiConversationId}` : '#/teacher/ai'
+  const formatNames = exports.length ? exports.map(item => item.format).join('、') : requirements.outputFormats?.join('、') || artifact.fileFormat || '待生成'
+  const requirementText = requirements.specialRequirements || requirements.prompt || requirements.request || artifact.description || '按当前课程与知识范围生成'
+  return `<main class="teacher-artifact-detail-page" data-artifact-id="${escapeHtml(artifact.id)}">
+    <nav class="teacher-artifact-detail-breadcrumb" aria-label="面包屑"><a href="#/teacher/artifacts">产物中心</a><span>/</span><span>AI 生成详情</span></nav>
+    <section class="teacher-artifact-detail-hero">
+      <div><span class="teacher-eyebrow">TEACHING ARTIFACT</span><h2>${escapeHtml(artifact.title || '未命名产物')}</h2><p>教师端生成结果与导出状态，仅展示本次任务的数据。</p></div>
+      <div class="teacher-artifact-detail-actions">
+        <span class="artifact-status is-${active ? 'generating' : failed ? 'failed' : 'ready'}">${escapeHtml(detailStatus(artifact))}</span>
+        <a class="teacher-btn--secondary" href="${escapeHtml(aiHash)}">返回教师 AI</a>
+        ${artifact.taskId ? `<a class="teacher-btn--secondary" href="#/teacher/agent-tasks?task=${artifact.taskId}">查看任务</a>` : ''}
+        ${failed ? '<button class="teacher-btn--secondary" type="button" data-detail-retry>重新生成</button>' : ''}
+        <button class="teacher-btn--secondary danger" type="button" data-detail-delete ${active ? 'disabled' : ''}>删除</button>
+      </div>
+    </section>
+    <section class="teacher-artifact-detail-grid">
+      <article class="teacher-artifact-detail-panel teacher-artifact-detail-overview"><header><div><span>任务信息</span><h3>本次生成上下文</h3></div></header><dl>
+        ${detailMeta('产物类型', artifact.artifactType === 'EXAM_PAPER' ? '试卷' : artifact.artifactType === 'STUDY_HANDOUT' ? '教学讲义' : artifact.artifactType)}
+        ${detailMeta('课程', artifact.course?.name)}
+        ${detailMeta('知识范围', points.length ? points.join('、') : '课程范围')}
+        ${detailMeta('来源助手', artifact.sourceAgent?.name || '系统文件生成助手')}
+        ${detailMeta('输出格式', formatNames)}
+        ${detailMeta('创建时间', formatDate(artifact.createdAt))}
+      </dl></article>
+      <article class="teacher-artifact-detail-panel teacher-artifact-detail-exports"><header><div><span>文件导出</span><h3>可下载版本</h3></div></header>
+        ${exports.length ? `<div class="teacher-artifact-export-list">${exports.map(item => `<div><span class="teacher-artifact-format">${escapeHtml(item.format)}</span><div><b>${escapeHtml(item.status === 'READY' && item.downloadAvailable ? '已就绪' : item.status === 'FAILED' ? '导出失败' : '处理中')}</b><small>${item.fileSizeBytes ? formatSize(item.fileSizeBytes) : '服务器生成文件'}</small></div>${item.status === 'READY' && item.downloadAvailable ? `<button type="button" data-detail-download="${escapeHtml(item.format)}">下载</button>` : ''}</div>`).join('')}</div>` : `<div class="teacher-artifact-detail-empty"><b>${active ? '正在生成文件' : '暂无导出文件'}</b><p>${active ? '页面会自动刷新任务状态。' : '可在任务失败后重新生成。'}</p></div>`}
+      </article>
+    </section>
+    <section class="teacher-artifact-detail-panel teacher-artifact-detail-request"><header><div><span>生成指令</span><h3>本次任务要求</h3></div></header><p>${escapeHtml(requirementText)}</p></section>
+    <section class="teacher-artifact-detail-panel teacher-artifact-detail-preview"><header><div><span>安全预览</span><h3>生成内容</h3></div><small>已过滤脚本、表单和嵌入内容</small></header>
+      ${artifact.preview_html ? `<article class="artifact-rich-preview">${sanitizePreview(artifact.preview_html)}</article>` : `<div class="teacher-artifact-detail-empty"><b>${active ? '预览正在生成' : failed ? '本次生成未完成' : '暂无可预览内容'}</b><p>${active ? '生成完成后将自动显示。' : failed ? '可点击重新生成继续处理。' : '请从可下载版本获取文件。'}</p></div>`}
+    </section>
+  </main>`
+}
+
+function artifactDetailLoading() {
+  return `<main class="teacher-artifact-detail-page"><nav class="teacher-artifact-detail-breadcrumb"><a href="#/teacher/artifacts">产物中心</a><span>/</span><span>生成详情</span></nav><div class="artifact-loading">正在读取教师产物与任务状态…</div></main>`
+}
+
+function bindArtifactDetail(app, artifact, user) {
+  const root = document.querySelector('.teacher-artifact-detail-page')
+  const rerender = () => renderTeacherArtifactDetail(app, { id: String(artifact.id) })
+  root?.querySelectorAll('[data-detail-download]').forEach(button => button.addEventListener('click', async () => {
+    setBusy(button, true, '下载中…')
+    try { await downloadGeneratedArtifactExport(artifact.id, button.dataset.detailDownload, `${artifact.title}.${button.dataset.detailDownload.toLowerCase()}`) }
+    catch (error) { showToast(error.message || '下载失败', 'error') }
+    finally { setBusy(button, false) }
+  }))
+  root?.querySelector('[data-detail-retry]')?.addEventListener('click', async event => {
+    setBusy(event.currentTarget, true, '提交中…')
+    try { await batchTeacherArtifacts('retry', [{ source_type: 'generated_artifact', source_id: artifact.id }]); showToast('重新生成任务已创建', 'success'); await rerender() }
+    catch (error) { showToast(error.message || '重试失败', 'error'); setBusy(event.currentTarget, false) }
+  })
+  root?.querySelector('[data-detail-delete]')?.addEventListener('click', async event => {
+    if (!window.confirm(`确认删除“${artifact.title}”？`)) return
+    setBusy(event.currentTarget, true, '删除中…')
+    try { await batchTeacherArtifacts('delete', [{ source_type: 'generated_artifact', source_id: artifact.id }]); showToast('产物已删除', 'success'); window.location.hash = '#/teacher/artifacts' }
+    catch (error) { showToast(error.message || '删除失败', 'error'); setBusy(event.currentTarget, false) }
+  })
+  const active = ['DRAFT', 'GENERATING', 'CONTENT_READY', 'EXPORTING'].includes(artifact.status)
+    || ['QUEUED', 'RUNNING'].includes(artifact.sourceTask?.status)
+  if (active) {
+    const timer = window.setTimeout(() => {
+      if (window.location.hash === `#/teacher/artifacts/${artifact.id}`) rerender()
+    }, 2500)
+    window.addEventListener('hashchange', () => window.clearTimeout(timer), { once: true })
+  }
+}
+
+export async function renderTeacherArtifactDetail(app, params) {
+  let user = getUser()
+  try { const response = await getMe(); user = response.data.user; setAuth(getToken(), user) }
+  catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
+  renderDashboardLayout(app, { title: '产物详情', menuItems: TEACHER_MENU_ITEMS, contentHTML: artifactDetailLoading(), user })
+  try {
+    const artifact = (await getTeacherArtifactDetail('generated_artifact', params.id)).data || {}
+    renderDashboardLayout(app, { title: '产物详情', menuItems: TEACHER_MENU_ITEMS, contentHTML: artifactDetailMarkup(artifact), user })
+    bindArtifactDetail(app, artifact, user)
+  } catch (error) {
+    const root = document.querySelector('.teacher-artifact-detail-page')
+    if (root) root.innerHTML = `<nav class="teacher-artifact-detail-breadcrumb"><a href="#/teacher/artifacts">产物中心</a><span>/</span><span>读取失败</span></nav><div class="artifact-empty error"><b>无法打开此教师产物</b><p>${escapeHtml(error.message || '产物不存在或无权访问')}</p><a class="teacher-btn--secondary" href="#/teacher/artifacts">返回产物中心</a></div>`
+  }
+}

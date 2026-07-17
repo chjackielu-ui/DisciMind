@@ -4,6 +4,7 @@
 const prisma = require('../config/prisma');
 const fs = require('fs');
 const path = require('path');
+const DOCUMENT_STORAGE_ROOT = path.resolve(__dirname, '../../../storage/uploads/documents');
 
 // ========================
 // 工具函数
@@ -12,6 +13,26 @@ const path = require('path');
 function toLower(value) {
   if (value == null) return null;
   return String(value).toLowerCase();
+}
+
+function resolveDocumentStoragePath(fileUrl) {
+  const filename = path.basename(String(fileUrl || ''));
+  if (!filename || filename === '.' || filename === '..') {
+    throw Object.assign(new Error('文档文件路径无效'), { code: 40002 });
+  }
+  const resolved = path.resolve(DOCUMENT_STORAGE_ROOT, filename);
+  if (path.dirname(resolved) !== DOCUMENT_STORAGE_ROOT) {
+    throw Object.assign(new Error('文档文件路径无效'), { code: 40002 });
+  }
+  return resolved;
+}
+
+async function assertDocumentAccess(document, userId) {
+  if (document.owner_user_id === userId) return;
+  if (document.visibility === 'PRIVATE' || document.review_status !== 'APPROVED') {
+    throw Object.assign(new Error('无权查看该文档'), { code: 40301 });
+  }
+  if (document.course_id) await ensureStudentInCourse(userId, document.course_id);
 }
 
 async function ensureStudentInCourse(userId, courseId) {
@@ -238,10 +259,7 @@ async function uploadDocument(userId, fileInfo, body) {
   const reviewStatus = visibility === 'private' ? 'APPROVED' : 'PENDING';
 
   // 创建文档记录
-  const relativePath = filePath.replace(/\\/g, '/');
-  const fileUrl = relativePath.includes('storage/uploads/')
-    ? '/' + relativePath.split('storage/uploads/')[1]
-    : '/' + relativePath;
+  const fileUrl = `/uploads/documents/${path.basename(filePath)}`;
 
   const document = await prisma.knowledgeDocument.create({
     data: {
@@ -306,12 +324,7 @@ async function parseDocument(userId, documentId) {
 
   try {
     // 构建完整文件路径
-    let absolutePath;
-    if (document.file_url) {
-      // file_url 格式: /uploads/documents/doc-xxx.pdf
-      const storageBase = path.join(__dirname, '../../../storage');
-      absolutePath = path.join(storageBase, document.file_url.replace(/^\//, ''));
-    }
+    const absolutePath = document.file_url ? resolveDocumentStoragePath(document.file_url) : null;
 
     // 检查文件是否存在
     if (!absolutePath || !fs.existsSync(absolutePath)) {
@@ -473,17 +486,7 @@ async function getDocument(userId, documentId) {
     throw Object.assign(new Error('文档不存在'), { code: 40002 });
   }
 
-  // 权限检查
-  if (document.visibility === 'PRIVATE' && document.owner_user_id !== userId) {
-    throw Object.assign(new Error('无权查看该文档'), { code: 40301 });
-  }
-
-  // 如果是 class/college/school 级别，检查是否同课程
-  if (document.visibility !== 'PRIVATE' && document.visibility !== 'SCHOOL') {
-    if (document.course_id && document.owner_user_id !== userId) {
-      await ensureStudentInCourse(userId, document.course_id);
-    }
-  }
+  await assertDocumentAccess(document, userId);
 
   return {
     document_id: document.document_id,
@@ -504,9 +507,22 @@ async function getDocument(userId, documentId) {
       chunk_text: chunk.chunk_text ? chunk.chunk_text.slice(0, 200) : '',
       token_count: chunk.token_count,
     })),
-    file_url: document.file_url,
+    download_url: `/api/student/documents/${document.document_id}/download`,
     created_at: document.created_at ? document.created_at.toISOString() : null,
     updated_at: document.updated_at ? document.updated_at.toISOString() : null,
+  };
+}
+
+async function getDocumentDownload(userId, documentId) {
+  const document = await prisma.knowledgeDocument.findUnique({ where: { document_id: documentId } });
+  if (!document) throw Object.assign(new Error('文档不存在'), { code: 40002 });
+  await assertDocumentAccess(document, userId);
+  const absolutePath = resolveDocumentStoragePath(document.file_url);
+  if (!fs.existsSync(absolutePath)) throw Object.assign(new Error('源文件不存在'), { code: 40002 });
+  return {
+    absolutePath,
+    originalFilename: path.basename(document.original_filename || document.title || `document-${documentId}`),
+    mimeType: document.mime_type,
   };
 }
 
@@ -529,8 +545,7 @@ async function deleteDocument(userId, documentId) {
 
   // 删除物理文件
   try {
-    const storageBase = path.join(__dirname, '../../../storage');
-    const absolutePath = path.join(storageBase, (document.file_url || '').replace(/^\//, ''));
+    const absolutePath = resolveDocumentStoragePath(document.file_url);
     if (fs.existsSync(absolutePath)) {
       fs.unlinkSync(absolutePath);
     }
@@ -551,5 +566,7 @@ module.exports = {
   parseDocument,
   listDocuments,
   getDocument,
+  getDocumentDownload,
   deleteDocument,
+  resolveDocumentStoragePath,
 };

@@ -5,6 +5,8 @@ const RESULT_URL_PATTERNS = [
   /^#\/student\/agents(?:\/knowledge|\/\d+(?:\/.*)?)?$/,
   /^#\/student\/generated-artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/artifacts(?:\/\d+)?(?:\?.*)?$/,
+  /^#\/teacher\/artifacts(?:\/\d+)?(?:\?.*)?$/,
+  /^#\/artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/learning-flows(?:\?.*)?$/,
   /^#\/student\/learning\/session\/\d+$/,
 ]

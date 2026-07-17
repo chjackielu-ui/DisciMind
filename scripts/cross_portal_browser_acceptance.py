@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / "artifacts" / "cross-portal-rebuild"
 DEFAULT_FRONTEND = "http://localhost:5173"
 DEFAULT_API = "http://localhost:3000/api"
-PASSWORD = "123456"
+PASSWORD = os.environ.get("DISCIMIND_TEST_PASSWORD")
 CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 VIEWPORTS = ((1920, 1080), (1440, 900), (1366, 768), (1024, 768))
 ROUTES = {
@@ -29,9 +30,9 @@ ROUTES = {
     "student": "#/student/dashboard",
 }
 ACCOUNTS = {
-    "admin": "admin_demo",
-    "teacher": "teacher_demo",
-    "student": "student_demo",
+    "admin": os.environ.get("DISCIMIND_TEST_ADMIN_ACCOUNT"),
+    "teacher": os.environ.get("DISCIMIND_TEST_TEACHER_ACCOUNT"),
+    "student": os.environ.get("DISCIMIND_TEST_STUDENT_ACCOUNT"),
 }
 
 
@@ -277,6 +278,8 @@ def test_course_pages(browser: Browser, acceptance: Acceptance, frontend_url: st
 
 
 def run(frontend_url: str, api_url: str, report_path: Path) -> int:
+    if not PASSWORD or not all(ACCOUNTS.values()):
+        raise RuntimeError("DISCIMIND_TEST_PASSWORD and admin/teacher/student account environment variables are required")
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     marker = f"browser{int(time.time() * 1000)}"
     acceptance = Acceptance(marker=marker)

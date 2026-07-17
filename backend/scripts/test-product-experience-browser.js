@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs');
 
 const BASE = 'http://127.0.0.1:5176';
+const TEST_ACCOUNT = process.env.DISCIMIND_TEST_STUDENT_ACCOUNT;
+const TEST_PASSWORD = process.env.DISCIMIND_TEST_PASSWORD;
+if (!TEST_ACCOUNT || !TEST_PASSWORD) throw new Error('DISCIMIND_TEST_STUDENT_ACCOUNT and DISCIMIND_TEST_PASSWORD are required');
 const output = path.resolve(__dirname, '../test-output/product-experience');
 
 (async () => {
@@ -17,7 +20,7 @@ const output = path.resolve(__dirname, '../test-output/product-experience');
   const result = {};
   try {
     await page.goto(`${BASE}/#/login`, { waitUntil: 'networkidle' });
-    await page.click('#btn-show-login'); await page.fill('#login-account', 'student_demo'); await page.fill('#login-password', '123456'); await page.click('#login-submit');
+    await page.click('#btn-show-login'); await page.fill('#login-account', TEST_ACCOUNT); await page.fill('#login-password', TEST_PASSWORD); await page.click('#login-submit');
     await page.waitForURL(/#\/student\//, { timeout: 15000 });
 
     await page.goto(`${BASE}/#/student/agents?agentType=FILE_GENERATOR&source=generated-files`, { waitUntil: 'networkidle' });

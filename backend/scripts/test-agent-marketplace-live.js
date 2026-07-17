@@ -3,6 +3,13 @@ const path = require('path');
 
 const BASE = process.env.AGENT_MARKETPLACE_TEST_BASE_URL || 'http://localhost:3010/api';
 const PREFIX = process.env.AGENT_MARKETPLACE_TEST_PREFIX || 'live-acceptance-20260711';
+const TEST_PASSWORD = process.env.DISCIMIND_TEST_PASSWORD;
+const TEST_ACCOUNTS = {
+  student: process.env.DISCIMIND_TEST_STUDENT_ACCOUNT,
+  studentB: process.env.DISCIMIND_TEST_SECONDARY_STUDENT_ACCOUNT,
+  admin: process.env.DISCIMIND_TEST_ADMIN_ACCOUNT,
+};
+if (!TEST_PASSWORD || !Object.values(TEST_ACCOUNTS).every(Boolean)) throw new Error('DisciMind test account and password environment variables are required');
 
 function check(condition, message) { if (!condition) throw new Error(message); }
 function op(name) { return `${PREFIX}-${name}`; }
@@ -27,7 +34,7 @@ async function expectDenied(fn, message) {
 }
 
 async function login(account) {
-  const data = await request('POST', '/auth/login', null, { account, password: '123456' });
+  const data = await request('POST', '/auth/login', null, { account, password: TEST_PASSWORD });
   return { token: data.accessToken || data.token, user: data.user };
 }
 
@@ -44,7 +51,7 @@ function agentInput(overrides = {}) {
 
 async function main() {
   log('登录学生 A、学生 B 和管理员');
-  const [studentA, studentB, admin] = await Promise.all([login('student_demo'), login('student_b'), login('admin_demo')]);
+  const [studentA, studentB, admin] = await Promise.all([login(TEST_ACCOUNTS.student), login(TEST_ACCOUNTS.studentB), login(TEST_ACCOUNTS.admin)]);
 
   log('场景一：公开发现、私有隔离与默认智能体创建');
   const publicList = await request('GET', '/agents', studentB.token);

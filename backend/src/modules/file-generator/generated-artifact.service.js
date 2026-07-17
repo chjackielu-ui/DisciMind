@@ -52,6 +52,8 @@ function serializeArtifact(artifact, { detail = false, adminMetadataOnly = false
     ownerUserId: adminMetadataOnly ? artifact.ownerUserId : undefined,
     agentId: artifact.agentId,
     conversationId: artifact.conversationId,
+    sourceAiConversationId: artifact.sourceAiConversationId || null,
+    sourceMessageId: artifact.sourceMessageId || null,
     taskId: artifact.taskId,
     parentArtifactId: artifact.parentArtifactId || null,
     artifactRole: artifact.artifactRole || 'PRIMARY',
@@ -250,7 +252,7 @@ async function requestExport(user, id, operationId, requestedFormats = ['DOCX'])
       create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format, status: 'QUEUED', mimeType: format === 'PDF' ? PDF_MIME : WORD_MIME },
       update: { status: 'QUEUED', mimeType: format === 'PDF' ? PDF_MIME : WORD_MIME, errorCode: null, errorMessage: null, deletedAt: null },
     });
-    const resultUrl = `#/student/artifacts/${artifact.id}?format=${format}`;
+    const resultUrl = `#/artifacts/${artifact.id}?format=${format}`;
     if (task) {
       task = await prisma.asyncTask.update({ where: { id: task.id }, data: {
         status: 'QUEUED', stage: `等待导出 ${format}`, progressMode: 'DETERMINATE', progress: 0,

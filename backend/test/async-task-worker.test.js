@@ -96,6 +96,7 @@ test('a fresh leased running task is not recovered before its lease expires', as
   const untouched = await prisma.asyncTask.findUnique({ where: { id: created.id } });
   assert.equal(executions, 0);
   assert.equal(untouched.lockedBy, 'live-instance');
+  await tasks.updateTask(created.id, { status: 'CANCELLED', stage: 'TEST_CLEANUP' });
 });
 
 test('an unleased running task is recovered immediately after a backend restart', async () => {
@@ -152,4 +153,5 @@ test('worker shutdown never releases another instance lease', async () => {
   await worker.stop();
   const untouched = await prisma.asyncTask.findUnique({ where: { id: created.id } });
   assert.equal(untouched.lockedBy, 'other-live-instance');
+  await tasks.updateTask(created.id, { status: 'CANCELLED', stage: 'TEST_CLEANUP' });
 });

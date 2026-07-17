@@ -19,10 +19,18 @@ if ((process.env.AGENT_MODE || 'dify') === 'langgraph' && process.env.LANGGRAPH_
 }
 
 const app = express();
+app.disable('x-powered-by');
 
 // ---------- 全局中间件 ----------
 
 app.use(requestIdMiddleware);
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
+  next();
+});
 
 function getAllowedOrigins() {
   const configured = process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173';
@@ -46,8 +54,13 @@ app.use(express.json({ limit: '18mb' }));
 // 解析 URL 编码的请求体（表单提交场景）
 app.use(express.urlencoded({ extended: true }));
 
-// 对外提供本地上传文件访问能力：/uploads/avatars/xxx.png
-app.use('/uploads', express.static(path.join(__dirname, '../../storage/uploads')));
+// 头像是唯一允许匿名读取的上传内容。知识库、学习流附件与对话附件必须走各自的鉴权下载路由。
+app.use('/uploads/avatars', express.static(path.join(__dirname, '../../storage/uploads/avatars'), {
+  dotfiles: 'deny',
+  fallthrough: false,
+  index: false,
+  maxAge: '1h',
+}));
 
 // ---------- 健康检查（无需 /api 前缀）----------
 
@@ -132,7 +145,7 @@ app.use('/api/teacher', teacherReminderRoutes);
 const teacherArtifactRoutes = require('./routes/teacher-artifact.routes');
 app.use('/api/teacher', teacherArtifactRoutes);
 
-// 教师端 AI 功能（占位）
+// 教师端 AI 题目、摘要、视频检索与学习分析
 const teacherAiRoutes = require('./routes/teacher-ai.routes');
 app.use('/api/teacher', teacherAiRoutes);
 
@@ -204,20 +217,13 @@ const studentLearningPlanRoutes = require('./modules/student-learning-plan/stude
 app.use('/api/student-learning-plans', studentLearningPlanRoutes);
 
 // Dify 训练师 Workflow
+const difyRoutes = require('./modules/dify/dify.routes');
+app.use('/api/dify', difyRoutes);
 const trainerRoutes = require('./modules/dify/trainer.routes');
 app.use('/api/ai/trainer', trainerRoutes);
 
-// 训练师 Agent 业务接口
-const trainerAgentRoutes = require('./modules/agent/trainer/trainer.routes');
-app.use('/api/agent/trainer', trainerAgentRoutes);
-
-// 讲解者 Agent 业务接口
-const explainerAgentRoutes = require('./modules/agent/explainer/explainer.routes');
-app.use('/api/agent/explainer', explainerAgentRoutes);
-
-// 诊断师 Agent 业务接口
-const diagnosticianAgentRoutes = require('./modules/agent/diagnostician/diagnostician.routes');
-app.use('/api/agent/diagnostician', diagnosticianAgentRoutes);
+// 教学 Agent 聚合入口：Trainer / Explainer / Diagnostician
+app.use('/api/agent', require('./modules/agent/agent.routes'));
 
 // 知识库文档模块
 const studentDocumentRoutes = require('./routes/student-document.routes');

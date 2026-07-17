@@ -1,0 +1,309 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" role="img" aria-labelledby="title desc">
+  <title id="title">面向个体认知差异的学习流自主编排与多智能体执行机制</title>
+  <desc id="desc">个体认知画像驱动预设路线复用与自主编排，LangChain 组织多智能体能力，LangGraph 执行状态图，学习结果反馈持续优化画像与路径。</desc>
+  <defs>
+    <filter id="glowBlue" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowTeal" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrowBlue" markerWidth="11" markerHeight="11" refX="9.5" refY="5.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0 L11 5.5 L0 11 Z" fill="#8FD8FF"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="11" markerHeight="11" refX="9.5" refY="5.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0 L11 5.5 L0 11 Z" fill="#35E0C8"/>
+    </marker>
+    <marker id="arrowViolet" markerWidth="10" markerHeight="10" refX="8.5" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#AAB4FF"/>
+    </marker>
+    <style>
+      text { font-family:"Microsoft YaHei","Noto Sans CJK SC","PingFang SC",sans-serif; }
+      .title { fill:#F7FDFF; font-size:29px; font-weight:700; letter-spacing:.7px; }
+      .subtitle { fill:#A9E9FF; font-size:14px; font-weight:500; letter-spacing:1.5px; }
+      .panel { fill:#0A2D4C; fill-opacity:.84; stroke-width:1.5; }
+      .panelHead { fill-opacity:.96; }
+      .panelTitle { fill:#F5FCFF; font-size:18px; font-weight:700; }
+      .step { fill:#082744; stroke-width:1.4; }
+      .stepText { fill:#E9FBFF; font-size:13px; font-weight:700; text-anchor:middle; dominant-baseline:middle; }
+      .section { fill:#0D3555; fill-opacity:.92; stroke-width:1; }
+      .label { fill:#E9FBFF; font-size:13.5px; font-weight:700; }
+      .small { fill:#D7F1FA; font-size:12px; }
+      .tiny { fill:#C5E3EE; font-size:10.5px; }
+      .chipText { fill:#E9FBFF; font-size:11.5px; font-weight:600; text-anchor:middle; dominant-baseline:middle; }
+      .mainArrow { fill:none; stroke:#8FD8FF; stroke-width:4.2; marker-end:url(#arrowBlue); filter:url(#glowBlue); }
+      .thinBlue { fill:none; stroke:#80CFFF; stroke-width:1.7; marker-end:url(#arrowBlue); }
+      .thinTeal { fill:none; stroke:#35E0C8; stroke-width:1.7; marker-end:url(#arrowTeal); }
+      .thinViolet { fill:none; stroke:#AAB4FF; stroke-width:1.7; marker-end:url(#arrowViolet); }
+      .feedback { fill:none; stroke:#35E0C8; stroke-width:3.6; marker-end:url(#arrowTeal); filter:url(#glowTeal); }
+      .line { stroke:#80CFFF; stroke-width:1; stroke-opacity:.55; }
+    </style>
+  </defs>
+
+  <!-- Transparent canvas: intended for direct overlay on a dark-blue PPT. -->
+  <g id="heading">
+    <rect x="48" y="24" width="178" height="29" rx="14.5" fill="#0D425E" stroke="#35E0C8" stroke-width="1.2"/>
+    <text x="137" y="44" fill="#BFFBF2" font-size="12.5" font-weight="700" text-anchor="middle" letter-spacing="1">核心创新 01 · 精炼链路</text>
+    <text class="title" x="885" y="46" text-anchor="middle">面向个体认知差异的学习流自主编排与多智能体执行机制</text>
+    <text class="subtitle" x="885" y="75" text-anchor="middle">画像驱动 — 自主编排 — 多智能体协同 — 状态执行 — 反馈优化</text>
+    <line x1="48" y1="97" x2="1552" y2="97" stroke="#49B6FF" stroke-width="1" stroke-opacity=".6"/>
+  </g>
+
+  <!-- Five-step main chain -->
+  <g id="main-chain">
+    <path class="mainArrow" d="M280 350 H311"/>
+    <path class="mainArrow" d="M585 350 H616"/>
+    <path class="mainArrow" d="M950 350 H981"/>
+    <path class="mainArrow" d="M1285 350 H1316"/>
+  </g>
+
+  <!-- 1. Individual cognitive profile -->
+  <g id="profile">
+    <rect class="panel" x="45" y="135" width="235" height="420" rx="20" stroke="#49B6FF"/>
+    <rect class="panelHead" x="45" y="135" width="235" height="58" rx="20" fill="#14517C" stroke="#49B6FF" stroke-width="1.3"/>
+    <path d="M45 173 V193 H280 V173" fill="#14517C"/>
+    <circle class="step" cx="72" cy="164" r="16" stroke="#8FD8FF"/>
+    <text class="stepText" x="72" y="164">1</text>
+    <text class="panelTitle" x="96" y="171">个体认知画像</text>
+
+    <!-- User/data icon -->
+    <g transform="translate(162.5 271)">
+      <circle r="54" fill="#0C3B5D" stroke="#49B6FF" stroke-width="1.4"/>
+      <circle r="45" fill="#0B3151" stroke="#80CFFF" stroke-width=".8" stroke-dasharray="4 5"/>
+      <circle cy="-11" r="13" fill="#8FD8FF"/>
+      <path d="M-25 29 Q0 -1 25 29" fill="#49B6FF" fill-opacity=".75" stroke="#8FD8FF" stroke-width="1"/>
+      <circle cx="-43" cy="-31" r="5" fill="#35E0C8"/>
+      <circle cx="45" cy="-23" r="5" fill="#7A8CFF"/>
+      <circle cx="43" cy="34" r="5" fill="#FFB86A"/>
+      <path d="M-39 -28 L-18 -16 M40 -21 L20 -10 M39 31 L22 18" stroke="#80CFFF" stroke-width="1.2"/>
+    </g>
+
+    <g id="profile-tags">
+      <rect x="63" y="343" width="70" height="36" rx="18" fill="#104466" stroke="#49B6FF"/>
+      <text class="chipText" x="98" y="361">目标</text>
+      <rect x="147" y="343" width="70" height="36" rx="18" fill="#104466" stroke="#49B6FF"/>
+      <text class="chipText" x="182" y="361">基础</text>
+      <rect x="63" y="390" width="70" height="36" rx="18" fill="#12485A" stroke="#35E0C8"/>
+      <text class="chipText" x="98" y="408">掌握度</text>
+      <rect x="147" y="390" width="70" height="36" rx="18" fill="#54442F" stroke="#FFB86A"/>
+      <text class="chipText" x="182" y="408">错题</text>
+      <rect x="105" y="437" width="115" height="36" rx="18" fill="#303D77" stroke="#7A8CFF"/>
+      <text class="chipText" x="162.5" y="455">学习偏好</text>
+    </g>
+    <rect x="63" y="502" width="199" height="32" rx="16" fill="#113F55" stroke="#35E0C8" stroke-width="1"/>
+    <path d="M79 519 h18 l6 -9 8 18 8 -14 7 5 h18" fill="none" stroke="#35E0C8" stroke-width="1.6"/>
+    <text x="191" y="523" fill="#BFFBF2" font-size="11.5" font-weight="700" text-anchor="middle">画像持续更新</text>
+  </g>
+
+  <!-- 2. Learning-flow planning -->
+  <g id="planning">
+    <rect class="panel" x="315" y="135" width="270" height="420" rx="20" stroke="#35E0C8"/>
+    <rect class="panelHead" x="315" y="135" width="270" height="58" rx="20" fill="#115568" stroke="#35E0C8" stroke-width="1.3"/>
+    <path d="M315 173 V193 H585 V173" fill="#115568"/>
+    <circle class="step" cx="342" cy="164" r="16" stroke="#35E0C8"/>
+    <text class="stepText" x="342" y="164">2</text>
+    <text class="panelTitle" x="366" y="171">学习流规划</text>
+
+    <g id="route-sources">
+      <rect class="section" x="333" y="218" width="110" height="96" rx="13" stroke="#49B6FF"/>
+      <path d="M353 247 h16 l8 -8 h19" fill="none" stroke="#8FD8FF" stroke-width="2"/>
+      <circle cx="352" cy="247" r="4" fill="#49B6FF"/><circle cx="377" cy="239" r="4" fill="#49B6FF"/><circle cx="401" cy="239" r="4" fill="#49B6FF"/>
+      <text class="label" x="388" y="278" text-anchor="middle">预设路线</text>
+      <text class="tiny" x="388" y="298" text-anchor="middle">推荐 · 复用</text>
+
+      <rect class="section" x="457" y="218" width="110" height="96" rx="13" stroke="#35E0C8"/>
+      <rect x="477" y="237" width="17" height="17" rx="4" fill="#12485A" stroke="#35E0C8"/>
+      <rect x="513" y="237" width="17" height="17" rx="4" fill="#12485A" stroke="#35E0C8"/>
+      <path d="M494 245 H511" stroke="#35E0C8" stroke-width="1.8"/>
+      <path d="M503 261 v12 M497 267 h12" stroke="#8FF3E6" stroke-width="1.8"/>
+      <text class="label" x="512" y="288" text-anchor="middle">自主编排</text>
+      <text class="tiny" x="512" y="305" text-anchor="middle">拖拽 · 重排</text>
+    </g>
+
+    <path class="thinBlue" d="M388 314 V337 Q388 348 400 348 H423"/>
+    <path class="thinTeal" d="M512 314 V337 Q512 348 500 348 H477"/>
+    <rect x="372" y="348" width="156" height="48" rx="24" fill="#124A5E" stroke="#35E0C8" stroke-width="1.4" filter="url(#glowTeal)"/>
+    <text x="450" y="377" fill="#E9FBFF" font-size="14" font-weight="700" text-anchor="middle">个性化学习流</text>
+
+    <g id="mini-flow">
+      <rect x="334" y="429" width="48" height="37" rx="9" fill="#11486B" stroke="#49B6FF"/>
+      <text class="chipText" x="358" y="448">讲解</text>
+      <path class="thinBlue" d="M382 447 H393"/>
+      <rect x="395" y="429" width="48" height="37" rx="9" fill="#11486B" stroke="#49B6FF"/>
+      <text class="chipText" x="419" y="448">练习</text>
+      <path class="thinBlue" d="M443 447 H454"/>
+      <rect x="456" y="429" width="48" height="37" rx="9" fill="#303D77" stroke="#7A8CFF"/>
+      <text class="chipText" x="480" y="448">评估</text>
+      <path class="thinViolet" d="M504 447 H515"/>
+      <rect x="517" y="429" width="48" height="37" rx="9" fill="#12485A" stroke="#35E0C8"/>
+      <text class="chipText" x="541" y="448">调整</text>
+    </g>
+    <path d="M541 466 V482 H358 V467" fill="none" stroke="#35E0C8" stroke-width="1.3" stroke-dasharray="5 4"/>
+    <rect x="333" y="501" width="234" height="33" rx="16.5" fill="#0E3B50" stroke="#35E0C8"/>
+    <text x="450" y="523" fill="#BFFBF2" font-size="11.5" font-weight="700" text-anchor="middle">路线复用 + 节点重构</text>
+  </g>
+
+  <!-- 3. LangChain capability organization and representative agents -->
+  <g id="langchain-agents">
+    <rect class="panel" x="620" y="135" width="330" height="420" rx="20" stroke="#49B6FF"/>
+    <rect class="panelHead" x="620" y="135" width="330" height="58" rx="20" fill="#164E7A" stroke="#49B6FF" stroke-width="1.3"/>
+    <path d="M620 173 V193 H950 V173" fill="#164E7A"/>
+    <circle class="step" cx="647" cy="164" r="16" stroke="#8FD8FF"/>
+    <text class="stepText" x="647" y="164">3</text>
+    <text class="panelTitle" x="671" y="171">LangChain 能力组织层</text>
+
+    <g id="langchain-core">
+      <circle cx="785" cy="271" r="39" fill="#104E70" stroke="#49B6FF" stroke-width="1.4" filter="url(#glowBlue)"/>
+      <circle cx="785" cy="271" r="29" fill="#0B3556" stroke="#8FD8FF" stroke-width=".9" stroke-dasharray="4 4"/>
+      <text x="785" y="268" fill="#E9FBFF" font-size="11.5" font-weight="700" text-anchor="middle">统一能力</text>
+      <text x="785" y="284" fill="#A9E9FF" font-size="10.5" text-anchor="middle">入口</text>
+
+      <rect x="642" y="226" width="96" height="34" rx="17" fill="#11486B" stroke="#49B6FF"/>
+      <text class="chipText" x="690" y="243">能力封装</text>
+      <path d="M738 246 L752 256" stroke="#80CFFF" stroke-width="1.5"/>
+
+      <rect x="832" y="226" width="96" height="34" rx="17" fill="#12485A" stroke="#35E0C8"/>
+      <text class="chipText" x="880" y="243">工具调用</text>
+      <path d="M832 246 L818 256" stroke="#35E0C8" stroke-width="1.5"/>
+
+      <rect x="724" y="310" width="122" height="34" rx="17" fill="#303D77" stroke="#7A8CFF"/>
+      <text class="chipText" x="785" y="327">上下文组织</text>
+      <path d="M785 310 V300" stroke="#AAB4FF" stroke-width="1.5"/>
+    </g>
+
+    <line class="line" x1="640" y1="361" x2="930" y2="361"/>
+    <text x="785" y="386" fill="#8FD8FF" font-size="13.5" font-weight="700" text-anchor="middle">多智能体协同执行</text>
+    <g id="representative-agents">
+      <rect x="640" y="401" width="137" height="51" rx="12" fill="#0E3F5B" stroke="#49B6FF"/>
+      <circle cx="662" cy="426.5" r="12" fill="#134E72" stroke="#8FD8FF"/><text x="662" y="431" fill="#E9FBFF" font-size="11" font-weight="700" text-anchor="middle">讲</text>
+      <text class="small" x="718" y="431" text-anchor="middle">概念讲解</text>
+
+      <rect x="793" y="401" width="137" height="51" rx="12" fill="#0E4352" stroke="#35E0C8"/>
+      <circle cx="815" cy="426.5" r="12" fill="#155363" stroke="#35E0C8"/><text x="815" y="431" fill="#E9FBFF" font-size="11" font-weight="700" text-anchor="middle">练</text>
+      <text class="small" x="871" y="431" text-anchor="middle">练习训练</text>
+
+      <rect x="640" y="465" width="137" height="51" rx="12" fill="#50412E" stroke="#FFB86A"/>
+      <circle cx="662" cy="490.5" r="12" fill="#664D2E" stroke="#FFB86A"/><text x="662" y="495" fill="#FFF5E7" font-size="11" font-weight="700" text-anchor="middle">修</text>
+      <text class="small" x="718" y="495" text-anchor="middle">错题修复</text>
+
+      <rect x="793" y="465" width="137" height="51" rx="12" fill="#2D3A72" stroke="#7A8CFF"/>
+      <circle cx="815" cy="490.5" r="12" fill="#394786" stroke="#AAB4FF"/><text x="815" y="495" fill="#F2F3FF" font-size="11" font-weight="700" text-anchor="middle">评</text>
+      <text class="small" x="871" y="495" text-anchor="middle">总结评估</text>
+    </g>
+    <rect x="699" y="524" width="172" height="20" rx="10" fill="#104157" stroke="#35E0C8" stroke-width=".8"/>
+    <text x="785" y="538" fill="#BFFBF2" font-size="10.5" font-weight="700" text-anchor="middle">学习节点 ↔ 专业 Agent</text>
+  </g>
+
+  <!-- 4. LangGraph state-driven execution -->
+  <g id="langgraph">
+    <rect class="panel" x="985" y="135" width="300" height="420" rx="20" stroke="#7A8CFF"/>
+    <rect class="panelHead" x="985" y="135" width="300" height="58" rx="20" fill="#35457F" stroke="#7A8CFF" stroke-width="1.3"/>
+    <path d="M985 173 V193 H1285 V173" fill="#35457F"/>
+    <circle class="step" cx="1012" cy="164" r="16" stroke="#AAB4FF"/>
+    <text class="stepText" x="1012" y="164">4</text>
+    <text class="panelTitle" x="1036" y="171">LangGraph 状态执行</text>
+    <text x="1135" y="221" fill="#C8CEFF" font-size="11.5" font-weight="700" text-anchor="middle">学习流 → 可执行状态图</text>
+
+    <g id="compact-state-graph">
+      <circle cx="1015" cy="282" r="17" fill="#114B5F" stroke="#35E0C8" stroke-width="1.2"/>
+      <text x="1015" y="286" fill="#E9FBFF" font-size="10.5" font-weight="700" text-anchor="middle">开始</text>
+      <path class="thinViolet" d="M1032 282 H1046"/>
+      <rect x="1048" y="259" width="78" height="46" rx="10" fill="#2F3D75" stroke="#7A8CFF"/>
+      <text class="tiny" x="1087" y="278" text-anchor="middle">当前节点</text>
+      <text class="tiny" x="1087" y="293" text-anchor="middle">Agent</text>
+      <path class="thinViolet" d="M1126 282 H1137"/>
+      <path d="M1168 252 L1200 282 L1168 312 L1136 282 Z" fill="#5A4630" stroke="#FFB86A" stroke-width="1.2"/>
+      <text x="1168" y="279" fill="#FFF1DE" font-size="9.5" font-weight="700" text-anchor="middle">条件</text>
+      <text x="1168" y="292" fill="#FFF1DE" font-size="9.5" font-weight="700" text-anchor="middle">判断</text>
+      <path class="thinViolet" d="M1200 282 H1210"/>
+      <rect x="1212" y="259" width="56" height="46" rx="10" fill="#2F3D75" stroke="#7A8CFF"/>
+      <text class="tiny" x="1240" y="278" text-anchor="middle">下一</text>
+      <text class="tiny" x="1240" y="293" text-anchor="middle">节点</text>
+      <text x="1211" y="251" fill="#BFFBF2" font-size="9.5" font-weight="700">通过</text>
+
+      <path class="thinTeal" d="M1168 312 V336"/>
+      <rect x="1118" y="338" width="100" height="43" rx="10" fill="#134C53" stroke="#35E0C8"/>
+      <text x="1168" y="365" fill="#E9FBFF" font-size="11.5" font-weight="700" text-anchor="middle">纠错调整</text>
+      <text x="1181" y="330" fill="#FFCF9B" font-size="9.5" font-weight="700">未通过</text>
+      <path class="thinTeal" d="M1118 359 H1072 Q1041 359 1041 331 V305"/>
+      <text x="1048" y="350" fill="#BFFBF2" font-size="9.5" font-weight="700">循环</text>
+    </g>
+
+    <g id="graph-keywords">
+      <rect x="1005" y="420" width="80" height="40" rx="12" fill="#2F3D75" stroke="#7A8CFF"/>
+      <text class="chipText" x="1045" y="440">顺序执行</text>
+      <rect x="1095" y="420" width="80" height="40" rx="12" fill="#51422F" stroke="#FFB86A"/>
+      <text class="chipText" x="1135" y="440">条件分支</text>
+      <rect x="1185" y="420" width="80" height="40" rx="12" fill="#12485A" stroke="#35E0C8"/>
+      <text class="chipText" x="1225" y="440">循环调整</text>
+    </g>
+    <rect x="1005" y="488" width="260" height="46" rx="12" fill="#222F62" stroke="#7A8CFF"/>
+    <path d="M1025 511 h36 m-8 -8 8 8 -8 8" fill="none" stroke="#AAB4FF" stroke-width="1.7"/>
+    <text x="1169" y="516" fill="#DDE0FF" font-size="11.5" font-weight="700" text-anchor="middle">过程状态传递 · 路径控制</text>
+  </g>
+
+  <!-- 5. Results and optimization -->
+  <g id="results">
+    <rect class="panel" x="1320" y="135" width="235" height="420" rx="20" stroke="#35E0C8"/>
+    <rect class="panelHead" x="1320" y="135" width="235" height="58" rx="20" fill="#105665" stroke="#35E0C8" stroke-width="1.3"/>
+    <path d="M1320 173 V193 H1555 V173" fill="#105665"/>
+    <circle class="step" cx="1347" cy="164" r="16" stroke="#35E0C8"/>
+    <text class="stepText" x="1347" y="164">5</text>
+    <text class="panelTitle" x="1371" y="171">反馈优化闭环</text>
+
+    <g id="result-cards">
+      <rect class="section" x="1338" y="222" width="199" height="62" rx="13" stroke="#49B6FF"/>
+      <circle cx="1370" cy="253" r="16" fill="#114C70" stroke="#49B6FF"/>
+      <path d="M1362 252 h16 M1362 258 h11 M1362 246 h13" stroke="#E9FBFF" stroke-width="1.7"/>
+      <text class="label" x="1401" y="258">学习结果</text>
+
+      <rect class="section" x="1338" y="298" width="199" height="62" rx="13" stroke="#7A8CFF"/>
+      <circle cx="1370" cy="329" r="16" fill="#33427E" stroke="#7A8CFF"/>
+      <path d="M1361 337 v-10 h5 v10 M1369 337 v-16 h5 v16 M1377 337 v-22 h5 v22" fill="none" stroke="#E9FBFF" stroke-width="1.6"/>
+      <text class="label" x="1401" y="334">掌握度更新</text>
+
+      <rect class="section" x="1338" y="374" width="199" height="62" rx="13" stroke="#35E0C8"/>
+      <circle cx="1370" cy="405" r="16" fill="#145260" stroke="#35E0C8"/>
+      <path d="M1360 411 l8 -13 6 7 8 -12" fill="none" stroke="#E9FBFF" stroke-width="1.8"/>
+      <circle cx="1382" cy="393" r="2.5" fill="#E9FBFF"/>
+      <text class="label" x="1401" y="410">路径优化</text>
+    </g>
+
+    <g transform="translate(1437.5 492)">
+      <circle r="32" fill="#0E4050" stroke="#35E0C8" stroke-width="1.2"/>
+      <path d="M-15 -4 A18 18 0 0 1 13 -14" fill="none" stroke="#35E0C8" stroke-width="2.5" marker-end="url(#arrowTeal)"/>
+      <path d="M15 4 A18 18 0 0 1 -13 14" fill="none" stroke="#8FD8FF" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+      <text x="0" y="4" fill="#E9FBFF" font-size="10.5" font-weight="700" text-anchor="middle">优化</text>
+    </g>
+  </g>
+
+  <!-- High-contrast connectors kept above the cards for fast PPT reading. -->
+  <g id="flow-connectors">
+    <circle cx="297.5" cy="350" r="13" fill="#0B3556" stroke="#8FD8FF" stroke-width="1.2"/>
+    <path d="M291 350 H304" fill="none" stroke="#8FD8FF" stroke-width="2.2" marker-end="url(#arrowBlue)"/>
+    <circle cx="602.5" cy="350" r="13" fill="#0B3556" stroke="#8FD8FF" stroke-width="1.2"/>
+    <path d="M596 350 H609" fill="none" stroke="#8FD8FF" stroke-width="2.2" marker-end="url(#arrowBlue)"/>
+    <circle cx="967.5" cy="350" r="13" fill="#172D62" stroke="#AAB4FF" stroke-width="1.2"/>
+    <path d="M961 350 H974" fill="none" stroke="#AAB4FF" stroke-width="2.2" marker-end="url(#arrowViolet)"/>
+    <circle cx="1302.5" cy="350" r="13" fill="#103E52" stroke="#35E0C8" stroke-width="1.2"/>
+    <path d="M1296 350 H1309" fill="none" stroke="#35E0C8" stroke-width="2.2" marker-end="url(#arrowTeal)"/>
+  </g>
+
+  <!-- Strong visual feedback loop: results update both profile and planning. -->
+  <g id="feedback-loop">
+    <path class="feedback" d="M1438 555 V622 H163 Q132 622 132 591 V558"/>
+    <path class="feedback" d="M450 622 V558"/>
+    <rect x="575" y="602" width="450" height="39" rx="19.5" fill="#0C4351" stroke="#35E0C8" stroke-width="1.3"/>
+    <text x="800" y="627" fill="#C9FFF6" font-size="13" font-weight="700" text-anchor="middle">结果回流 → 更新认知画像 → 重规划后续学习流</text>
+  </g>
+
+  <!-- Minimal takeaway -->
+  <g id="footer">
+    <line x1="245" y1="690" x2="620" y2="690" stroke="#49B6FF" stroke-width="1" stroke-opacity=".45"/>
+    <line x1="980" y1="690" x2="1355" y2="690" stroke="#49B6FF" stroke-width="1" stroke-opacity=".45"/>
+    <rect x="620" y="671" width="360" height="38" rx="19" fill="#0A2D4C" fill-opacity=".9" stroke="#80CFFF"/>
+    <text x="800" y="696" fill="#E9FBFF" font-size="13" font-weight="700" text-anchor="middle">画像驱动 · 自主编排 · 协同执行 · 动态优化</text>
+  </g>
+</svg>

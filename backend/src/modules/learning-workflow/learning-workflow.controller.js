@@ -4,6 +4,25 @@ const runtimeService = require('./workflow-runtime.service');
 const generationService = require('./workflow-generation.service');
 const { createAgentError } = require('../agent/common/agent.errors');
 const { normalizeWorkflowNodeType } = require('./workflow-node-type');
+const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
+
+const LEARNING_UPLOAD_DIR = path.resolve(__dirname, '../../../storage/uploads/learning');
+const IMAGE_EXTENSIONS = new Map([
+  ['image/jpeg', '.jpg'], ['image/png', '.png'], ['image/gif', '.gif'],
+  ['image/webp', '.webp'], ['image/bmp', '.bmp'],
+]);
+
+function validImageSignature(buffer, mimeType) {
+  const starts = (...bytes) => bytes.every((value, index) => buffer[index] === value);
+  if (mimeType === 'image/jpeg') return starts(0xff, 0xd8, 0xff);
+  if (mimeType === 'image/png') return starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+  if (mimeType === 'image/gif') return ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'));
+  if (mimeType === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  if (mimeType === 'image/bmp') return buffer.subarray(0, 2).toString('ascii') === 'BM';
+  return false;
+}
 
 function getUserId(req) {
   return req.user?.user_id;
@@ -23,6 +42,7 @@ function sendError(res, err) {
   console.error(`[learning-workflow] ${safeCode}:`, rawMessage);
   if (res.headersSent) return;
   res.status(status).json({
+    success: false,
     code: safeCode,
     message,
     data: isInternal ? null : (err.data || null),
@@ -30,7 +50,7 @@ function sendError(res, err) {
 }
 
 function sendSuccess(res, data, message = 'ok') {
-  res.json({ code: 0, message, data });
+  res.json({ success: true, code: 0, message, data });
 }
 
 function triggerPreparedNextNode(userId, sessionId, result) {
@@ -728,21 +748,11 @@ async function completeNodeResult(req, res) {
 
     console.log(`[Next][clientActionId=${clientActionId || 'unknown'}] controller_entered session=${sessionId} node=${requestedNodeId} current=${currentNodeId}`);
 
-    // 流式 Agent 在跳过/切换后的迟到结果是正常作废，不允许重新创建或完成历史 nodeRun。
-    if (currentNodeId !== requestedNodeId
-      || (expectedNodeExecutionId && Number(expectedNodeExecutionId) !== Number(session.currentNodeExecutionId))) {
-      return sendSuccess(res, {
-        discarded: true,
-        reason: 'stale_node_execution',
-        session,
-      }, '旧节点响应已忽略');
-    }
-
     // ======== Idempotency by clientActionId (via raw query for MariaDB compat) ========
     if (clientActionId) {
       try {
         const existingEvents = await prisma.$queryRawUnsafe(
-          `SELECT event_id FROM learning_session_event WHERE session_id = ? AND event_type = 'NODE_COMPLETED' AND node_id = ? AND JSON_EXTRACT(data_json, '$.clientActionId') = ? LIMIT 1`,
+          `SELECT event_id FROM learning_session_events WHERE session_id = ? AND event_type = 'NODE_COMPLETED' AND node_id = ? AND JSON_EXTRACT(data_json, '$.clientActionId') = ? LIMIT 1`,
           Number(sessionId), requestedNodeId, clientActionId
         );
         if (existingEvents && existingEvents.length > 0) {
@@ -761,6 +771,18 @@ async function completeNodeResult(req, res) {
         // If JSON query fails, fall through to normal logic (non-fatal)
         console.warn(`[completeNodeResult] idempotency check failed, proceeding: ${idemErr.message}`);
       }
+    }
+
+    // 流式 Agent 在跳过/切换后的迟到结果是正常作废，不允许重新创建或完成历史 nodeRun。
+    // 幂等检查必须先执行：同一动作在流程推进后重放，仍应返回首次成功结果，
+    // 而不是被误判成一个新的迟到响应。
+    if (currentNodeId !== requestedNodeId
+      || (expectedNodeExecutionId && Number(expectedNodeExecutionId) !== Number(session.currentNodeExecutionId))) {
+      return sendSuccess(res, {
+        discarded: true,
+        reason: 'stale_node_execution',
+        session,
+      }, '旧节点响应已忽略');
     }
 
     // ======== Find existing node runs ========
@@ -797,6 +819,14 @@ async function completeNodeResult(req, res) {
       console.log(`[Next][clientActionId=${clientActionId}] case=B reconciled stuckAt=${requestedNodeId}`);
       // Advance to next node without creating new node run
       const advResult = await runtimeService.advanceToNextNode(sessionId, userId);
+      if (clientActionId) {
+        await prisma.learningSessionEvent.create({
+          data: {
+            session_id: Number(sessionId), event_type: 'NODE_COMPLETED', node_id: requestedNodeId,
+            title: '节点完成操作已确认', data_json: { clientActionId },
+          },
+        });
+      }
       const updatedSession = await runtimeService.getSession(sessionId, userId);
       return sendSuccess(res, {
         completedNodeId: requestedNodeId,
@@ -1156,6 +1186,7 @@ module.exports = {
   completeNodeResult,
   saveGuideOnly,
   uploadSessionFiles,
+  downloadSessionFile,
 };
 
 // ========================
@@ -1164,6 +1195,7 @@ module.exports = {
 
 async function uploadSessionFiles(req, res, next) {
   const prisma = require('../../config/prisma');
+  const storedPaths = [];
   try {
     const sessionId = parseInt(req.params.id, 10);
     const userId = req.user.user_id;
@@ -1174,30 +1206,49 @@ async function uploadSessionFiles(req, res, next) {
       return res.status(400).json({ code: 400, message: '请上传至少一个文件', data: null });
     }
 
-    const fileRefs = req.files.map((f) => ({
-      fileUrl: `/uploads/learning/${f.filename}`,
-      mimeType: f.mimetype,
-      fileName: f.originalname,
-      fileSize: f.size,
-      uploadedAt: new Date().toISOString(),
-    }));
-
-    // 持久化到当前 node_run
     const currentNodeRun = session.currentNodeRun
-      || (session.node_runs || []).find((r) => r.status === 'RUNNING' || r.status === 'PENDING');
+      || (session.node_runs || []).find((run) => run.status === 'RUNNING' || run.status === 'PENDING');
+    if (!currentNodeRun) {
+      const error = new Error('当前没有可接收图片的学习节点');
+      error.status = 409;
+      error.code = 'NO_ACTIVE_NODE_RUN';
+      throw error;
+    }
 
-    if (currentNodeRun) {
-      const existingInput = currentNodeRun.input_summary_json || {};
-      await prisma.learningSessionNodeRun.update({
-        where: { node_run_id: currentNodeRun.node_run_id },
-        data: {
-          input_summary_json: {
-            ...existingInput,
-            uploadedFiles: [...(existingInput.uploadedFiles || []), ...fileRefs],
-          },
-        },
+    await fs.mkdir(LEARNING_UPLOAD_DIR, { recursive: true });
+    const fileRefs = [];
+    for (const file of req.files) {
+      if (!validImageSignature(file.buffer, file.mimetype)) {
+        const error = new Error('图片内容与声明的文件类型不一致');
+        error.status = 400;
+        error.code = 'INVALID_IMAGE_CONTENT';
+        throw error;
+      }
+      const extension = IMAGE_EXTENSIONS.get(file.mimetype);
+      const filename = `learning_${Date.now()}_${crypto.randomBytes(8).toString('hex')}${extension}`;
+      const absolutePath = path.resolve(LEARNING_UPLOAD_DIR, filename);
+      await fs.writeFile(absolutePath, file.buffer, { flag: 'wx' });
+      storedPaths.push(absolutePath);
+      fileRefs.push({
+        fileUrl: `/api/learning-workflows/sessions/${sessionId}/files/${filename}`,
+        mimeType: file.mimetype,
+        fileName: file.originalname,
+        fileSize: file.size,
+        uploadedAt: new Date().toISOString(),
       });
     }
+
+    // 持久化到当前 node_run
+    const existingInput = currentNodeRun.input_summary_json || {};
+    await prisma.learningSessionNodeRun.update({
+      where: { node_run_id: currentNodeRun.node_run_id },
+      data: {
+        input_summary_json: {
+          ...existingInput,
+          uploadedFiles: [...(existingInput.uploadedFiles || []), ...fileRefs],
+        },
+      },
+    });
 
     res.json({
       code: 200,
@@ -1205,6 +1256,32 @@ async function uploadSessionFiles(req, res, next) {
       data: { files: fileRefs, count: fileRefs.length },
     });
   } catch (err) {
+    await Promise.all(storedPaths.map((filePath) => fs.unlink(filePath).catch(() => {})));
     next(err);
+  }
+}
+
+async function downloadSessionFile(req, res, next) {
+  try {
+    const sessionId = Number.parseInt(req.params.id, 10);
+    const filename = String(req.params.filename || '');
+    if (!Number.isInteger(sessionId) || path.basename(filename) !== filename || !/^learning_[a-zA-Z0-9_.-]+\.(?:jpg|png|gif|webp|bmp)$/.test(filename)) {
+      return res.status(400).json({ success: false, code: 40001, message: '文件参数不合法', data: null });
+    }
+    const session = await runtimeService.getSession(sessionId, req.user.user_id);
+    const expectedUrl = `/api/learning-workflows/sessions/${sessionId}/files/${filename}`;
+    const owned = (session.node_runs || []).some((run) => (
+      (run.input_summary_json?.uploadedFiles || []).some((file) => file.fileUrl === expectedUrl)
+    ));
+    if (!owned) return res.status(404).json({ success: false, code: 40002, message: '文件不存在', data: null });
+    const absolutePath = path.resolve(LEARNING_UPLOAD_DIR, filename);
+    if (!absolutePath.startsWith(`${LEARNING_UPLOAD_DIR}${path.sep}`)) return res.status(400).json({ success: false, code: 40001, message: '文件参数不合法', data: null });
+    await fs.access(absolutePath);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    return res.sendFile(absolutePath);
+  } catch (err) {
+    if (err?.code === 'ENOENT') return res.status(404).json({ success: false, code: 40002, message: '文件不存在', data: null });
+    return next(err);
   }
 }

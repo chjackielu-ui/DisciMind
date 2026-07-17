@@ -5,6 +5,7 @@ const mammoth = require('mammoth');
 const prisma = require('../../config/prisma');
 const dify = require('../learning-agent/adapters/dify-knowledge.adapter');
 const asyncTasks = require('../async-task/async-task.service');
+const { normalizeUploadFileName } = require('./knowledge-ingestion.utils');
 
 const DEFAULT_CHUNK_SIZE = 800;
 const DEFAULT_CHUNK_OVERLAP = 120;
@@ -16,6 +17,47 @@ function pipelineError(code, stage, message, retryable = true) {
 
 function throwIfAborted(signal) {
   if (signal?.aborted) throw pipelineError('KNOWLEDGE_TASK_CANCELLED', 'cancelled', '知识库处理已取消。', true);
+}
+
+function unavailableDifyDocument(error) {
+  const status = Number(error?.status || error?.response?.status || error?.cause?.response?.status || 0);
+  const code = String(error?.code || '').toUpperCase();
+  const message = [
+    error?.message,
+    error?.response?.data?.message,
+    error?.cause?.response?.data?.message,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return code === 'DIFY_KNOWLEDGE_NOT_FOUND'
+    || status === 404
+    || message.includes('document is not available')
+    || message.includes('document not found');
+}
+
+async function restartRemoteIndexing(document, absolutePath, fileName) {
+  const datasetId = document.knowledge_base.dify_dataset_id;
+  const upload = () => dify.uploadDocumentFile(datasetId, {
+    filePath: absolutePath,
+    fileName,
+    mimeType: document.mime_type,
+  });
+  if (!document.dify_document_id) return upload();
+  if (document.error_stage !== 'indexing') return null;
+
+  try {
+    return await dify.updateDocumentFile(datasetId, document.dify_document_id, {
+      filePath: absolutePath,
+      fileName,
+      mimeType: document.mime_type,
+    });
+  } catch (error) {
+    // Dify refuses update-by-file once a document has entered its terminal error
+    // state. Delete that unusable remote record and create a fresh indexing batch.
+    if (!unavailableDifyDocument(error)) throw error;
+    await dify.deleteDatasetDocument(datasetId, document.dify_document_id).catch((deleteError) => {
+      if (!unavailableDifyDocument(deleteError)) throw deleteError;
+    });
+    return upload();
+  }
 }
 
 function decodeHtml(value) {
@@ -277,16 +319,15 @@ async function processDocumentTask(task, signal) {
 
     throwIfAborted(signal);
     if (!document.knowledge_base?.dify_dataset_id) throw pipelineError('DIFY_DATASET_MISSING', 'indexing', '知识库尚未绑定可用的 Dify Dataset。', true);
-    if (document.error_stage === 'indexing' && document.dify_document_id) {
-      await dify.deleteDatasetDocument(document.knowledge_base.dify_dataset_id, document.dify_document_id).catch(() => {});
-      await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: { dify_document_id: null, dify_batch_id: null } });
-      document.dify_document_id = null;
-      document.dify_batch_id = null;
+    const repairedFileName = normalizeUploadFileName(document.original_filename);
+    if (repairedFileName && repairedFileName !== document.original_filename) {
+      await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: {
+        original_filename: repairedFileName, title: repairedFileName,
+      } });
+      document.original_filename = repairedFileName;
     }
     await taskStage(task.id, document.document_id, 'indexing', 'EMBEDDING', 'INDEXING');
-    const remote = document.dify_document_id ? null : await dify.uploadDocumentFile(document.knowledge_base.dify_dataset_id, {
-      filePath: absolutePath, fileName: document.original_filename, mimeType: document.mime_type,
-    });
+    const remote = await restartRemoteIndexing(document, absolutePath, repairedFileName);
     if (signal?.aborted) {
       if (remote?.documentId) await dify.deleteDatasetDocument(document.knowledge_base.dify_dataset_id, remote.documentId).catch(() => {});
       throwIfAborted(signal);
@@ -312,5 +353,6 @@ async function processDocumentTask(task, signal) {
 module.exports = {
   DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP, MIN_TEXT_LENGTH,
   parseFile, cleanText, structuredBlocks, chunkStructuredText,
+  unavailableDifyDocument, restartRemoteIndexing,
   recalculateKnowledgeBaseStatus, processDocumentTask,
 };

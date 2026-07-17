@@ -1030,6 +1030,24 @@ export function getStudentDocumentDetail(documentId) {
   return get(`/student/documents/${documentId}`)
 }
 
+export async function downloadStudentDocument(documentId, fallbackName = '学习资料') {
+  const token = getToken()
+  const response = await fetch(`${BASE_URL}/student/documents/${documentId}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}, credentials: 'include', redirect: 'follow',
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error?.message || payload.message || '文档下载失败')
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get('content-disposition') || ''
+  const matched = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i)
+  const name = matched ? decodeURIComponent(matched[1].replace(/\"/g, '')) : fallbackName
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 /**
  * 删除文档
  * @param {number} documentId

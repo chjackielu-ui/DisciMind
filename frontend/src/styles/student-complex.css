@@ -3236,30 +3236,51 @@
 
 .practice-config-split {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.72fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "types count"
+    "difficulty source"
+    "session answer";
   gap: 16px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .practice-config-main,
 .practice-config-side {
-  display: flex;
-  flex-direction: column;
+  display: contents;
   min-width: 0;
 }
 
-.practice-config-main {
-  min-height: 360px;
+.practice-config-main > .config-block:first-child {
+  grid-area: types;
+}
+
+.practice-config-main > .config-block:nth-child(2) {
+  grid-area: difficulty;
+}
+
+.practice-config-side > .config-block:first-child {
+  grid-area: count;
+}
+
+.practice-config-side > .config-block:nth-child(2) {
+  grid-area: source;
+}
+
+.practice-config-side > .config-block:nth-child(3) {
+  grid-area: session;
+}
+
+.practice-config-side > .config-block:nth-child(4) {
+  grid-area: answer;
 }
 
 .practice-config-main .config-block:nth-child(2) {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: block;
 }
 
-.practice-config-main .config-block:nth-child(2) .diff-card-grid {
-  flex: 1;
+.practice-config-split .config-block {
+  margin-bottom: 0;
 }
 
 .config-card.config-disabled::before {
@@ -3367,11 +3388,12 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  align-content: start;
 }
 
 .diff-card {
-  min-height: 112px;
-  padding: 12px;
+  min-height: 96px;
+  padding: 14px;
   text-align: left;
   border: 1.5px solid var(--complex-line);
   border-radius: 8px;
@@ -3461,6 +3483,204 @@
   text-align: center;
 }
 
+/* 题库题 / AI 题来源配比 */
+.source-mix-block {
+  padding: 14px;
+  border: 1px solid rgba(47, 102, 144, 0.12);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(47, 102, 144, 0.035), rgba(91, 102, 208, 0.04));
+}
+
+.source-mix-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.source-mix-heading small {
+  line-height: 1.45;
+}
+
+.source-mix {
+  min-width: 0;
+}
+
+.source-mix-summary {
+  display: grid;
+  grid-template-columns: minmax(86px, 1fr) auto minmax(86px, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.source-mix-side {
+  display: grid;
+  gap: 1px;
+}
+
+.source-mix-side.ai {
+  text-align: right;
+}
+
+.source-mix-side span,
+.source-mix-side small {
+  color: var(--text-sub);
+  font-size: 0.71rem;
+}
+
+.source-mix-side b {
+  color: var(--complex-primary);
+  font-size: 0.98rem;
+}
+
+.source-mix-side.ai b {
+  color: #5B66D0;
+}
+
+.source-mix-total {
+  min-width: 76px;
+  padding: 6px 10px;
+  color: var(--text-sub);
+  background: #fff;
+  border: 1px solid rgba(47, 102, 144, 0.1);
+  border-radius: 999px;
+  text-align: center;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.source-mix-total b {
+  color: var(--complex-deep);
+}
+
+.source-mix-control {
+  position: relative;
+  padding-top: 34px;
+}
+
+.source-mix-range {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 8px;
+  margin: 0;
+  border-radius: 999px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(90deg, #2F6690 0%, #4779B9 48%, #6967D9 100%);
+  box-shadow: inset 0 0 0 1px rgba(22, 66, 91, 0.12);
+}
+
+.source-mix-range::-webkit-slider-thumb {
+  width: 21px;
+  height: 21px;
+  border: 3px solid #5B66D0;
+  border-radius: 50%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #fff;
+  box-shadow: 0 2px 7px rgba(37, 67, 122, 0.2);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.source-mix-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 3px solid #5B66D0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 7px rgba(37, 67, 122, 0.2);
+}
+
+.source-mix-range:hover::-webkit-slider-thumb,
+.source-mix-range:active::-webkit-slider-thumb {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 6px rgba(91, 102, 208, 0.13), 0 2px 7px rgba(37, 67, 122, 0.2);
+}
+
+.source-mix-range:focus-visible {
+  box-shadow: 0 0 0 4px rgba(91, 102, 208, 0.17), inset 0 0 0 1px rgba(22, 66, 91, 0.12);
+}
+
+.source-mix-range:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.35);
+  opacity: 0.65;
+}
+
+.source-mix-tooltip {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: clamp(38px, var(--mix-position), calc(100% - 38px));
+  transform: translateX(-50%) translateY(3px);
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #fff;
+  background: #263E71;
+  box-shadow: 0 4px 10px rgba(30, 55, 93, 0.18);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.source-mix-control:hover .source-mix-tooltip,
+.source-mix-control:focus-within .source-mix-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.source-mix-ticks {
+  position: relative;
+  height: 18px;
+  margin: 1px 10px 0;
+}
+
+.source-mix-tick {
+  position: absolute;
+  left: var(--tick);
+  top: 0;
+  width: 1px;
+  height: 5px;
+  transform: translateX(-50%);
+  background: rgba(22, 66, 91, 0.25);
+  color: var(--text-hint);
+  font-size: 0.61rem;
+  line-height: 18px;
+  text-align: center;
+}
+
+.source-mix-tick.labelled {
+  height: 7px;
+}
+
+.source-mix-tick.labelled::first-line {
+  color: var(--text-hint);
+}
+
+.source-mix-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1px;
+  color: var(--text-hint);
+  font-size: 0.66rem;
+}
+
+.source-mix-availability {
+  margin: 8px 0 0;
+  color: #5C7380;
+  font-size: 0.69rem;
+  line-height: 1.5;
+}
+
+.source-mix-availability.warning {
+  color: #9A5B17;
+}
+
 /* 模式选项 */
 .mode-option-grid {
   display: grid;
@@ -3524,9 +3744,22 @@
 }
 
 .mode-info-icon {
-  font-size: 1.8rem;
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   margin-top: 2px;
+  color: #4F60C6;
+  background: linear-gradient(135deg, rgba(47, 102, 144, 0.12), rgba(91, 102, 208, 0.12));
+  border: 1px solid rgba(91, 102, 208, 0.13);
+  border-radius: 11px;
+}
+
+.mode-info-icon svg {
+  width: 22px;
+  height: 22px;
 }
 
 .mode-info-desc {
@@ -3771,9 +4004,44 @@
 }
 
 .complex-btn-secondary.danger {
-  color: #B64C3D;
-  border-color: rgba(182, 76, 61, 0.22);
-  background: rgba(182, 76, 61, 0.06);
+  color: #932F29;
+  border-color: #D77870;
+  background: #FFF1F0;
+  font-weight: 750;
+}
+
+.complex-btn-secondary.danger:hover:not(:disabled) {
+  color: #7D241F;
+  border-color: #C75A51;
+  background: #FFDCD8;
+}
+
+.complex-btn-secondary.danger:focus-visible {
+  outline: 3px solid rgba(255, 223, 219, 0.96);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px #B9443C;
+}
+
+.complex-btn-secondary.danger:disabled {
+  color: #8E5D59;
+  border-color: #D7B5B1;
+  background: #F1E6E4;
+  opacity: 1;
+  cursor: wait;
+}
+
+.ai-generating-notice-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
+  color: #4F60C6;
+}
+
+.ai-generating-notice-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .practice-insight-card {
@@ -4528,6 +4796,12 @@
   .practice-main-grid,
   .practice-config-split {
     grid-template-columns: 1fr;
+    grid-template-areas: none;
+  }
+
+  .practice-config-main > .config-block,
+  .practice-config-side > .config-block {
+    grid-area: auto;
   }
 
   .practice-side-rail {
@@ -4633,6 +4907,20 @@
 
   .count-selector-row {
     gap: 8px;
+  }
+
+  .source-mix-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .source-mix-total {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+  }
+
+  .source-mix-side {
+    grid-row: 2;
   }
 
   .ai-generating-modal {
