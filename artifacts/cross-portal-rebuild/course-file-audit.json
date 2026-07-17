@@ -1,0 +1,32 @@
+{
+  "reusable_models": [
+    "Course",
+    "TeachingClass",
+    "TeachingClassTeacherAuthorization",
+    "StudentCourseEnrollment",
+    "KnowledgeDocument",
+    "ResourceDistribution",
+    "ResourceRecipient",
+    "Notification"
+  ],
+  "existing_endpoints": {
+    "teacher_upload": "/api/teacher/knowledge-documents/upload",
+    "teacher_share": "/api/teacher/resources/:document_id/share",
+    "teacher_download": "/api/teacher/resources/:document_id/download",
+    "student_list": "/api/student/resources",
+    "student_download": "/api/student/resources/:recipient_id/download"
+  },
+  "controls": {
+    "teacher_upload_role_guard": true,
+    "share_checks_class_access": true,
+    "student_download_checks_recipient_owner": true,
+    "publish_creates_notifications": true
+  },
+  "gaps_before_rebuild": {
+    "public_upload_static_mount": true,
+    "course_scoped_download_contract": true,
+    "upload_mime_validation": false,
+    "unpredictable_storage_key": false,
+    "teacher_upload_verifies_class_assignment_before_file_write": false
+  }
+}

@@ -1,0 +1,12 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+test('preload reuses the persisted learning plan and invalidates cache on context hash changes', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../src/modules/learning-flow-preload/learning-flow-preload.service.js'), 'utf8');
+  const front = fs.readFileSync(path.resolve(__dirname, '../../frontend/src/pages/student-learning-flows.js'), 'utf8');
+  assert.match(source, /activeLearningContext[\s\S]*learningContextHash[\s\S]*contextHash/);
+  assert.match(source, /preloadKey:\s*\{\s*not:\s*context\.preloadKey/);
+  assert.match(front, /prepareCurrentLearningPlan[\s\S]*studentLearningPlanApi\.prepare\(state\.learningPlan\.id, operationId\)/);
+});

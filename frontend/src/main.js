@@ -1,0 +1,28 @@
+// 前端入口 — 初始化路由系统
+import './styles/global.css'
+import './styles/login.css'
+import './styles/dashboard.css'
+import './styles/student.css'
+import './styles/student-portrait-redesign.css'
+import './styles/student-complex.css'
+import './styles/theme.css'
+import './styles/admin.css'
+import './styles/agent-marketplace.css'
+import './styles/task-center.css'
+import './styles/unified-work-center.css'
+import './styles/ai-assistant.css'
+import './styles/ai-assistant-integration.css'
+import './styles/course-files.css'
+import './styles/teacher-workbench.css'
+import './styles/teacher-artifacts.css'
+import './styles/learning-card-platform.css'
+import './styles/teacher-agent-marketplace.css'
+import './styles/teacher-publisher.css'
+import './styles/teacher-question-bank.css'
+import './styles/teacher-system-upgrade.css'
+import './styles/teacher-course-upgrade.css'
+import './styles/student-teaching-tasks.css'
+import { initRouter } from './utils/router.js'
+
+// 启动 Hash 路由
+initRouter()

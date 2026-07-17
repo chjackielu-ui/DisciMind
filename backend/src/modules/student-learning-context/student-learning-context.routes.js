@@ -1,0 +1,10 @@
+const { Router } = require('express');
+const auth = require('../../middlewares/auth.middleware');
+const roles = require('../../middlewares/role.middleware');
+const controller = require('./student-learning-context.controller');
+const router = Router();
+router.use(auth, roles(['student']));
+router.get('/', controller.get);
+router.put('/', controller.put);
+router.delete('/', controller.clear);
+module.exports = router;

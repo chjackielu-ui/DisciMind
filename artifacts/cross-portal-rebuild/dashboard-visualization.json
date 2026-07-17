@@ -1,0 +1,22 @@
+{
+  "schema": "dashboard-visualization-audit.v1",
+  "passed": true,
+  "checks": {
+    "14_day_trend": true,
+    "role_and_class_composition": true,
+    "course_class_ranking": true,
+    "review_flows": true,
+    "provider_health": true,
+    "ai_reliability": true,
+    "recent_operations": true,
+    "frequent_events": true,
+    "compact_todos": true,
+    "system_health": true,
+    "skeleton": true,
+    "number_animation": true,
+    "banner_particles": true,
+    "twelve_column_grid": true,
+    "runtime_admin_checks": true
+  },
+  "runtime_check_count": 77
+}

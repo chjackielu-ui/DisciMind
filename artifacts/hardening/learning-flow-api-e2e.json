@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "learning-flow-api-e2e.v1",
+  "generatedAt": "2026-07-15T21:11:48.242334+00:00",
+  "baseUrl": "http://127.0.0.1:3000/api",
+  "marker": "CODEX-HARDENING-53cfdf0c-fee9-4936-b812-4bfa41b71d0c",
+  "passed": true,
+  "checks": [
+    {
+      "name": "health",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 24,
+      "detail": "backend health endpoint"
+    },
+    {
+      "name": "anonymous_rejected",
+      "passed": true,
+      "status": null,
+      "duration_ms": 30,
+      "detail": "templates require authentication"
+    },
+    {
+      "name": "login",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 132,
+      "detail": "test account authenticated"
+    },
+    {
+      "name": "course_scope",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 39,
+      "detail": "available_courses=1"
+    },
+    {
+      "name": "knowledge_point_scope",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 16,
+      "detail": "available_points=10"
+    },
+    {
+      "name": "create",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 56,
+      "detail": "template_id=84"
+    },
+    {
+      "name": "save_position",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 53,
+      "detail": "position={'x': 360, 'y': 240}"
+    },
+    {
+      "name": "reload_position",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 20,
+      "detail": "position={'x': 360, 'y': 240}"
+    },
+    {
+      "name": "reject_cycle",
+      "passed": true,
+      "status": null,
+      "duration_ms": 30,
+      "detail": "self-loop rejected"
+    },
+    {
+      "name": "version_integrity",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 11,
+      "detail": "versions=2"
+    },
+    {
+      "name": "delete",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 40,
+      "detail": "{\"deletedCount\": 1, \"archivedCount\": 0, \"deletedPermanently\": 1}"
+    },
+    {
+      "name": "cleanup_verified",
+      "passed": true,
+      "status": 200,
+      "duration_ms": 24,
+      "detail": "remaining=0"
+    }
+  ],
+  "latencyMs": {
+    "count": 14,
+    "min": 11,
+    "median": 27.0,
+    "max": 132
+  },
+  "cleanup": {
+    "attempted": true,
+    "matched_ids": [],
+    "remaining": 0
+  },
+  "error": null
+}

@@ -1,0 +1,53 @@
+.teacher-ai-message-extras {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.teacher-ai-source-list .ai-source-card b,
+.teacher-ai-source-list .ai-source-card span {
+  display: block;
+}
+
+.teacher-ai-source-list .ai-source-card span {
+  margin-top: 2px;
+}
+
+.teacher-ai-composer > .ai-search-controls {
+  border-top: 1px solid rgba(135, 111, 82, 0.11);
+}
+
+.composer-toolbar-primary { min-width: 0; flex-wrap: wrap; }
+.composer-toolbar-extension { position: relative; min-width: 0; }
+.composer-toolbar-extension .ai-search-controls { display: block; padding: 0; }
+.composer-toolbar-extension .ai-search-primary { gap: 3px; }
+.composer-toolbar-extension .ai-search-label { padding: 0 3px; color: #536d7d; }
+.composer-toolbar-extension .ai-search-primary button { min-height: 28px; padding: 0 6px; border-radius: 6px; }
+.composer-toolbar-extension .ai-search-advanced-toggle { margin-left: 2px; }
+.composer-toolbar-extension .ai-search-status { display: none; }
+.composer-toolbar-extension .ai-search-advanced {
+  position: absolute;
+  z-index: 80;
+  bottom: 36px;
+  left: 0;
+  width: min(540px, calc(100vw - 96px));
+  box-sizing: border-box;
+  box-shadow: 0 16px 42px rgba(25, 47, 72, .16);
+}
+@media (max-width: 760px) {
+  .composer-toolbar-extension .ai-search-label span,
+  .composer-toolbar-extension .ai-search-advanced-toggle span { display: none; }
+  .composer-toolbar-extension .ai-search-advanced { left: -190px; width: min(430px, calc(100vw - 36px)); }
+}
+
+.student-ai-message-extras {
+  min-width: 0;
+}
+
+.ai-artifact-card > button {
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+  color: #8a581f;
+  font-size: 0.65rem;
+  cursor: pointer;
+}

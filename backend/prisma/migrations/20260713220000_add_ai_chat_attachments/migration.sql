@@ -1,0 +1,20 @@
+CREATE TABLE `ai_chat_attachments` (
+  `id` VARCHAR(36) NOT NULL,
+  `user_id` INTEGER NOT NULL,
+  `conversation_id` INTEGER NULL,
+  `message_id` INTEGER NULL,
+  `file_name` VARCHAR(255) NOT NULL,
+  `mime_type` VARCHAR(120) NOT NULL,
+  `file_extension` VARCHAR(16) NOT NULL,
+  `size_bytes` BIGINT NOT NULL,
+  `storage_path` VARCHAR(1000) NOT NULL,
+  `checksum` VARCHAR(64) NOT NULL,
+  `status` VARCHAR(24) NOT NULL DEFAULT 'READY',
+  `extracted_text` LONGTEXT NULL,
+  `metadata_json` JSON NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `ai_chat_attachments_user_id_created_at_idx` (`user_id`, `created_at`),
+  INDEX `ai_chat_attachments_conversation_id_message_id_idx` (`conversation_id`, `message_id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -1,0 +1,135 @@
+{
+  "schema": "cross-portal-stage-report.v1",
+  "passed": true,
+  "reports": {
+    "unified_center_static": {
+      "passed": true,
+      "checks": "18/18"
+    },
+    "unified_center_api": {
+      "passed": true,
+      "checks": "81/81"
+    },
+    "course_file_static": {
+      "passed": true,
+      "checks": "26/26"
+    },
+    "course_file_permission": {
+      "passed": true,
+      "checks": "30/30"
+    },
+    "role_floating_components": {
+      "passed": true,
+      "checks": "8/8"
+    },
+    "sidebar_overlay": {
+      "passed": true,
+      "checks": "4/4"
+    },
+    "dashboard_visualization": {
+      "passed": true,
+      "checks": "15/15"
+    },
+    "browser_acceptance": {
+      "passed": true,
+      "checks": "197/197"
+    }
+  },
+  "full_gates": {
+    "backend_full_test": {
+      "passed": true,
+      "checks": "453/453",
+      "log": "artifacts/cross-portal-rebuild/backend-full-test.log"
+    },
+    "frontend_production_build": {
+      "passed": true,
+      "modules": 953,
+      "log": "artifacts/cross-portal-rebuild/frontend-build.log"
+    },
+    "prisma_validate": {
+      "passed": true,
+      "detail": "schema valid"
+    },
+    "migration_status": {
+      "passed": true,
+      "detail": "47 migrations; database schema up to date"
+    },
+    "empty_database_replay": {
+      "passed": true,
+      "detail": "11/11 migration verification checks; isolated database removed"
+    },
+    "admin_api_smoke": {
+      "passed": true,
+      "checks": "25/25"
+    },
+    "admin_database_integrity": {
+      "passed": true,
+      "checks": "76 PASS / 2 historical WARN / 0 FAIL"
+    },
+    "admin_rbac": {
+      "passed": true,
+      "checks": "9/9"
+    },
+    "admin_ai_provider": {
+      "passed": true,
+      "checks": "16/16"
+    },
+    "admin_static_ui": {
+      "passed": true,
+      "checks": "9 PASS / 2 legacy WARN / 0 FAIL"
+    }
+  },
+  "screenshots": [
+    "artifacts/cross-portal-rebuild/admin-dashboard-1920x1080.png",
+    "artifacts/cross-portal-rebuild/admin-dashboard-1440x900.png",
+    "artifacts/cross-portal-rebuild/admin-dashboard-1366x768.png",
+    "artifacts/cross-portal-rebuild/admin-dashboard-1024x768.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1920x1080.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1440x900.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1366x768.png",
+    "artifacts/cross-portal-rebuild/teacher-dashboard-1024x768.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1920x1080.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1440x900.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1366x768.png",
+    "artifacts/cross-portal-rebuild/student-dashboard-1024x768.png",
+    "artifacts/cross-portal-rebuild/course-files-teacher-1440x900.png",
+    "artifacts/cross-portal-rebuild/course-files-admin-1440x900.png",
+    "artifacts/cross-portal-rebuild/course-files-student-1440x900.png"
+  ],
+  "cleanup": {
+    "unified_center": {
+      "marker": "uwc1784100333391",
+      "deleted_notifications": 4
+    },
+    "course_file_api": {
+      "marker": "cf1784100290163",
+      "document_ids": [
+        101
+      ],
+      "deleted_notifications": 7,
+      "deleted_operation_logs": 7,
+      "deleted_distributions": 1,
+      "deleted_documents": 1,
+      "deleted_users": 1,
+      "deleted_physical_files": 1
+    },
+    "browser": {
+      "marker": "browser1784099985868",
+      "document_ids": [
+        100
+      ],
+      "deleted_notifications": 7,
+      "deleted_operation_logs": 1,
+      "deleted_distributions": 1,
+      "deleted_documents": 1,
+      "deleted_users": 0,
+      "deleted_physical_files": 1
+    }
+  },
+  "migration_decision": "No new migration: course files reuse existing Course, TeachingClass, KnowledgeDocument, ResourceDistribution, ResourceRecipient, Notification and OperationLog models.",
+  "known_limits": [
+    "External AI providers remain honestly unavailable/degraded until their external credentials and endpoints succeed.",
+    "The prior independent resource pages remain as compatibility surfaces; course-linked files now use course-detail tabs.",
+    "AI evidence chain, learning-flow governance, knowledge health, teaching intervention, evaluation, gray release, digital twin, teaching assets, strategy profile and AI risk governance remain later long-term modules unless separately closed."
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "schema": "unified-center-static-audit.v2",
+  "passed": true,
+  "checks": {
+    "single_shared_component": true,
+    "all_three_roles_allowed": true,
+    "old_student_task_not_imported": true,
+    "old_student_message_not_imported": true,
+    "old_teacher_overlay_not_imported": true,
+    "router_unmounts_shared_center": true,
+    "student_ai_role_guard": true,
+    "student_ai_dynamic_dependencies": true,
+    "polling_intervals": true,
+    "hidden_page_pauses_polling": true,
+    "pointer_and_touch_drag": true,
+    "position_scoped_by_user_and_role": true,
+    "panel_local_full_message_list": true,
+    "message_detail_modal": true,
+    "backend_role_filter": true,
+    "backend_owner_task_filter": true,
+    "backend_routes_mounted": true,
+    "frontend_uses_aggregate_api": true
+  },
+  "active_mounts": {
+    "student": "frontend/src/utils/dashboard.js -> UnifiedTaskMessageCenter + student AI assistant",
+    "teacher": "frontend/src/utils/dashboard.js -> UnifiedTaskMessageCenter",
+    "admin": "frontend/src/utils/dashboard.js -> UnifiedTaskMessageCenter"
+  },
+  "inactive_legacy_imports": {
+    "task-center": [],
+    "student-notification-center": [],
+    "teacher-global-assistant": []
+  },
+  "endpoints": [
+    "GET /api/work-center/summary",
+    "GET /api/work-center/feed",
+    "GET /api/work-center/messages",
+    "GET /api/work-center/tasks",
+    "GET /api/work-center/messages/:id",
+    "POST /api/work-center/messages/:id/read",
+    "POST /api/work-center/messages/read-all"
+  ]
+}
