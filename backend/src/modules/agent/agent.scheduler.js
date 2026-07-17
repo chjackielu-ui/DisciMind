@@ -1,6 +1,9 @@
-// 预留的 Agent 聚合调度器入口。
-// 当前接入的 Agent 暂不需要全局调度器。
-
-const agentScheduler = {};
-
-module.exports = agentScheduler;
+/**
+ * Agent 当前按请求或异步任务队列执行，不另起常驻定时器。
+ * 统一生命周期接口供服务启动/关闭流程做能力探测。
+ */
+module.exports = Object.freeze({
+  mode: 'request_and_task_queue',
+  start: async () => ({ running: true, schedulerRequired: false }),
+  stop: async () => ({ running: false, schedulerRequired: false }),
+});

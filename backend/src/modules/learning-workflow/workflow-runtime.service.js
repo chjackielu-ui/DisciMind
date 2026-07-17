@@ -582,9 +582,9 @@ async function reconcileSessionGraphState(sessionId, threadId, userId) {
  * Dify 模式执行 (legacy, unchanged)
  */
 async function executeViaDify(session, node, nodeRun, userId, req, res) {
+  if (node.type === 'mastery_gate') return executeMasteryGate(session, node, nodeRun, userId);
   const agentMapping = NODE_TO_AGENT[node.type];
   if (!agentMapping) {
-    if (node.type === 'mastery_gate') return executeMasteryGate(session, node, nodeRun, userId);
     throw createAgentError('UNKNOWN_NODE_TYPE', `未知节点类型: ${node.type}`, 400);
   }
   return executeAgentNodeDify(session, node, nodeRun, userId, agentMapping, req, res);
@@ -772,6 +772,74 @@ async function advanceLearningSession({ sessionId, userId, expectedNodeExecution
 
   await syncLearningPlanFromSession(nid);
   return { ...transition, session: await getSession(nid, userId) };
+}
+
+// Reconcile the legacy Dify path when a deterministic node (for example a
+// mastery gate) has already persisted its COMPLETED run before the client asks
+// to continue.  This transition is deliberately separate from
+// advanceLearningSession, whose terminal-run guard protects duplicate answer
+// submissions.
+async function advanceToNextNode(sessionId, userId) {
+  const numericSessionId = Number(sessionId);
+  let transition = { nextNodeId: null, sessionCompleted: false };
+
+  await prisma.$transaction(async (tx) => {
+    const session = await tx.learningSession.findUnique({
+      where: { session_id: numericSessionId },
+      include: { node_runs: { orderBy: { sequence_index: 'asc' } } },
+    });
+    if (!session) throw createAgentError('SESSION_NOT_FOUND', '学习会话不存在', 404);
+    if (session.student_user_id !== Number(userId)) throw createAgentError('SESSION_ACCESS_DENIED', '无权操作该学习会话', 403);
+    if (!session.current_node_id) {
+      transition.sessionCompleted = session.status === 'COMPLETED';
+      return;
+    }
+
+    const currentRun = currentRunForSession(session);
+    if (!currentRun || !['COMPLETED', 'SKIPPED'].includes(currentRun.status)) {
+      throw createAgentError('NODE_NOT_COMPLETED', '当前节点尚未完成，不能进入下一节点', 409);
+    }
+    const graph = session.runtime_graph_json || {};
+    const context = {
+      mastery: session.mastery_current || 0,
+      consecutiveWrong: session.consecutive_wrong || 0,
+      accuracy: session.total_correct + session.total_wrong > 0
+        ? Math.round((session.total_correct / (session.total_correct + session.total_wrong)) * 100) : 0,
+    };
+    const nextNodeId = getNextNodeIds(graph, String(session.current_node_id), context)[0] || null;
+    if (!nextNodeId) {
+      await tx.learningSession.update({
+        where: { session_id: numericSessionId },
+        data: { status: 'COMPLETED', completed_at: new Date(), current_node_id: null, current_node_run_id: null },
+      });
+      transition = { nextNodeId: null, sessionCompleted: true };
+      return;
+    }
+
+    const node = (graph.nodes || []).find((candidate) => String(candidate.id) === String(nextNodeId));
+    if (!node) throw createAgentError('NODE_NOT_FOUND', `下一节点 ${nextNodeId} 不存在`, 409);
+    const nextRun = await tx.learningSessionNodeRun.create({
+      data: {
+        session_id: numericSessionId,
+        node_id: String(nextNodeId),
+        node_type: normalizeWorkflowNodeType(node.type, { nodeId: nextNodeId, sessionId }),
+        status: 'PENDING',
+        sequence_index: Math.max(0, ...(session.node_runs || []).map((run) => run.sequence_index || 0)) + 1,
+        execution_version: 1,
+      },
+    });
+    await tx.learningSession.update({
+      where: { session_id: numericSessionId },
+      data: {
+        current_node_id: String(nextNodeId), current_node_run_id: nextRun.node_run_id,
+        execution_version: { increment: 1 }, updated_at: new Date(),
+      },
+    });
+    transition = { nextNodeId: String(nextNodeId), sessionCompleted: false };
+  });
+
+  await syncLearningPlanFromSession(numericSessionId);
+  return { ...transition, session: await getSession(numericSessionId, userId) };
 }
 
 // ========================
@@ -1122,7 +1190,7 @@ async function addSessionEvent(sessionId, eventType, nodeId, title, dataJson) {
 module.exports = {
   toCompletionMode, toAdjustmentMode,
   createSession, getSession, getPublicSession, startSession, pauseSession,
-  executeCurrentNode, submitNodeAnswer, continueNode, advanceLearningSession,
+  executeCurrentNode, submitNodeAnswer, continueNode, advanceLearningSession, advanceToNextNode,
   skipNode, retryNode, insertNode, handleDiagnosticianAdjustment,
   completeSession, generateSummary,
   addSessionEvent, checkKnowledgeBase, getPracticeConfig,

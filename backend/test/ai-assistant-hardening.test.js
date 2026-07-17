@@ -11,7 +11,17 @@ const { DashScopeSearchClient } = require('../src/modules/ai-assistant/dashscope
 const { ToolRegistry } = require('../src/modules/ai-assistant/tool-registry');
 const { FunctionCallExecutor, executeTool } = require('../src/modules/ai-assistant/function-call-executor');
 const { createPlan } = require('../src/modules/ai-assistant/workflow-planner');
-const { resolveAgentExecutionMode, buildAgentSteps, serialAgentQuery } = require('../src/modules/ai-assistant/assistant-orchestrator.service');
+const {
+  resolveAgentExecutionMode,
+  buildAgentSteps,
+  serialAgentQuery,
+  contextQueryForPlan,
+  fileCapabilityResponse,
+  normalizeKnowledgeBaseIds,
+  normalizePrefetchedKnowledgeSources,
+  mergeRetrievalSources,
+} = require('../src/modules/ai-assistant/assistant-orchestrator.service');
+const { retrievalKnowledgeBases } = require('../src/modules/agent-chat/agent-context.service');
 const { staticCapabilities } = require('../src/modules/ai-assistant/capability.service');
 const { createXlsx } = require('../src/modules/ai-assistant/simple-xlsx');
 const agentRuntime = require('../src/modules/agent-chat/agent-runtime.service');
@@ -19,12 +29,27 @@ const { classifyLearningIntent, detectFileIntent, INTENTS } = require('../src/mo
 const { chartSpecSchema, buildChartSpec } = require('../src/modules/ai-assistant/chart-spec');
 const { buildRegistry } = require('../src/modules/ai-assistant/tool-handlers.service');
 const { capabilityMetadata } = require('../src/modules/ai-assistant/agent-registry.service');
+const { effectiveFileRequest, artifactPreviewUrl } = require('../src/modules/ai-assistant/pending-action.service');
 
 test('search policy distinguishes OFF, AUTO realtime, and FORCE', () => {
   assert.equal(decideSearch('解释闭包', { mode: 'off' }).enabled, false);
   assert.equal(decideSearch('今天北京天气如何', { mode: 'auto' }).enabled, true);
   assert.equal(decideSearch('解释闭包', { mode: 'auto' }).enabled, false);
   assert.deepEqual(decideSearch('解释闭包', { mode: 'force' }), { enabled: true, forced: true, realtime: false, reason: 'forced' });
+});
+
+test('explicit knowledge bases are a forced allow-list with stable source merging', () => {
+  assert.deepEqual(normalizeKnowledgeBaseIds([11, { knowledgeBaseId: 11 }, { knowledge_base_id: 12 }, 0, 'bad']), [11, 12]);
+  const explicit = [{ knowledge_base_id: 11 }];
+  const bound = [{ knowledge_base_id: 7 }];
+  assert.deepEqual(retrievalKnowledgeBases(explicit, bound), explicit);
+  const prefetched = normalizePrefetchedKnowledgeSources([{ title: '手册', snippet: '学分模块', knowledgeBaseId: 11 }]);
+  const merged = mergeRetrievalSources(prefetched, [
+    { title: '手册', snippet: '学分模块', knowledgeBaseId: 11 },
+    { title: '手册', snippet: '毕业条件', knowledgeBaseId: 11, segmentId: 'seg-2' },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.deepEqual(merged.map(item => item.index), [1, 2]);
 });
 
 test('unsupported qwen3.7 advanced search options are cropped, never sent blindly', () => {
@@ -221,6 +246,54 @@ test('file intent distinguishes downloadable output from chat-only preview', () 
   const plan = createPlan({ query: '生成一份 PDF 试卷', role: 'student', searchOptions: { mode: 'off' } });
   assert.equal(plan.intent.kind, INTENTS.FILE);
   assert.ok(plan.steps.some(step => step.type === 'confirmation'));
+});
+
+test('file capability questions never create tasks or reuse historical requirements', () => {
+  for (const query of ['你可以生成文件吗', '你能生成 PDF 吗', '支持生成哪些文件格式', '请问你可以生成文件吗']) {
+    const detected = detectFileIntent(query);
+    assert.equal(detected.matched, false, query);
+    assert.equal(detected.capabilityQuestion, true, query);
+    const plan = createPlan({ query, role: 'teacher', searchOptions: { mode: 'auto' } });
+    assert.equal(plan.intent.kind, INTENTS.FILE_CAPABILITY, query);
+    assert.equal(plan.intent.executionMode, 'DIRECT_RESPONSE', query);
+    assert.equal(plan.steps.some(step => step.type === 'confirmation' || step.type === 'tool'), false, query);
+    assert.equal(contextQueryForPlan(query, [{ role: 'user', content: '请生成一份历史试卷' }], plan), query);
+  }
+  assert.equal(detectFileIntent('你能不能帮我生成一份逻辑回归讲义').matched, true);
+  assert.equal(detectFileIntent('请生成 PDF').matched, true);
+  assert.match(fileCapabilityResponse('teacher'), /不会创建生成任务/);
+  assert.match(fileCapabilityResponse('teacher'), /不会沿用或输出历史对话/);
+});
+
+test('pending artifact links stay in the current role portal', () => {
+  assert.equal(artifactPreviewUrl('teacher', 696), '#/teacher/artifacts/696');
+  assert.equal(artifactPreviewUrl('admin', 696), '#/teacher/artifacts/696');
+  assert.equal(artifactPreviewUrl('student', 696), '#/student/artifacts/696');
+});
+
+test('async task result links accept the role-aware artifact route', () => {
+  const tasks = require('../src/modules/async-task/async-task.service');
+  assert.equal(tasks.sanitizeResultUrl('#/artifacts/696?format=DOCX'), '#/artifacts/696?format=DOCX');
+  assert.equal(tasks.sanitizeResultUrl('#/teacher/artifacts/696'), '#/teacher/artifacts/696');
+});
+
+test('multi-turn file request keeps the original requirement when the user supplies a missing course', () => {
+  const original = '帮我生成一份机器学习逻辑回归教学讲义，输出 PDF。文件备注：验收标记';
+  const followup = '课程选择：机器学习。请继续按上一条要求生成 PDF 文件。';
+  const merged = effectiveFileRequest(followup, [
+    { role: 'user', content: original },
+    { role: 'assistant', content: '请选择要生成文件的课程。' },
+    { role: 'user', content: followup },
+  ]);
+  assert.match(merged, /逻辑回归教学讲义/);
+  assert.match(merged, /验收标记/);
+  assert.match(merged, /课程选择：机器学习/);
+  const contextQuery = contextQueryForPlan(followup, [
+    { role: 'user', content: original },
+    { role: 'assistant', content: '请选择要生成文件的课程。' },
+    { role: 'user', content: followup },
+  ], { intent: { kind: INTENTS.FILE } });
+  assert.match(contextQuery, /逻辑回归/);
 });
 
 test('student registry exposes all eight owner-bound tools without student identity parameters', () => {

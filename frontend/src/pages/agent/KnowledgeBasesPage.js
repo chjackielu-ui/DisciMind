@@ -7,6 +7,7 @@ import { BASE_URL } from '../../api/request.js'
 import { getToken } from '../../utils/auth.js'
 import { escapeHtml } from '../../utils/format.js'
 import { renderMarketplaceLayout, loadingHTML, errorHTML, statusLabel, operationId, setButtonBusy, notify } from './marketplace-shared.js'
+import { openAgentCardMenu } from './agent-card-menu.js'
 
 const ACTIVE_STATUSES = new Set(['UPLOADING', 'UPLOADED', 'PARSING', 'PARSED', 'CHUNKING', 'CHUNKED', 'INDEXING', 'PROCESSING'])
 const STAGES = ['uploaded', 'validation', 'parsing', 'chunking', 'indexing', 'available']
@@ -88,7 +89,7 @@ function kbCard(kb, scope, index) {
       ${allowUpload ? '<label class="knowledge-upload"><input hidden type="file" accept=".pdf,.docx,.md,.txt" multiple data-kb-file><span>上传文件</span></label>' : ''}
       ${own ? `<button type="button" class="knowledge-sync" data-kb-action="refresh" title="${kb.source === 'DIFY' ? '同步 Dify' : '刷新处理状态'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6v5h-5M4 18v-5h5M18.5 9A7 7 0 0 0 6 6.5L4 11m16 2-2 4.5A7 7 0 0 1 5.5 15"/></svg><span>同步</span></button>` : ''}
       ${own && Number(kb.failedDocumentCount) > 0 ? '<button type="button" class="knowledge-retry" data-kb-action="retry-failed">重试失败</button>' : ''}
-      ${own ? `<details class="knowledge-more"><summary aria-label="更多操作">•••</summary><div><button data-kb-action="edit">编辑</button>${kb.ownershipMode !== 'REMOTE_BOUND' ? '<button data-kb-action="apply">申请公开</button>' : '<button data-kb-action="detail">查看远端信息</button>'}<button class="danger" data-kb-action="delete">删除</button></div></details>` : ''}
+      ${own ? '<button type="button" class="knowledge-more-trigger" data-kb-action="more" aria-label="更多操作" aria-haspopup="menu">•••</button>' : ''}
     </footer>
   </article>`
 }
@@ -287,6 +288,23 @@ export async function renderKnowledgeBases(app) {
     const id = Number(card.dataset.kbId)
     const item = state.byId.get(id)
     try {
+      if (button.dataset.kbAction === 'more') {
+        const items = [
+          { action: 'edit', label: '编辑' },
+          item.ownershipMode !== 'REMOTE_BOUND'
+            ? { action: 'apply', label: '申请公开' }
+            : { action: 'detail', label: '查看远端信息' },
+          { action: 'delete', label: '删除', danger: true },
+        ]
+        return openAgentCardMenu(button, items, menuAction => {
+          const proxy = document.createElement('button')
+          proxy.type = 'button'
+          proxy.dataset.kbAction = menuAction
+          card.appendChild(proxy)
+          proxy.click()
+          proxy.remove()
+        })
+      }
       if (button.dataset.kbAction === 'detail') await openDrawer(id)
       if (button.dataset.kbAction === 'refresh') { setButtonBusy(button, true, '同步中'); if (item.ownershipMode === 'REMOTE_BOUND') await syncDifyKnowledgeBase(id); else await refreshKnowledgeBaseStatus(id); notify('状态已同步'); await loadItems({ silent: true }) }
       if (button.dataset.kbAction === 'retry-failed') {

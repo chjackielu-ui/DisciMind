@@ -21,29 +21,45 @@ function getCourseIdFromHash() {
 }
 
 function buildCourseCardLibrary(chapters, kps) {
-  return `<section class="lc-course-library" id="lc-course-library"><div class="lc-section-head"><div><h2>课程知识卡片库</h2><p>按章节、知识点、类型、掌握状态与教师推荐筛选</p></div></div><div class="lc-library-toolbar"><input id="lc-library-search" placeholder="搜索卡片标题或内容"><select id="lc-library-chapter"><option value="">全部章节</option>${chapters.map(item => `<option value="${escapeHtml(item.chapter_name)}">${escapeHtml(item.chapter_name)}</option>`).join('')}</select><select id="lc-library-kp"><option value="">全部知识点</option>${kps.map(item => `<option value="${item.knowledge_point_id}">${escapeHtml(item.knowledge_point_name)}</option>`).join('')}</select><select id="lc-library-type"><option value="">全部类型</option>${[['CONCEPT','核心概念'],['FORMULA','公式'],['PITFALL','易错点'],['EXAMPLE','例题'],['COMPARISON','概念对比'],['WRONG_QUESTION','错题修复'],['REVIEW','复习']].map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select><select id="lc-library-mastery"><option value="ALL">全部掌握状态</option><option value="FAVORITE">已收藏</option><option value="MASTERED">已掌握</option><option value="UNMASTERED">未掌握</option></select><select id="lc-library-teacher"><option value="">全部来源</option><option value="true">教师推荐</option><option value="false">非教师推荐</option></select><select id="lc-library-sort"><option value="RECENT">最近学习</option><option value="PRIORITY">推荐优先</option><option value="TITLE">标题</option></select></div><div class="lc-library-meta"><span id="lc-library-count">正在读取卡片</span><span>完整内容仅在打开详情后渲染</span></div><div id="lc-course-library-grid"><div class="lc-empty"><b>正在读取课程卡片</b><span>筛选和课程其他功能可以继续使用。</span></div></div></section>`
+  return `<section class="lc-course-library" id="lc-course-library"><div class="lc-section-head"><div><h2>课程知识卡片库</h2><p>按章节、知识点、类型、掌握状态与教师推荐筛选</p></div></div><div class="lc-library-toolbar"><input id="lc-library-search" placeholder="搜索卡片标题或内容"><select id="lc-library-chapter"><option value="">全部章节</option>${chapters.map(item => `<option value="${escapeHtml(item.chapter_name)}">${escapeHtml(item.chapter_name)}</option>`).join('')}</select><select id="lc-library-kp"><option value="">全部知识点</option>${kps.map(item => `<option value="${item.knowledge_point_id}">${escapeHtml(item.knowledge_point_name)}</option>`).join('')}</select><select id="lc-library-type"><option value="">全部类型</option>${[['CONCEPT','核心概念'],['FORMULA','公式'],['PITFALL','易错点'],['EXAMPLE','例题'],['COMPARISON','概念对比'],['WRONG_QUESTION','错题修复'],['REVIEW','复习']].map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select><select id="lc-library-mastery"><option value="ALL">全部掌握状态</option><option value="FAVORITE">已收藏</option><option value="MASTERED">已掌握</option><option value="UNMASTERED">未掌握</option></select><select id="lc-library-teacher"><option value="">全部来源</option><option value="true">教师推荐</option><option value="false">非教师推荐</option></select><select id="lc-library-sort"><option value="RECENT">最近学习</option><option value="PRIORITY">推荐优先</option><option value="TITLE">标题</option></select></div><div class="lc-library-meta"><span id="lc-library-count">正在读取卡片</span><span>完整内容仅在打开详情后渲染</span></div><div id="lc-course-library-grid"><div class="lc-empty"><b>正在读取课程卡片</b><span>筛选和课程其他功能可以继续使用。</span></div></div><nav class="lc-library-pagination" id="lc-library-pagination" aria-label="课程知识卡片分页" hidden><button type="button" id="lc-library-prev">上一页</button><span id="lc-library-page" aria-live="polite">第 1 页</span><button type="button" id="lc-library-next">下一页</button></nav></section>`
 }
 
 function mountCourseCardLibrary(courseId) {
   const root = document.getElementById('lc-course-library-grid')
   if (!root) return
-  let timer = null; let version = 0
+  let timer = null; let version = 0; let page = 1; let currentPageSize = 0
+  const pageSizeForViewport = () => window.innerWidth < 640 ? 2 : window.innerWidth < 1100 ? 4 : 6
   const load = async () => {
     const current = ++version
+    const pageSize = pageSizeForViewport()
+    currentPageSize = pageSize
     const params = {
       search: document.getElementById('lc-library-search')?.value.trim(), chapterName: document.getElementById('lc-library-chapter')?.value,
       knowledgePointId: document.getElementById('lc-library-kp')?.value, cardType: document.getElementById('lc-library-type')?.value,
       masteryState: document.getElementById('lc-library-mastery')?.value || 'ALL', teacherRecommended: document.getElementById('lc-library-teacher')?.value,
-      sort: document.getElementById('lc-library-sort')?.value || 'RECENT', page: 1, pageSize: 24,
+      sort: document.getElementById('lc-library-sort')?.value || 'RECENT', page, pageSize,
     }
     try {
       const data = (await learningCardApi.courseLibrary(courseId, params)).data
       if (current !== version || !document.body.contains(root)) return
-      document.getElementById('lc-library-count').textContent = `共 ${data.total || 0} 张卡片`
-      renderLearningCardGrid(root, data.list || [], { scene: 'COURSE_LIBRARY', onStateChange: () => load() })
+      const total = Number(data.total || 0)
+      const pageCount = Math.max(1, Math.ceil(total / pageSize))
+      if (page > pageCount) { page = pageCount; return load() }
+      document.getElementById('lc-library-count').textContent = `共 ${total} 张卡片 · 当前 ${data.list?.length || 0} 张`
+      const pagination = document.getElementById('lc-library-pagination')
+      pagination.hidden = total <= pageSize
+      document.getElementById('lc-library-page').textContent = `第 ${page} / ${pageCount} 页`
+      document.getElementById('lc-library-prev').disabled = page <= 1
+      document.getElementById('lc-library-next').disabled = page >= pageCount
+      renderLearningCardGrid(root, data.list || [], { scene: 'COURSE_LIBRARY', presentation: 'drawer', onStateChange: () => load() })
     } catch (error) { if (current === version) root.innerHTML = `<div class="lc-empty"><b>课程卡片读取失败</b><span>${escapeHtml(error.message || '请稍后重试。')}</span></div>` }
   }
-  document.querySelectorAll('#lc-course-library input,#lc-course-library select').forEach(control => control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', () => { clearTimeout(timer); timer = setTimeout(load, control.tagName === 'INPUT' ? 260 : 0) }))
+  document.querySelectorAll('#lc-course-library input,#lc-course-library select').forEach(control => control.addEventListener(control.tagName === 'INPUT' ? 'input' : 'change', () => { page = 1; clearTimeout(timer); timer = setTimeout(load, control.tagName === 'INPUT' ? 260 : 0) }))
+  document.getElementById('lc-library-prev').addEventListener('click', () => { if (page > 1) { page -= 1; void load() } })
+  document.getElementById('lc-library-next').addEventListener('click', () => { page += 1; void load() })
+  const lifecycle = new AbortController()
+  window.addEventListener('hashchange', () => lifecycle.abort(), { once: true })
+  window.addEventListener('resize', () => { if (pageSizeForViewport() !== currentPageSize) { page = 1; clearTimeout(timer); timer = setTimeout(load, 120) } }, { passive: true, signal: lifecycle.signal })
   void load()
 }
 

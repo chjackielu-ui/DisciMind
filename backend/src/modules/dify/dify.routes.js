@@ -1,9 +1,12 @@
 const express = require('express');
+const auth = require('../../middlewares/auth.middleware');
+const roles = require('../../middlewares/role.middleware');
+const controller = require('./dify.controller');
 
 const router = express.Router();
-
-// TODO: 后续接入 Dify 相关路由
-// router.post('/chat', difyController.chat)
-// router.post('/workflow', difyController.workflow)
+router.use(auth, roles(['student', 'teacher', 'admin']));
+router.get('/health', controller.health);
+router.post('/chat', controller.chat);
+router.post('/workflow', controller.workflow);
 
 module.exports = router;

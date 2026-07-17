@@ -65,28 +65,22 @@ router.post('/sessions/:id/save-guide', controller.saveGuideOnly);
 // Multimodal file upload (for learning session images)
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-
-const uploadDir = path.resolve(__dirname, '../../../storage/uploads/learning');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const imageTypes = new Map([
+  ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.png', 'image/png'],
+  ['.gif', 'image/gif'], ['.webp', 'image/webp'], ['.bmp', 'image/bmp'],
+]);
 
 const sessionFileUpload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-      const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      cb(null, `learning_${unique}${path.extname(file.originalname)}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 3 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
-    if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error(`不支持的文件类型: ${file.mimetype}`));
+    const extension = path.extname(file.originalname || '').toLowerCase();
+    if (imageTypes.get(extension) === String(file.mimetype || '').toLowerCase()) cb(null, true);
+    else cb(new Error('图片扩展名与 MIME 类型不一致或不受支持'));
   },
 });
+
+router.get('/sessions/:id/files/:filename', controller.downloadSessionFile);
 
 router.post('/sessions/:id/files',
   (req, res, next) => {

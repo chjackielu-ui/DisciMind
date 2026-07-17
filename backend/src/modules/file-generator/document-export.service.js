@@ -297,7 +297,7 @@ async function exportArtifact(artifactId, { taskId, signal } = {}) {
     if (previousPath && previousPath !== target.absolute) await fs.unlink(previousPath).catch(() => null);
     if (effectiveTaskId) await tasks.updateTask(effectiveTaskId, {
       status: 'SUCCEEDED', progress: 100, stage: 'DOCX 已就绪', resultType: 'ARTIFACT',
-      resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}?format=DOCX`,
+      resultId: artifact.id, resultUrl: `#/artifacts/${artifact.id}?format=DOCX`,
     });
     return updated;
   } catch (error) {

@@ -364,24 +364,34 @@ async function createDataset({ name, description = '' }) {
   if (!name || !String(name).trim()) {
     throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', '知识库名称不能为空', 400);
   }
+  const embeddingModel = String(process.env.DIFY_KNOWLEDGE_EMBEDDING_MODEL || '').trim();
+  const embeddingProvider = String(process.env.DIFY_KNOWLEDGE_EMBEDDING_PROVIDER || '').trim();
+  if (Boolean(embeddingModel) !== Boolean(embeddingProvider)) {
+    throw createAppError(
+      'DIFY_KNOWLEDGE_EMBEDDING_CONFIG_INVALID',
+      'Dify 嵌入模型与提供方必须同时配置',
+      500,
+    );
+  }
   const client = getClient();
   return withLimitedRetry(async () => {
-    const response = await client.post('/datasets', {
+    const payload = {
       name: String(name).trim(),
       description: String(description || '').trim(),
       permission: 'only_me',
       provider: 'vendor',
       indexing_technique: 'high_quality',
-    }, { timeout: DEFAULTS.generalTimeout });
+    };
+    if (embeddingModel) {
+      payload.embedding_model = embeddingModel;
+      payload.embedding_model_provider = embeddingProvider;
+    }
+    const response = await client.post('/datasets', payload, { timeout: DEFAULTS.generalTimeout });
     return { id: response.data?.id, name: response.data?.name || String(name).trim() };
   }, '(createDataset)');
 }
 
-/** Upload one document and start Dify's asynchronous indexing pipeline. */
-async function uploadDocumentFile(datasetId, { filePath, fileName, mimeType }) {
-  if (!datasetId || !filePath) {
-    throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', 'datasetId 和 filePath 不能为空', 400);
-  }
+async function sendDocumentFile(url, { filePath, fileName, mimeType }, fallbackDocumentId = null) {
   const { baseURL, apiKey } = getConfig();
   return withLimitedRetry(async () => {
     const buffer = await fs.readFile(filePath);
@@ -393,16 +403,39 @@ async function uploadDocumentFile(datasetId, { filePath, fileName, mimeType }) {
       process_rule: { mode: 'automatic' },
     }));
     const response = await axios.post(
-      `${baseURL}/datasets/${encodeURIComponent(datasetId)}/document/create-by-file`,
+      `${baseURL}${url}`,
       form,
       { timeout: 60_000, headers: { Authorization: `Bearer ${apiKey}` } },
     );
     return {
-      documentId: response.data?.document?.id || null,
+      documentId: response.data?.document?.id || fallbackDocumentId,
       batchId: response.data?.batch || null,
       indexingStatus: response.data?.document?.indexing_status || 'indexing',
     };
-  }, '(uploadDocumentFile)', 1);
+  }, fallbackDocumentId ? '(updateDocumentFile)' : '(uploadDocumentFile)', 1);
+}
+
+/** Upload one document and start Dify's asynchronous indexing pipeline. */
+async function uploadDocumentFile(datasetId, { filePath, fileName, mimeType }) {
+  if (!datasetId || !filePath) {
+    throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', 'datasetId 和 filePath 不能为空', 400);
+  }
+  return sendDocumentFile(
+    `/datasets/${encodeURIComponent(datasetId)}/document/create-by-file`,
+    { filePath, fileName, mimeType },
+  );
+}
+
+/** Re-index an existing Dify document without creating a duplicate record. */
+async function updateDocumentFile(datasetId, documentId, { filePath, fileName, mimeType }) {
+  if (!datasetId || !documentId || !filePath) {
+    throw createAppError('DIFY_KNOWLEDGE_INVALID_PARAM', 'datasetId、documentId 和 filePath 不能为空', 400);
+  }
+  return sendDocumentFile(
+    `/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/update-by-file`,
+    { filePath, fileName, mimeType },
+    documentId,
+  );
 }
 
 async function getDocumentIndexingStatus(datasetId, batchId) {
@@ -787,6 +820,7 @@ module.exports = {
   listDatasetDocuments,
   createDataset,
   uploadDocumentFile,
+  updateDocumentFile,
   getDocumentIndexingStatus,
   deleteDatasetDocument,
   deleteDataset,

@@ -18,6 +18,8 @@ export function defaultSourcePort(edge) {
 
 export function normalizeGraphPorts(graph) {
   const safe = graph && Array.isArray(graph.nodes) ? graph : { entryNodeId: '', nodes: [], edges: [] }
+  const nodeIds = new Set((safe.nodes || []).map((node) => String(node.id)))
+  const edgeKeys = new Set()
   safe.edges = (safe.edges || []).map((edge, index) => {
     const source = edgeSource(edge)
     const target = edgeTarget(edge)
@@ -31,6 +33,12 @@ export function normalizeGraphPorts(graph) {
       sourcePort: defaultSourcePort(edge),
       targetPort: edge.targetPort || 'input',
     }
+  }).filter((edge) => {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target) || edge.source === edge.target) return false
+    const key = `${edge.source}:${edge.sourcePort}->${edge.target}:${edge.targetPort}`
+    if (edgeKeys.has(key)) return false
+    edgeKeys.add(key)
+    return true
   })
   return safe
 }
@@ -55,6 +63,26 @@ export function canvasPointFromClient(clientX, clientY, rect, panX = 0, panY = 0
 export function zoomAroundCanvasPoint(localX, localY, panX, panY, fromScale, toScale) {
   const world = canvasPointFromClient(localX, localY, { left: 0, top: 0 }, panX, panY, fromScale)
   return { scale: toScale, panX: Number(localX) - world.x * toScale, panY: Number(localY) - world.y * toScale }
+}
+
+export function normalizeSelectionRect(rect) {
+  const x1 = Number(rect?.startX ?? rect?.left ?? 0)
+  const y1 = Number(rect?.startY ?? rect?.top ?? 0)
+  const x2 = Number(rect?.currentX ?? rect?.right ?? x1)
+  const y2 = Number(rect?.currentY ?? rect?.bottom ?? y1)
+  return { left: Math.min(x1, x2), top: Math.min(y1, y2), right: Math.max(x1, x2), bottom: Math.max(y1, y2) }
+}
+
+export function nodesInSelectionRect(nodes, rect, panX = 0, panY = 0, scale = 1, width = LEARNING_FLOW_NODE_WIDTH, height = LEARNING_FLOW_NODE_HEIGHT) {
+  const box = normalizeSelectionRect(rect)
+  const zoom = Number(scale) > 0 ? Number(scale) : 1
+  return (Array.isArray(nodes) ? nodes : []).filter((node) => {
+    const left = Number(panX) + Number(node?.position?.x || 0) * zoom
+    const top = Number(panY) + Number(node?.position?.y || 0) * zoom
+    const right = left + Number(width) * zoom
+    const bottom = top + Number(height) * zoom
+    return left <= box.right && right >= box.left && top <= box.bottom && bottom >= box.top
+  }).map((node) => String(node.id))
 }
 
 export function horizontalEdgePath(source, target, lane = 0) {

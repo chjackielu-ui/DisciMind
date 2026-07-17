@@ -93,6 +93,23 @@ async function getDocument(req, res) {
   }
 }
 
+async function downloadDocument(req, res, next) {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return fail(res, 40101, '无法获取用户身份');
+    const documentId = parseInt(req.params.document_id, 10);
+    if (isNaN(documentId) || documentId < 1) return fail(res, 40001, 'document_id 参数不合法');
+    const data = await studentDocumentService.getDocumentDownload(userId, documentId);
+    return res.download(data.absolutePath, data.originalFilename, {
+      headers: { 'Content-Type': data.mimeType || 'application/octet-stream' },
+    }, (error) => { if (error && !res.headersSent) next(error); });
+  } catch (err) {
+    console.error('[student-document.controller] downloadDocument 异常:', err.message);
+    if (err.code) return fail(res, err.code, err.message);
+    return fail(res, 50001, '文档下载失败');
+  }
+}
+
 // ========================
 // 5. 删除文档
 // ========================
@@ -121,5 +138,6 @@ module.exports = {
   parseDocument,
   listDocuments,
   getDocument,
+  downloadDocument,
   deleteDocument,
 };

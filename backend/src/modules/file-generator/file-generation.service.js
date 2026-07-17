@@ -202,7 +202,7 @@ async function queueArtifactExports(artifacts, formats) {
         progressMode: 'DETERMINATE', progress: 0,
         relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: artifact.id,
         resultType: 'ARTIFACT', resultId: artifact.id,
-        resultUrl: `#/student/artifacts/${artifact.id}?format=${format}`,
+        resultUrl: `#/artifacts/${artifact.id}?format=${format}`,
         cancellable: true, maxAttempts: 3,
         metadataJson: { artifactId: artifact.id, format, artifactRole: artifact.artifactRole },
         requestPayload: { artifactId: artifact.id, format, artifactRole: artifact.artifactRole },
@@ -486,7 +486,7 @@ async function generateArtifact(artifactId, { modelCall = bailianModelCall, task
     }
     if (effectiveTaskId) await tasks.updateTask(effectiveTaskId, {
       status: 'SUCCEEDED', progress: 100, stage: '内容生成完成', resultType: 'ARTIFACT',
-      resultId: artifact.id, resultUrl: `#/student/artifacts/${artifact.id}`,
+      resultId: artifact.id, resultUrl: `#/artifacts/${artifact.id}`,
     });
     return updated;
   } catch (error) {

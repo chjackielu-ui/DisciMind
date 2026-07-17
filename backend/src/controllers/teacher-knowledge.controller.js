@@ -5,6 +5,27 @@ const teacherKnowledgeService = require('../services/teacher-knowledge.service')
 const path = require('path');
 const fs = require('fs');
 
+function hasValidUploadSignature(filename, buffer) {
+  const ext = path.extname(filename || '').toLowerCase();
+  const starts = (...bytes) => bytes.every((value, index) => buffer[index] === value);
+  if (ext === '.pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-';
+  if (['.docx', '.pptx', '.xlsx'].includes(ext)) return starts(0x50, 0x4b) && [[0x03, 0x04], [0x05, 0x06], [0x07, 0x08]].some(([a, b]) => buffer[2] === a && buffer[3] === b);
+  if (['.doc', '.ppt', '.xls'].includes(ext)) return starts(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+  if (ext === '.png') return starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+  if (['.jpg', '.jpeg'].includes(ext)) return starts(0xff, 0xd8, 0xff);
+  if (ext === '.gif') return ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'));
+  if (ext === '.webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  if (['.txt', '.md'].includes(ext)) {
+    try { new TextDecoder('utf-8', { fatal: true }).decode(buffer); return !buffer.includes(0); } catch { return false; }
+  }
+  return false;
+}
+
+async function removeUploadedFile(file) {
+  if (!file?.path) return;
+  await fs.promises.unlink(file.path).catch(() => {});
+}
+
 function parsePositiveInt(value, name) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < 1) {
@@ -53,9 +74,15 @@ async function reviewDocument(req, res) {
 async function uploadDocument(req, res) {
   try {
     if (!req.file) return fail(res, 40001, '请选择要上传的文件');
+    const content = await fs.promises.readFile(req.file.path);
+    if (!hasValidUploadSignature(req.file.originalname, content)) {
+      await removeUploadedFile(req.file);
+      return fail(res, 40001, '文件内容与扩展名不一致');
+    }
     const data = await teacherKnowledgeService.uploadDocument(req.user, req.file, req.body || {});
     return success(res, data, '上传成功');
   } catch (err) {
+    await removeUploadedFile(req.file);
     return handleError(res, 'uploadDocument', err);
   }
 }

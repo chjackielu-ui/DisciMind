@@ -8,8 +8,8 @@
  *
  * 可通过环境变量覆盖测试参数：
  *   DISCIMIND_BASE_URL   — 后端地址，默认 http://localhost:3000
- *   SMOKE_STUDENT_USERNAME — 测试学生用户名，默认 student_demo
- *   SMOKE_STUDENT_PASSWORD — 测试学生密码，默认 123456
+ *   SMOKE_STUDENT_USERNAME — 测试学生用户名（必填）
+ *   SMOKE_STUDENT_PASSWORD — 测试学生密码（必填）
  *   SMOKE_KNOWLEDGE_POINT_ID — 知识点 ID，默认 1
  *   SMOKE_SESSION_ID         — 会话 ID（strategy_intervention 使用），默认 1
  *   SMOKE_REPORT_FROM         — 报告起始日期，默认 2026-07-01
@@ -31,8 +31,9 @@ const BASE_URL = (process.env.DISCIMIND_BASE_URL || 'http://localhost:3000').rep
 const API_BASE = `${BASE_URL}/api`;
 const ENABLED = process.env.RUN_DIFY_SMOKE === 'true';
 
-const STUDENT_USERNAME = process.env.SMOKE_STUDENT_USERNAME || 'student_demo';
-const STUDENT_PASSWORD = process.env.SMOKE_STUDENT_PASSWORD || '123456';
+const STUDENT_USERNAME = process.env.SMOKE_STUDENT_USERNAME;
+const STUDENT_PASSWORD = process.env.SMOKE_STUDENT_PASSWORD;
+if (ENABLED && (!STUDENT_USERNAME || !STUDENT_PASSWORD)) throw new Error('SMOKE_STUDENT_USERNAME and SMOKE_STUDENT_PASSWORD are required');
 const KNOWLEDGE_POINT_ID = Number(process.env.SMOKE_KNOWLEDGE_POINT_ID || 1);
 const SESSION_ID = process.env.SMOKE_SESSION_ID ? Number(process.env.SMOKE_SESSION_ID) : 1;
 const REPORT_FROM = process.env.SMOKE_REPORT_FROM || '2026-07-01';

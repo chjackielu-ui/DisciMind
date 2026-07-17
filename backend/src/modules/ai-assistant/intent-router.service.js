@@ -1,5 +1,7 @@
 const FILE_NOUN_RE = /(?:试卷|考卷|练习卷|测验卷|讲义|复习资料|学习资料|word|docx|pdf|excel|xlsx|文件|文档)/iu;
 const FILE_ACTION_RE = /(?:生成|制作|创建|导出|下载|做一份|出一份|整理成|保存为|给我一份|帮我(?:做|生成|制作))/iu;
+const FILE_CAPABILITY_RE = /(?:(?:你|系统|助手|平台)?\s*(?:可以|能否|能不能|能|会不会|会|是否支持|支持|有没有|具备).{0,16}(?:生成|制作|创建|导出|下载).{0,16}(?:文件|文档|word|docx|pdf|excel|xlsx)|(?:支持|可以|能).{0,12}(?:哪些|什么).{0,8}(?:文件|文档|格式)|(?:文件|文档).{0,8}(?:生成|导出).{0,8}(?:能力|功能))/iu;
+const EXPLICIT_FILE_REQUEST_RE = /(?:帮我|替我|为我|给我).{0,16}(?:生成|制作|创建|导出|做|出|整理)|^(?:请|现在|立即|马上|开始|直接)?\s*(?:给我)?\s*(?:生成|制作|创建|导出|做一份|出一份|整理成|保存为)/iu;
 const CHAT_ONLY_RE = /(?:不|不要|无需|不需要|禁止)(?:再)?(?:生成|导出|创建|保存)?(?:任何)?(?:文件|文档|word|docx|pdf)|(?:仅|只)(?:在)?对话(?:中|里)(?:回答|展示|预览|出题)|不要下载|不生成文件/iu;
 const EXAM_RE = /(?:试卷|考卷|练习卷|测验卷|期末|期中|考试题)/iu;
 const HANDOUT_RE = /(?:讲义|复习资料|学习资料|知识梳理)/iu;
@@ -22,6 +24,7 @@ const INTENTS = Object.freeze({
   RECORDS: 'student_learning_records', SCORE: 'student_score_trend', MASTERY: 'student_mastery',
   SESSIONS: 'student_recent_sessions', TIME: 'student_learning_time', TASKS: 'student_task_completion',
   ANALYTICS: 'student_learning_analytics', FILE: 'file_generation', CHAT_QUESTIONS: 'chat_question_generation',
+  FILE_CAPABILITY: 'file_generation_capability',
   CARDS: 'knowledge_cards', KNOWLEDGE: 'course_knowledge_qa', CONCEPT: 'course_concept_qa',
   WEB: 'realtime_research', ATTACHMENT: 'attachment_summary', MANUAL_AGENT: 'manual_agent', QA: 'learning_qa',
 });
@@ -31,16 +34,18 @@ function detectFileIntent(query) {
   const negative = CHAT_ONLY_RE.test(text);
   const noun = FILE_NOUN_RE.test(text);
   const action = FILE_ACTION_RE.test(text);
+  const capabilityQuestion = FILE_CAPABILITY_RE.test(text) && !EXPLICIT_FILE_REQUEST_RE.test(text);
   const exam = EXAM_RE.test(text);
   const handout = HANDOUT_RE.test(text);
-  const confidence = negative ? 0 : noun && action ? 0.99 : exam && /(?:生成|出题|来一份|帮我)/iu.test(text) ? 0.94 : 0;
+  const confidence = negative || capabilityQuestion ? 0 : noun && action ? 0.99 : exam && /(?:生成|出题|来一份|帮我)/iu.test(text) ? 0.94 : 0;
   return {
     matched: confidence >= 0.9,
     confidence,
     negative,
     artifactType: exam ? 'EXAM_PAPER' : handout ? 'STUDY_HANDOUT' : /(?:excel|xlsx|表格)/iu.test(text) ? 'AI_SPREADSHEET' : 'AI_DOCUMENT',
     outputFormats: [/(?:pdf)/iu.test(text) ? 'PDF' : /(?:excel|xlsx)/iu.test(text) ? 'XLSX' : 'DOCX'],
-    evidence: { noun, action, exam, handout, chatOnly: negative },
+    capabilityQuestion,
+    evidence: { noun, action, exam, handout, chatOnly: negative, capabilityQuestion, explicitRequest: EXPLICIT_FILE_REQUEST_RE.test(text) },
   };
 }
 
@@ -66,6 +71,9 @@ function classifyLearningIntent(query, role, context = {}) {
   const knowledgeBaseCount = Math.max(0, Number(context.knowledgeBaseCount || context.knowledgeBaseIds?.length || 0));
   const chartRequested = shouldCreateChart(text, { kind: null });
 
+  if (file.capabilityQuestion) return route(INTENTS.FILE_CAPABILITY, 0.99, file, {
+    executionMode: EXECUTION_MODES.DIRECT_RESPONSE, reason: 'file_capability_question',
+  });
   if (manualAgentCount > 0) return route(INTENTS.MANUAL_AGENT, 1, file, {
     executionMode: manualAgentCount > 1 ? EXECUTION_MODES.MULTI_AGENT : EXECUTION_MODES.SINGLE_AGENT,
     skillIds: [], subjectAgentAllowed: true, reason: 'manual_agent_selection',
@@ -144,6 +152,6 @@ function shouldCreateChart(query, intent = {}) {
 }
 
 module.exports = {
-  FILE_NOUN_RE, FILE_ACTION_RE, CHAT_ONLY_RE, EXAM_RE, HANDOUT_RE, GREETING_RE,
+  FILE_NOUN_RE, FILE_ACTION_RE, FILE_CAPABILITY_RE, EXPLICIT_FILE_REQUEST_RE, CHAT_ONLY_RE, EXAM_RE, HANDOUT_RE, GREETING_RE,
   EXECUTION_MODES, INTENTS, detectFileIntent, classifyLearningIntent, shouldCreateChart,
 };

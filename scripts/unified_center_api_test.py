@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,7 +23,8 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://localhost:3000/api"
-DEFAULT_PASSWORD = "123456"
+TEST_PASSWORD = os.environ.get("DISCIMIND_TEST_PASSWORD")
+SECONDARY_STUDENT_ACCOUNT = os.environ.get("DISCIMIND_TEST_SECONDARY_STUDENT_ACCOUNT")
 FEED_KEYS = {
     "id", "item_type", "title", "summary", "status", "unread", "priority",
     "created_at", "source_type", "source_id", "action_type", "action_url", "role_scope",
@@ -79,7 +81,7 @@ def fixture(command: str, marker: str) -> dict[str, Any]:
 
 
 def login(base_url: str, username: str) -> tuple[Api, dict[str, Any]]:
-    data = Api(base_url).data("POST", "/auth/login", json={"account": username, "password": DEFAULT_PASSWORD})
+    data = Api(base_url).data("POST", "/auth/login", json={"account": username, "password": TEST_PASSWORD})
     token = data.get("token") or data.get("accessToken")
     if not token:
         raise AssertionError(f"login response for {username} has no access token")
@@ -94,6 +96,8 @@ def validate_feed_rows(report: Report, check_prefix: str, rows: list[dict[str, A
 
 
 def run(base_url: str, report_path: Path) -> int:
+    if not TEST_PASSWORD or not SECONDARY_STUDENT_ACCOUNT:
+        raise RuntimeError("DISCIMIND_TEST_PASSWORD and DISCIMIND_TEST_SECONDARY_STUDENT_ACCOUNT are required")
     marker = f"uwc{int(time.time() * 1000)}"
     report = Report(marker=marker)
     fixture_rows: dict[str, dict[str, Any]] = {}
@@ -140,7 +144,8 @@ def run(base_url: str, report_path: Path) -> int:
             clients[username].request("GET", f"/work-center/messages/{foreign}", expected=404)
             report.check(f"detail.{username}.cross_user_404", True, f"foreign notification={foreign}")
 
-        for username in ["admin_demo", "teacher_demo", "student_demo"]:
+        primary_usernames = [next(row["username"] for row in fixture_rows.values() if row["role"] == role) for role in ("admin", "teacher", "student")]
+        for username in primary_usernames:
             client = clients[username]
             notification_id = fixture_rows[username]["notification_id"]
             before = client.data("GET", "/work-center/summary")["unread_message_count"]
@@ -152,7 +157,7 @@ def run(base_url: str, report_path: Path) -> int:
             report.check(f"read.{username}.state", after_detail["status"] == "read" and not after_detail["unread"], f"status={after_detail['status']}")
             report.check(f"read.{username}.count", after == before - 1, f"before={before}, after={after}")
 
-        student_b = clients["student_b"]
+        student_b = clients[SECONDARY_STUDENT_ACCOUNT]
         read_all = student_b.data("POST", "/work-center/messages/read-all")
         report.check("read_all.student_b.isolated", read_all["updated_count"] == 1, f"updated_count={read_all['updated_count']}")
         report.check("read_all.student_b.count", student_b.data("GET", "/work-center/summary")["unread_message_count"] == 0, "unread count returned to zero")

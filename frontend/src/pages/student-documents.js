@@ -1,5 +1,5 @@
 import { getMe } from '../api/auth.js'
-import { getStudentCourses, uploadStudentDocument, parseStudentDocument, getStudentDocuments, getStudentDocumentDetail, deleteStudentDocument, getStudentSharedResources, openStudentSharedResource, completeStudentSharedResource, downloadStudentSharedResource } from '../api/student.js'
+import { getStudentCourses, uploadStudentDocument, parseStudentDocument, getStudentDocuments, getStudentDocumentDetail, downloadStudentDocument, deleteStudentDocument, getStudentSharedResources, openStudentSharedResource, completeStudentSharedResource, downloadStudentSharedResource } from '../api/student.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
@@ -142,6 +142,7 @@ function buildDocCard(doc) {
       ${doc.course_name ? `<div class="doc-meta" style="margin-top:4px;">课程：${escapeHtml(doc.course_name)}</div>` : ''}
       <div class="doc-action-row">
         <button class="complex-btn-secondary btn-parse-doc" ${parse === 'parsing' || parse === 'chunking' ? 'disabled' : ''}>${parse === 'parsing' || parse === 'chunking' ? '解析中' : '解析'}</button>
+        <button class="complex-btn-secondary btn-download-doc">下载</button>
         <button class="complex-btn-ghost btn-detail-doc">查看详情</button>
         <button class="complex-btn-danger btn-delete-doc">删除</button>
       </div>
@@ -370,6 +371,10 @@ export async function renderStudentDocuments(app) {
     document.querySelectorAll('.doc-card').forEach(card => {
       const id = card.dataset.docId
       card.querySelector('.btn-parse-doc')?.addEventListener('click', () => parseDoc(id))
+      card.querySelector('.btn-download-doc')?.addEventListener('click', async () => {
+        try { await downloadStudentDocument(id, '学习资料'); showToast('文档下载已开始', 'success') }
+        catch (error) { showToast(error.message || '文档下载失败', 'error') }
+      })
       card.querySelector('.btn-detail-doc')?.addEventListener('click', () => openDetail(id))
       card.querySelector('.btn-delete-doc')?.addEventListener('click', () => deleteDoc(id))
     })

@@ -5,7 +5,12 @@ const path = require('node:path');
 
 const { TASK_DEFINITIONS, definitionsForPlan } = require('../src/modules/subject-chat/subject-chat-run.service');
 const { createPlan } = require('../src/modules/ai-assistant/workflow-planner');
-const { extractQuestion, buildExecutionMessages } = require('../src/modules/subject-chat/subject-chat-orchestrator.service');
+const {
+  extractQuestion,
+  buildExecutionMessages,
+  dynamicKnowledgeBaseIds,
+  assistantKnowledgeSources,
+} = require('../src/modules/subject-chat/subject-chat-orchestrator.service');
 const { queryTerms } = require('../src/modules/subject-chat/subject-chat-source.service');
 const stateMachine = require('../src/modules/subject-chat/subject-chat-state-machine');
 
@@ -38,6 +43,22 @@ test('execution prompt labels real sources and explicitly forbids fabricated cit
   assert.equal(messages[1].content, '问题');
 });
 
+test('explicit @ knowledge selection keeps entity ids and enforces retrieval-only answering', () => {
+  const turn = {
+    knowledgeBaseRefs: [{ knowledgeBaseId: 11, name: '2024学生手册' }],
+    resolvedKnowledgeBases: [{ knowledge_base_id: 11, name: '2024学生手册' }],
+  };
+  assert.deepEqual(dynamicKnowledgeBaseIds(turn), [11]);
+  const withoutHits = buildExecutionMessages([{ role: 'system', content: 'base' }], {
+    scope: {}, learningContext: { summary: '无' }, profile: { summary: '无' }, sources: [],
+    explicitKnowledgeRequired: true, explicitKnowledgeNames: ['2024学生手册'],
+  });
+  assert.match(withoutHits[0].content, /不得绕过检索直接使用通用知识作答/);
+  const prefetched = assistantKnowledgeSources([{ title: '学生手册', summary: '学分模块正文', documentId: 220, relevanceScore: 0.88, metadata: { knowledgeBaseId: 11, knowledgeBaseName: '2024学生手册', segmentId: 'seg-1' } }]);
+  assert.equal(prefetched[0].knowledgeBaseId, 11);
+  assert.equal(prefetched[0].snippet, '学分模块正文');
+});
+
 test('local retrieval terms stay bounded and include the identified knowledge point', () => {
   const terms = queryTerms('请解释 Transformer 的注意力机制，并给一个例子', '注意力机制');
   assert.equal(terms[0], '注意力机制');
@@ -60,6 +81,19 @@ test('student workbench fixes the root crash and keeps a server-clock timer aliv
   assert.match(page, /serverTimeOffsetMs/);
   assert.match(page, /setInterval\(\(\) => refreshRunWorkbench\(\), 1000\)/);
   assert.match(page, /sequence && sequence <= state\.lastRunSequence/);
+});
+
+test('student AI exposes one course selector, one effective stop action and an integrated search toolbar', async () => {
+  const page = await fs.readFile(path.resolve(__dirname, '../../frontend/src/pages/student-ai-chat.js'), 'utf8');
+  const composer = await fs.readFile(path.resolve(__dirname, '../../frontend/src/components/unified-composer.js'), 'utf8');
+  assert.equal((page.match(/id="ai-course-select"/g) || []).length, 1);
+  assert.doesNotMatch(page, /id="ai-subject-select"/);
+  assert.doesNotMatch(page, /id="btn-stop-generation"/);
+  assert.match(composer, /data-composer-stop/);
+  assert.match(composer, /!state\.value\.trim\(\) && !state\.attachments\.length/);
+  assert.match(composer, /data-composer-toolbar-extension/);
+  assert.match(page, /mountToolbarExtension/);
+  assert.doesNotMatch(page, /id="student-ai-search-controls"/);
 });
 
 test('subject orchestrator batches deltas, emits heartbeats and stalls on timeout', async () => {

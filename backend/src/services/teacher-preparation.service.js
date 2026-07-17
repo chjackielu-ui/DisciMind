@@ -509,19 +509,34 @@ async function exportPlan(user, lessonPlanId, format, artifactRole = 'TEACHER_LE
     where: { userId_operationId: { userId: user.user_id, operationId } },
     include: { generatedArtifact: true },
   });
-  if (task?.generatedArtifact) {
+  if (task?.generatedArtifact?.status === 'READY') {
     return {
       task_id: task.id,
       artifact_id: task.generatedArtifact.id,
-      status: task.generatedArtifact.status === 'READY' ? 'ready' : 'exporting',
+      status: 'ready',
       format: normalized,
       reused: true,
+    };
+  }
+  if (task?.generatedArtifact) {
+    let status = task.status;
+    if (['FAILED', 'CANCELLED'].includes(status)) {
+      const retried = await require('../modules/async-task/async-task.service').retryTask(user.user_id, task.id);
+      status = retried.status;
+    }
+    return {
+      task_id: task.id,
+      artifact_id: task.generatedArtifact.id,
+      status: String(status).toLowerCase(),
+      format: normalized,
+      reused: true,
+      retried: status === 'QUEUED',
     };
   }
   if (task) {
     task = await prisma.asyncTask.update({
       where: { id: task.id },
-      data: { status: 'RUNNING', stage: `正在生成 ${normalized}`, progress: 5, errorCode: null, errorMessage: null, startedAt: new Date(), finishedAt: null },
+      data: { status: 'RUNNING', stage: `正在生成 ${normalized}`, progress: 5, errorCode: null, errorMessage: null, startedAt: new Date(), completedAt: null },
     });
   } else {
     task = await prisma.asyncTask.create({
@@ -591,9 +606,17 @@ async function exportPlan(user, lessonPlanId, format, artifactRole = 'TEACHER_LE
           content: '文件已进入任务中心和产物中心。', target_type: 'generated_artifact', target_id: artifact.id,
           business_type: 'lesson_plan_artifact', business_id: artifact.id,
         },
-      });
+      }).catch((error) => console.error('[teacher-preparation] export notification failed:', error.message));
     } catch (error) {
       console.error('[teacher-preparation] export failed:', error.message);
+      await prisma.asyncTask.update({
+        where: { id: task.id },
+        data: {
+          status: 'FAILED', stage: `${normalized} 导出失败`,
+          errorCode: String(error.code || 'LESSON_PLAN_EXPORT_FAILED').slice(0, 100),
+          errorMessage: '教案导出失败，请稍后重试。', completedAt: new Date(),
+        },
+      }).catch(() => {});
     }
   });
   return { task_id: task.id, artifact_id: artifact.id, status: 'exporting', format: normalized };

@@ -1,6 +1,9 @@
-// TODO: Agent API 请求封装
-// 后续实现：封装对后端 /api/agent/* 接口的请求
+import * as marketplace from '../../api/marketplace.js'
+import { explainerApi, trainerApi, diagnosticianApi } from '../../api/agent.js'
 
-const agentApi = {};
+export * from '../../api/marketplace.js'
+export { explainerApi, trainerApi, diagnosticianApi }
 
-export default agentApi;
+const agentApi = Object.freeze({ ...marketplace, explainerApi, trainerApi, diagnosticianApi })
+
+export default agentApi

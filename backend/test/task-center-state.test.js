@@ -58,9 +58,11 @@ test('dismissal snapshots contain every required observation field', () => {
   assert.equal(snapshot.lastSeenNeedsAction, true);
 });
 
-test('result URL whitelist accepts only supported student routes', () => {
+test('result URL whitelist accepts supported student and role-aware artifact routes', () => {
   assert.equal(state.validResultUrl('#/student/agents/knowledge'), '#/student/agents/knowledge');
   assert.equal(state.validResultUrl('#/student/learning-flows?preload=1'), '#/student/learning-flows?preload=1');
+  assert.equal(state.validResultUrl('#/artifacts/696?format=DOCX'), '#/artifacts/696?format=DOCX');
+  assert.equal(state.validResultUrl('#/teacher/artifacts/696'), '#/teacher/artifacts/696');
   assert.equal(state.validResultUrl('/etc/passwd'), '');
 });
 

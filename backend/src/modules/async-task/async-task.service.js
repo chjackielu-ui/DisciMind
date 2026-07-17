@@ -35,6 +35,8 @@ const RESULT_URL_PATTERNS = [
   /^#\/student\/agents(?:\/knowledge|\/\d+(?:\/.*)?)?$/,
   /^#\/student\/generated-artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/artifacts(?:\/\d+)?(?:\?.*)?$/,
+  /^#\/teacher\/artifacts(?:\/\d+)?(?:\?.*)?$/,
+  /^#\/artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/learning-flows(?:\?.*)?$/,
   /^#\/student\/learning\/session\/\d+$/,
   /^#\/teacher\/lesson-plan(?:\?.*)?$/,
@@ -347,6 +349,9 @@ async function retryTask(userId, id) {
   const updated = await prisma.asyncTask.update({ where: { id: task.id }, data: {
     status: 'QUEUED', stage: '等待重试', progress: task.progressMode === 'DETERMINATE' ? 0 : null,
     errorCode: null, errorMessage: null, attemptCount: 0, nextRunAt: new Date(),
+    maxAttempts: task.taskType === 'KNOWLEDGE_INDEXING'
+      ? Math.max(task.maxAttempts, Math.max(1, Math.min(9, Number(process.env.KNOWLEDGE_DIFY_AUTO_RETRIES || 5))) + 1)
+      : task.maxAttempts,
     startedAt: null, completedAt: null, cancelledAt: null, dismissedAt: null, lockedBy: null, lockedAt: null,
     metadataJson: { ...(task.metadataJson || {}), manuallyRetriedAt: new Date().toISOString() },
   } });

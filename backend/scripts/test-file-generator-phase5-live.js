@@ -1,6 +1,9 @@
 const crypto = require('crypto');
 
 const BASE = process.env.LIVE_API_BASE || 'http://127.0.0.1:3000/api';
+const TEST_ACCOUNT = process.env.LIVE_STUDENT_ACCOUNT;
+const TEST_PASSWORD = process.env.LIVE_STUDENT_PASSWORD;
+if (!TEST_ACCOUNT || !TEST_PASSWORD) throw new Error('LIVE_STUDENT_ACCOUNT and LIVE_STUDENT_PASSWORD are required');
 async function request(method, route, token, body) {
   const response = await fetch(`${BASE}${route}`, { method, signal: AbortSignal.timeout(120_000), headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
   const payload = await response.json().catch(() => ({}));
@@ -8,7 +11,7 @@ async function request(method, route, token, body) {
   return payload.data;
 }
 async function main() {
-  const login = await request('POST', '/auth/login', null, { account: process.env.LIVE_STUDENT_ACCOUNT || 'student_demo', password: '123456' });
+  const login = await request('POST', '/auth/login', null, { account: TEST_ACCOUNT, password: TEST_PASSWORD });
   const token = login.accessToken || login.token; const suffix = crypto.randomUUID().slice(0, 8);
   const agent = await request('POST', '/agents', token, {
     agentType: 'FILE_GENERATOR', description: '创建一个受控的机器学习试卷与学习讲义生成器，面向本科生复习。', name: `阶段5文件生成器-${suffix}`,

@@ -154,7 +154,7 @@ export function openLearningCardDetail(input, options = {}) {
   const openedAt = performance.now()
   const previousFocus = document.activeElement
   const overlay = document.createElement('div')
-  overlay.className = 'lc-modal-layer'
+  overlay.className = `lc-modal-layer${options.presentation === 'drawer' ? ' lc-is-drawer' : ''}`
   overlay.innerHTML = `<section class="lc-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="lc-dialog-title"><div class="lc-drawer-handle" aria-hidden="true"></div><button type="button" class="lc-dialog-close" data-lc-close aria-label="关闭学习卡片详情">${icon('close')}</button>${detailBody(card)}<footer class="lc-detail-actions">${actionButton('favorite', 'star', state(card).isFavorite ? '已收藏' : '收藏', state(card).isFavorite)}${actionButton('mastered', 'check', state(card).isMastered ? '已掌握' : '标记掌握', state(card).isMastered)}${actionButton('deferred', 'bookmark', state(card).isDeferred ? '已稍后' : '稍后学习', state(card).isDeferred)}${actionButton('add-plan', 'bookmark', '加入计划')}${actionButton('practice', 'practice', '开始练习')}${actionButton('ask-ai', 'chat', '询问 AI')}${actionButton('save', 'save', '保存成果')}${actionButton('export', 'export', '导出')}</footer></section>`
   document.body.appendChild(overlay)
   document.body.classList.add('lc-modal-open')
@@ -344,7 +344,7 @@ export function renderLearningCardGrid(root, inputCards, options = {}) {
   const cards = (inputCards || []).map(normalizeLearningCard)
   if (!root) return { destroy() {} }
   root.innerHTML = cards.length ? `<div class="lc-grid${options.compact ? ' is-compact' : ''}">${cards.map(card => `<button type="button" class="lc-grid-item" data-grid-card="${escapeHtml(card.id)}">${learningCardCoverHtml(card, { centered: true })}</button>`).join('')}</div>` : '<div class="lc-empty"><b>暂无匹配卡片</b><span>调整筛选或完成更多学习后再来查看。</span></div>'
-  root.querySelectorAll('[data-grid-card]').forEach(button => button.addEventListener('click', () => { const card = cards.find(item => item.id === button.dataset.gridCard); if (card) (options.onOpen || openLearningCardDetail)(card, { scene: options.scene || 'CARD_GRID', onStateChange: options.onStateChange }) }))
+  root.querySelectorAll('[data-grid-card]').forEach(button => button.addEventListener('click', () => { const card = cards.find(item => item.id === button.dataset.gridCard); if (card) (options.onOpen || openLearningCardDetail)(card, { scene: options.scene || 'CARD_GRID', presentation: options.presentation, onStateChange: options.onStateChange }) }))
   return { destroy() { if (root) root.innerHTML = '' } }
 }
 

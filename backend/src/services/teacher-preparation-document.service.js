@@ -4,10 +4,13 @@ const path = require('path');
 const { TextDecoder } = require('util');
 const mammoth = require('mammoth');
 const katex = require('katex');
+const { Marked } = require('marked');
+const { imageSize } = require('image-size');
 const {
   AlignmentType, BorderStyle, Document, Footer, Header, HeadingLevel, ImageRun,
-  LevelFormat, Packer, PageBreak, PageNumber, Paragraph, Table, TableCell,
-  TableLayoutType, TableRow, TextRun, WidthType,
+  LevelFormat, Math: OfficeMath, MathFraction, MathRadical, MathRun, MathSubScript,
+  MathSubSuperScript, MathSuperScript, Packer, PageBreak, PageNumber, Paragraph,
+  Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, WidthType,
 } = require('docx');
 const prisma = require('../config/prisma');
 const teacherAiService = require('./teacher-ai.service');
@@ -26,6 +29,8 @@ const ARTIFACT_STORAGE_ROOT = path.resolve(BACKEND_STORAGE_ROOT, 'generated-arti
 const IMPORT_STORAGE_ROOT = path.resolve(PROJECT_STORAGE_ROOT, 'lesson-plans/imports');
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
+const DOCX_CONTENT_WIDTH_DXA = 10200;
+const DOCX_CELL_MARGINS = { top: 90, bottom: 90, left: 120, right: 120 };
 const WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 const PPT_MIME = 'application/vnd.ms-powerpoint';
@@ -50,6 +55,32 @@ const SECTION_MAP = {
   homework: '作业设计', resources: '教学资源', blackboardDesign: '板书设计', reflection: '教学反思',
 };
 const STANDARD_SECTIONS = Object.values(SECTION_MAP);
+
+function formulaSpan(latex, display) {
+  return `<span class="formula" data-formula="${escapeHtml(String(latex || '').trim())}" data-display="${display ? 'block' : 'inline'}">${escapeHtml(String(latex || '').trim())}</span>`;
+}
+
+const markdownParser = new Marked({ gfm: true, breaks: false });
+markdownParser.use({ extensions: [
+  {
+    name: 'discimindBlockFormula', level: 'block',
+    start: (source) => source.indexOf('$$'),
+    tokenizer(source) {
+      const match = /^\$\$\s*([\s\S]+?)\s*\$\$(?:\n|$)/.exec(source);
+      return match ? { type: 'discimindBlockFormula', raw: match[0], latex: match[1] } : undefined;
+    },
+    renderer: (token) => `<p style="text-align:center">${formulaSpan(token.latex, true)}</p>\n`,
+  },
+  {
+    name: 'discimindInlineFormula', level: 'inline',
+    start: (source) => source.indexOf('$'),
+    tokenizer(source) {
+      const match = /^\$(?!\$)((?:\\.|[^$\\])+?)\$/.exec(source);
+      return match ? { type: 'discimindInlineFormula', raw: match[0], latex: match[1] } : undefined;
+    },
+    renderer: (token) => formulaSpan(token.latex, false),
+  },
+] });
 
 function serviceError(message, code = 40001, extra = {}) {
   return Object.assign(new Error(message), { code, ...extra });
@@ -90,6 +121,14 @@ function plainTextFromHtml(html) {
     .trim();
 }
 
+function codeTextFromHtml(html) {
+  return decodeHtml(String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ''))
+    .replace(/\r\n?/g, '\n')
+    .replace(/^\n+|\n+$/g, '');
+}
+
 function sanitizeAttributes(tag, rawAttributes) {
   const attributes = [];
   const parsed = String(rawAttributes || '').matchAll(/([:\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g);
@@ -100,6 +139,7 @@ function sanitizeAttributes(tag, rawAttributes) {
     if (name === 'id' && /^section-[a-z0-9-]{1,80}$/i.test(value)) attributes.push(`id="${escapeHtml(value)}"`);
     else if (name === 'data-section-key' && /^[a-zA-Z0-9_-]{1,80}$/.test(value)) attributes.push(`${name}="${escapeHtml(value)}"`);
     else if (name === 'data-formula' && value.length <= 2000) attributes.push(`${name}="${escapeHtml(value)}"`);
+    else if (name === 'data-display' && ['inline', 'block'].includes(value)) attributes.push(`${name}="${value}"`);
     else if (name === 'data-page-break' && value === 'true') attributes.push(`${name}="true"`);
     else if (name === 'class' && /^(formula|document-table|page-break|callout)(\s+(formula|document-table|page-break|callout))*$/.test(value)) attributes.push(`class="${value}"`);
     else if (name === 'style') {
@@ -168,7 +208,7 @@ function inlineNodes(html) {
   const atoms = [];
   const marker = (atom) => { atoms.push(atom); return `\uE000${atoms.length - 1}\uE001`; };
   let source = String(html || '')
-    .replace(/<span\b[^>]*data-formula="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi, (_, encoded) => marker({ type: 'formula', attrs: { latex: decodeHtml(encoded) } }))
+    .replace(/<span\b([^>]*)data-formula="([^"]*)"([^>]*)>[\s\S]*?<\/span>/gi, (_, before, encoded, after) => marker({ type: 'formula', attrs: { latex: decodeHtml(encoded), display: /data-display="block"/i.test(`${before} ${after}`) } }))
     .replace(/<img\b([^>]*)>/gi, (_, attrs) => {
       const src = decodeHtml(attrs.match(/\bsrc="([^"]*)"/i)?.[1] || '');
       const alt = decodeHtml(attrs.match(/\balt="([^"]*)"/i)?.[1] || '');
@@ -213,7 +253,7 @@ function contentJsonFromHtml(html, metadata = {}) {
     if (/^h[1-4]$/.test(tag)) content.push({ type: 'heading', attrs: { level: Number(tag[1]), id: attrs.match(/id="([^"]+)"/i)?.[1] || null, align }, content: inlineNodes(body) });
     else if (tag === 'p' || tag === 'div') content.push({ type: 'paragraph', attrs: { align, indent: Number(style.match(/margin-left:(\d+)px/i)?.[1] || 0) }, content: inlineNodes(body) });
     else if (tag === 'blockquote') content.push({ type: 'blockquote', content: inlineNodes(body) });
-    else if (tag === 'pre') content.push({ type: 'code_block', content: [{ type: 'text', text: plainTextFromHtml(body) }] });
+    else if (tag === 'pre') content.push({ type: 'code_block', content: [{ type: 'text', text: codeTextFromHtml(body) }] });
     else if (tag === 'ul' || tag === 'ol') {
       const items = [...body.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map((item) => ({ type: 'list_item', content: inlineNodes(item[1]) }));
       content.push({ type: 'list', attrs: { ordered: tag === 'ol' }, content: items });
@@ -529,27 +569,8 @@ function validateUpload(file) {
 }
 
 function markdownToHtml(markdown) {
-  const lines = String(markdown || '').replace(/^\uFEFF/, '').split(/\r?\n/);
-  const html = [];
-  let list = null;
-  const closeList = () => { if (list) { html.push(`</${list}>`); list = null; } };
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    const unordered = line.match(/^[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
-    if (heading) { closeList(); html.push(`<h${heading[1].length}>${escapeHtml(heading[2])}</h${heading[1].length}>`); }
-    else if (unordered || ordered) {
-      const nextList = unordered ? 'ul' : 'ol';
-      if (list !== nextList) { closeList(); list = nextList; html.push(`<${list}>`); }
-      html.push(`<li>${escapeHtml((unordered || ordered)[1])}</li>`);
-    } else if (/^>\s?/.test(line)) { closeList(); html.push(`<blockquote>${escapeHtml(line.replace(/^>\s?/, ''))}</blockquote>`); }
-    else if (/^---+$/.test(line)) { closeList(); html.push('<hr>'); }
-    else if (!line.trim()) { closeList(); }
-    else { closeList(); html.push(`<p>${escapeHtml(line)}</p>`); }
-  }
-  closeList();
-  return html.join('');
+  const source = String(markdown || '').replace(/^\uFEFF/, '').slice(0, MAX_HTML_BYTES);
+  return markdownParser.parse(source, { async: false });
 }
 
 function extractedTextToHtml(text, title) {
@@ -892,9 +913,11 @@ async function syncStage(user, documentId, body = {}) {
 }
 
 function renderFormulaHtml(html) {
-  return String(html).replace(/<span\b[^>]*data-formula="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi, (_, encoded) => {
+  return String(html).replace(/<span\b([^>]*)data-formula="([^"]*)"([^>]*)>[\s\S]*?<\/span>/gi, (_, before, encoded, after) => {
     const latex = decodeHtml(encoded);
-    try { return katex.renderToString(latex, { displayMode: true, throwOnError: false, output: 'htmlAndMathml' }); } catch { return `<code>${escapeHtml(latex)}</code>`; }
+    const displayMode = /data-display="block"/i.test(`${before} ${after}`);
+    try { return katex.renderToString(latex, { displayMode, throwOnError: true, output: 'htmlAndMathml', strict: 'ignore', trust: false }); }
+    catch (error) { console.warn('[teacher-preparation-document] formula preview degraded:', error.message); return `<code class="formula-fallback">公式降级：${escapeHtml(latex)}</code>`; }
   });
 }
 
@@ -905,7 +928,178 @@ function nodeText(node) {
 function imageRunFromNode(node) {
   const match = String(node?.attrs?.src || '').match(/^data:image\/(png|jpe?g|gif);base64,(.+)$/is);
   if (!match) return null;
-  return new ImageRun({ data: Buffer.from(match[2], 'base64'), transformation: { width: 520, height: 300 }, type: match[1].toLowerCase().startsWith('jp') ? 'jpg' : match[1].toLowerCase() });
+  try {
+    const data = Buffer.from(match[2], 'base64');
+    if (!data.length || data.length > 8 * 1024 * 1024) return null;
+    const dimensions = imageSize(data);
+    const width = Math.max(1, Number(dimensions.width || 1));
+    const height = Math.max(1, Number(dimensions.height || 1));
+    // Keep enough vertical room for captions and surrounding rich content. Word can
+    // otherwise enter a pagination loop when a tall image, OMML and a code block
+    // compete for the same page boundary.
+    const scale = Math.min(1, 480 / width, 540 / height);
+    return new ImageRun({ data, transformation: { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }, type: match[1].toLowerCase().startsWith('jp') ? 'jpg' : match[1].toLowerCase() });
+  } catch (error) {
+    console.warn('[teacher-preparation-document] image export degraded:', error.message);
+    return null;
+  }
+}
+
+const LATEX_SYMBOLS = Object.freeze({
+  theta: 'θ', sigma: 'σ', alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', lambda: 'λ', mu: 'μ', pi: 'π',
+  sum: '∑', prod: '∏', int: '∫', cdot: '·', times: '×', leq: '≤', geq: '≥', neq: '≠', approx: '≈', infty: '∞',
+});
+const MATH_SUPERSCRIPT = Object.freeze({ 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', i: 'ⁱ', n: 'ⁿ', m: 'ᵐ', T: 'ᵀ', '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾' });
+const MATH_SUBSCRIPT = Object.freeze({ 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉', a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ', l: 'ₗ', m: 'ₘ', n: 'ₙ', o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ', '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎' });
+
+function compactMathScript(value, alphabet, marker) {
+  const normalized = String(value || '').replace(/\\([a-zA-Z]+)/g, (_, name) => LATEX_SYMBOLS[name] || name).replace(/[{}\s]/g, '');
+  const converted = [...normalized].map(character => alphabet[character]).join('');
+  return converted.length === normalized.length ? converted : `${marker}(${normalized})`;
+}
+
+function readLatexArgument(source, start) {
+  let cursor = start;
+  while (/\s/.test(source[cursor] || '')) cursor += 1;
+  if (source[cursor] === '{') {
+    let depth = 1;
+    let index = cursor + 1;
+    while (index < source.length && depth > 0) {
+      if (source[index] === '{') depth += 1;
+      else if (source[index] === '}') depth -= 1;
+      index += 1;
+    }
+    if (depth !== 0) throw new Error('unbalanced formula group');
+    return { value: source.slice(cursor + 1, index - 1), end: index };
+  }
+  if (source[cursor] === '\\') {
+    const command = source.slice(cursor).match(/^\\[a-zA-Z]+/)?.[0] || source.slice(cursor, cursor + 2);
+    return { value: command, end: cursor + command.length };
+  }
+  return { value: source[cursor] || '', end: Math.min(source.length, cursor + 1) };
+}
+
+function readLatexScripts(source, start) {
+  let cursor = start;
+  let subScript = null;
+  let superScript = null;
+  for (let count = 0; count < 2; count += 1) {
+    while (/\s/.test(source[cursor] || '')) cursor += 1;
+    const marker = source[cursor];
+    if (marker !== '_' && marker !== '^') break;
+    const argument = readLatexArgument(source, cursor + 1);
+    if (marker === '_') subScript = argument.value;
+    else superScript = argument.value;
+    cursor = argument.end;
+  }
+  return { subScript, superScript, end: cursor };
+}
+
+function latexToMathComponents(value) {
+  const source = String(value || '').trim().slice(0, 2000);
+  if (!source) throw new Error('empty formula');
+  const components = [];
+  let buffer = '';
+  const flush = (isScriptBase = false) => {
+    const normalized = buffer.replace(/\s+/g, ' ');
+    if (normalized && isScriptBase) {
+      const characters = [...normalized];
+      const base = characters.pop();
+      if (characters.length) components.push(new MathRun(characters.join('')));
+      components.push(new MathRun(base));
+    } else if (normalized) components.push(new MathRun(normalized));
+    buffer = '';
+  };
+  let cursor = 0;
+  while (cursor < source.length) {
+    const character = source[cursor];
+    if (character === '\\') {
+      flush();
+      const commandMatch = source.slice(cursor).match(/^\\([a-zA-Z]+)/);
+      if (!commandMatch) {
+        buffer += source[cursor + 1] || '';
+        cursor += 2;
+        continue;
+      }
+      const command = commandMatch[1];
+      cursor += commandMatch[0].length;
+      if (command === 'left' || command === 'right') continue;
+      if (command === 'frac') {
+        const numerator = readLatexArgument(source, cursor);
+        const denominator = readLatexArgument(source, numerator.end);
+        components.push(new MathFraction({ numerator: latexToMathComponents(numerator.value), denominator: latexToMathComponents(denominator.value) }));
+        cursor = denominator.end;
+        continue;
+      }
+      if (command === 'sqrt') {
+        const radicand = readLatexArgument(source, cursor);
+        components.push(new MathRadical({ children: latexToMathComponents(radicand.value) }));
+        cursor = radicand.end;
+        continue;
+      }
+      if (command === 'sum') {
+        const scripts = readLatexScripts(source, cursor);
+        // Word's PDF renderer can deadlock on a scripted sum when the same
+        // document also contains drawings and code. Unicode bounds remain a
+        // native editable equation run and avoid exposing raw LaTeX.
+        components.push(new MathRun(`${LATEX_SYMBOLS.sum}${scripts.superScript == null ? '' : compactMathScript(scripts.superScript, MATH_SUPERSCRIPT, '^')}${scripts.subScript == null ? '' : compactMathScript(scripts.subScript, MATH_SUBSCRIPT, '_')}`));
+        cursor = scripts.end;
+        continue;
+      }
+      if (['text', 'mathrm', 'mathbf', 'operatorname'].includes(command)) {
+        const argument = readLatexArgument(source, cursor);
+        components.push(...latexToMathComponents(argument.value));
+        cursor = argument.end;
+        continue;
+      }
+      components.push(new MathRun(LATEX_SYMBOLS[command] || command));
+      continue;
+    }
+    if (character === '_' || character === '^') {
+      flush(true);
+      const scripts = readLatexScripts(source, cursor);
+      const base = components.pop();
+      if (!base) throw new Error('formula script has no base');
+      const options = {
+        children: [base],
+        ...(scripts.subScript == null ? {} : { subScript: latexToMathComponents(scripts.subScript) }),
+        ...(scripts.superScript == null ? {} : { superScript: latexToMathComponents(scripts.superScript) }),
+      };
+      if (scripts.subScript != null && scripts.superScript != null) components.push(new MathSubSuperScript(options));
+      else if (scripts.subScript != null) components.push(new MathSubScript(options));
+      else components.push(new MathSuperScript(options));
+      cursor = scripts.end;
+      continue;
+    }
+    if (character === '{' || character === '}') {
+      cursor += 1;
+      continue;
+    }
+    buffer += character;
+    cursor += 1;
+  }
+  flush();
+  if (!components.length) throw new Error('empty normalized formula');
+  return components;
+}
+
+function formulaMath(node) {
+  try { return new OfficeMath({ children: latexToMathComponents(node?.attrs?.latex) }); }
+  catch (error) {
+    console.warn('[teacher-preparation-document] formula DOCX degraded:', error.message);
+    return new TextRun({ text: `公式降级：${String(node?.attrs?.latex || '').slice(0, 2000)}`, italics: true, color: '9A3412', font: 'Cambria Math' });
+  }
+}
+
+function codeParagraphs(node) {
+  const lines = String(nodeText(node)).replace(/\r\n?/g, '\n').split('\n');
+  return lines.map((line, index) => new Paragraph({
+    keepLines: true,
+    keepNext: index < lines.length - 1,
+    shading: { fill: 'F4F0EA' },
+    spacing: { before: index === 0 ? 80 : 0, after: index === lines.length - 1 ? 120 : 0, line: 280 },
+    children: [new TextRun({ text: line, font: 'Consolas' })],
+  }));
 }
 
 function textRuns(node, defaults = {}) {
@@ -915,7 +1109,7 @@ function textRuns(node, defaults = {}) {
       const image = imageRunFromNode(item);
       runs.push(image || new TextRun({ text: item.attrs?.alt ? `[图片：${item.attrs.alt}]` : '[图片]' }));
     } else if (item.type === 'formula') {
-      runs.push(new TextRun({ text: item.attrs?.latex || '', italics: true, font: 'Cambria Math' }));
+      runs.push(formulaMath(item));
     } else {
       const marks = item.marks || {};
       runs.push(new TextRun({
@@ -936,9 +1130,12 @@ function documentChildren(contentJson) {
   for (const node of contentJson?.content || []) {
     const text = nodeText(node);
     if (node.type === 'heading') children.push(new Paragraph({ heading: headingLevels[node.attrs?.level] || HeadingLevel.HEADING_2, keepNext: true, spacing: { before: 180, after: 100 }, children: textRuns(node, { bold: true, color: '7A4B22' }) }));
-    else if (node.type === 'paragraph') children.push(new Paragraph({ alignment: { center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED }[node.attrs?.align] || AlignmentType.LEFT, indent: node.attrs?.indent ? { left: Math.min(1440, node.attrs.indent * 12) } : undefined, spacing: { after: 100, line: 320 }, children: textRuns(node) }));
+    else if (node.type === 'paragraph') {
+      const displayFormula = node.content?.length === 1 && node.content[0]?.type === 'formula' && node.content[0]?.attrs?.display;
+      children.push(new Paragraph({ alignment: displayFormula ? AlignmentType.CENTER : ({ center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED }[node.attrs?.align] || AlignmentType.LEFT), indent: node.attrs?.indent ? { left: Math.min(1440, node.attrs.indent * 12) } : undefined, spacing: { after: displayFormula ? 180 : 100, line: 320 }, children: textRuns(node) }));
+    }
     else if (node.type === 'blockquote') children.push(new Paragraph({ indent: { left: 420 }, border: { left: { style: BorderStyle.SINGLE, color: 'C69A68', size: 8, space: 12 } }, children: textRuns(node, { italics: true, color: '6B5A49' }) }));
-    else if (node.type === 'code_block') children.push(new Paragraph({ shading: { fill: 'F4F0EA' }, children: textRuns(node, { font: 'Consolas' }) }));
+    else if (node.type === 'code_block') children.push(...codeParagraphs(node));
     else if (node.type === 'list') (node.content || []).forEach((item) => children.push(new Paragraph({ numbering: { reference: node.attrs?.ordered ? 'document-numbering' : 'document-bullets', level: 0 }, children: textRuns(item) })));
     else if (node.type === 'horizontal_rule') children.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, color: 'CFC4B5', size: 4, space: 8 } } }));
     else if (node.type === 'page_break') children.push(new Paragraph({ children: [new PageBreak()] }));
@@ -946,26 +1143,72 @@ function documentChildren(contentJson) {
       const image = imageRunFromNode(node);
       children.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [image || new TextRun({ text: node.attrs?.alt ? `[图片：${node.attrs.alt}]` : '[图片]' })] }));
     } else if (node.type === 'table') {
-      const rows = (node.content || []).map((row) => new TableRow({ children: (row.content || []).map((cell) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: nodeText(cell), bold: cell.attrs?.header })] })] })) }));
-      if (rows.length) children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, layout: TableLayoutType.FIXED, rows }));
+      const sourceRows = node.content || [];
+      const columnCount = Math.max(0, ...sourceRows.map(row => row.content?.length || 0));
+      if (!columnCount) continue;
+      const weights = Array.from({ length: columnCount }, (_, column) => Math.max(4, Math.min(32, ...sourceRows.map(row => nodeText(row.content?.[column]).length || 1))));
+      const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+      const widths = weights.map(value => Math.floor(DOCX_CONTENT_WIDTH_DXA * value / totalWeight));
+      widths[widths.length - 1] += DOCX_CONTENT_WIDTH_DXA - widths.reduce((sum, value) => sum + value, 0);
+      const rows = sourceRows.map((row, rowIndex) => new TableRow({
+        tableHeader: rowIndex === 0 && row.content?.some(cell => cell.attrs?.header), cantSplit: rowIndex === 0,
+        children: Array.from({ length: columnCount }, (_, column) => {
+          const cell = row.content?.[column] || { content: [{ type: 'text', text: '' }] };
+          const header = Boolean(cell.attrs?.header || (rowIndex === 0 && row.content?.some(item => item.attrs?.header)));
+          return new TableCell({
+            width: { size: widths[column], type: WidthType.DXA }, margins: DOCX_CELL_MARGINS,
+            verticalAlign: VerticalAlign.CENTER, shading: header ? { fill: 'EDE6DC' } : undefined,
+            children: [new Paragraph({ spacing: { after: 0, line: 280 }, children: textRuns(cell, { bold: header }) })],
+          });
+        }),
+      }));
+      children.push(new Table({
+        width: { size: DOCX_CONTENT_WIDTH_DXA, type: WidthType.DXA }, indent: { size: 120, type: WidthType.DXA },
+        columnWidths: widths, layout: TableLayoutType.FIXED,
+        borders: {
+          top: { style: BorderStyle.SINGLE, color: 'B9AA98', size: 2 }, bottom: { style: BorderStyle.SINGLE, color: 'B9AA98', size: 2 },
+          left: { style: BorderStyle.SINGLE, color: 'B9AA98', size: 2 }, right: { style: BorderStyle.SINGLE, color: 'B9AA98', size: 2 },
+          insideHorizontal: { style: BorderStyle.SINGLE, color: 'D8CFC3', size: 1 }, insideVertical: { style: BorderStyle.SINGLE, color: 'D8CFC3', size: 1 },
+        }, rows,
+      }));
     }
   }
   return children.length ? children : [new Paragraph('')];
 }
 
-async function exportDocxArtifact(artifact, version, taskId) {
-  const doc = new Document({
+function buildEditableDocxDocument(title, contentJson, options = {}) {
+  const documentTitle = String(title || '未命名教学材料').slice(0, 240);
+  const cover = options.includeCover === false ? [] : [
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 1800, after: 220 }, children: [new TextRun({ text: documentTitle, bold: true, size: 52, color: '7A4B22' })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 140 }, children: [new TextRun({ text: options.subtitle || '正式教学设计', size: 26, color: '746352' })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 1200 }, children: [new TextRun({ text: `DisciMind 学研智擎 · ${new Date().toISOString().slice(0, 10)}`, size: 20, color: '8A7A6A' })] }),
+    new Paragraph({ children: [new PageBreak()] }),
+  ];
+  return new Document({
+    creator: 'DisciMind / 学研智擎', title: documentTitle, description: 'DisciMind formal teaching document',
     numbering: { config: [
       { reference: 'document-bullets', levels: [{ level: 0, format: LevelFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 260 } } } }] },
       { reference: 'document-numbering', levels: [{ level: 0, format: LevelFormat.DECIMAL, text: '%1.', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 720, hanging: 260 } } } }] },
     ] },
+    styles: {
+      default: { document: { run: { font: { ascii: 'Aptos', hAnsi: 'Aptos', eastAsia: 'Microsoft YaHei' }, size: 22, color: '2F2923' }, paragraph: { spacing: { line: 320 } } } },
+      paragraphStyles: [
+        { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { size: 34, bold: true, color: '7A4B22' }, paragraph: { spacing: { before: 320, after: 160 }, keepNext: true, outlineLevel: 0 } },
+        { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { size: 29, bold: true, color: '7A4B22' }, paragraph: { spacing: { before: 260, after: 140 }, keepNext: true, outlineLevel: 1 } },
+        { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { size: 25, bold: true, color: '5F4935' }, paragraph: { spacing: { before: 220, after: 120 }, keepNext: true, outlineLevel: 2 } },
+      ],
+    },
     sections: [{
-      properties: { page: { margin: { top: 1134, right: 1020, bottom: 1134, left: 1020 } } },
-      headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: artifact.title, color: '746352', size: 18 })] })] }) },
-      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun('DisciMind · '), new TextRun({ children: [PageNumber.CURRENT] })] })] }) },
-      children: documentChildren(version.content_json),
+      properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1134, right: 1020, bottom: 1134, left: 1020, header: 620, footer: 620 } } },
+      headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: documentTitle, color: '746352', size: 18 })] })] }) },
+      footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'DisciMind 学研智擎  |  第 ', color: '746352', size: 18 }), new TextRun({ children: [PageNumber.CURRENT], color: '746352', size: 18 }), new TextRun({ text: ' 页', color: '746352', size: 18 })] })] }) },
+      children: [...cover, ...documentChildren(contentJson)],
     }],
   });
+}
+
+async function exportDocxArtifact(artifact, version, taskId) {
+  const doc = buildEditableDocxDocument(artifact.title, version.content_json, { subtitle: artifact.artifactRole === 'STUDENT_HANDOUT' ? '学生学习材料' : '正式教学设计' });
   const buffer = await Packer.toBuffer(doc);
   if (buffer.length > MAX_FILE_BYTES) throw serviceError('导出的 DOCX 超过 20MB 限制');
   const directory = path.resolve(ARTIFACT_STORAGE_ROOT, String(artifact.ownerUserId), String(artifact.id));
@@ -984,6 +1227,30 @@ async function exportDocxArtifact(artifact, version, taskId) {
   return { storagePath, checksum, size: buffer.length };
 }
 
+async function retryLessonPlanExportTask(task, options = {}) {
+  const artifact = await prisma.generatedArtifact.findUnique({ where: { taskId: Number(task.id) } });
+  if (!artifact || artifact.deletedAt || !artifact.contentSchemaJson) {
+    throw Object.assign(new Error('教案导出任务缺少可恢复的结构化产物'), {
+      code: 'LESSON_PLAN_ARTIFACT_MISSING',
+      permanent: true,
+      userMessage: '原导出内容已不可用，请从教案页面重新发起导出。',
+    });
+  }
+  if (options.signal?.aborted) throw Object.assign(new Error('教案导出已取消'), { name: 'AbortError', code: 'TASK_CANCELLED' });
+  const normalized = String(artifact.fileFormat || artifact.requirementsJson?.format || 'DOCX').toUpperCase();
+  if (!['DOCX', 'PDF'].includes(normalized)) {
+    throw Object.assign(new Error('教案导出格式不受支持'), { code: 'EXPORT_FORMAT_UNSUPPORTED', permanent: true });
+  }
+  await prisma.generatedArtifact.update({
+    where: { id: artifact.id },
+    data: { status: 'CONTENT_READY', errorCode: null },
+  });
+  if (artifact.artifactType === 'TEACHING_DOCUMENT' && normalized === 'DOCX') {
+    return exportDocxArtifact(artifact, { title: artifact.title, content_json: artifact.contentSchemaJson }, task.id);
+  }
+  return artifactExportService.exportFormat(artifact.id, normalized, { taskId: task.id, signal: options.signal });
+}
+
 function studentSafeHtml(html, options = {}) {
   let safe = String(html || '')
     .replace(/<[^>]+class="[^"]*teacher-only[^"]*"[^>]*>[\s\S]*?<\/[^>]+>/gi, '')
@@ -998,7 +1265,15 @@ async function createExportTask(user, document, version, format, options = {}) {
   const role = options.student ? 'STUDENT_HANDOUT' : 'TEACHER_LESSON_PLAN';
   const operationId = `editdoc:${document.id}:v${version.id}:r${document.revision}:${role}:${normalized}`;
   const previous = await prisma.asyncTask.findUnique({ where: { userId_operationId: { userId: user.user_id, operationId } }, include: { generatedArtifact: true } });
-  if (previous?.generatedArtifact) return { task_id: previous.id, artifact_id: previous.generatedArtifact.id, status: String(previous.status).toLowerCase(), reused: true };
+  if (previous?.generatedArtifact) {
+    if (previous.generatedArtifact.status === 'READY') return { task_id: previous.id, artifact_id: previous.generatedArtifact.id, status: 'ready', reused: true };
+    let status = previous.status;
+    if (['FAILED', 'CANCELLED'].includes(status)) {
+      const retried = await require('../modules/async-task/async-task.service').retryTask(user.user_id, previous.id);
+      status = retried.status;
+    }
+    return { task_id: previous.id, artifact_id: previous.generatedArtifact.id, status: String(status).toLowerCase(), reused: true, retried: status === 'QUEUED' };
+  }
   const task = await prisma.asyncTask.create({ data: { userId: user.user_id, operationId, taskType: 'LESSON_PLAN_EXPORT', title: `${document.title} ${options.student ? '学生材料' : '教案'} ${normalized} 导出`, status: 'RUNNING', stage: `正在生成 ${normalized}`, progress: 5, progressMode: 'DETERMINATE', relatedResourceType: 'EDITABLE_TEACHING_DOCUMENT', relatedResourceId: String(document.id), startedAt: new Date() } });
   const previewHtml = options.student ? studentSafeHtml(version.sanitized_html, options) : version.sanitized_html;
   const artifact = await prisma.generatedArtifact.create({ data: {
@@ -1014,7 +1289,8 @@ async function createExportTask(user, document, version, format, options = {}) {
       if (normalized === 'DOCX') await exportDocxArtifact(artifact, { ...version, content_json: artifact.contentSchemaJson }, task.id);
       else await artifactExportService.exportFormat(artifact.id, 'PDF', { taskId: task.id });
       if (options.student) await createStudentResource(user, document, artifact, normalized, options);
-      await prisma.notification.create({ data: { receiver_user_id: user.user_id, notification_type: 'FILE_GENERATED', title: `${artifact.title} ${normalized} 已生成`, content: '文件已进入任务中心和产物中心。', target_type: 'generated_artifact', target_id: artifact.id, business_type: 'editable_teaching_document', business_id: document.id } });
+      await prisma.notification.create({ data: { receiver_user_id: user.user_id, notification_type: 'FILE_GENERATED', title: `${artifact.title} ${normalized} 已生成`, content: '文件已进入任务中心和产物中心。', target_type: 'generated_artifact', target_id: artifact.id, business_type: 'editable_teaching_document', business_id: document.id } })
+        .catch((error) => console.error('[teacher-preparation-document] export notification failed:', error.message));
     } catch (error) {
       console.error('[teacher-preparation-document] export failed:', error.message);
       await prisma.asyncTask.update({ where: { id: task.id }, data: { status: 'FAILED', stage: `${normalized} 导出失败`, errorCode: String(error.code || 'DOCUMENT_EXPORT_FAILED').slice(0, 100), errorMessage: '教案导出失败，请稍后重试。' } }).catch(() => {});
@@ -1082,9 +1358,9 @@ async function getSourceFile(user, sourceKind, sourceId, format) {
 
 module.exports = {
   MAX_FILE_BYTES, ALLOWED_EXTENSIONS, SECTION_MAP,
-  sanitizeHtml, plainTextFromHtml, outlineFromHtml, contentJsonFromHtml, normalizeRichDocument,
+  sanitizeHtml, plainTextFromHtml, outlineFromHtml, contentJsonFromHtml, normalizeRichDocument, buildEditableDocxDocument, latexToMathComponents,
   validateUpload, markdownToHtml, extractedTextToHtml, studentSafeHtml,
   listDocuments, createDocument, getDocument, saveDraft, createVersion, listVersions, getVersion,
   compareVersions, restoreVersion, importDocument, listSelectableResources, aiRevise, syncStage,
-  exportDocument, generateStudentMaterial, getSourceFile,
+  exportDocument, generateStudentMaterial, getSourceFile, retryLessonPlanExportTask,
 };

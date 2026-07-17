@@ -119,13 +119,21 @@ export const learningWorkflowApi = {
   },
 
   // 多模态文件上传
-  uploadSessionFiles(sessionId, formData) {
+  async uploadSessionFiles(sessionId, formData) {
     const token = getToken() || '';
-    return fetch(`/api${BASE}/sessions/${sessionId}/files`, {
+    const response = await fetch(`/api${BASE}/sessions/${sessionId}/files`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
-    }).then((r) => r.json());
+    });
+    const result = await response.json();
+    if (response.ok && result.data?.files) {
+      result.data.files = await Promise.all(result.data.files.map(async (file) => {
+        const preview = await fetch(file.fileUrl, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+        return preview.ok ? { ...file, previewUrl: URL.createObjectURL(await preview.blob()) } : file;
+      }));
+    }
+    return result;
   },
 };
 

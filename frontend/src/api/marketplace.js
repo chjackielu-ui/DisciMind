@@ -34,6 +34,7 @@ export const retryKnowledgeDocument = (id, documentId) => post(`/knowledge-bases
 export const uploadKnowledgeDocument = (id, file, operationId) => {
   const form = new FormData()
   form.append('file', file)
+  form.append('originalName', String(file?.name || '').normalize('NFC'))
   form.append('operationId', operationId)
   return upload(`/knowledge-bases/${id}/documents`, form)
 }

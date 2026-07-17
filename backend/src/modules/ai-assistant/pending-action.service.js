@@ -12,6 +12,12 @@ function stableKey(...parts) {
   return crypto.createHash('sha256').update(parts.map(value => String(value ?? '')).join(':')).digest('hex').slice(0, 32);
 }
 
+function artifactPreviewUrl(role, artifactId) {
+  return ['teacher', 'admin'].includes(String(role || '').toLowerCase())
+    ? `#/teacher/artifacts/${artifactId}`
+    : `#/student/artifacts/${artifactId}`;
+}
+
 function examPatch(query, context, fileIntent) {
   const text = String(query || '');
   const count = Number(text.match(/(\d{1,2})\s*道/u)?.[1]);
@@ -37,15 +43,42 @@ function examPatch(query, context, fileIntent) {
   };
 }
 
-function handoutPatch(query, context, fileIntent) {
+function conversationExcerpt(messages = []) {
+  const rows = (Array.isArray(messages) ? messages : [])
+    .filter(message => ['user', 'assistant'].includes(String(message?.role || '').toLowerCase()))
+    .slice(-6)
+    .map(message => `${String(message.role).toLowerCase() === 'assistant' ? 'AI 回答' : '用户要求'}：${String(message.content || '').trim()}`)
+    .filter(row => row.length > 5);
+  return rows.join('\n\n').slice(-820);
+}
+
+function effectiveFileRequest(query, messages = []) {
+  const current = String(query || '').trim();
+  if (!/(?:上一条|之前|前面|刚才|继续|按原要求|照原要求)/iu.test(current)) return current;
+  const prior = (Array.isArray(messages) ? messages : [])
+    .filter(message => String(message?.role || '').toLowerCase() === 'user')
+    .map(message => String(message?.content || '').trim())
+    .filter(content => content && content !== current)
+    .reverse()
+    .find(content => /(?:生成|制作|导出|输出|整理).*(?:文件|讲义|教案|试卷|答题卷|pdf|docx|word)|(?:pdf|docx|word).*(?:生成|制作|导出|输出)/iu.test(content));
+  return prior ? `${prior}\n\n用户补充：${current}` : current;
+}
+
+function handoutPatch(query, context, fileIntent, messages = []) {
   const courseName = context.selectedCourse?.name || '课程';
   const pointName = context.selectedKnowledgePoint?.name;
+  const text = effectiveFileRequest(query, messages);
+  const exportConversation = /(?:上面|上述|刚才|前文|这段|本次|当前)(?:的)?(?:回答|内容|对话)|导出(?:为|成)|保存(?:为|成)/iu.test(text);
+  const excerpt = exportConversation ? conversationExcerpt(messages) : '';
+  const specialRequirements = excerpt
+    ? `请把下面已有对话内容忠实整理为文档正文，保留原有事实与层级，不要声称无法生成文件。\n${excerpt}`
+    : text;
   return {
     title: `${pointName || courseName}学习讲义`, targetAudience: '本科生', handoutLength: 'MEDIUM',
     learningObjectives: [`理解并能应用${pointName || courseName}的核心知识`],
     includeExamples: true, includeExercises: true, includeAnswers: false,
     outputFormats: fileIntent.outputFormats?.length ? fileIntent.outputFormats : ['DOCX', 'PDF'],
-    specialRequirements: String(query || '').slice(0, 1000),
+    specialRequirements: specialRequirements.slice(0, 1000),
   };
 }
 
@@ -86,7 +119,14 @@ function serializePending(task, draft, extra = {}) {
     fileConversationId: Number(task.metadataJson?.fileConversationId) || null,
     agentId: task.agentId || Number(task.metadataJson?.agentId) || null,
     summary: summaryFromDraft(draft || task.requestPayloadJson || {}),
-    actions: task.status === 'WAITING_EXTERNAL' ? ['generate', 'preview', 'modify', 'cancel'] : [],
+    cancellable: Boolean(task.cancellable),
+    actions: task.status === 'WAITING_EXTERNAL'
+      ? ['generate', 'preview', 'modify', 'cancel']
+      : ['QUEUED', 'RUNNING'].includes(task.status) && task.cancellable
+        ? ['cancel']
+        : ['FAILED', 'CANCELLED'].includes(task.status)
+          ? ['retry']
+          : [],
     createdAt: task.createdAt, updatedAt: task.updatedAt,
     ...extra,
   };
@@ -138,7 +178,8 @@ async function createFileConfirmation(input) {
   const aiConversation = await ownedAiConversation(userId, input.aiConversationId);
   const context = input.userContext;
   if (!context?.selectedCourse?.id) return { needsInput: true, questions: [{ field: 'course', question: '请选择要生成文件的课程。' }] };
-  const artifactType = input.fileIntent?.artifactType === 'STUDY_HANDOUT' ? 'STUDY_HANDOUT' : 'EXAM_PAPER';
+  const artifactType = input.fileIntent?.artifactType === 'EXAM_PAPER' ? 'EXAM_PAPER' : 'STUDY_HANDOUT';
+  const requestedFormats = (input.fileIntent?.outputFormats || []).filter(format => ['DOCX', 'PDF'].includes(format));
   const agent = await systemFileAgent(artifactType);
   const conversation = await agentChatService.createConversation(userId, agent.id, {
     operationId: `ai-pending-${aiConversation.id}-${agent.id}`,
@@ -149,11 +190,11 @@ async function createFileConfirmation(input) {
     artifactType, aiConversationId: aiConversation.id, courseId: context.selectedCourse.id,
     knowledgePointId: context.selectedKnowledgePoint?.id || null,
     knowledgeBaseRefs: input.knowledgeBaseRefs || [], attachments: input.attachments || [],
-    outputFormats: input.fileIntent?.outputFormats || ['DOCX', 'PDF'],
+    outputFormats: requestedFormats.length ? requestedFormats : ['DOCX'],
   });
   const patch = artifactType === 'EXAM_PAPER'
     ? examPatch(input.query, context, input.fileIntent || {})
-    : handoutPatch(input.query, context, input.fileIntent || {});
+    : handoutPatch(input.query, context, { ...(input.fileIntent || {}), outputFormats: requestedFormats }, input.messages);
   draft = await fileRequirements.patchRequirements(userId, conversation.id, patch);
   return ensureForFileConversation({
     userId, aiConversationId: aiConversation.id, fileConversationId: conversation.id,
@@ -164,6 +205,7 @@ async function createFileConfirmation(input) {
 async function loadPending(userId, pendingId) {
   const task = await prisma.asyncTask.findFirst({ where: { id: Number(pendingId), userId: Number(userId), taskType: 'FILE_GENERATION', userVisible: true } });
   if (!task || task.metadataJson?.kind !== 'FILE_CONFIRMATION') throw actionError('确认请求不存在或无权操作', 40301, 403);
+  const owner = await prisma.user.findUnique({ where: { user_id: Number(userId) }, select: { role: true } });
   const draft = task.metadataJson?.fileConversationId
     ? await fileRequirements.getRequirements(Number(userId), Number(task.metadataJson.fileConversationId))
     : task.requestPayloadJson || {};
@@ -172,8 +214,8 @@ async function loadPending(userId, pendingId) {
     include: { exports: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } } },
   });
   const artifactSummary = artifact ? {
-    id: artifact.id, title: artifact.title, status: artifact.status,
-    previewUrl: `#/student/artifacts/${artifact.id}`,
+    id: artifact.id, title: artifact.title, status: artifact.status, artifactType: artifact.artifactType,
+    previewUrl: artifactPreviewUrl(owner?.role, artifact.id),
     formats: (artifact.exports || []).map(item => ({
       format: item.format, status: item.status,
       downloadAvailable: item.status === 'READY' && Boolean(item.storagePath),
@@ -210,10 +252,25 @@ async function act(userId, pendingId, input = {}) {
   }
   if (action === 'cancel') {
     if (task.status === 'CANCELLED') return { pendingAction };
-    if (task.status !== 'WAITING_EXTERNAL') throw actionError('文件任务已经开始，不能再取消确认', 40901, 409);
-    const cancelled = await asyncTasks.updateTask(task.id, { status: 'CANCELLED', stage: '已取消', requiresUserAction: false, cancellable: false, cancelledAt: new Date() });
+    if (!['WAITING_EXTERNAL', 'QUEUED', 'RUNNING'].includes(task.status)) throw actionError('该文件任务当前不可取消', 40901, 409);
+    const cancelled = task.status === 'WAITING_EXTERNAL'
+      ? await asyncTasks.updateTask(task.id, { status: 'CANCELLED', stage: '已取消', requiresUserAction: false, cancellable: false, cancelledAt: new Date() })
+      : await asyncTasks.cancelTask(Number(userId), task.id);
+    if (task.status !== 'WAITING_EXTERNAL') {
+      require('../async-task/async-task.worker').getAsyncTaskWorker().cancel(task.id);
+      await prisma.generatedArtifact.updateMany({
+        where: { taskId: task.id, ownerUserId: Number(userId), status: { in: ['GENERATING', 'EXPORTING'] } },
+        data: { status: 'FAILED', errorCode: 'USER_CANCELLED' },
+      });
+    }
     await updateConversationPendingState(userId, task, 'CANCELLED');
     return { pendingAction: serializePending({ ...task, ...cancelled, metadataJson: task.metadataJson }, draft) };
+  }
+  if (action === 'retry') {
+    if (!['FAILED', 'CANCELLED'].includes(task.status)) throw actionError('只有失败或已取消的文件任务可以重试', 40901, 409);
+    const retried = await asyncTasks.retryTask(Number(userId), task.id);
+    await updateConversationPendingState(userId, task, 'QUEUED');
+    return { pendingAction: (await loadPending(userId, retried.id)).pendingAction };
   }
   if (action === 'generate') {
     if (task.status !== 'WAITING_EXTERNAL') {
@@ -232,6 +289,6 @@ async function act(userId, pendingId, input = {}) {
 }
 
 module.exports = {
-  stableKey, examPatch, handoutPatch, summaryFromDraft, serializePending,
+  stableKey, artifactPreviewUrl, examPatch, conversationExcerpt, effectiveFileRequest, handoutPatch, summaryFromDraft, serializePending,
   createFileConfirmation, ensureForFileConversation, getConversationPending, loadPending, act,
 };

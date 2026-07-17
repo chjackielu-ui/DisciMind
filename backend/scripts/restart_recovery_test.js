@@ -15,6 +15,9 @@ const BASE = `http://localhost:${process.env.PORT || 3000}/api`;
 const cp = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const TEST_USERNAME = process.env.TEST_USERNAME;
+const TEST_PASSWORD = process.env.TEST_PASSWORD;
+if (!TEST_USERNAME || !TEST_PASSWORD) throw new Error('TEST_USERNAME and TEST_PASSWORD environment variables are required');
 
 function api(method, path, body, token) {
   return new Promise((resolve, reject) => {
@@ -33,7 +36,7 @@ async function main() {
 
   // 1. Login
   console.log('\n--- Step 1: Login ---');
-  const login = await api('POST', '/auth/login', { account: 'e2etest', password: 'test123456' });
+  const login = await api('POST', '/auth/login', { account: TEST_USERNAME, password: TEST_PASSWORD });
   const token = login.body?.data?.accessToken || login.body?.data?.token;
   if (!token) { console.log('Login failed:', JSON.stringify(login.body).slice(0, 200)); return; }
   console.log('Token:', token.slice(0, 30) + '...');
@@ -91,7 +94,7 @@ async function main() {
 
   // 8. Re-login (old token may be invalid after restart)
   console.log('\n--- Step 8: Re-login ---');
-  const login2 = await api('POST', '/auth/login', { account: 'e2etest', password: 'test123456' });
+  const login2 = await api('POST', '/auth/login', { account: TEST_USERNAME, password: TEST_PASSWORD });
   const token2 = login2.body?.data?.accessToken || login2.body?.data?.token;
   console.log('New token:', token2.slice(0, 30) + '...');
 

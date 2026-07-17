@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import secrets
 import subprocess
 import sys
 import time
@@ -18,7 +20,13 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 STORAGE_ROOT = ROOT / "storage" / "course-files"
 DEFAULT_BASE_URL = "http://localhost:3000/api"
-PASSWORD = "123456"
+TEST_PASSWORD = os.environ.get("DISCIMIND_TEST_PASSWORD")
+TEST_ACCOUNTS = {
+    "admin": os.environ.get("DISCIMIND_TEST_ADMIN_ACCOUNT"),
+    "teacher": os.environ.get("DISCIMIND_TEST_TEACHER_ACCOUNT"),
+    "student": os.environ.get("DISCIMIND_TEST_STUDENT_ACCOUNT"),
+    "student_b": os.environ.get("DISCIMIND_TEST_SECONDARY_STUDENT_ACCOUNT"),
+}
 
 
 @dataclass
@@ -58,7 +66,7 @@ class Api:
         return payload.get("data")
 
 
-def login(base_url: str, username: str, password: str = PASSWORD) -> tuple[Api, dict[str, Any]]:
+def login(base_url: str, username: str, password: str) -> tuple[Api, dict[str, Any]]:
     data = Api(base_url).data("POST", "/auth/login", json={"account": username, "password": password})
     token = data.get("token") or data.get("accessToken")
     if not token:
@@ -93,8 +101,11 @@ def find_fixture_message(client: Api, file_id: int) -> tuple[dict[str, Any] | No
 
 
 def run(base_url: str, report_path: Path) -> int:
+    if not TEST_PASSWORD or not all(TEST_ACCOUNTS.values()):
+        raise RuntimeError("DISCIMIND_TEST_PASSWORD and all DISCIMIND_TEST_*_ACCOUNT variables are required")
     marker = f"cf{int(time.time() * 1000)}"
     temp_username = f"teacher_{marker}"[:50]
+    temp_password = secrets.token_urlsafe(18)
     title = f"课程文件验收-{marker}"
     filename = f"跨端课程文件验收-{marker}.txt"
     content = f"DisciMind course file acceptance {marker}\n".encode("utf-8")
@@ -103,15 +114,15 @@ def run(base_url: str, report_path: Path) -> int:
     cleanup_done = False
     file_id: int | None = None
     try:
-        admin, admin_user = login(base_url, "admin_demo")
-        teacher, teacher_user = login(base_url, "teacher_demo")
-        student, student_user = login(base_url, "student_demo")
-        student_b, _ = login(base_url, "student_b")
+        admin, admin_user = login(base_url, TEST_ACCOUNTS["admin"], TEST_PASSWORD)
+        teacher, teacher_user = login(base_url, TEST_ACCOUNTS["teacher"], TEST_PASSWORD)
+        student, student_user = login(base_url, TEST_ACCOUNTS["student"], TEST_PASSWORD)
+        student_b, _ = login(base_url, TEST_ACCOUNTS["student_b"], TEST_PASSWORD)
         report.check("accounts.roles", [admin_user["role"], teacher_user["role"], student_user["role"]] == ["admin", "teacher", "student"], "admin/teacher/student roles authenticated")
 
         student_courses = student.data("GET", "/student/courses")["list"]
         if not student_courses:
-            raise AssertionError("student_demo has no active course fixture")
+            raise AssertionError("configured student account has no active course fixture")
         course_id = int(student_courses[0]["course_id"])
         class_id = int(student_courses[0]["teaching_class_id"])
         teacher_classes = teacher.data("GET", f"/teacher/courses/{course_id}/teaching-classes")["list"]
@@ -125,13 +136,13 @@ def run(base_url: str, report_path: Path) -> int:
 
         created = admin.data("POST", "/admin/users", json={
             "username": temp_username,
-            "password": PASSWORD,
+            "password": temp_password,
             "role": "teacher",
             "real_name": "课程文件越权验收教师",
             "teacher_no": marker,
         })
         report.check("fixture.temp_teacher_created", created["username"] == temp_username and created["role"] == "teacher", f"user_id={created['user_id']}")
-        outsider, _ = login(base_url, temp_username)
+        outsider, _ = login(base_url, temp_username, temp_password)
 
         file_path = f"/courses/{course_id}/teaching-classes/{class_id}/files"
         multipart = {"file": (filename, content, "text/plain")}

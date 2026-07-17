@@ -4,14 +4,16 @@ const { createAgentError } = require('../agent/common/agent.errors');
 
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_RETRIES = 1;
-const RETRY_DELAY_MS = 500;
-const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
+const RETRY_DELAY_MS = 250;
+const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_NETWORK_CODES = new Set([
   'ECONNRESET',
   'ETIMEDOUT',
   'ECONNREFUSED',
   'EAI_AGAIN',
   'ENOTFOUND',
+  'EPIPE',
+  'ERR_NETWORK',
 ]);
 
 const AGENT_CONFIGS = {
@@ -334,7 +336,7 @@ async function runDiagnosticianWorkflow(input, options = {}) {
       if (err.name === 'AgentIntegrationError') throw err;
       if (attempt < config.maxRetries && isRetryableError(err)) {
         attempt += 1;
-        await sleep(RETRY_DELAY_MS);
+        await sleep(Math.min(4000, RETRY_DELAY_MS * (2 ** (attempt - 1))) + Math.floor(Math.random() * 200));
         continue;
       }
       throw mapAxiosError('diagnostician', err);

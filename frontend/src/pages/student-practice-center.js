@@ -102,6 +102,70 @@ function normalizeSelectedTypes(selectedTypes, questionCount) {
   return PRACTICE_QUESTION_TYPES.slice(0, limit).map(item => item.value)
 }
 
+function getConfiguredQuestionCount(state = {}) {
+  const custom = String(state.customCount ?? '').trim()
+  const value = custom ? Number(custom) : Number(state.questionCount)
+  return Number.isInteger(value) && value > 0 && value <= 50 ? value : 0
+}
+
+function clampAiQuestionCount(value, total) {
+  const normalizedTotal = Math.max(0, Number(total) || 0)
+  return Math.min(normalizedTotal, Math.max(0, Math.round(Number(value) || 0)))
+}
+
+function buildSourceMixControl(state) {
+  const total = getConfiguredQuestionCount(state)
+  const aiCount = clampAiQuestionCount(state.aiQuestionCount, total)
+  const bankCount = Math.max(0, total - aiCount)
+  const aiPercent = total ? Math.round((aiCount / total) * 100) : 0
+  const bankPercent = total ? 100 - aiPercent : 0
+  const labelEvery = total <= 10 ? 2 : total <= 20 ? 5 : 10
+  const ticks = Array.from({ length: total + 1 }, (_, value) => {
+    const showLabel = value === 0 || value === total || value % labelEvery === 0
+    return `<span class="source-mix-tick${showLabel ? ' labelled' : ''}" style="--tick:${total ? (value / total) * 100 : 0}%">${showLabel ? value : ''}</span>`
+  }).join('')
+  const bankAvailable = Math.max(0, Number(state.bankAvailable) || 0)
+  const bankShortage = Math.max(0, bankCount - bankAvailable)
+
+  return `
+    <div class="source-mix" id="practice-source-mix" style="--mix-position:${aiPercent}%">
+      <div class="source-mix-summary" aria-live="polite">
+        <div class="source-mix-side bank">
+          <span>题库题</span>
+          <b id="source-mix-bank-count">${bankCount} 道</b>
+          <small id="source-mix-bank-percent">${bankPercent}%</small>
+        </div>
+        <div class="source-mix-total">共 <b id="source-mix-total">${total}</b> 道题</div>
+        <div class="source-mix-side ai">
+          <span>AI 题</span>
+          <b id="source-mix-ai-count">${aiCount} 道</b>
+          <small id="source-mix-ai-percent">${aiPercent}%</small>
+        </div>
+      </div>
+      <div class="source-mix-control">
+        <output class="source-mix-tooltip" id="source-mix-tooltip" for="practice-source-mix-range">题库 ${bankCount} / AI ${aiCount}</output>
+        <input id="practice-source-mix-range" class="source-mix-range" type="range" min="0" max="${total}" step="1" value="${aiCount}"
+          aria-label="AI 生成题数量" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${aiCount}"
+          aria-valuetext="题库题 ${bankCount} 道，AI 题 ${aiCount} 道" ${total ? '' : 'disabled'}>
+        <div class="source-mix-ticks" aria-hidden="true">${ticks}</div>
+      </div>
+      <div class="source-mix-labels" aria-hidden="true"><span>题库题为主</span><span>AI 题为主</span></div>
+      <p class="source-mix-availability ${bankShortage ? 'warning' : ''}" id="source-mix-availability">
+        当前课程题库约有 ${bankAvailable} 道可用题${bankShortage ? `，不足的 ${bankShortage} 道将在开始练习后由 AI 补足。` : '；系统会避开本轮重复题，并优先减少近期重复。'}
+      </p>
+    </div>`
+}
+
+function modeInfoIcon(name) {
+  const paths = {
+    'practice-single': '<path d="M5 3h10a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V3Z"/><path d="M8 7h6M8 11h6M8 15h3"/>',
+    'practice-paper': '<path d="M6 3h9l3 3v15H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v4h4M8 11h6M8 15h6"/>',
+    exam: '<circle cx="12" cy="13" r="8"/><path d="M9 2h6M12 9v5l3 2"/>',
+    wait: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  }
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths['practice-single']}</svg>`
+}
+
 function normalizeSessionStatus(status) {
   return String(status || '').trim().toUpperCase()
 }
@@ -243,7 +307,7 @@ function buildConfigCard(state, typeLimit, hasConfig) {
   const sessionMode = state.sessionMode || 'practice'
   const answerMode = state.answerMode || 'single'
   const isExam = sessionMode === 'exam'
-  const count = Number(state.questionCount)
+  const count = getConfiguredQuestionCount(state)
   const btnDisabled = !hasConfig || state.starting
   const btnText = state.starting ? '正在准备题目...' : '开始练习'
   const hint = getStartHint(state, hasConfig)
@@ -295,6 +359,17 @@ function buildConfigCard(state, typeLimit, hasConfig) {
             ${state.countError ? `<p class="config-error">${state.countError}</p>` : ''}
           </div>
 
+          <!-- 题库题 / AI 生成题真实配比 -->
+          <div class="config-block source-mix-block">
+            <div class="config-block-head source-mix-heading">
+              <div>
+                <span>题目来源配比</span>
+                <small>调整题库现有题目与 AI 动态生成题目的组成比例</small>
+              </div>
+            </div>
+            ${buildSourceMixControl(state)}
+          </div>
+
           <!-- 作答模式（练习/考试） -->
           <div class="config-block">
             <div class="config-block-head">
@@ -336,11 +411,6 @@ function buildConfigCard(state, typeLimit, hasConfig) {
 // 模式说明卡片
 function buildModeInfoCard(sessionMode, answerMode) {
   const desc = getModeDescription(sessionMode, answerMode)
-  const icons = {
-    'practice-single': '📝',
-    'practice-paper': '📋',
-    'exam': '⏱️',
-  }
   let key = 'practice-single'
   if (sessionMode === 'exam') key = 'exam'
   else if (answerMode === 'paper') key = 'practice-paper'
@@ -348,7 +418,7 @@ function buildModeInfoCard(sessionMode, answerMode) {
   return `
     <section class="practice-card-v2 mode-info-card">
       <div class="mode-info-inner">
-        <span class="mode-info-icon">${icons[key]}</span>
+        <span class="mode-info-icon">${modeInfoIcon(key)}</span>
         <div>
           <h3 class="complex-section-title" style="margin-bottom:4px;">模式说明</h3>
           <p class="mode-info-desc">${desc}</p>
@@ -428,7 +498,7 @@ function buildTrainerEntryCard(subjects = [], state = {}) {
     </section>`
 }
 
-function buildResumeCard(activeSession) {
+function buildResumeCard(activeSession, state = {}) {
   if (!activeSession) {
     return `
       <section class="practice-card-v2 practice-resume-card empty">
@@ -440,6 +510,7 @@ function buildResumeCard(activeSession) {
       </section>`
   }
 
+  const abandoning = Number(state.abandoningSessionId) === Number(activeSession.practice_session_id)
   return `
     <section class="practice-card-v2 practice-resume-card active">
       <div class="resume-main">
@@ -448,8 +519,9 @@ function buildResumeCard(activeSession) {
         <p>${escapeHtml(formatSessionMode(activeSession))} · 已作答 ${sessionProgressText(activeSession)} · ${formatDateTime(activeSession.last_active_at)}</p>
       </div>
       <div class="resume-actions">
-        <button class="complex-btn" type="button" data-continue-session="${activeSession.practice_session_id}">继续作答</button>
-        <button class="complex-btn-secondary danger" type="button" data-abandon-session="${activeSession.practice_session_id}">放弃本次</button>
+        <button class="complex-btn" type="button" data-continue-session="${activeSession.practice_session_id}" ${abandoning ? 'disabled' : ''}>继续作答</button>
+        <button class="complex-btn-secondary danger" type="button" data-abandon-session="${activeSession.practice_session_id}"
+          ${abandoning ? 'disabled aria-busy="true"' : ''}>${abandoning ? '正在放弃...' : '放弃本次'}</button>
       </div>
     </section>`
 }
@@ -560,7 +632,7 @@ function buildAiGeneratingModal() {
           <div class="ai-step">正在整理答题页面...</div>
         </div>
         <div class="ai-generating-notice">
-          <p>⏳ 请稍等，题目生成过程中不要重复点击或关闭页面。</p>
+          <p><span class="ai-generating-notice-icon">${modeInfoIcon('wait')}</span>请稍等，题目生成过程中不要重复点击或关闭页面。</p>
         </div>
         <button class="complex-btn-ghost" id="btn-cancel-generating" type="button">取消生成</button>
       </div>
@@ -586,7 +658,7 @@ function buildPage(data, state) {
         ${buildSubjectCard(subjects, state.subjectId)}
         <div class="practice-main-grid">
           <div class="practice-center-workbench">
-            ${buildResumeCard(activeSession)}
+            ${buildResumeCard(activeSession, state)}
             ${buildConfigCard(state, typeLimit, hasConfig)}
             ${buildModeInfoCard(sessionMode, answerMode)}
           </div>
@@ -687,6 +759,9 @@ export async function renderStudentPracticeCenter(app) {
     customCount: '',
     sessionMode: 'practice',
     answerMode: 'single',
+    aiQuestionCount: 3,
+    bankAvailable: Number(firstSubject?.question_count || 0),
+    abandoningSessionId: null,
     starting: false,
     countError: '',
     generatingTimer: null,
@@ -697,6 +772,8 @@ export async function renderStudentPracticeCenter(app) {
 
   function syncQuestionTypes() {
     state.questionTypes = normalizeSelectedTypes(state.questionTypes, state.questionCount)
+    const total = getEffectiveQuestionCount()
+    state.aiQuestionCount = clampAiQuestionCount(state.aiQuestionCount, total)
   }
 
   function getEffectiveQuestionCount() {
@@ -747,14 +824,18 @@ export async function renderStudentPracticeCenter(app) {
     if (!sessionId) return
     const ok = window.confirm('确定放弃本次作答吗？放弃后不会继续保存进度，也不会生成成绩。')
     if (!ok) return
+    state.abandoningSessionId = Number(sessionId)
+    rerender()
     try {
       await abandonPracticeSession(sessionId)
       removePracticeSessionSnapshot(sessionId)
       await refreshSessions()
       showToast('已放弃本次作答', 'success')
-      rerender()
     } catch (err) {
       showToast(err.message || '放弃练习失败，请稍后重试', 'error')
+    } finally {
+      state.abandoningSessionId = null
+      rerender()
     }
   }
 
@@ -836,6 +917,8 @@ export async function renderStudentPracticeCenter(app) {
     }
 
     const questionCount = getEffectiveQuestionCount()
+    const aiQuestionCount = clampAiQuestionCount(state.aiQuestionCount, questionCount)
+    const bankQuestionCount = questionCount - aiQuestionCount
     const sessionMode = state.sessionMode || 'practice'
     const answerMode = sessionMode === 'exam' ? 'paper' : (state.answerMode || 'single')
 
@@ -864,6 +947,8 @@ export async function renderStudentPracticeCenter(app) {
         questionTypes: state.questionTypes,
         difficulty: state.difficulty,
         questionCount,
+        totalQuestionCount: questionCount,
+        sourceMix: { bankQuestionCount, aiQuestionCount },
         practiceMode: sessionMode === 'exam' ? 'EXAM' : 'PRACTICE',
         answerMode: answerMode === 'single' ? 'SINGLE' : 'PAPER',
         signal: abortController.signal,
@@ -909,6 +994,7 @@ export async function renderStudentPracticeCenter(app) {
           questionTypes: [...state.questionTypes],
           difficulty: state.difficulty,
           questionCount,
+          sourceMix: startData.source_mix || { bankQuestionCount, aiQuestionCount },
           sessionMode: String(serverSession.mode || '').toUpperCase() === 'EXAM' ? 'exam' : sessionMode,
           answerMode: String(serverSession.answer_mode || '').toUpperCase() === 'PAPER' ? 'paper' : answerMode,
         },
@@ -981,6 +1067,7 @@ export async function renderStudentPracticeCenter(app) {
     document.querySelectorAll('.subject-card').forEach(btn => {
       btn.addEventListener('click', () => {
         state.subjectId = btn.dataset.subjectId
+        state.bankAvailable = Number(subjects.find(subject => String(subject.course_id) === String(btn.dataset.subjectId))?.question_count || 0)
         rerender()
       })
     })
@@ -1017,8 +1104,11 @@ export async function renderStudentPracticeCenter(app) {
     // 题目数量选择
     document.querySelectorAll('.count-chip').forEach(btn => {
       btn.addEventListener('click', () => {
+        const previousTotal = getEffectiveQuestionCount()
+        const previousAiRatio = previousTotal ? state.aiQuestionCount / previousTotal : 0.3
         state.questionCount = Number(btn.dataset.count)
         state.customCount = ''
+        state.aiQuestionCount = clampAiQuestionCount(Math.round(state.questionCount * previousAiRatio), state.questionCount)
         state.countError = ''
         syncQuestionTypes()
         rerender()
@@ -1027,15 +1117,57 @@ export async function renderStudentPracticeCenter(app) {
     const customInput = document.getElementById('practice-count-custom')
     if (customInput) {
       customInput.addEventListener('input', () => {
+        const previousTotal = getEffectiveQuestionCount()
+        const previousAiRatio = previousTotal ? state.aiQuestionCount / previousTotal : 0.3
         state.customCount = customInput.value
         const n = Number(customInput.value)
         if (customInput.value && (!Number.isFinite(n) || n < 1 || n > 50)) {
           state.countError = '题目数量需在 1 到 50 之间'
         } else {
           state.countError = ''
+          if (customInput.value) state.aiQuestionCount = clampAiQuestionCount(Math.round(n * previousAiRatio), n)
         }
         rerender()
       })
+    }
+
+    const sourceMixRange = document.getElementById('practice-source-mix-range')
+    if (sourceMixRange) {
+      const updateSourceMix = (rawValue) => {
+        const total = getEffectiveQuestionCount()
+        const aiCount = clampAiQuestionCount(rawValue, total)
+        const bankCount = total - aiCount
+        const aiPercent = total ? Math.round((aiCount / total) * 100) : 0
+        state.aiQuestionCount = aiCount
+        sourceMixRange.value = String(aiCount)
+        sourceMixRange.setAttribute('aria-valuenow', String(aiCount))
+        sourceMixRange.setAttribute('aria-valuetext', `题库题 ${bankCount} 道，AI 题 ${aiCount} 道`)
+        document.getElementById('practice-source-mix')?.style.setProperty('--mix-position', `${aiPercent}%`)
+        const values = {
+          'source-mix-bank-count': `${bankCount} 道`,
+          'source-mix-bank-percent': `${100 - aiPercent}%`,
+          'source-mix-ai-count': `${aiCount} 道`,
+          'source-mix-ai-percent': `${aiPercent}%`,
+          'source-mix-tooltip': `题库 ${bankCount} / AI ${aiCount}`,
+        }
+        Object.entries(values).forEach(([id, value]) => {
+          const node = document.getElementById(id)
+          if (node) node.textContent = value
+        })
+      }
+      sourceMixRange.addEventListener('input', () => updateSourceMix(sourceMixRange.value))
+      sourceMixRange.addEventListener('keydown', (event) => {
+        const keys = ['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End']
+        if (!keys.includes(event.key)) return
+        event.preventDefault()
+        const total = getEffectiveQuestionCount()
+        const current = clampAiQuestionCount(sourceMixRange.value, total)
+        const next = event.key === 'Home' ? 0
+          : event.key === 'End' ? total
+            : clampAiQuestionCount(current + (['ArrowRight', 'ArrowUp'].includes(event.key) ? 1 : -1), total)
+        updateSourceMix(next)
+      })
+      sourceMixRange.addEventListener('change', rerender)
     }
 
     // 练习/考试模式选择

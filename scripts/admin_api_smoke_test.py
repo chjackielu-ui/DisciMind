@@ -26,8 +26,8 @@ from typing import Any, Callable
 
 REPORT_SCHEMA_VERSION = "admin-api-smoke.v1"
 DEFAULT_BASE_URL = "http://localhost:3000/api"
-DEFAULT_ACCOUNT = "admin_demo"
-DEFAULT_PASSWORD = "123456"
+DEFAULT_ACCOUNT = os.environ.get("ADMIN_SMOKE_ACCOUNT")
+DEFAULT_PASSWORD = os.environ.get("ADMIN_SMOKE_PASSWORD")
 
 # Exact normalized key names only.  Fields such as total_tokens and
 # secret_configured are metadata and intentionally do not match this set.
@@ -726,6 +726,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.account or not args.password:
+        parser.error("ADMIN_SMOKE_ACCOUNT and ADMIN_SMOKE_PASSWORD environment variables are required")
     try:
         base_url = normalize_base_url(args.base_url)
     except ValueError as error:

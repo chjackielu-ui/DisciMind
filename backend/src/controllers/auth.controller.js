@@ -2,9 +2,29 @@
 // 负责解析请求参数、调用 service、返回统一格式响应
 
 const authService = require('../services/auth.service');
+const fs = require('fs/promises');
+const path = require('path');
 const { success, fail } = require('../utils/response');
 const { signToken } = require('../utils/jwt');
 const { fromPrismaRole } = require('../utils/enum');
+
+const AVATAR_DIR = path.resolve(__dirname, '../../../storage/uploads/avatars');
+
+function hasExpectedAvatarSignature(buffer, mimetype) {
+  if (!Buffer.isBuffer(buffer)) return false;
+  if (mimetype === 'image/png') return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mimetype === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (mimetype === 'image/gif') return buffer.length >= 6 && ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'));
+  if (mimetype === 'image/webp') return buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  return false;
+}
+
+async function removeUploadedAvatar(file) {
+  if (!file?.path) return;
+  const resolved = path.resolve(file.path);
+  if (path.dirname(resolved) !== AVATAR_DIR) return;
+  await fs.unlink(resolved).catch(() => {});
+}
 
 function getRequestIp(req) {
   return (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '')
@@ -197,10 +217,17 @@ async function updateAvatar(req, res, next) {
       return fail(res, 40001, '请选择要上传的头像图片');
     }
 
+    const signature = await fs.readFile(req.file.path).then((buffer) => buffer.subarray(0, 16));
+    if (!hasExpectedAvatarSignature(signature, req.file.mimetype)) {
+      await removeUploadedAvatar(req.file);
+      return fail(res, 40001, '头像文件内容与声明的图片类型不一致');
+    }
+
     const avatarUrl = `/uploads/avatars/${req.file.filename}`;
     const user = await authService.updateAvatar(user_id, avatarUrl);
     return success(res, { user, avatar_url: avatarUrl }, '头像已更新');
   } catch (err) {
+    await removeUploadedAvatar(req.file);
     return fail(res, err.code || 40001, err.message);
   }
 }

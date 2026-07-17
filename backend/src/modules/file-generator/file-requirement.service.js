@@ -274,7 +274,7 @@ async function prefillFromOrchestration(userId, conversationId, input = {}) {
     includeAnswers: true, includeAnalysis: true, includeAnswerSheet: true,
   } : {
     targetAudience: '本科生', handoutLength: 'MEDIUM',
-    learningObjectives: [`理解并能应用${pointEntry[1].knowledge_point_name}`],
+    learningObjectives: [`理解并能应用${courseWide ? courseEntry[1].course_name : pointEntries[0][1].knowledge_point_name}核心内容`],
     includeExamples: true, includeExercises: true, includeAnswers: false,
   };
   await resolveAndPersist(userId, conversation, { ...common, ...defaults }, { explicit: false });
@@ -392,6 +392,8 @@ async function confirmRequirements(userId, conversationId, operationId, options 
     return await prisma.$transaction(async tx => {
       const artifact = await tx.generatedArtifact.create({ data: {
         ownerUserId: userId, agentId: conversation.agentId, conversationId: conversation.id, operationId,
+        sourceAiConversationId: Number.isInteger(Number(draft.orchestrationPrefill?.aiConversationId)) && Number(draft.orchestrationPrefill.aiConversationId) > 0 ? Number(draft.orchestrationPrefill.aiConversationId) : null,
+        sourceMessageId: Number.isInteger(Number(pendingTask?.metadataJson?.sourceMessageId)) && Number(pendingTask.metadataJson.sourceMessageId) > 0 ? Number(pendingTask.metadataJson.sourceMessageId) : null,
         artifactType: draft.artifactType, artifactRole: draft.artifactType === 'EXAM_PAPER' ? 'STUDENT_PAPER' : 'PRIMARY',
         title: draft.title || `${draft.courseName || '学习'}${draft.artifactType === 'EXAM_PAPER' ? '试卷' : '讲义'}`,
         courseId: draft.courseId || null, knowledgePointIdsJson: draft.knowledgePointIds || [], requirementsJson: draft,
@@ -400,7 +402,7 @@ async function confirmRequirements(userId, conversationId, operationId, options 
       const taskData = {
         title: artifact.title, description: '生成结构化教育文件内容', status: 'QUEUED', stage: '正在分析需求',
         progressMode: 'DETERMINATE', progress: 0, relatedResourceType: 'GENERATED_ARTIFACT', relatedResourceId: String(artifact.id),
-        resultType: 'ARTIFACT', resultId: String(artifact.id), resultUrl: `#/student/artifacts/${artifact.id}`,
+        resultType: 'ARTIFACT', resultId: String(artifact.id), resultUrl: `#/artifacts/${artifact.id}`,
         cancellable: true, requiresUserAction: false, maxAttempts: 3,
         metadataJson: { ...(pendingTask?.metadataJson || {}), conversationId: conversation.id, artifactId: artifact.id, confirmedAt: new Date().toISOString() },
         requestPayloadJson: draft, agentId: conversation.agentId, conversationId: conversation.id,

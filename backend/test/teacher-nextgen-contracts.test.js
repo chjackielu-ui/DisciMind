@@ -89,15 +89,25 @@ test('教师日历排除通知和资源流水，并合并同日任务', () => {
   assert.match(source, /dateKey\(startAt\) === dateKey\(deadlineAt\)/);
 });
 
-test('教师 AI 保持底部输入区可见、提及层不被裁切并按 Markdown 增量渲染', () => {
+test('教师 AI 采用学生端工作台结构、教师暖色语言并保持输入与提及交互', () => {
   const pageSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/teacher-ai-chat.js'), 'utf8');
   const styleSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/styles/teacher-workbench.css'), 'utf8');
   assert.match(pageSource, /node\.innerHTML = renderMarkdownToHtml\(assistant\.content\)/);
+  assert.match(pageSource, /teacher-ai-topbar/);
+  assert.match(pageSource, /role="tablist" aria-label="教学助手模式"/);
+  assert.match(pageSource, /teacher-ai-history-toggle/);
+  assert.match(pageSource, /teacher-ai-chat-head/);
+  assert.match(pageSource, /teacher-ai-input-area/);
+  assert.match(pageSource, /teacher-ai-context-panel" hidden/);
   assert.match(pageSource, /teacher-ai-main is-empty/);
-  assert.match(styleSource, /\.teacher-ai-main\.is-empty \.teacher-ai-composer \{ grid-row:2/);
-  assert.match(styleSource, /\.teacher-ai-main\.is-empty \.teacher-ai-messages \{ grid-row:1/);
+  assert.match(styleSource, /--teacher-accent:#b56f24/);
+  assert.equal(styleSource.includes('--teacher-accent:#356fd6'), false);
+  assert.match(styleSource, /\.teacher-ai-layout \{[^}]*grid-template-columns:248px minmax\(420px,1fr\)/);
+  assert.match(styleSource, /\.teacher-ai-main\.is-empty \.teacher-ai-messages \{ display:grid; place-items:center/);
+  assert.match(styleSource, /\.teacher-ai-input-area \{[^}]*border-top:1px solid var\(--teacher-line\)/);
   assert.match(styleSource, /\.teacher-ai-mention-popover \{[^}]*bottom:calc\(100% \+ 8px\)[^}]*max-height:min\(300px,42vh\)/);
   assert.match(pageSource, /teacher-ai-mention-icon/);
+  assert.match(pageSource, /window\.matchMedia\('\(max-width: 760px\)'\)\.matches/);
   assert.match(styleSource, /height:calc\(100dvh - 48px\)/);
 });
 
@@ -150,6 +160,24 @@ test('教师智能体广场使用独立一级入口和教师授权数据', () =>
   assert.equal(pageSource.includes('学习伙伴'), false);
   assert.match(pageSource, /FORBIDDEN_STUDENT_CONTENT = \/复习\|考研/);
   assert.match(pageSource, /#\/teacher\/ai\?agentId=/);
+});
+
+test('教师产物详情使用独立页面并阻止教师落入学生路由', () => {
+  const routerSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/utils/router.js'), 'utf8');
+  const pageSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/teacher-artifacts.js'), 'utf8');
+  const pendingSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/components/ai-assistant/pending-action-card.js'), 'utf8');
+  assert.match(routerSource, /renderTeacherArtifactDetail/);
+  assert.match(routerSource, /function renderRoleAwareArtifactDetail/);
+  assert.match(routerSource, /navigateTo\(`#\/teacher\/artifacts\/\$\{params\.id\}`\)/);
+  assert.match(pageSource, /export async function renderTeacherArtifactDetail/);
+  assert.match(pageSource, /返回教师 AI/);
+  assert.equal(pageSource.includes('加入学习流'), false);
+  assert.match(pendingSource, /roleAwareArtifactUrl/);
+  assert.match(pendingSource, /#\/teacher\/artifacts\/\$\{artifact\.id\}/);
+  const generationSource = fs.readFileSync(path.join(__dirname, '../src/modules/file-generator/file-requirement.service.js'), 'utf8');
+  assert.match(generationSource, /sourceAiConversationId:/);
+  assert.match(generationSource, /resultUrl: `#\/artifacts\/\$\{artifact\.id\}`/);
+  assert.match(routerSource, /pattern: \/\^\\\/artifacts\\\/(?:\\d\+|\(\\d\+\))\$\//);
 });
 
 test('教师 AI 上下文接口同步过滤学生型智能体', () => {

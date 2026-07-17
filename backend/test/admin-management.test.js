@@ -65,10 +65,10 @@ test('provider schemas separate secrets and adapters expose the complete unified
   assert.equal(schemas.providerSecretClear.safeParse({ confirm: true }).success, true);
 
   const adapter = createProviderAdapter(providerPayload, { api_key: 'sk-adapter-contract' });
-  for (const operation of ['testConnection', 'listModels', 'chat', 'streamChat', 'embed', 'rerank', 'healthCheck', 'normalizeError', 'getCapabilities']) {
+  for (const operation of ['testConnection', 'listModels', 'chat', 'streamChat', 'embed', 'rerank', 'generateImage', 'generateVideo', 'workflow', 'healthCheck', 'normalizeError', 'getCapabilities']) {
     assert.equal(typeof adapter[operation], 'function', `missing adapter operation ${operation}`);
   }
-  assert.deepEqual(new Set(adapter.getCapabilities()), new Set(['models', 'chat', 'stream', 'embedding', 'rerank', 'health']));
+  assert.deepEqual(new Set(adapter.getCapabilities()), new Set(['models', 'chat', 'stream', 'embedding', 'rerank', 'image', 'health']));
 });
 
 test('legacy environment fallback keeps provider credentials isolated by provider code', () => {

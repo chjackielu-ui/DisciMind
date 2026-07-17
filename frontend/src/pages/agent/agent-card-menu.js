@@ -19,7 +19,7 @@ function place() {
 export function openAgentCardMenu(button, items, onAction) {
   close(); trigger = button; actions = items
   portal = document.createElement('div'); portal.className = 'agent-card-menu-portal'; portal.setAttribute('role', 'menu')
-  portal.innerHTML = items.map(item => `<button type="button" role="menuitem" data-menu-action="${item.action}" ${item.disabled ? 'disabled' : ''}>${item.label}</button>`).join('')
+  portal.innerHTML = items.map(item => `<button type="button" role="menuitem" data-menu-action="${item.action}" class="${item.danger ? 'is-danger' : ''}" ${item.disabled ? 'disabled' : ''}>${item.label}</button>`).join('')
   document.body.appendChild(portal); place()
   portal.onclick = event => { const action = event.target.closest('[data-menu-action]')?.dataset.menuAction; if (!action) return; close(); onAction(action) }
 }
