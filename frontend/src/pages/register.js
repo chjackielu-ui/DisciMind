@@ -3,6 +3,9 @@
 import { register } from '../api/auth.js'
 import { navigateTo } from '../utils/router.js'
 
+const publicTeacherRegistrationEnabled = import.meta.env.VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED !== 'false')
+
 export function renderRegisterPage(app) {
   app.innerHTML = `
     <div class="register-page">
@@ -34,8 +37,7 @@ export function renderRegisterPage(app) {
               <select id="reg-role" required>
                 <option value="">请选择角色</option>
                 <option value="student">学生</option>
-                <option value="teacher">教师</option>
-                <option value="admin">管理员</option>
+                ${publicTeacherRegistrationEnabled ? '<option value="teacher">教师</option>' : ''}
               </select>
             </div>
           </div>

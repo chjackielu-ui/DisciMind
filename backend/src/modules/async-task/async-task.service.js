@@ -39,6 +39,7 @@ const RESULT_URL_PATTERNS = [
   /^#\/artifacts(?:\/\d+)?(?:\?.*)?$/,
   /^#\/student\/learning-flows(?:\?.*)?$/,
   /^#\/student\/learning\/session\/\d+$/,
+  /^#\/student\/courses\/\d+(?:\?.*)?$/,
   /^#\/teacher\/lesson-plan(?:\?.*)?$/,
 ];
 
@@ -75,6 +76,30 @@ function publicTaskMetadata(task) {
     const safe = {};
     for (const key of ['kind', 'scope', 'priority', 'reason', 'sessionId', 'nodeId', 'cardCount', 'fallback']) {
       if (task.metadataJson[key] !== undefined) safe[key] = task.metadataJson[key];
+    }
+    return safe;
+  }
+  if (task.taskType === 'LEARNING_FLOW_PRELOAD' && task.metadataJson.kind === 'KNOWLEDGE_RESOURCE_PACKAGE') {
+    const safe = {
+      kind: 'KNOWLEDGE_RESOURCE_PACKAGE',
+      packageStatus: String(task.metadataJson.packageStatus || ''),
+      courseId: Number(task.metadataJson.courseId) || null,
+      courseName: String(task.metadataJson.courseName || '').slice(0, 200) || null,
+      knowledgePointId: Number(task.metadataJson.knowledgePointId) || null,
+      knowledgePointName: String(task.metadataJson.knowledgePointName || '').slice(0, 200) || null,
+      resources: {},
+    };
+    for (const key of ['handout', 'ppt', 'cards', 'exam', 'video']) {
+      const value = task.metadataJson.resources?.[key] || {};
+      safe.resources[key] = {
+        status: String(value.status || 'pending'),
+        artifactId: Number(value.artifactId) || null,
+        taskId: Number(value.taskId) || null,
+        videoTaskId: Number(value.videoTaskId) || null,
+        cardCount: Number(value.cardCount) || 0,
+        fallback: Boolean(value.fallback),
+        errorMessage: value.errorMessage ? sanitizeErrorMessage(value.errorMessage) : null,
+      };
     }
     return safe;
   }
@@ -157,6 +182,18 @@ async function assertResultAccess(userId, task) {
       where: { session_id: Number(task.resultId), student_user_id: Number(userId) }, select: { session_id: true },
     });
     if (!owned) throw taskError('知识卡片结果不存在或无权访问', 40301, 403);
+    return;
+  }
+  if (task.resultType === 'KNOWLEDGE_RESOURCE_PACKAGE') {
+    const owned = await prisma.asyncTask.findFirst({
+      where: {
+        id: Number(task.resultId),
+        userId: Number(userId),
+        relatedResourceType: 'KNOWLEDGE_RESOURCE_PACKAGE',
+      },
+      select: { id: true },
+    });
+    if (!owned) throw taskError('学习资源包结果不存在或无权访问', 40301, 403);
     return;
   }
   if (task.resultType === 'LESSON_PLAN') {

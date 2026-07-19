@@ -14,6 +14,8 @@ const DIFFICULTIES = { basic: '基础', medium: '中等', hard: '困难' }
 
 export async function renderTeacherQuestions(app) {
   let user = getUser()
+  const routeQuery = new URLSearchParams(window.location.hash.split('?')[1] || '')
+  const initialCourseId = Number(routeQuery.get('course_id')) || null
   try { const result = await getMe(); user = result.data.user; setAuth(getToken(), user) }
   catch { if (!user) { clearAuth(); window.location.hash = '#/login'; return } }
 
@@ -85,7 +87,7 @@ export async function renderTeacherQuestions(app) {
   document.getElementById('qb-reset').onclick = async () => { document.querySelectorAll('.qb-filter-shell input,.qb-filter-shell select').forEach((item) => { item.value = '' }); await loadKnowledgePoints(''); state.page = 1; loadQuestions() }
   document.getElementById('qb-advanced-toggle').onclick = event => { const panel=document.getElementById('qb-advanced');panel.hidden=!panel.hidden;event.currentTarget.setAttribute('aria-expanded',panel.hidden?'false':'true');event.currentTarget.textContent=panel.hidden?'高级筛选':'收起筛选' }
   document.getElementById('qb-keyword').onkeydown = event => { if(event.key==='Enter'){event.preventDefault();state.page=1;void loadQuestions()} }
-  document.getElementById('qb-create').onclick = () => { window.location.hash = '#/teacher/questions/create' }
+  document.getElementById('qb-create').onclick = () => { window.location.hash = initialCourseId ? `#/teacher/questions/create?course_id=${initialCourseId}` : '#/teacher/questions/create' }
   document.getElementById('qb-all').onchange = (event) => { state.list.forEach((item) => event.target.checked ? state.selected.add(item.question_id) : state.selected.delete(item.question_id)); renderRows() }
   document.getElementById('qb-batch-field').onchange = renderBatchValues
   document.getElementById('qb-batch-apply').onclick = async () => { const field = document.getElementById('qb-batch-field').value; const value = document.getElementById('qb-batch-value').value; if (!state.selected.size || !field || !value) return showToast('请选择题目、操作和值', 'warning'); try { await batchUpdateQuestions({ question_ids: [...state.selected], [field]: field === 'knowledge_point_id' ? Number(value) : value }); showToast('批量更新成功', 'success'); await loadQuestions() } catch (error) { showToast(error.message, 'error') } }
@@ -101,5 +103,13 @@ export async function renderTeacherQuestions(app) {
   document.getElementById('qb-ai-generate').onclick = async () => { const data = new FormData(document.getElementById('qb-ai-form')); if (!data.get('course_id')) return showToast('请选择课程', 'warning'); const button = document.getElementById('qb-ai-generate'); button.disabled = true; button.textContent = '生成中'; try { const response = await aiGenerateQuestions({ course_id: Number(data.get('course_id')), count: Number(data.get('count')), question_types: [data.get('question_type')], difficulty_level: data.get('difficulty_level'), prompt: data.get('prompt') }); state.aiPreview = (response.data.questions || []).map((item) => normalizeAiQuestion(item, data.get('course_id'))); document.getElementById('qb-ai-preview').innerHTML = state.aiPreview.length ? state.aiPreview.map((item, index) => `<article><label><input type="checkbox" data-ai-index="${index}" checked><span><b>${escapeHtml(item.title)}</b><small>${TYPES[item.question_type] || item.question_type} · ${DIFFICULTIES[item.difficulty_level] || item.difficulty_level} · 答案 ${escapeHtml(String(item.correct_answer ?? ''))}</small></span></label></article>`).join('') : '<div class="teacher-inline-empty">模型未返回可审核题目</div>'; document.querySelector('#qb-ai-form button[type="submit"]').disabled = !state.aiPreview.length } catch (error) { showToast(error.message, 'error') } finally { button.disabled = false; button.textContent = '生成预览' } }
   document.getElementById('qb-ai-form').onsubmit = async (event) => { event.preventDefault(); const selected = [...document.querySelectorAll('[data-ai-index]:checked')].map((item) => state.aiPreview[Number(item.dataset.aiIndex)]); if (!selected.length) return showToast('请选择审核通过的题目', 'warning'); try { const response = await batchImportQuestions({ questions: selected }); aiDialog.close(); showToast(`已审核入库 ${response.data.success_count} 道题`, 'success'); loadQuestions() } catch (error) { showToast(error.message, 'error') } }
 
-  try { await loadCourses(); await loadQuestions() } catch (error) { showToast(error.message, 'error') }
+  try {
+    await loadCourses()
+    if (initialCourseId) {
+      document.getElementById('qb-course').value = String(initialCourseId)
+      document.querySelector('#qb-ai-form [name="course_id"]').value = String(initialCourseId)
+      await loadKnowledgePoints(initialCourseId)
+    }
+    await loadQuestions()
+  } catch (error) { showToast(error.message, 'error') }
 }

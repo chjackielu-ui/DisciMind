@@ -27,13 +27,17 @@ function dateInput(value) {
 export async function renderTeacherTaskCreate(app, params) {
   let user = getUser()
   const taskId = Number(params?.task_id) || null
+  const routeQuery = new URLSearchParams(window.location.hash.split('?')[1] || '')
+  const initialCourseId = Number(routeQuery.get('course_id')) || null
+  const initialClassId = Number(routeQuery.get('teaching_class_id')) || null
+  const initialType = routeQuery.get('type')
   try {
     const result = await getMe(); user = result.data.user; setAuth(getToken(), user)
   } catch {
     if (!user) { clearAuth(); window.location.hash = '#/login'; return }
   }
 
-  const state = { step: 0, courses: [], classes: [], questions: [], selected: new Map(), resources: [], task: null, composition: null }
+  const state = { step: 0, courses: [], classes: [], questions: [], selected: new Map(), selectedAttachmentIds: new Set(), resources: [], task: null, composition: null }
   const contentHTML = `<div class="teacher-publisher-page">
     <header class="teacher-page-head compact"><div><span class="teacher-eyebrow">统一 TeachingTask 发布器</span><h2>${taskId ? '编辑教学任务' : '发布教学任务'}</h2><p>作业、考试、练习、资料与通知共用同一发布、学生接收和消息链路。</p></div><button class="teacher-btn" id="publisher-back">返回任务列表</button></header>
     <nav class="publisher-steps" id="publisher-steps">${STEPS.map((label, index) => `<button data-step="${index}" class="${index === 0 ? 'active' : ''}"><i>${index + 1}</i><span>${label}</span></button>`).join('')}</nav>
@@ -115,7 +119,14 @@ export async function renderTeacherTaskCreate(app, params) {
     try {
       const response = await getTeachingResources({ course_id: value('course_id'), page_size: 100 })
       state.resources = response.data.list || response.data || []
-      document.getElementById('pub-resource-list').innerHTML = state.resources.length ? state.resources.map((item) => `<label><input type="checkbox" name="attachment_ids" value="${item.document_id}"><span><b>${escapeHtml(item.resource_title || item.file_name || item.title)}</b><small>${escapeHtml(item.mime_type || item.resource_type || '教学资源')}</small></span></label>`).join('') : '<div class="teacher-inline-empty">当前课程暂无可用教学资源</div>'
+      const list = document.getElementById('pub-resource-list')
+      list.innerHTML = state.resources.length ? state.resources.map((item) => `<label><input type="checkbox" name="attachment_ids" value="${item.document_id}" ${state.selectedAttachmentIds.has(Number(item.document_id)) ? 'checked' : ''}><span><b>${escapeHtml(item.resource_title || item.file_name || item.title)}</b><small>${escapeHtml(item.mime_type || item.resource_type || '教学资源')}</small></span></label>`).join('') : '<div class="teacher-inline-empty">当前课程暂无可用教学资源</div>'
+      list.querySelectorAll('[name="attachment_ids"]').forEach((input) => input.addEventListener('change', () => {
+        const documentId = Number(input.value)
+        if (input.checked) state.selectedAttachmentIds.add(documentId)
+        else state.selectedAttachmentIds.delete(documentId)
+        updateSummary()
+      }))
     } catch (error) { document.getElementById('pub-resource-list').innerHTML = `<div class="teacher-inline-empty">${escapeHtml(error.message)}</div>` }
   }
 
@@ -161,7 +172,7 @@ export async function renderTeacherTaskCreate(app, params) {
       total_score: value('total_score') ? Number(value('total_score')) : null, pass_score: value('pass_score') ? Number(value('pass_score')) : null,
       instructions: value('instructions').trim() || null, rules: value('rules').trim() || null, status, source_mode: value('source_mode'), question_ids: questionIds,
       question_scores: Object.fromEntries(questionIds.map((id) => [id, Number(state.selected.get(id)?.task_score ?? state.selected.get(id)?.score ?? 0)])),
-      attachment_ids: [...form.querySelectorAll('[name="attachment_ids"]:checked')].map((item) => Number(item.value)),
+      attachment_ids: [...state.selectedAttachmentIds],
       allow_late_submit: checked('allow_late_submit'), allow_pause: checked('allow_pause'), save_draft: checked('save_draft'), randomize_questions: checked('randomize_questions'), randomize_options: checked('randomize_options'), auto_grade: checked('auto_grade'), ai_grade_subjective: checked('ai_grade_subjective'), full_screen_mode: checked('full_screen_mode'),
       show_score_policy: value('show_score_policy'), show_answer_policy: value('show_answer_policy'), show_analysis_policy: value('show_analysis_policy'), score_release_at: value('score_release_at') || null, analysis_release_at: value('analysis_release_at') || null,
       configuration: { source_mode: value('source_mode'), ai_ratio: Number(document.getElementById('pub-ai-ratio').value) / 100, prevent_screen_switch: checked('prevent_screen_switch'), separate_answer_sheet: checked('separate_answer_sheet'), auto_submit: checked('auto_submit'), composition_validation: state.composition?.validation || null },
@@ -182,13 +193,33 @@ export async function renderTeacherTaskCreate(app, params) {
   }
 
   async function loadExisting() {
-    if (!taskId) return
+    if (!taskId) {
+      if (initialCourseId) {
+        document.getElementById('pub-course').value = String(initialCourseId)
+        await loadClasses(initialCourseId, initialClassId)
+      }
+      if (initialType && TYPE_LABELS[initialType]) form.elements.task_type.value = initialType
+      updateSummary()
+      return
+    }
     const response = await getTeacherTask(taskId); state.task = response.data
     const task = state.task
+    state.selectedAttachmentIds = new Set((task.attachments || []).map((item) => Number(item.document_id)))
     document.getElementById('pub-course').value = String(task.course_id); await loadClasses(task.course_id, task.teaching_class_id); await loadResources()
-    const assign = { task_type: task.task_type, title: task.title, description: task.description, start_time: dateInput(task.start_time), deadline: dateInput(task.deadline), duration_minutes: task.duration_minutes, allowed_attempts: task.allowed_attempts, total_score: task.total_score, pass_score: task.pass_score, instructions: task.instructions, rules: task.rules, show_score_policy: task.show_score_policy, show_answer_policy: task.show_answer_policy, show_analysis_policy: task.show_analysis_policy }
+    const assign = { task_type: task.task_type, source_mode: task.source_mode, title: task.title, description: task.description, start_time: dateInput(task.start_time), deadline: dateInput(task.deadline), duration_minutes: task.duration_minutes, allowed_attempts: task.allowed_attempts, total_score: task.total_score, pass_score: task.pass_score, instructions: task.instructions, rules: task.rules, show_score_policy: task.show_score_policy, show_answer_policy: task.show_answer_policy, show_analysis_policy: task.show_analysis_policy, score_release_at: dateInput(task.score_release_at), analysis_release_at: dateInput(task.analysis_release_at) }
     Object.entries(assign).forEach(([name, val]) => { if (form.elements[name] && val != null) form.elements[name].value = val })
     ;['allow_late_submit','allow_pause','save_draft','randomize_questions','randomize_options','auto_grade','ai_grade_subjective','full_screen_mode'].forEach((name) => { if (form.elements[name] && task[name] != null) form.elements[name].checked = !!task[name] })
+    const configuration = task.configuration && typeof task.configuration === 'object' ? task.configuration : {}
+    ;['prevent_screen_switch','separate_answer_sheet','auto_submit'].forEach((name) => { if (form.elements[name] && configuration[name] != null) form.elements[name].checked = !!configuration[name] })
+    if (Number.isFinite(Number(configuration.ai_ratio))) {
+      const ratio = Math.max(0, Math.min(100, Math.round(Number(configuration.ai_ratio) * 100)))
+      document.getElementById('pub-ai-ratio').value = String(ratio)
+      document.getElementById('pub-ai-ratio-label').textContent = `${ratio}%`
+    }
+    if (configuration.composition_validation) state.composition = { validation: configuration.composition_validation }
+    const finalStatus = form.querySelector(`[name="final_status"][value="${task.status === 'published' ? 'published' : 'draft'}"]`)
+    if (finalStatus) finalStatus.checked = true
+    if (task.status !== 'draft') ['pub-course', 'pub-class', 'pub-type'].forEach((id) => { document.getElementById(id).disabled = true })
     state.selected = new Map((task.questions || []).map((item) => [item.question_id, { ...item, task_score: item.task_score ?? item.score }]))
     renderQuestionPicker(); updateSummary()
   }
@@ -197,20 +228,20 @@ export async function renderTeacherTaskCreate(app, params) {
   document.querySelectorAll('#publisher-steps button').forEach((button) => button.addEventListener('click', () => { const error = validateCurrent(); if (Number(button.dataset.step) > state.step && error) return showToast(error, 'warning'); state.step = Number(button.dataset.step); renderStep() }))
   document.getElementById('pub-prev').onclick = () => { state.step = Math.max(0, state.step - 1); renderStep() }
   document.getElementById('pub-next').onclick = async () => { const error = validateCurrent(); if (error) return showToast(error, 'warning'); if (state.step === 3) await loadResources(); state.step = Math.min(6, state.step + 1); renderStep() }
-  document.getElementById('pub-course').addEventListener('change', async (event) => { state.selected.clear(); await loadClasses(event.target.value); await loadResources(); updateSummary() })
+  document.getElementById('pub-course').addEventListener('change', async (event) => { state.selected.clear(); state.selectedAttachmentIds.clear(); await loadClasses(event.target.value); await loadResources(); updateSummary() })
   form.addEventListener('change', updateSummary)
   document.getElementById('pub-ai-ratio').addEventListener('input', (event) => { document.getElementById('pub-ai-ratio-label').textContent = `${event.target.value}%` })
   document.getElementById('pub-compose').onclick = () => compose().catch((error) => showToast(error.message, 'error'))
   document.getElementById('pub-load-questions').onclick = () => loadQuestionBank().catch((error) => showToast(error.message, 'error'))
   document.getElementById('pub-submit').onclick = async () => {
     if (!document.getElementById('pub-confirm-check').checked) return showToast('请先确认已核对发布信息', 'warning')
-    const status = form.elements.final_status.value; const data = payload(status)
+    const status = state.task?.status === 'closed' ? 'closed' : form.elements.final_status.value; const data = payload(status)
     if (status === 'published') { const score = [...state.selected.values()].reduce((s, q) => s + Number(q.task_score ?? q.score ?? 0), 0); if (data.question_ids.length && data.total_score != null && Math.abs(score - data.total_score) > .001) return showToast(`题目总分 ${score} 与任务总分 ${data.total_score} 不一致`, 'error') }
     const button = document.getElementById('pub-submit'); button.disabled = true; button.textContent = '正在写入'
-    try { const response = taskId ? await updateTeacherTask(taskId, data) : await createTeacherTask(data); showToast(status === 'published' ? `发布成功，已通知 ${response.data?.notification_count ?? response.data?.recipient_count ?? 0} 名学生` : '草稿已保存', 'success'); window.location.hash = '#/teacher/tasks' }
+    try { const response = taskId ? await updateTeacherTask(taskId, data) : await createTeacherTask(data); showToast(taskId ? '任务已更新' : status === 'published' ? `发布成功，已通知 ${response.data?.notification_count ?? response.data?.recipient_count ?? 0} 名学生` : '草稿已保存', 'success'); window.location.hash = '#/teacher/tasks' }
     catch (error) { showToast(error.message, 'error'); button.disabled = false; button.textContent = taskId ? '保存任务' : '创建任务' }
   }
 
-  try { await loadCourses(); await loadExisting(); await loadResources() } catch (error) { showToast(error.message, 'error') }
+  try { await loadCourses(); await loadExisting(); if (!taskId) await loadResources() } catch (error) { showToast(error.message, 'error') }
   renderStep()
 }

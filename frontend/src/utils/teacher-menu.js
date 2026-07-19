@@ -14,7 +14,7 @@ export const TEACHER_MENU_ITEMS = [
     label: '系统管理',
     icon: 'layout',
     hash: '#/teacher/system',
-    matchHash: (h) => h === '/teacher/system' || h === '/teacher/courses' || /^\/teacher\/courses\/\d+/.test(h) || h === '/teacher/students' || /^\/teacher\/students\/\d+/.test(h) || h === '/teacher/classes',
+    matchHash: (h) => h === '/teacher/system' || h === '/teacher/courses' || /^\/teacher\/courses\/\d+/.test(h) || h === '/teacher/students' || /^\/teacher\/students\/\d+/.test(h) || /^\/teacher\/classes(?:\/\d+)?$/.test(h),
   },
   {
     id: 'teacher-homework',

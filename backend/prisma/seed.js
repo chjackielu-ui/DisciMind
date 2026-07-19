@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs')
 const { loadEnv } = require('../src/config/env')
 const { getDatabaseConfig } = require('../src/config/database')
 const { seedAgentMarketplace } = require('./seeds/seedAgentMarketplace')
+const { seedCompetitionDemo } = require('./seeds/seedCompetitionDemo')
 const { seedPermissionCatalog } = require('../src/services/admin-permission.seed')
 
 loadEnv()
@@ -1661,6 +1662,8 @@ async function main() {
   }
   await prisma.notification.upsert({ where: { idempotency_key: 'seed:teacher:kb-review-pending' }, update: { is_read: false, read_at: null, deleted_at: null }, create: { receiver_user_id: teacherUser.user_id, sender_user_id: studentUser.user_id, notification_type: 'KNOWLEDGE_APPLICATION', title: '新的知识库公开申请', content: '机器学习错题共建知识库等待审核。', target_type: 'knowledge_base_review', target_id: (await prisma.knowledgeBaseReviewRecord.findUnique({ where: { operationId: 'seed-kb-submit-ml-wrong' } })).id, business_type: 'knowledge_base_review', business_id: publicKb.knowledge_base_id, idempotency_key: 'seed:teacher:kb-review-pending' } })
   void upcomingExam
+
+  await seedCompetitionDemo({ prisma, upsertUser, upsertProfile, adminUser, teacherUser, studentUser, log })
 
   log('16/16 种子数据摘要')
   const questionTypeStats = await prisma.question.groupBy({

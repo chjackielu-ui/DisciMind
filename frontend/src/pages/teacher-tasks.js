@@ -9,6 +9,9 @@ import { iconSearch, iconRefresh } from '../utils/icons.js'
 
 export async function renderTeacherTasks(app) {
   let user = getUser()
+  const routeQuery = new URLSearchParams(window.location.hash.split('?')[1] || '')
+  const scopedCourseId = Number(routeQuery.get('course_id')) || null
+  const scopedClassId = Number(routeQuery.get('teaching_class_id')) || null
 
   try {
     const result = await getMe()
@@ -30,6 +33,7 @@ export async function renderTeacherTasks(app) {
         <h2 class="page-title">作业考试</h2>
         <p class="page-subtitle">统一管理作业、考试、练习、资料与教学通知</p>
       </div>
+      ${scopedClassId ? `<div class="teacher-class-scope"><span>当前按班级工作区筛选任务</span><a href="#/teacher/tasks">查看全部任务</a></div>` : ''}
 
       <!-- 子导航 -->
       <div class="card" style="margin-bottom:20px;padding:0;overflow:hidden;">
@@ -92,6 +96,7 @@ export async function renderTeacherTasks(app) {
         sel.innerHTML =
           '<option value="">全部课程</option>' +
           courses.map((c) => `<option value="${c.course_id}">${c.course_name}</option>`).join('')
+        if (scopedCourseId) sel.value = String(scopedCourseId)
       }
     } catch {
       // 静默失败，课程筛选仅作辅助
@@ -111,6 +116,7 @@ export async function renderTeacherTasks(app) {
     const params = {}
     if (keyword) params.keyword = keyword
     if (courseId) params.course_id = parseInt(courseId, 10)
+    if (scopedClassId) params.teaching_class_id = scopedClassId
     if (taskType) params.task_type = taskType
     if (status) params.status = status
 
@@ -249,7 +255,9 @@ export async function renderTeacherTasks(app) {
 
   // ---- 事件绑定 ----
   document.getElementById('btn-create-task')?.addEventListener('click', () => {
-    window.location.hash = '#/teacher/tasks/create'
+    window.location.hash = scopedClassId
+      ? `#/teacher/tasks/create?course_id=${scopedCourseId || ''}&teaching_class_id=${scopedClassId}`
+      : '#/teacher/tasks/create'
   })
 
   document.getElementById('btn-search')?.addEventListener('click', () => loadTasks())
@@ -266,7 +274,6 @@ export async function renderTeacherTasks(app) {
   document.getElementById('filter-status')?.addEventListener('change', () => loadTasks())
 
   // ---- 初始化 ----
-  loadCourseOptions()
+  await loadCourseOptions()
   loadTasks()
 }
-

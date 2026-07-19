@@ -1,6 +1,6 @@
 // KgVideoPanel.js - knowledge graph video learning panel
 
-import { getKnowledgePointVideos, searchVideos } from '../../api/student.js'
+import { fetchStudentGeneratedMedia, getKnowledgePointVideos, searchVideos } from '../../api/student.js'
 import { BASE_URL } from '../../api/request.js'
 import { escapeHtml, videoSourceLabel } from '../../utils/format.js'
 
@@ -144,6 +144,36 @@ function setPlayer(container, video, searchKey, cache) {
 
   const title = video?.title || '视频讲解'
   const embed = video?.embed_url || ''
+  const isGenerated = String(video?.source || '').toLowerCase() === 'self_generated' && Boolean(video?.video_url)
+  const previousObjectUrl = container.dataset.generatedVideoObjectUrl
+  if (previousObjectUrl) {
+    URL.revokeObjectURL(previousObjectUrl)
+    delete container.dataset.generatedVideoObjectUrl
+  }
+  const playbackToken = `${Date.now()}-${Math.random()}`
+  container.dataset.generatedVideoPlaybackToken = playbackToken
+  if (isGenerated) {
+    playerEl.innerHTML = buildSkeletonPlayer()
+    titleEl.innerHTML = `<div class="kg-video-title-main">${escapeHtml(title)}</div><div class="kg-video-title-sub">正在读取自生成讲解视频</div>`
+    shell?.classList.remove('has-error')
+    cache.__selectedVideoByKey = cache.__selectedVideoByKey || {}
+    cache.__selectedVideoByKey[searchKey] = video.video_url || title
+    fetchStudentGeneratedMedia(video.video_url).then((blob) => {
+      const objectUrl = URL.createObjectURL(blob)
+      if (container.dataset.generatedVideoPlaybackToken !== playbackToken) {
+        URL.revokeObjectURL(objectUrl)
+        return
+      }
+      container.dataset.generatedVideoObjectUrl = objectUrl
+      playerEl.innerHTML = `<video src="${escapeHtml(objectUrl)}" title="${escapeHtml(title)}" controls playsinline preload="metadata"></video>`
+      titleEl.innerHTML = `<div class="kg-video-title-main" title="${escapeHtml(title)}">${escapeHtml(title)}</div><div class="kg-video-title-sub">平台自生成 · PPT语音讲解</div>`
+    }).catch((error) => {
+      if (container.dataset.generatedVideoPlaybackToken !== playbackToken) return
+      playerEl.innerHTML = `<div class="kg-video-placeholder"><p>${escapeHtml(error.message || '自生成视频读取失败')}</p></div>`
+      shell?.classList.add('has-error')
+    })
+    return
+  }
   if (embed) {
     playerEl.innerHTML = `
       <iframe
@@ -244,13 +274,18 @@ export function buildVideoPanelHTML() {
         <div class="kg-video-title-main">等待选择知识点</div>
         <div class="kg-video-title-sub">选择图谱节点后自动搜索视频</div>
       </div>
-      <div class="kg-video-list-wrap">
-        <div class="kg-video-list-head">
+      <details class="kg-video-list-wrap">
+        <summary class="kg-video-list-head">
           <span>搜索结果</span>
           <span class="kg-video-list-count" id="kg-video-list-count">0 条</span>
-        </div>
+          <span class="kg-video-list-toggle" aria-hidden="true">
+            <span class="kg-video-list-toggle-open">展开</span>
+            <span class="kg-video-list-toggle-close">收起</span>
+            <i></i>
+          </span>
+        </summary>
         <div class="kg-video-list">${buildEmptyPlayer('暂无搜索结果')}</div>
-      </div>
+      </details>
     </div>`
 }
 

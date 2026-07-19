@@ -8,6 +8,11 @@ const ACTIVE = new Set(['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'])
 const STATUS_LABEL = { QUEUED: '等待开始', RUNNING: '生成中', WAITING_EXTERNAL: '等待外部服务', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已取消' }
 const TYPE_LABEL = { FILE_GENERATION: '文件生成', DOCUMENT_EXPORT: '文件导出', KNOWLEDGE_INDEXING: '知识库索引', LEARNING_FLOW_PRELOAD: '学习流准备', VOICE_PRELOAD: '语音准备', ARTIFACT_CLEANUP: '产物清理', LESSON_PLAN_GENERATION: '教案生成' }
 
+function safeReturnTo(value) {
+  const target = String(value || '').trim()
+  return /^#\/student\/(?!agent-tasks(?:\?|$))[a-z0-9/_-]+(?:\?[^#]*)?$/i.test(target) ? target : ''
+}
+
 function dateText(value) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
 }
@@ -25,13 +30,14 @@ function taskRow(task) {
 }
 
 export async function renderAgentTasks(app) {
-  renderMarketplaceLayout(app, `<section class="agent-market-hero"><div><h1>任务中心</h1><p>任务状态来自后端持久化执行器，刷新页面不会丢失。</p></div><a class="complex-btn" href="#/student/agents/mine">选择智能体</a></section>
+  const params = new URLSearchParams(location.hash.split('?')[1] || '')
+  const returnTo = safeReturnTo(params.get('returnTo'))
+  renderMarketplaceLayout(app, `<section class="agent-market-hero"><div><h1>任务中心</h1><p>任务状态来自后端持久化执行器，刷新页面不会丢失。</p></div><div class="agent-task-hero-actions">${returnTo ? `<a class="complex-btn" href="${escapeHtml(returnTo)}">← 返回生成页面</a>` : ''}<a class="complex-btn" href="#/student/agents/mine">选择智能体</a></div></section>
     <section class="agent-task-toolbar"><input id="agent-task-search" placeholder="搜索任务、步骤或来源智能体"><select id="agent-task-status"><option value="">全部状态</option><option value="active">生成中</option><option value="SUCCEEDED">已完成</option><option value="FAILED">失败</option><option value="CANCELLED">已取消</option></select><select id="agent-task-type"><option value="">全部类型</option>${Object.entries(TYPE_LABEL).map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select><input type="date" id="agent-task-date" title="创建日期"></section><div id="agent-task-root">${loadingHTML('正在同步任务...')}</div>`, '#/student/agent-tasks')
   const root = document.getElementById('agent-task-root')
   let records = []
   const selected = new Set()
   const controller = new AbortController()
-  const params = new URLSearchParams(location.hash.split('?')[1] || '')
   const state = { q: params.get('q') || '', status: params.get('status') || '', taskType: params.get('taskType') || '', date: params.get('date') || '' }
   const controls = {
     q: document.getElementById('agent-task-search'), status: document.getElementById('agent-task-status'),
@@ -41,6 +47,7 @@ export async function renderAgentTasks(app) {
 
   const persist = () => {
     const query = new URLSearchParams()
+    if (returnTo) query.set('returnTo', returnTo)
     Object.entries(state).forEach(([key, value]) => value && query.set(key, value))
     history.replaceState(null, '', `#/student/agent-tasks${query.toString() ? `?${query}` : ''}`)
   }

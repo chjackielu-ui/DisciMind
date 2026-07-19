@@ -33,9 +33,20 @@ storage/uploads/*
 storage/parsed/*
 storage/temp/*
 storage/agent-knowledge/
+storage/course-files/
+storage/learning-cards/
+storage/learning-flow-preloads/
+storage/lesson-plans/
 !storage/uploads/.gitkeep
 !storage/parsed/.gitkeep
 !storage/temp/.gitkeep
+
+# backend runtime outputs and caches
+backend/storage/agent-knowledge/
+backend/storage/generated-artifacts/
+backend/storage/learning-cards/
+backend/storage/learning-flow-preloads/
+backend/storage/lesson-plans/
 
 # prisma local sqlite
 backend/prisma/dev.db
@@ -72,5 +83,12 @@ backend/storage/learning-narration/
 # AI chat & learning session uploads (screenshots, attachments)
 backend/storage/uploads/
 
+# temp/debug screenshots
+tmp/
+
+# release packages
+release/
+
+# docs auto-generated
 docs/CLAUDE_CODE_DATABASE_PROMPT.md
 docs/DisciMind_database_design.md

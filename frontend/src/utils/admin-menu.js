@@ -54,6 +54,16 @@ const ADMIN_MENU_DEFINITIONS = [
     ],
   },
   {
+    id: 'admin-ai-safety', label: 'AI 安全治理', icon: 'alert', hash: '#/admin/ai-safety',
+    permission: 'admin.risks.view',
+    matchHash: (hash) => ['/admin/ai-safety', '/admin/risks', '/admin/traces'].includes(routePath(hash)),
+    children: [
+      { label: '安全规范', hash: '#/admin/ai-safety', permission: 'admin.risks.view' },
+      { label: '风险处置', hash: '#/admin/risks', permission: 'admin.risks.view' },
+      { label: '证据链', hash: '#/admin/traces', permission: 'admin.traces.view' },
+    ],
+  },
+  {
     id: 'admin-system', label: '系统管理', icon: 'settings', hash: '#/admin/permissions',
     matchHash: (hash) => ['/admin/logs', '/admin/notifications', '/admin/permissions', '/admin/profile'].includes(routePath(hash)),
     children: [

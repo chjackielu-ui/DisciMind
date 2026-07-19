@@ -1,6 +1,7 @@
 // 教师端学生管理服务
 
 const prisma = require('../config/prisma');
+const { getStudentPortrait: getAggregatedStudentPortrait } = require('./student.service');
 const {
   getAccessibleCourseIds,
   getAccessibleTeachingClassIds,
@@ -118,14 +119,22 @@ async function listStudents(user, query) {
   ]);
 
   const studentIds = students.map((item) => item.user_id);
-  const [mastery, recipients, submissions, activity, exams, openInterventions] = studentIds.length ? await Promise.all([
-    prisma.studentMasteryRecord.groupBy({ by: ['student_user_id'], where: { student_user_id: { in: studentIds }, ...(courseId ? { course_id: courseId } : {}) }, _avg: { mastery_score: true } }),
+  const metricCourseWhere = courseId
+    ? { course_id: courseId }
+    : (Array.isArray(courseIds) ? { course_id: { in: courseIds } } : {});
+  const [mastery, recipients, submissions, activity, exams, openInterventions, portraitScores] = studentIds.length ? await Promise.all([
+    prisma.studentMasteryRecord.groupBy({ by: ['student_user_id'], where: { student_user_id: { in: studentIds }, ...metricCourseWhere }, _avg: { mastery_score: true } }),
     prisma.learningTaskRecipient.findMany({ where: { student_user_id: { in: studentIds }, teaching_class_id: { in: classId ? [classId] : accessibleClassIds } }, select: { student_user_id: true, task_id: true } }),
-    prisma.taskSubmission.findMany({ where: { student_user_id: { in: studentIds }, task: { teaching_class_id: { in: classId ? [classId] : accessibleClassIds } } }, select: { student_user_id: true, task_id: true } }),
-    prisma.studyRecord.groupBy({ by: ['student_user_id'], where: { student_user_id: { in: studentIds }, ...(courseId ? { course_id: courseId } : {}) }, _count: { _all: true }, _sum: { duration_seconds: true } }),
+    prisma.taskSubmission.findMany({ where: { student_user_id: { in: studentIds }, submission_status: { in: ['SUBMITTED', 'GRADED'] }, task: { teaching_class_id: { in: classId ? [classId] : accessibleClassIds } } }, select: { student_user_id: true, task_id: true } }),
+    prisma.studyRecord.groupBy({ by: ['student_user_id'], where: { student_user_id: { in: studentIds }, ...metricCourseWhere }, _count: { _all: true }, _sum: { duration_seconds: true } }),
     prisma.taskSubmission.findMany({ where: { student_user_id: { in: studentIds }, task: { task_type: 'EXAM', teaching_class_id: { in: classId ? [classId] : accessibleClassIds } }, total_score: { not: null } }, select: { student_user_id: true, total_score: true } }),
     prisma.teacherStudentIntervention.groupBy({ by: ['student_user_id'], where: { teacher_user_id: user.user_id, student_user_id: { in: studentIds }, status: 'open' }, _count: { _all: true } }),
-  ]) : [[], [], [], [], [], []];
+    prisma.studentPortrait.groupBy({
+      by: ['student_user_id'],
+      where: { student_user_id: { in: studentIds }, ...metricCourseWhere },
+      _avg: { learning_total_score: true, progress_score: true, activity_score: true, test_score: true },
+    }),
+  ]) : [[], [], [], [], [], [], []];
   const masteryMap = new Map(mastery.map((item) => [item.student_user_id, Math.round((item._avg.mastery_score || 0) * 10) / 10]));
   const recipientMap = new Map();
   recipients.forEach((item) => recipientMap.set(item.student_user_id, (recipientMap.get(item.student_user_id) || 0) + 1));
@@ -142,12 +151,45 @@ async function listStudents(user, query) {
     examMap.set(item.student_user_id, list);
   });
   const interventionMap = new Map(openInterventions.map((item) => [item.student_user_id, item._count._all]));
+  const portraitMap = new Map(portraitScores.map((item) => [item.student_user_id, item._avg]));
 
   return {
     list: students.map((stu) => {
       const recipientCount = recipientMap.get(stu.user_id) || 0;
       const submittedCount = submittedByStudent.get(stu.user_id)?.size || 0;
       const examScores = examMap.get(stu.user_id) || [];
+      const masteryScore = masteryMap.get(stu.user_id) || 0;
+      const homeworkCompletionRate = recipientCount ? Math.round((submittedCount / recipientCount) * 1000) / 10 : 0;
+      const activityItem = activityMap.get(stu.user_id);
+      const activityCount = activityItem?._count?._all || 0;
+      const studyDurationSeconds = activityItem?._sum?.duration_seconds || 0;
+      const activityScore = Math.min(100, Math.round(activityCount * 4 + (studyDurationSeconds / 3600) * 3));
+      const averageExamScore = examScores.length
+        ? Math.round((examScores.reduce((sum, value) => sum + value, 0) / examScores.length) * 10) / 10
+        : null;
+      const portraitAverage = portraitMap.get(stu.user_id) || {};
+      const progressScore = Math.round(Number(portraitAverage.progress_score ?? masteryScore));
+      const testScore = averageExamScore ?? Number(portraitAverage.test_score ?? masteryScore);
+      const liveScore = Math.round(
+        masteryScore * 0.28
+        + progressScore * 0.18
+        + homeworkCompletionRate * 0.22
+        + activityScore * 0.16
+        + testScore * 0.16,
+      );
+      const comprehensiveScore = Math.max(0, Math.min(100,
+        Math.round(Number(portraitAverage.learning_total_score ?? liveScore)),
+      ));
+      const openInterventionCount = interventionMap.get(stu.user_id) || 0;
+      let riskLevel = 'normal';
+      let riskLabel = '正常';
+      if (comprehensiveScore < 55 || homeworkCompletionRate < 50 || masteryScore < 50) {
+        riskLevel = 'high';
+        riskLabel = '高风险';
+      } else if (comprehensiveScore < 72 || homeworkCompletionRate < 70 || activityScore < 60 || openInterventionCount > 0) {
+        riskLevel = 'attention';
+        riskLabel = '需要关注';
+      }
       return ({
       student_user_id: stu.user_id,
       username: stu.username,
@@ -164,12 +206,21 @@ async function listStudents(user, query) {
         class_name: e.teachingClass?.teaching_class_name || null,
       })),
       metrics: {
-        mastery_score: masteryMap.get(stu.user_id) || 0,
-        homework_completion_rate: recipientCount ? Math.round((submittedCount / recipientCount) * 1000) / 10 : 0,
-        average_exam_score: examScores.length ? Math.round((examScores.reduce((sum, value) => sum + value, 0) / examScores.length) * 10) / 10 : null,
-        activity_count: activityMap.get(stu.user_id)?._count?._all || 0,
-        study_duration_seconds: activityMap.get(stu.user_id)?._sum?.duration_seconds || 0,
-        open_intervention_count: interventionMap.get(stu.user_id) || 0,
+        mastery_score: masteryScore,
+        progress_score: progressScore,
+        homework_completion_rate: homeworkCompletionRate,
+        average_exam_score: averageExamScore,
+        activity_count: activityCount,
+        activity_score: activityScore,
+        study_duration_seconds: studyDurationSeconds,
+        open_intervention_count: openInterventionCount,
+        comprehensive_score: comprehensiveScore,
+        risk_level: riskLevel,
+      },
+      evaluation: {
+        comprehensive_score: comprehensiveScore,
+        risk_level: riskLevel,
+        risk_label: riskLabel,
       },
     }); }),
     total,
@@ -468,16 +519,28 @@ function getMasteryLevel(score) {
 
 async function getStudentPortrait(user, studentUserId, query) {
   const student = await ensureStudentAccess(user, studentUserId);
-
-  const where = { student_user_id: studentUserId };
-  if (query.course_id) {
-    where.course_id = Number.parseInt(query.course_id, 10);
+  const requestedCourseId = query.course_id ? Number.parseInt(query.course_id, 10) : null;
+  if (requestedCourseId) {
+    await ensureStudentAccess(user, studentUserId, { course_id: requestedCourseId });
   }
-
-  const portrait = await prisma.studentPortrait.findFirst({ where });
-  const masteryRecords = await prisma.studentMasteryRecord.findMany({
-    where,
-    include: { knowledge_point: true },
+  const accessibleClassIds = await getAccessibleTeachingClassIds(
+    user,
+    requestedCourseId ? { course_id: requestedCourseId } : {},
+  );
+  const accessibleEnrollments = await prisma.studentCourseEnrollment.findMany({
+    where: {
+      student_user_id: studentUserId,
+      enrollment_status: 'active',
+      teaching_class_id: { in: accessibleClassIds },
+      ...(requestedCourseId ? { course_id: requestedCourseId } : {}),
+    },
+    select: { course_id: true, teaching_class_id: true },
+  });
+  const visibleCourseIds = [...new Set(accessibleEnrollments.map((item) => item.course_id))];
+  const visibleClassIds = [...new Set(accessibleEnrollments.map((item) => item.teaching_class_id))];
+  const evaluation = await getAggregatedStudentPortrait(studentUserId, {
+    courseIds: visibleCourseIds,
+    teachingClassIds: visibleClassIds,
   });
 
   return {
@@ -486,33 +549,20 @@ async function getStudentPortrait(user, studentUserId, query) {
       student_name: student.profile?.real_name || student.username,
       student_no: student.profile?.student_no || null,
     },
-    learning_ability: portrait ? {
-      total_score: portrait.learning_total_score,
-      progress_score: portrait.progress_score,
-      mastery_score: portrait.mastery_score,
-      test_score: portrait.test_score,
-      wrong_question_score: portrait.wrong_question_score,
-      activity_score: portrait.activity_score,
-      qa_score: portrait.qa_score,
-    } : null,
-    mastered_knowledge_points: masteryRecords
-      .filter((r) => r.mastery_level === 'GOOD' || r.mastery_level === 'EXCELLENT')
-      .map((r) => ({
-        knowledge_point_id: r.knowledge_point_id,
-        knowledge_point_name: r.knowledge_point?.knowledge_point_name || null,
-        mastery_score: r.mastery_score,
-        mastery_level: toLower(r.mastery_level),
-      })),
-    weak_knowledge_points: masteryRecords
-      .filter((r) => r.mastery_level === 'WEAK')
-      .map((r) => ({
-        knowledge_point_id: r.knowledge_point_id,
-        knowledge_point_name: r.knowledge_point?.knowledge_point_name || null,
-        mastery_score: r.mastery_score,
-        mastery_level: toLower(r.mastery_level),
-      })),
-    research_ability: null, // 预留字段
-    competition_ability: null, // 预留字段
+    ...evaluation,
+    learning_ability: {
+      total_score: evaluation.comprehensiveScore,
+      progress_score: evaluation.metrics.progressScore,
+      mastery_score: evaluation.metrics.masteryScore,
+      test_score: evaluation.metrics.practiceScore,
+      wrong_question_score: evaluation.metrics.reflectionScore,
+      activity_score: evaluation.metrics.activityScore,
+      qa_score: evaluation.metrics.reflectionScore,
+    },
+    mastered_knowledge_points: evaluation.good_knowledge_points,
+    weak_knowledge_points: evaluation.weak_knowledge_points,
+    research_ability: evaluation.research_profile,
+    competition_ability: evaluation.competition_profile,
   };
 }
 

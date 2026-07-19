@@ -11,6 +11,7 @@ export async function renderTeacherQuestionCreate(app, params) {
   let user = getUser()
   const questionId = params?.question_id ? parseInt(params.question_id) : null
   const isEdit = !!questionId
+  const initialCourseId = Number(new URLSearchParams(window.location.hash.split('?')[1] || '').get('course_id')) || null
 
   try {
     const result = await getMe()
@@ -122,6 +123,7 @@ export async function renderTeacherQuestionCreate(app, params) {
       opt.textContent = c.course_name
       select.appendChild(opt)
     })
+    if (!isEdit && initialCourseId) select.value = String(initialCourseId)
   } catch (err) {
     console.error('加载课程失败', err)
   }
@@ -237,6 +239,5 @@ export async function renderTeacherQuestionCreate(app, params) {
 
   initAllAutoResize()
 }
-
 
 

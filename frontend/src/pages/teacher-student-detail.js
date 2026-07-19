@@ -5,6 +5,83 @@ import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../ut
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherStudent, getStudentMastery, getStudentPortrait, refreshStudentPortrait } from '../api/teacher.js'
+import { escapeHtml } from '../utils/format.js'
+
+function clampScore(value) {
+  const score = Number(value)
+  return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0
+}
+
+function getRiskMeta(level, label) {
+  const key = String(level || 'normal').toLowerCase()
+  if (key === 'high') return { label: label || '高风险', cls: 'tsp-risk-high' }
+  if (key === 'attention') return { label: label || '需要关注', cls: 'tsp-risk-attention' }
+  return { label: label || '正常', cls: 'tsp-risk-normal' }
+}
+
+function renderPortraitEvaluation(data) {
+  const dimensions = Array.isArray(data?.dimensions) ? data.dimensions : []
+  const weakPoints = Array.isArray(data?.weakPoints)
+    ? data.weakPoints
+    : (Array.isArray(data?.weak_knowledge_points) ? data.weak_knowledge_points : [])
+  const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : []
+  const risk = getRiskMeta(data?.riskLevel, data?.riskLabel)
+  const score = clampScore(data?.comprehensiveScore ?? data?.learning_ability?.total_score)
+  const tendency = data?.learningTendency || {}
+
+  return `
+    <div class="tsp-evaluation-top">
+      <div class="tsp-score-block">
+        <span>综合学习评分</span>
+        <strong>${score}</strong>
+        <small>满分 100</small>
+      </div>
+      <div class="tsp-summary-block">
+        <div class="tsp-summary-heading">
+          <h4>${escapeHtml(tendency.type || '学习状态分析')}</h4>
+          <span class="tsp-risk-badge ${risk.cls}">${escapeHtml(risk.label)}</span>
+        </div>
+        <p>${escapeHtml(data?.summary || '当前画像数据正在持续积累。')}</p>
+        ${Array.isArray(data?.riskReasons) && data.riskReasons.length
+          ? `<div class="tsp-risk-reasons">${data.riskReasons.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>`
+          : ''}
+      </div>
+    </div>
+    <div class="tsp-evaluation-body">
+      <section class="tsp-dimensions">
+        <h4>多维度评价</h4>
+        <div class="tsp-dimension-list">
+          ${dimensions.length ? dimensions.map(item => {
+            const value = clampScore(item.score)
+            return `
+              <div class="tsp-dimension-row">
+                <div class="tsp-dimension-head"><span>${escapeHtml(item.label || item.key || '学习指标')}</span><strong>${value}</strong></div>
+                <div class="tsp-dimension-track"><span style="width:${value}%"></span></div>
+                <small>${escapeHtml(item.description || '')}</small>
+              </div>`
+          }).join('') : '<div class="empty-hint">暂无多维度评价数据</div>'}
+        </div>
+      </section>
+      <div class="tsp-insights">
+        <section>
+          <h4>薄弱知识点</h4>
+          <div class="tsp-weak-list">
+            ${weakPoints.length ? weakPoints.slice(0, 5).map(item => `
+              <div><span>${escapeHtml(item.knowledge_point_name || '未命名知识点')}</span><strong>${clampScore(item.mastery_score)} 分</strong></div>
+            `).join('') : '<p class="tsp-empty-text">当前没有明显薄弱知识点</p>'}
+          </div>
+        </section>
+        <section>
+          <h4>教学建议</h4>
+          <ul class="tsp-suggestion-list">
+            ${(suggestions.length ? suggestions : ['继续观察学生学习记录，并结合课堂表现进行反馈。'])
+              .slice(0, 4)
+              .map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+          </ul>
+        </section>
+      </div>
+    </div>`
+}
 
 export async function renderTeacherStudentDetail(app, params) {
   let user = getUser()
@@ -40,6 +117,16 @@ export async function renderTeacherStudentDetail(app, params) {
         <div class="stat-card"><div class="stat-value" id="stu-duration">-</div><div class="stat-label">学习时长(分钟)</div></div>
       </div>
 
+      <div class="card tsp-portrait-card">
+        <div class="tsp-card-heading">
+          <div>
+            <h3 class="card-title">学生画像与多维评价</h3>
+            <p>综合知识掌握、学习进度、作业和活跃度等学习数据</p>
+          </div>
+        </div>
+        <div id="teacher-student-portrait"><div class="empty-hint">正在分析画像数据...</div></div>
+      </div>
+
       <div class="content-columns">
         <div class="card">
           <h3 class="card-title">选修课程</h3>
@@ -68,15 +155,17 @@ export async function renderTeacherStudentDetail(app, params) {
 
   async function loadData() {
     try {
-      const [studentRes, masteryRes] = await Promise.all([
+      const [studentRes, masteryRes, portraitRes] = await Promise.all([
         getTeacherStudent(studentUserId),
         getStudentMastery(studentUserId),
+        getStudentPortrait(studentUserId),
       ])
 
       const studentData = studentRes.data?.student || {}
       studentCourses = studentRes.data?.courses || []
       const summary = studentRes.data?.summary || {}
       const masteryRecords = masteryRes.data?.mastery_records || []
+      const portraitData = portraitRes.data || {}
 
       document.getElementById('student-name').textContent = studentData.student_name || '学生详情'
       document.getElementById('student-info').textContent = `${studentData.student_no || ''} · ${studentData.college || ''} ${studentData.major || ''}`.trim() || '学生信息'
@@ -85,6 +174,9 @@ export async function renderTeacherStudentDetail(app, params) {
       document.getElementById('stu-questions').textContent = summary.total_questions ?? 0
       document.getElementById('stu-correct').textContent = summary.total_correct ?? 0
       document.getElementById('stu-duration').textContent = summary.total_duration ? Math.round(summary.total_duration / 60) : 0
+
+      const portraitContainer = document.getElementById('teacher-student-portrait')
+      if (portraitContainer) portraitContainer.innerHTML = renderPortraitEvaluation(portraitData)
 
       // 课程列表（点击跳转课程详情）
       const coursesContainer = document.getElementById('student-courses')
@@ -172,6 +264,5 @@ export async function renderTeacherStudentDetail(app, params) {
 
   loadData()
 }
-
 
 

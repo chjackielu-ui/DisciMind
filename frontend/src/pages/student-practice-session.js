@@ -20,7 +20,7 @@ import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml } from '../utils/format.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js'
 import { showToast } from '../utils/toast.js'
-import { showExamLeaveModal } from '../components/common/exam-leave-modal.js'
+import { closeExamLeaveModal, showExamLeaveModal } from '../components/common/exam-leave-modal.js'
 import {
   buildAnswerControl,
   buildQuestionNavGrouped,
@@ -632,7 +632,8 @@ function enableFocusMode(state, snapshot, sessionId, onLeaveAttempt) {
     e.preventDefault(); e.stopImmediatePropagation()
     onLeaveAttempt?.(hash || '#/student/practice')
   }
-  document.querySelector('.sidebar-menu')?.addEventListener('click', sidebarClickHandler, true)
+  const sidebarMenu = document.getElementById('sidebar-menu-wrap')
+  sidebarMenu?.addEventListener('click', sidebarClickHandler, true)
 
   // 顶部返回按钮拦截
   function backButtonHandler(e) {
@@ -643,19 +644,9 @@ function enableFocusMode(state, snapshot, sessionId, onLeaveAttempt) {
   }
   document.addEventListener('click', backButtonHandler, true)
 
-  function hashChangeHandler(e) {
-    if (state.submitted) return
-    const nh = (window.location.hash || '').slice(1)
-    if (/^\/student\/practice\/sessions\/\d+$/.test(nh)) return
-    e.preventDefault(); e.stopImmediatePropagation()
-    onLeaveAttempt?.(`#${nh}`)
-  }
-  window.addEventListener('hashchange', hashChangeHandler, true)
-
   focusModeCleanup = () => {
     window.removeEventListener('beforeunload', beforeUnloadHandler)
-    window.removeEventListener('hashchange', hashChangeHandler, true)
-    document.querySelector('.sidebar-menu')?.removeEventListener('click', sidebarClickHandler, true)
+    sidebarMenu?.removeEventListener('click', sidebarClickHandler, true)
     document.removeEventListener('click', backButtonHandler, true)
     if (wrapper) wrapper.classList.remove('practice-focus-active')
     document.querySelectorAll('.sidebar-menu-item.practice-locked').forEach(i => { i.classList.remove('practice-locked'); i.removeAttribute('title') })
@@ -972,6 +963,8 @@ export async function renderStudentPracticeSession(app, params = {}) {
       return
     }
 
+    if (document.querySelector('.exam-leave-overlay')) return
+
     showExamLeaveModal({
       mode: isExamMode(snapshot) ? 'exam' : 'practice',
       title: snapshot?.subject?.course_name || '智能练习',
@@ -1123,6 +1116,7 @@ export async function renderStudentPracticeSession(app, params = {}) {
 
     document.getElementById('btn-go-wrong-book')?.addEventListener('click', () => {
       if (isPracticeLocked(state, snapshot)) { showToast('完成并提交本次练习后可查看错题本。', 'warning'); return }
+      if (!state.submitted) { requestLeave('#/student/wrong-questions'); return }
       window.location.hash = '#/student/wrong-questions'
     })
 
@@ -1232,4 +1226,19 @@ export async function renderStudentPracticeSession(app, params = {}) {
   renderMathInMarkdownElements(document.getElementById('student-main'))
   startElapsedTimer(state)
   if (!state.submitted) enableFocusMode(state, snapshot, sessionId, requestLeave)
+
+  return () => {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    aiStreamAbortController?.abort()
+    aiStreamAbortController = null
+    stopTimer()
+    disableFocusMode()
+    closeExamLeaveModal()
+    if (window.__discimindStudentPageContext?.sessionId === sessionId) {
+      delete window.__discimindStudentPageContext
+    }
+  }
 }

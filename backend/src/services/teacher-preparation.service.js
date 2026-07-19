@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
-const { ensureCourseAccess, ensureTeachingClassAccess, isAdmin } = require('./teacher-access.service');
+const { ensureCourseAccess, ensureTeachingClassAccess, getAccessibleCourseIds, isAdmin } = require('./teacher-access.service');
 const { runPreparationGraph } = require('../modules/lesson-plan/workbench/preparation.graph');
 const preparationEvents = require('../modules/lesson-plan/workbench/preparation-events');
 const artifactExportService = require('../modules/file-generator/artifact-export.service');
@@ -73,6 +73,280 @@ function serializePlan(plan) {
     created_at: plan.created_at.toISOString(),
     content: plan.versions?.[0]?.merged_content_json || null,
     locked_blocks: plan.versions?.[0]?.locked_blocks_json || [],
+  };
+}
+
+function stringList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  return String(value || '').split(/\r?\n|[；;]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function normalizeChapters(value) {
+  if (Array.isArray(value)) return value.map((chapter, index) => ({
+    title: String(chapter?.title || `第 ${index + 1} 章`).trim(),
+    objective: String(chapter?.objective || '').trim(),
+    knowledgePoints: stringList(chapter?.knowledgePoints || chapter?.knowledge_points),
+  })).filter((chapter) => chapter.title);
+  return String(value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line, index) => {
+    const [title, points = '', objective = ''] = line.split('|').map((item) => item.trim());
+    return { title: title || `第 ${index + 1} 章`, objective, knowledgePoints: points.split(/[、,，]/).map((item) => item.trim()).filter(Boolean) };
+  });
+}
+
+function syllabusPayload(body = {}, previous = {}) {
+  const objectives = body.objectives === undefined ? (previous.objectives || []) : stringList(body.objectives);
+  const requirements = body.requirements === undefined ? (previous.requirements || '') : String(body.requirements || '').trim();
+  const chapters = body.chapters === undefined ? (previous.chapters || []) : normalizeChapters(body.chapters);
+  const knowledgePoints = [...new Set([
+    ...(body.knowledge_points === undefined ? (previous.knowledgePoints || []) : stringList(body.knowledge_points)),
+    ...chapters.flatMap((chapter) => chapter.knowledgePoints || []),
+  ])];
+  return { objectives, requirements, chapters, knowledgePoints, sourceType: body.source_type || previous.sourceType || 'manual' };
+}
+
+function syllabusText(title, syllabus) {
+  const chapterText = syllabus.chapters.map((chapter, index) => [
+    `## ${index + 1}. ${chapter.title}`,
+    chapter.objective ? `教学目标：${chapter.objective}` : '',
+    chapter.knowledgePoints.length ? `知识点：${chapter.knowledgePoints.join('、')}` : '',
+  ].filter(Boolean).join('\n')).join('\n\n');
+  return [
+    `# ${title}`,
+    syllabus.objectives.length ? `## 教学目标\n${syllabus.objectives.map((item) => `- ${item}`).join('\n')}` : '',
+    syllabus.requirements ? `## 教学要求\n${syllabus.requirements}` : '',
+    chapterText ? `## 章节结构\n${chapterText}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function serializeSyllabus(document) {
+  const metadata = document.metadata_json || {};
+  const rawSyllabus = metadata.syllabus || {};
+  const syllabus = syllabusPayload({}, rawSyllabus);
+  return {
+    syllabus_id: document.document_id,
+    title: document.title,
+    course_id: document.course_id,
+    course_name: document.course?.course_name || null,
+    teaching_class_id: document.teaching_class_id,
+    teaching_class_name: document.teaching_class?.teaching_class_name || null,
+    lesson_plan_id: document.lesson_plan_id || metadata.lessonPlanId || null,
+    source_type: rawSyllabus.sourceType || (document.version_source === 'TEACHER_CREATED' ? 'manual' : 'upload'),
+    objectives: syllabus.objectives,
+    requirements: syllabus.requirements,
+    chapters: syllabus.chapters,
+    knowledge_points: syllabus.knowledgePoints,
+    content: document.cleaned_text || '',
+    file_url: document.file_url,
+    parse_status: lower(document.parse_status),
+    updated_at: document.updated_at.toISOString(),
+    created_at: document.created_at.toISOString(),
+  };
+}
+
+async function ensureSyllabusAccess(user, syllabusId) {
+  const document = await prisma.knowledgeDocument.findFirst({
+    where: { document_id: Number(syllabusId), resource_kind: 'syllabus', deleted_at: null },
+    include: { course: true, teaching_class: true },
+  });
+  if (!document) throw Object.assign(new Error('教学大纲不存在'), { code: 40002 });
+  if (document.course_id) await ensureCourseAccess(user, document.course_id);
+  if (document.teaching_class_id) await ensureTeachingClassAccess(user, document.teaching_class_id);
+  return document;
+}
+
+async function listSyllabuses(user, query = {}) {
+  const where = { resource_kind: 'syllabus', is_teaching_resource: true, deleted_at: null };
+  if (query.course_id) {
+    await ensureCourseAccess(user, Number(query.course_id));
+    where.course_id = Number(query.course_id);
+  } else if (!isAdmin(user)) {
+    where.course_id = { in: await getAccessibleCourseIds(user) };
+  }
+  if (query.teaching_class_id) {
+    const teachingClassId = Number(query.teaching_class_id);
+    await ensureTeachingClassAccess(user, teachingClassId);
+    where.OR = [{ teaching_class_id: teachingClassId }, { teaching_class_id: null }];
+  }
+  const rows = await prisma.knowledgeDocument.findMany({
+    where,
+    include: { course: true, teaching_class: true },
+    orderBy: [{ updated_at: 'desc' }, { document_id: 'desc' }],
+  });
+  return { list: rows.map(serializeSyllabus), total: rows.length };
+}
+
+async function createSyllabus(user, body = {}) {
+  const courseId = Number(body.course_id);
+  const classId = body.teaching_class_id ? Number(body.teaching_class_id) : null;
+  const title = String(body.title || '').trim();
+  if (!courseId || !title) throw Object.assign(new Error('course_id、title 为必填项'), { code: 40001 });
+  await ensureCourseAccess(user, courseId);
+  if (classId) {
+    const teachingClass = await ensureTeachingClassAccess(user, classId);
+    if (teachingClass.course_id !== courseId) throw Object.assign(new Error('教学班不属于所选课程'), { code: 40001 });
+  }
+  const syllabus = syllabusPayload(body);
+  const operationId = `syllabus-${user.user_id}-${crypto.randomUUID()}`.slice(0, 64);
+  const document = await prisma.knowledgeDocument.create({
+    data: {
+      title,
+      original_filename: `${title}.md`,
+      file_ext: 'md',
+      mime_type: 'text/markdown',
+      storage_type: 'LOCAL',
+      file_url: `/internal/syllabuses/${operationId}.md`,
+      scope_type: classId ? 'CLASS' : 'COURSE',
+      visibility: classId ? 'CLASS' : 'PRIVATE',
+      course_id: courseId,
+      teaching_class_id: classId,
+      owner_user_id: user.user_id,
+      is_teaching_resource: true,
+      resource_kind: 'syllabus',
+      resource_category: '教学大纲',
+      metadata_json: { syllabus },
+      resource_group_id: operationId,
+      version_source: 'TEACHER_CREATED',
+      parse_status: 'PARSED',
+      review_status: 'APPROVED',
+      marketplace_status: 'READY',
+      operation_id: operationId,
+      processing_state: 'parsed',
+      cleaned_text: String(body.content || '').trim() || syllabusText(title, syllabus),
+    },
+    include: { course: true, teaching_class: true },
+  });
+  return serializeSyllabus(document);
+}
+
+async function getSyllabus(user, syllabusId) {
+  return serializeSyllabus(await ensureSyllabusAccess(user, syllabusId));
+}
+
+async function updateSyllabus(user, syllabusId, body = {}) {
+  const document = await ensureSyllabusAccess(user, syllabusId);
+  const title = body.title === undefined ? document.title : String(body.title || '').trim();
+  if (!title) throw Object.assign(new Error('教学大纲标题不能为空'), { code: 40001 });
+  const previousMetadata = document.metadata_json || {};
+  const syllabus = syllabusPayload(body, previousMetadata.syllabus || {});
+  const updated = await prisma.knowledgeDocument.update({
+    where: { document_id: document.document_id },
+    data: {
+      title,
+      original_filename: document.file_ext === 'md' ? `${title}.md` : document.original_filename,
+      cleaned_text: String(body.content || '').trim() || syllabusText(title, syllabus),
+      metadata_json: { ...previousMetadata, syllabus: { ...syllabus, sourceType: previousMetadata.syllabus?.sourceType || (document.version_source === 'TEACHER_CREATED' ? 'manual' : 'upload') } },
+      processing_state: 'parsed',
+      parse_status: 'PARSED',
+    },
+    include: { course: true, teaching_class: true },
+  });
+  return serializeSyllabus(updated);
+}
+
+function lessonContentFromSyllabus(document, body = {}) {
+  const syllabus = syllabusPayload({}, document.metadata_json?.syllabus || {});
+  const title = String(body.topic || `${document.title}配套教案`).trim();
+  const keyPoints = syllabus.knowledgePoints.slice(0, 8);
+  const objectives = syllabus.objectives.length ? syllabus.objectives : [`理解并掌握${title}的核心概念`, '能够运用所学知识完成典型问题分析'];
+  const activities = syllabus.chapters.slice(0, 6).map((chapter, index) => ({
+    name: `${index + 1}. ${chapter.title}`,
+    duration: Math.max(8, Math.round(Number(body.duration_minutes || 45) / Math.max(syllabus.chapters.length, 1))),
+    teacherAction: chapter.objective || `围绕${chapter.title}组织讲解与示例分析`,
+    studentAction: `完成${(chapter.knowledgePoints || []).slice(0, 3).join('、') || chapter.title}的理解检查`,
+  }));
+  return {
+    teachingObjectives: objectives,
+    keyPoints: keyPoints.length ? keyPoints : [title],
+    difficultPoints: (keyPoints.length ? keyPoints : [title]).slice(-3),
+    teachingPreparation: syllabus.requirements || '准备课程资料、课堂练习与形成性评价任务。',
+    timeAllocation: `建议课时 ${Number(body.duration_minutes || 45)} 分钟，可根据班级掌握情况动态调整。`,
+    lessonIntroduction: `从课程大纲中的核心任务切入，明确本次课与前后章节之间的关系。`,
+    activities: activities.length ? activities : [{ name: '核心概念建构', duration: Number(body.duration_minutes || 45), teacherAction: '结合案例讲解并组织提问', studentAction: '完成概念辨析与课堂练习' }],
+    assessments: ['课堂提问与即时反馈', '知识点练习正确率检查', '课后任务完成情况复盘'],
+    homework: { title: `${title}课后巩固`, requirements: '完成配套练习，整理易错点，并预习下一章节。' },
+    resources: [{ title: document.title, type: '教学大纲', resourceId: document.document_id }],
+    teacherNarratives: {
+      teachingObjectives: objectives.join('；'),
+      keyAndDifficultPoints: `重点：${(keyPoints.length ? keyPoints : [title]).join('、')}。难点通过案例拆解和分层练习突破。`,
+      activities: '按照“目标确认、概念建构、案例分析、练习反馈、总结迁移”的顺序组织教学。',
+      homework: '设置基础巩固与迁移提升两类任务，并在下次课前完成薄弱点反馈。',
+    },
+  };
+}
+
+async function generateLessonPlanFromSyllabus(user, syllabusId, body = {}) {
+  const document = await ensureSyllabusAccess(user, syllabusId);
+  if (!document.course_id) throw Object.assign(new Error('教学大纲尚未关联课程'), { code: 40001 });
+  const classId = Number(body.teaching_class_id || document.teaching_class_id);
+  if (!classId) throw Object.assign(new Error('请选择用于生成教案的教学班'), { code: 40001 });
+  const teachingClass = await ensureTeachingClassAccess(user, classId);
+  if (teachingClass.course_id !== document.course_id) throw Object.assign(new Error('教学班与教学大纲课程不一致'), { code: 40001 });
+  const topic = String(body.topic || `${document.title}配套教案`).trim();
+  const lessonType = LESSON_TEMPLATES[body.lesson_type] ? body.lesson_type : '新授课';
+  const content = lessonContentFromSyllabus(document, body);
+  const inputPatch = {
+    syllabusId: document.document_id,
+    syllabusTitle: document.title,
+    generationMode: 'structured_fallback',
+    templateStages: LESSON_TEMPLATES[lessonType],
+    knowledgePointIds: [],
+    resourceIds: [document.document_id],
+    analyticsRange: body.analytics_range || '30d',
+  };
+  let plan = await prisma.lessonPlan.findFirst({
+    where: { teacher_user_id: user.user_id, course_id: document.course_id, teaching_class_id: classId, topic },
+    include: { versions: { orderBy: { version_number: 'desc' }, take: 1 } },
+  });
+  if (plan) {
+    await prisma.lessonPlan.update({
+      where: { lesson_plan_id: plan.lesson_plan_id },
+      data: { input_json: { ...(plan.input_json || {}), ...inputPatch }, lesson_type: lessonType, duration_minutes: Number(body.duration_minutes || plan.duration_minutes || 45) },
+    });
+    await saveDraft(user, plan.lesson_plan_id, { content, change_summary: '根据教学大纲重新生成结构化教案' });
+  } else {
+    plan = await prisma.$transaction(async (tx) => {
+      const created = await tx.lessonPlan.create({
+        data: {
+          teacher_user_id: user.user_id,
+          course_id: document.course_id,
+          course_offering_id: teachingClass.course_offering_id,
+          teaching_class_id: classId,
+          topic,
+          duration_minutes: Number(body.duration_minutes || 45),
+          lesson_type: lessonType,
+          location: teachingClass.location || null,
+          input_json: inputPatch,
+          status: 'DRAFT',
+          current_version: 1,
+          progress: 100,
+        },
+      });
+      await tx.lessonPlanVersion.create({
+        data: {
+          lesson_plan_id: created.lesson_plan_id,
+          version_number: 1,
+          created_by_user_id: user.user_id,
+          change_summary: '根据教学大纲生成初始教案',
+          ai_content_json: {},
+          teacher_content_json: content,
+          merged_content_json: content,
+          locked_blocks_json: [],
+          data_sources_json: [{ type: 'syllabus', id: document.document_id, title: document.title }],
+        },
+      });
+      return created;
+    });
+  }
+  await prisma.knowledgeDocument.update({
+    where: { document_id: document.document_id },
+    data: { lesson_plan_id: plan.lesson_plan_id, metadata_json: { ...(document.metadata_json || {}), lessonPlanId: plan.lesson_plan_id } },
+  });
+  return {
+    lesson_plan_id: plan.lesson_plan_id,
+    syllabus_id: document.document_id,
+    status: 'generated',
+    mode: 'structured_fallback',
+    message: '已按教学大纲生成可编辑教案；AI 服务可用时仍可继续进行分阶段优化。',
   };
 }
 
@@ -623,6 +897,7 @@ async function exportPlan(user, lessonPlanId, format, artifactRole = 'TEACHER_LE
 }
 
 module.exports = {
+  listSyllabuses, createSyllabus, getSyllabus, updateSyllabus, generateLessonPlanFromSyllabus,
   listPlans, createPlan, getPlan, saveDraft, startGeneration, getGenerationStatus,
   listVersions, compareVersions, restoreVersion, publishPlan, exportPlan, refineStage,
   ensurePlanAccess, subscribe: preparationEvents.subscribe,

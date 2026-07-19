@@ -11,7 +11,7 @@ const SESSION_AUTHENTICATED_KEY = 'discimind_session_authenticated'
 const LEGACY_USER_KEY = 'user'
 const LEGACY_TOKEN_KEY = 'token'
 const LOGOUT_EVENT_KEY = 'discimind.auth.logout'
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export const AUTH_STATUS = {
   INITIALIZING: 'INITIALIZING',
@@ -304,7 +304,7 @@ export async function refreshAuthSession() {
 }
 
 /**
- * 通过 sessionStorage 中的 sessionId 刷新（无需 Cookie）
+ * 通过 sessionStorage 中的 sessionId 发起兼容刷新；服务端仍强制校验 HttpOnly Cookie。
  */
 export async function refreshSessionViaStorage() {
   const sessionId = getStoredSessionId()
@@ -365,7 +365,7 @@ export async function initializeAuth() {
       return null
     }
 
-    // 3. 通过 sessionStorage 中的 sessionId 尝试续期
+    // 3. 通过兼容端点尝试续期；sessionId 仅用于恢复页面状态，不作为认证凭证
     try {
       await refreshSessionViaStorage()
       startIdleCheck()

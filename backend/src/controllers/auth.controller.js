@@ -5,8 +5,6 @@ const authService = require('../services/auth.service');
 const fs = require('fs/promises');
 const path = require('path');
 const { success, fail } = require('../utils/response');
-const { signToken } = require('../utils/jwt');
-const { fromPrismaRole } = require('../utils/enum');
 
 const AVATAR_DIR = path.resolve(__dirname, '../../../storage/uploads/avatars');
 
@@ -27,10 +25,7 @@ async function removeUploadedAvatar(file) {
 }
 
 function getRequestIp(req) {
-  return (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '')
-    .toString()
-    .split(',')[0]
-    .trim();
+  return String(req.ip || req.socket?.remoteAddress || '').slice(0, 64);
 }
 
 function parseCookies(req) {
@@ -246,32 +241,15 @@ async function changePassword(req, res, next) {
 }
 
 /**
- * POST /api/auth/session/refresh — 前端 sessionStorage token 刷新
- * 前端传 sessionId，后端校验会话活性，返回新 access token
+ * POST /api/auth/session/refresh — 兼容旧前端刷新路径
+ * sessionId 不是凭证；必须使用 HttpOnly Cookie 中的 Refresh Token 续期。
  */
 async function sessionRefresh(req, res, next) {
   try {
-    const { sessionId } = req.body || {};
-    if (!sessionId) {
-      return fail(res, 40101, '会话ID缺失');
-    }
-    const check = await authService.checkSessionIdle(Number(sessionId));
-    if (!check.valid) {
-      return fail(res, 40102, check.reason === 'expired' ? '会话已过期，请重新登录' : '会话无效，请重新登录');
-    }
-    // 更新活动时间
-    await authService.touchSession(Number(sessionId));
-    // 生成新 token
-    const user = check.session.user;
-    const accessToken = signToken({
-      user_id: user.user_id,
-      role: fromPrismaRole(user.role),
-    });
-    return success(res, {
-      accessToken,
-      sessionId: Number(sessionId),
-    }, '会话已恢复');
+    const result = await authService.refreshSession(getRefreshToken(req), authMeta(req));
+    return success(res, result, '会话已恢复');
   } catch (err) {
+    clearRefreshCookie(res);
     return fail(res, err.code || 40102, err.message);
   }
 }

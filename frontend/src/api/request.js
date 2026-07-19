@@ -4,9 +4,13 @@
 
 import { getToken, clearAuth, refreshSessionViaStorage, refreshAuthSession, canRefreshCurrentSession } from '../utils/auth.js'
 
+<<<<<<< Updated upstream
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120000
+=======
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+>>>>>>> Stashed changes
 
 let refreshLock = null // 防止并发刷新
 

@@ -106,6 +106,44 @@ function uniqueIds(ids) {
   return [...new Set((ids || []).filter((id) => Number.isInteger(id) && id > 0))];
 }
 
+const SAMPLE_COURSE_PRIORITY = new Map([
+  ['ML001', 0],
+  ['OS001', 1],
+  ['WEB001', 2],
+  ['PROB001', 3],
+]);
+
+function getSampleCoursePriority(courseCode) {
+  return SAMPLE_COURSE_PRIORITY.has(courseCode)
+    ? SAMPLE_COURSE_PRIORITY.get(courseCode)
+    : SAMPLE_COURSE_PRIORITY.size;
+}
+
+function getKnowledgeLearningStatus(mastery, latestStudy) {
+  const score = clampPercent(mastery?.mastery_score ?? 0);
+  const level = toLower(mastery?.mastery_level);
+  if (!mastery && !latestStudy) return 'unstarted';
+  if (!latestStudy && score === 0) return 'unstarted';
+  if (level === 'excellent' || level === 'good' || score >= 75) return 'mastered';
+  if (level === 'weak' || score < 60) return 'weak';
+  return 'learning';
+}
+
+function getKnowledgeLearningAdvice(status, knowledgePoint, parent) {
+  const name = knowledgePoint.knowledge_point_name;
+  if (status === 'mastered') return `已较好掌握“${name}”，建议通过综合题和间隔复习保持熟练度。`;
+  if (status === 'learning') return `继续完成“${name}”的典型例题，并用一次小测检查概念边界。`;
+  if (status === 'weak') {
+    const prerequisite = parent?.knowledge_point_name
+      ? `先回顾前置知识“${parent.knowledge_point_name}”，再`
+      : '先复盘核心概念和适用条件，再';
+    return `${prerequisite}完成基础例题与错题订正。`;
+  }
+  return parent?.knowledge_point_name
+    ? `建议先学习前置知识“${parent.knowledge_point_name}”，再进入“${name}”。`
+    : `建议从概念说明开始学习“${name}”，完成首轮笔记和基础练习。`;
+}
+
 function setSize(map, key) {
   return map[key] ? map[key].size : 0;
 }
@@ -517,6 +555,9 @@ async function getStudentCourses(userId) {
       course_id: e.course.course_id,
       course_name: e.course.course_name,
       course_code: e.course.course_code,
+      subject_category: e.course.subject_category || null,
+      is_sample_course: SAMPLE_COURSE_PRIORITY.has(e.course.course_code),
+      display_order: getSampleCoursePriority(e.course.course_code),
       description: e.course.description || null,
       cover_url: e.course.cover_url || null,
       teaching_class_id: e.teaching_class_id,
@@ -543,6 +584,11 @@ async function getStudentCourses(userId) {
       last_study_at: progressStats.last_study_at || null,
       last_position: progressStats.last_position || null,
     };
+  });
+
+  list.sort((a, b) => {
+    if (a.display_order !== b.display_order) return a.display_order - b.display_order;
+    return a.course_id - b.course_id;
   });
 
   return { list };
@@ -718,6 +764,180 @@ async function getStudentCourseKnowledgePoints(userId, courseId) {
   });
 
   return { list };
+}
+
+/**
+ * 获取学生知识图谱课程总览。
+ */
+async function getStudentKnowledgeGraphOverview(userId) {
+  const { list } = await getStudentCourses(userId);
+  return {
+    courses: list.map((course) => ({
+      course_id: course.course_id,
+      course_name: course.course_name,
+      course_code: course.course_code,
+      is_sample_course: course.is_sample_course,
+      display_order: course.display_order,
+      progress: clampPercent(course.progress),
+      knowledge_point_count: course.knowledge_point_count,
+      mastered_count: course.mastered_knowledge_count,
+      weak_count: course.weak_knowledge_count,
+    })),
+  };
+}
+
+/**
+ * 获取单门课程的学生知识图谱，包含节点、边、掌握度、建议和可访问资源。
+ */
+async function getStudentCourseKnowledgeGraph(userId, courseId) {
+  const enrollment = await ensureStudentInCourse(userId, courseId);
+  const [course, knowledgePoints, masteryRecords, studyRecords, documents, videos] = await Promise.all([
+    prisma.course.findUnique({ where: { course_id: courseId } }),
+    prisma.knowledgePoint.findMany({
+      where: { course_id: courseId },
+      include: { chapter: true, parent: true },
+      orderBy: [{ chapter_id: 'asc' }, { sort_order: 'asc' }, { knowledge_point_id: 'asc' }],
+    }),
+    prisma.studentMasteryRecord.findMany({
+      where: { student_user_id: userId, course_id: courseId },
+    }),
+    prisma.studyRecord.findMany({
+      where: { student_user_id: userId, course_id: courseId, knowledge_point_id: { not: null } },
+      orderBy: [{ created_at: 'desc' }, { study_record_id: 'desc' }],
+    }),
+    prisma.knowledgeDocument.findMany({
+      where: {
+        course_id: courseId,
+        deleted_at: null,
+        is_teaching_resource: true,
+        OR: [
+          { visibility: 'CLASS', teaching_class_id: enrollment.teaching_class_id },
+          { visibility: { in: ['COLLEGE', 'SCHOOL'] } },
+        ],
+      },
+      orderBy: [{ updated_at: 'desc' }, { document_id: 'desc' }],
+      take: 6,
+    }),
+    prisma.videoResource.findMany({
+      where: { course_id: courseId },
+      orderBy: { created_at: 'desc' },
+      take: 30,
+    }),
+  ]);
+
+  if (!course) throw Object.assign(new Error('课程不存在'), { code: 40002 });
+
+  const masteryMap = new Map(masteryRecords.map((record) => [record.knowledge_point_id, record]));
+  const latestStudyMap = new Map();
+  studyRecords.forEach((record) => {
+    if (!latestStudyMap.has(record.knowledge_point_id)) latestStudyMap.set(record.knowledge_point_id, record);
+  });
+  const knowledgePointMap = new Map(knowledgePoints.map((point) => [point.knowledge_point_id, point]));
+
+  const edges = knowledgePoints
+    .filter((point) => point.parent_id && knowledgePointMap.has(point.parent_id))
+    .map((point) => ({
+      edge_id: `kp-${point.parent_id}-${point.knowledge_point_id}`,
+      source: point.parent_id,
+      target: point.knowledge_point_id,
+      relation_type: 'prerequisite',
+      relation_label: '前置知识',
+    }));
+
+  const relatedMap = new Map(knowledgePoints.map((point) => [point.knowledge_point_id, new Set()]));
+  edges.forEach((edge) => {
+    relatedMap.get(edge.source)?.add(edge.target);
+    relatedMap.get(edge.target)?.add(edge.source);
+  });
+
+  const sharedDocuments = documents.map((document) => ({
+    resource_id: `document-${document.document_id}`,
+    resource_type: 'document',
+    title: document.title,
+    category: document.resource_category || document.resource_kind || '课程资料',
+    document_id: document.document_id,
+  }));
+
+  const nodes = knowledgePoints.map((point) => {
+    const mastery = masteryMap.get(point.knowledge_point_id);
+    const latestStudy = latestStudyMap.get(point.knowledge_point_id);
+    const status = getKnowledgeLearningStatus(mastery, latestStudy);
+    const directVideos = videos
+      .filter((video) => video.knowledge_point_id === point.knowledge_point_id)
+      .slice(0, 2)
+      .map((video) => ({
+        resource_id: `video-${video.video_id}`,
+        resource_type: 'video',
+        title: video.title,
+        category: '视频讲解',
+        url: video.original_url || video.embed_url || null,
+      }));
+    const lastStudyAt = latestStudy
+      ? (latestStudy.finished_at || latestStudy.started_at || latestStudy.created_at)
+      : mastery?.updated_at;
+    return {
+      knowledge_point_id: point.knowledge_point_id,
+      knowledge_point_name: point.knowledge_point_name,
+      knowledge_point_code: point.knowledge_point_code,
+      course_id: point.course_id,
+      chapter_id: point.chapter_id,
+      chapter_name: point.chapter?.chapter_name || null,
+      parent_id: point.parent_id,
+      description: point.description || '该知识点暂无补充说明。',
+      difficulty_level: toLower(point.difficulty_level),
+      sort_order: point.sort_order,
+      mastery_score: clampPercent(mastery?.mastery_score ?? 0),
+      mastery_progress: clampPercent(mastery?.mastery_score ?? 0),
+      mastery_level: mastery ? toLower(mastery.mastery_level) : 'weak',
+      learning_status: status,
+      learning_status_label: {
+        mastered: '已掌握', learning: '学习中', weak: '薄弱', unstarted: '未开始',
+      }[status],
+      learning_advice: getKnowledgeLearningAdvice(status, point, point.parent),
+      last_study_at: lastStudyAt ? lastStudyAt.toISOString() : null,
+      related_knowledge_point_ids: [...(relatedMap.get(point.knowledge_point_id) || [])],
+      resources: [...directVideos, ...sharedDocuments].slice(0, 4),
+    };
+  });
+
+  const nodeSummary = nodes.reduce((summary, node) => {
+    summary[node.learning_status] += 1;
+    return summary;
+  }, { mastered: 0, learning: 0, weak: 0, unstarted: 0 });
+
+  const chapterMap = new Map();
+  knowledgePoints.forEach((point) => {
+    const chapterId = point.chapter_id || 0;
+    if (!chapterMap.has(chapterId)) {
+      chapterMap.set(chapterId, {
+        chapter_id: point.chapter_id,
+        chapter_name: point.chapter?.chapter_name || '其他知识点',
+        sort_order: point.chapter?.chapter_order || 999,
+        knowledge_point_count: 0,
+      });
+    }
+    chapterMap.get(chapterId).knowledge_point_count += 1;
+  });
+
+  return {
+    course: {
+      course_id: course.course_id,
+      course_name: course.course_name,
+      course_code: course.course_code,
+      description: course.description || null,
+      is_sample_course: SAMPLE_COURSE_PRIORITY.has(course.course_code),
+    },
+    chapters: [...chapterMap.values()].sort((a, b) => a.sort_order - b.sort_order),
+    nodes,
+    edges,
+    summary: {
+      total: nodes.length,
+      ...nodeSummary,
+      average_mastery: nodes.length
+        ? Math.round(nodes.reduce((sum, node) => sum + node.mastery_progress, 0) / nodes.length)
+        : 0,
+    },
+  };
 }
 
 /**
@@ -1309,118 +1529,362 @@ async function createStudyRecord(userId, body) {
 /**
  * 获取学生画像
  */
-async function getStudentPortrait(userId) {
-  // 获取学生已加入的课程 ID
-  const enrollments = await getActiveCourseEnrollments(userId);
-  const courseIds = uniqueIds(enrollments.map((e) => e.course_id));
+function averageNumbers(values) {
+  const valid = (values || []).map(Number).filter(Number.isFinite);
+  if (!valid.length) return 0;
+  return Math.round((valid.reduce((sum, value) => sum + value, 0) / valid.length) * 10) / 10;
+}
 
+function normalizeJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildPortraitRisk({ comprehensiveScore, masteryScore, homeworkCompletionRate, activityScore, weakRatio, inactiveDays, hasData }) {
+  if (!hasData) {
+    return { code: 'attention', label: '需要关注', reasons: ['当前有效学习数据较少，需要继续积累学习记录'] };
+  }
+
+  const highRiskReasons = [];
+  if (comprehensiveScore < 55) highRiskReasons.push('综合学习评分低于 55 分');
+  if (homeworkCompletionRate < 50) highRiskReasons.push('作业完成率低于 50%');
+  if (masteryScore < 50 && weakRatio >= 0.3) highRiskReasons.push('薄弱知识点占比较高');
+  if (highRiskReasons.length) return { code: 'high', label: '高风险', reasons: highRiskReasons };
+
+  const attentionReasons = [];
+  if (comprehensiveScore < 72) attentionReasons.push('综合学习评分仍有提升空间');
+  if (homeworkCompletionRate < 70) attentionReasons.push('作业完成节奏不够稳定');
+  if (activityScore < 60 || inactiveDays > 7) attentionReasons.push('近期学习活跃度偏低');
+  if (weakRatio >= 0.3) attentionReasons.push('薄弱知识点需要集中修复');
+  if (attentionReasons.length) return { code: 'attention', label: '需要关注', reasons: attentionReasons };
+
+  return { code: 'normal', label: '正常', reasons: ['各项学习指标整体稳定'] };
+}
+
+async function getStudentPortrait(userId, options = {}) {
+  const allEnrollments = await getActiveCourseEnrollments(userId);
+  const enrolledCourseIds = uniqueIds(allEnrollments.map((item) => item.course_id));
+  const requestedCourseIds = uniqueIds(options.courseIds || (options.courseId ? [Number(options.courseId)] : []));
+  const courseIds = requestedCourseIds.length
+    ? requestedCourseIds.filter((courseId) => enrolledCourseIds.includes(courseId))
+    : enrolledCourseIds;
+  const scopedEnrollments = allEnrollments.filter((item) => courseIds.includes(item.course_id));
+  const enrolledClassIds = uniqueIds(scopedEnrollments.map((item) => item.teaching_class_id));
+  const requestedClassIds = uniqueIds(options.teachingClassIds || []);
+  const teachingClassIds = requestedClassIds.length
+    ? requestedClassIds.filter((classId) => enrolledClassIds.includes(classId))
+    : enrolledClassIds;
+
+  const emptyCourseScope = courseIds.length === 0;
   const [
     portraits,
     masteryRecords,
     researchProfiles,
     competitionProfiles,
     portraitSnapshots,
+    studyRecords,
+    taskRecipients,
+    taskSubmissions,
+    practiceSessions,
+    qaCount,
   ] = await Promise.all([
-    prisma.studentPortrait.findMany({
+    emptyCourseScope ? [] : prisma.studentPortrait.findMany({
       where: { student_user_id: userId, course_id: { in: courseIds } },
     }),
-    prisma.studentMasteryRecord.findMany({
+    emptyCourseScope ? [] : prisma.studentMasteryRecord.findMany({
       where: { student_user_id: userId, course_id: { in: courseIds } },
-      include: { knowledge_point: true },
+      include: {
+        knowledge_point: true,
+        course: { select: { course_name: true } },
+      },
     }),
-    prisma.studentResearchProfile.findMany({
-      where: { student_user_id: userId },
-    }),
-    prisma.studentCompetitionProfile.findMany({
-      where: { student_user_id: userId },
-    }),
-    prisma.studentPortraitSnapshot.findMany({
+    prisma.studentResearchProfile.findMany({ where: { student_user_id: userId } }),
+    prisma.studentCompetitionProfile.findMany({ where: { student_user_id: userId } }),
+    emptyCourseScope ? [] : prisma.studentPortraitSnapshot.findMany({
       where: { student_user_id: userId, course_id: { in: courseIds } },
       orderBy: { snapshot_date: 'asc' },
     }),
+    emptyCourseScope ? [] : prisma.studyRecord.findMany({
+      where: { student_user_id: userId, course_id: { in: courseIds } },
+      select: { course_id: true, started_at: true, finished_at: true, duration_seconds: true, progress_percent: true, created_at: true },
+      orderBy: { created_at: 'desc' },
+      take: 500,
+    }),
+    teachingClassIds.length ? prisma.learningTaskRecipient.findMany({
+      where: { student_user_id: userId, teaching_class_id: { in: teachingClassIds } },
+      select: { task_id: true },
+    }) : [],
+    teachingClassIds.length ? prisma.taskSubmission.findMany({
+      where: {
+        student_user_id: userId,
+        task: { course_id: { in: courseIds }, teaching_class_id: { in: teachingClassIds } },
+      },
+      select: { task_id: true, submission_status: true, total_score: true, submitted_at: true },
+    }) : [],
+    emptyCourseScope ? [] : prisma.practiceSession.findMany({
+      where: { student_user_id: userId, course_id: { in: courseIds }, status: { notIn: ['IN_PROGRESS', 'in_progress'] } },
+      select: { question_count: true, correct_count: true, total_score: true, max_score: true, submitted_at: true, updated_at: true },
+      orderBy: { updated_at: 'desc' },
+      take: 200,
+    }),
+    emptyCourseScope ? 0 : prisma.studentQuestionRecord.count({
+      where: { student_user_id: userId, course_id: { in: courseIds } },
+    }),
   ]);
 
-  // 计算学习能力分数：跨课程平均值
-  const avg = (key) => {
-    if (portraits.length === 0) return 0;
-    const sum = portraits.reduce((s, p) => s + (p[key] || 0), 0);
-    return Math.round((sum / portraits.length) * 10) / 10;
-  };
+  const portraitAverage = (key) => averageNumbers(portraits.map((portrait) => portrait[key]));
+  const weakRecords = masteryRecords.filter((record) => record.mastery_level === 'WEAK' || record.mastery_score < 60);
+  const weakCount = masteryRecords.filter((record) => record.mastery_level === 'WEAK').length;
+  const generalCount = masteryRecords.filter((record) => record.mastery_level === 'GENERAL').length;
+  const goodCount = masteryRecords.filter((record) => record.mastery_level === 'GOOD').length;
+  const excellentCount = masteryRecords.filter((record) => record.mastery_level === 'EXCELLENT').length;
+  const masteryScore = masteryRecords.length
+    ? averageNumbers(masteryRecords.map((record) => record.mastery_score))
+    : portraitAverage('mastery_score');
 
-  // 掌握度汇总统计
-  const weakCount = masteryRecords.filter((r) => r.mastery_level === 'WEAK').length;
-  const generalCount = masteryRecords.filter((r) => r.mastery_level === 'GENERAL').length;
-  const goodCount = masteryRecords.filter((r) => r.mastery_level === 'GOOD').length;
-  const excellentCount = masteryRecords.filter((r) => r.mastery_level === 'EXCELLENT').length;
+  const progressValues = studyRecords
+    .map((record) => record.progress_percent)
+    .filter((value) => value != null && Number.isFinite(Number(value)));
+  const progressScore = progressValues.length
+    ? averageNumbers(progressValues)
+    : portraitAverage('progress_score');
 
-  // 薄弱知识点（前5个）
-  const weakPoints = masteryRecords
-    .filter((r) => r.mastery_level === 'WEAK')
+  const assignedTaskIds = new Set(taskRecipients.map((item) => item.task_id));
+  const completedTaskIds = new Set(taskSubmissions
+    .filter((item) => ['submitted', 'graded'].includes(toLower(item.submission_status)))
+    .map((item) => item.task_id));
+  const homeworkCompletionRate = assignedTaskIds.size
+    ? Math.round((completedTaskIds.size / assignedTaskIds.size) * 1000) / 10
+    : portraitAverage('test_score');
+
+  const now = new Date();
+  const recentStart = new Date(now);
+  recentStart.setDate(recentStart.getDate() - 29);
+  recentStart.setHours(0, 0, 0, 0);
+  const recentStudyRecords = studyRecords.filter((record) => {
+    const occurredAt = record.finished_at || record.started_at || record.created_at;
+    return occurredAt && occurredAt >= recentStart;
+  });
+  const activeDayKeys = new Set(recentStudyRecords.map((record) => {
+    const occurredAt = record.finished_at || record.started_at || record.created_at;
+    return occurredAt?.toISOString().slice(0, 10);
+  }).filter(Boolean));
+  const recentDurationSeconds = recentStudyRecords.reduce((sum, record) => sum + Number(record.duration_seconds || 0), 0);
+  const activityFromRecords = recentStudyRecords.length
+    ? Math.round(Math.min(100,
+      (Math.min(activeDayKeys.size, 12) / 12) * 45
+      + (Math.min(recentDurationSeconds / 3600, 16) / 16) * 35
+      + (Math.min(recentStudyRecords.length, 24) / 24) * 20))
+    : null;
+  const activityScore = activityFromRecords == null ? portraitAverage('activity_score') : activityFromRecords;
+
+  const totalPracticeQuestions = practiceSessions.reduce((sum, session) => sum + Number(session.question_count || 0), 0);
+  const totalPracticeCorrect = practiceSessions.reduce((sum, session) => sum + Number(session.correct_count || 0), 0);
+  const practiceAccuracy = totalPracticeQuestions ? (totalPracticeCorrect / totalPracticeQuestions) * 100 : null;
+  const submissionScore = averageNumbers(taskSubmissions.map((item) => item.total_score).filter((value) => value != null));
+  const practiceSignals = [practiceAccuracy, submissionScore].filter((value) => value != null && Number.isFinite(Number(value)));
+  const practiceScore = practiceSignals.length ? averageNumbers(practiceSignals) : portraitAverage('test_score');
+  const reflectionScore = averageNumbers([
+    portraitAverage('wrong_question_score'),
+    portraitAverage('qa_score'),
+    qaCount ? Math.min(100, 45 + qaCount * 5) : null,
+  ].filter((value) => value != null));
+
+  const dimensions = [
+    { key: 'mastery', label: '知识点掌握度', score: clampPercent(masteryScore), description: `${masteryRecords.length} 个知识点纳入评价` },
+    { key: 'progress', label: '学习进度', score: clampPercent(progressScore), description: `${courseIds.length} 门课程学习进展` },
+    { key: 'homework', label: '作业完成率', score: clampPercent(homeworkCompletionRate), description: `${completedTaskIds.size}/${assignedTaskIds.size || 0} 项任务已完成` },
+    { key: 'activity', label: '学习活跃度', score: clampPercent(activityScore), description: `近 30 天活跃 ${activeDayKeys.size} 天` },
+    {
+      key: 'practice',
+      label: '练习表现',
+      score: clampPercent(practiceScore),
+      description: totalPracticeQuestions
+        ? `${totalPracticeQuestions} 道练习题纳入评价`
+        : `${taskSubmissions.length} 次任务成绩纳入评价`,
+    },
+    { key: 'reflection', label: '反思改进', score: clampPercent(reflectionScore), description: `${qaCount} 条问答与错题修复信号` },
+  ];
+  const comprehensiveScore = clampPercent(
+    dimensions[0].score * 0.26
+    + dimensions[1].score * 0.18
+    + dimensions[2].score * 0.18
+    + dimensions[3].score * 0.16
+    + dimensions[4].score * 0.12
+    + dimensions[5].score * 0.10,
+  );
+
+  const weakPoints = weakRecords
     .sort((a, b) => a.mastery_score - b.mastery_score)
-    .slice(0, 5)
-    .map((r) => ({
-      knowledge_point_id: r.knowledge_point_id,
-      knowledge_point_name: r.knowledge_point?.knowledge_point_name || null,
-      mastery_score: r.mastery_score,
-      mastery_level: toLower(r.mastery_level),
+    .slice(0, 6)
+    .map((record) => ({
+      knowledge_point_id: record.knowledge_point_id,
+      knowledge_point_name: record.knowledge_point?.knowledge_point_name || null,
+      course_id: record.course_id,
+      course_name: record.course?.course_name || null,
+      mastery_score: record.mastery_score,
+      mastery_level: toLower(record.mastery_level),
     }));
-
-  // 掌握良好知识点（前5个）
   const goodPoints = masteryRecords
-    .filter((r) => r.mastery_level === 'GOOD' || r.mastery_level === 'EXCELLENT')
+    .filter((record) => record.mastery_level === 'GOOD' || record.mastery_level === 'EXCELLENT')
     .sort((a, b) => b.mastery_score - a.mastery_score)
     .slice(0, 5)
-    .map((r) => ({
-      knowledge_point_id: r.knowledge_point_id,
-      knowledge_point_name: r.knowledge_point?.knowledge_point_name || null,
-      mastery_score: r.mastery_score,
-      mastery_level: toLower(r.mastery_level),
+    .map((record) => ({
+      knowledge_point_id: record.knowledge_point_id,
+      knowledge_point_name: record.knowledge_point?.knowledge_point_name || null,
+      course_id: record.course_id,
+      course_name: record.course?.course_name || null,
+      mastery_score: record.mastery_score,
+      mastery_level: toLower(record.mastery_level),
     }));
 
-  // 科研画像
-  let researchProfile = null;
-  if (researchProfiles.length > 0) {
-    const rp = researchProfiles[0];
-    researchProfile = {
-      total_score: rp.total_score,
-      tags: rp.tags || [],
-      teacher_comment: rp.teacher_comment || null,
-    };
-  }
+  const lastActivityAt = [
+    ...studyRecords.map((record) => record.finished_at || record.started_at || record.created_at),
+    ...taskSubmissions.map((item) => item.submitted_at),
+    ...practiceSessions.map((item) => item.submitted_at || item.updated_at),
+  ].filter(Boolean).sort((a, b) => b - a)[0] || null;
+  const inactiveDays = lastActivityAt ? Math.max(0, Math.floor((now - lastActivityAt) / 86400000)) : 999;
+  const weakRatio = masteryRecords.length ? weakRecords.length / masteryRecords.length : 0;
+  const hasData = Boolean(portraits.length || masteryRecords.length || studyRecords.length || assignedTaskIds.size || practiceSessions.length);
+  const risk = buildPortraitRisk({
+    comprehensiveScore,
+    masteryScore: dimensions[0].score,
+    homeworkCompletionRate: dimensions[2].score,
+    activityScore: dimensions[3].score,
+    weakRatio,
+    inactiveDays,
+    hasData,
+  });
 
-  // 竞赛画像
-  let competitionProfile = null;
-  if (competitionProfiles.length > 0) {
-    const cp = competitionProfiles[0];
-    competitionProfile = {
-      total_score: cp.total_score,
-      tags: cp.tags || [],
-      teacher_comment: cp.teacher_comment || null,
-    };
-  }
+  const sortedDimensions = [...dimensions].sort((a, b) => b.score - a.score);
+  const primaryStrength = sortedDimensions[0]?.label || '学习基础';
+  const secondaryStrength = sortedDimensions[1]?.label || '持续学习';
+  const primaryFocus = sortedDimensions[sortedDimensions.length - 1]?.label || '学习积累';
+  let tendencyType = '稳步成长型';
+  if (dimensions[3].score >= 82 && dimensions[1].score >= 75) tendencyType = '主动规划型';
+  else if (dimensions[0].score >= 78 && dimensions[4].score >= 75) tendencyType = '理解应用型';
+  else if (dimensions[5].score >= 78) tendencyType = '复盘改进型';
+  const learningTendency = {
+    type: tendencyType,
+    strengths: [primaryStrength, secondaryStrength],
+    focus: primaryFocus,
+    description: `当前更擅长${primaryStrength}与${secondaryStrength}，下一阶段重点提升${primaryFocus}。`,
+  };
 
-  // 历史快照趋势数据（最近8条）
+  const suggestions = [];
+  if (weakPoints.length) {
+    suggestions.push(`优先修复“${weakPoints.slice(0, 2).map((item) => item.knowledge_point_name).join('、')}”，完成知识点复习与专项练习。`);
+  }
+  if (dimensions[2].score < 80) suggestions.push('按截止时间拆分待完成作业，每次学习结束前提交或保存阶段成果。');
+  if (dimensions[3].score < 70 || inactiveDays > 5) suggestions.push('未来一周安排至少 4 天学习，每次保持 30 分钟以上的有效学习。');
+  if (dimensions[1].score < 75) suggestions.push('从当前课程进度最低的章节继续学习，并在完成后进行一次随堂自测。');
+  if (suggestions.length < 3) suggestions.push('保持当前学习节奏，每周复盘一次错题与知识图谱掌握变化。');
+
   const trendSnapshots = portraitSnapshots
-    .filter(s => s.learning_scores && typeof s.learning_scores === 'object')
-    .map(s => ({
-      date: s.snapshot_date?.toISOString() || null,
-      learning_total_score: s.learning_scores?.learning_total_score ?? null,
-      research_total_score: s.learning_scores?.research_total_score ?? null,
-      competition_total_score: s.learning_scores?.competition_total_score ?? null,
+    .filter((snapshot) => snapshot.learning_scores && typeof snapshot.learning_scores === 'object')
+    .map((snapshot) => ({
+      date: snapshot.snapshot_date?.toISOString() || null,
+      learning_total_score: snapshot.learning_scores?.learning_total_score ?? snapshot.learning_scores?.overallScore ?? null,
+      research_total_score: snapshot.learning_scores?.research_total_score ?? null,
+      competition_total_score: snapshot.learning_scores?.competition_total_score ?? null,
+    }));
+  const trendByDate = new Map();
+  portraitSnapshots.forEach((snapshot) => {
+    const date = snapshot.snapshot_date?.toISOString().slice(0, 10);
+    if (!date) return;
+    const learningScores = snapshot.learning_scores && typeof snapshot.learning_scores === 'object' ? snapshot.learning_scores : {};
+    const masterySummary = snapshot.mastery_summary && typeof snapshot.mastery_summary === 'object' ? snapshot.mastery_summary : {};
+    const activitySummary = snapshot.activity_summary && typeof snapshot.activity_summary === 'object' ? snapshot.activity_summary : {};
+    const item = trendByDate.get(date) || { date, comprehensive: [], mastery: [], progress: [], activity: [] };
+    const snapshotComprehensive = learningScores.comprehensiveScore ?? learningScores.overallScore ?? learningScores.learning_total_score;
+    const snapshotMastery = learningScores.mastery_score ?? masterySummary.average;
+    const snapshotProgress = learningScores.progress_score ?? learningScores.completionRate;
+    const snapshotActivity = learningScores.activity_score ?? activitySummary.activity_score ?? activitySummary.average_score;
+    if (snapshotComprehensive != null) item.comprehensive.push(snapshotComprehensive);
+    if (snapshotMastery != null) item.mastery.push(snapshotMastery);
+    if (snapshotProgress != null) item.progress.push(snapshotProgress);
+    if (snapshotActivity != null) item.activity.push(snapshotActivity);
+    trendByDate.set(date, item);
+  });
+  const currentDateKey = now.toISOString().slice(0, 10);
+  trendByDate.set(currentDateKey, {
+    date: currentDateKey,
+    comprehensive: [comprehensiveScore],
+    mastery: [dimensions[0].score],
+    progress: [dimensions[1].score],
+    activity: [dimensions[3].score],
+  });
+  const recentTrend = [...trendByDate.values()]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-8)
+    .map((item) => ({
+      date: item.date,
+      comprehensiveScore: clampPercent(averageNumbers(item.comprehensive)),
+      masteryScore: clampPercent(averageNumbers(item.mastery)),
+      progressScore: clampPercent(averageNumbers(item.progress)),
+      activityScore: clampPercent(averageNumbers(item.activity)),
     }));
 
-  // 最近更新时间（取最新快照日期或画像更新时间）
-  const latestSnapshot = portraitSnapshots.length > 0
-    ? portraitSnapshots[portraitSnapshots.length - 1]
-    : null;
+  const researchProfileRecord = researchProfiles[0] || null;
+  const competitionProfileRecord = competitionProfiles[0] || null;
+  const researchProfile = researchProfileRecord ? {
+    total_score: researchProfileRecord.total_score,
+    tags: normalizeJsonArray(researchProfileRecord.tags),
+    teacher_comment: researchProfileRecord.teacher_comment || null,
+  } : null;
+  const competitionProfile = competitionProfileRecord ? {
+    total_score: competitionProfileRecord.total_score,
+    tags: normalizeJsonArray(competitionProfileRecord.tags),
+    teacher_comment: competitionProfileRecord.teacher_comment || null,
+  } : null;
+
+  const latestSnapshot = portraitSnapshots[portraitSnapshots.length - 1] || null;
+  const latestPortrait = [...portraits].sort((a, b) => b.updated_at - a.updated_at)[0] || null;
   const lastUpdated = latestSnapshot?.snapshot_date?.toISOString()
-    || (portraits.length > 0 ? portraits[0].updated_at?.toISOString() : null);
+    || latestPortrait?.updated_at?.toISOString()
+    || lastActivityAt?.toISOString()
+    || null;
+  const summary = risk.code === 'normal'
+    ? `综合学习评分 ${comprehensiveScore} 分，${primaryStrength}表现稳定。继续保持节奏，并重点提升${primaryFocus}。`
+    : `综合学习评分 ${comprehensiveScore} 分，当前状态为“${risk.label}”。建议优先改善${primaryFocus}${weakPoints.length ? `并修复 ${weakPoints.length} 个薄弱知识点` : ''}。`;
 
   return {
-    learning_ability_score: avg('learning_total_score'),
-    research_ability_score: avg('research_total_score'),
-    competition_ability_score: avg('competition_total_score'),
+    summary,
+    dimensions,
+    weakPoints,
+    suggestions: suggestions.slice(0, 4),
+    riskLevel: risk.code,
+    riskLabel: risk.label,
+    riskReasons: risk.reasons,
+    recentTrend,
+    comprehensiveScore,
+    learningTendency,
+    metrics: {
+      masteryScore: dimensions[0].score,
+      progressScore: dimensions[1].score,
+      homeworkCompletionRate: dimensions[2].score,
+      activityScore: dimensions[3].score,
+      practiceScore: dimensions[4].score,
+      reflectionScore: dimensions[5].score,
+      activeDays: activeDayKeys.size,
+      studyDurationMinutes: Math.round(recentDurationSeconds / 60),
+      assignedTaskCount: assignedTaskIds.size,
+      completedTaskCount: completedTaskIds.size,
+      weakKnowledgePointCount: weakRecords.length,
+      lastActiveAt: lastActivityAt?.toISOString() || null,
+    },
+    learning_ability_score: portraitAverage('learning_total_score') || comprehensiveScore,
+    research_ability_score: portraitAverage('research_total_score'),
+    competition_ability_score: portraitAverage('competition_total_score'),
     mastery_summary: {
+      total_count: masteryRecords.length,
+      average_score: dimensions[0].score,
       weak_count: weakCount,
       general_count: generalCount,
       good_count: goodCount,
@@ -1694,6 +2158,8 @@ module.exports = {
   getStudentCourseDetail,
   getStudentCourseChapters,
   getStudentCourseKnowledgePoints,
+  getStudentKnowledgeGraphOverview,
+  getStudentCourseKnowledgeGraph,
   getKnowledgePointDetail,
   getStudentTasks,
   getStudentTaskDetail,

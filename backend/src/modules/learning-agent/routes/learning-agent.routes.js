@@ -31,6 +31,13 @@ const ALLOWED_MIME_TYPES = [
   'image/webp',
   'image/bmp',
 ];
+const IMAGE_EXTENSION_BY_MIME = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/bmp': '.bmp',
+};
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_COUNT = 3;
@@ -40,7 +47,7 @@ const upload = multer({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
       const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const ext = path.extname(file.originalname);
+      const ext = IMAGE_EXTENSION_BY_MIME[file.mimetype] || '.png';
       cb(null, `learning_${uniqueSuffix}${ext}`);
     },
   }),
@@ -49,7 +56,7 @@ const upload = multer({
     files: MAX_FILE_COUNT,
   },
   fileFilter: (req, file, cb) => {
-    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype) && IMAGE_EXTENSION_BY_MIME[file.mimetype]) {
       cb(null, true);
     } else {
       cb(new Error(`不支持的文件类型: ${file.mimetype}。仅支持 JPEG、PNG、GIF、WebP、BMP`));

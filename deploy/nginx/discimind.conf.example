@@ -1,0 +1,125 @@
+limit_req_zone $binary_remote_addr zone=discimind_auth:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=discimind_generation:10m rate=1r/s;
+limit_conn_zone $binary_remote_addr zone=discimind_connections:10m;
+
+server {
+    listen 80;
+    server_name YOUR_DOMAIN;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name YOUR_DOMAIN;
+
+    ssl_certificate /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    server_tokens off;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript application/xml image/svg+xml;
+
+    root /opt/discimind/frontend/dist;
+    index index.html;
+
+    # 浏览器端渲染的 MP4 会上传回服务器，生产建议上限为 120 MB。
+    client_max_body_size 132m;
+    client_body_timeout 600s;
+    limit_conn discimind_connections 20;
+
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        # SSE 事件需要立即到达浏览器，2G 机器也不保留响应缓冲。
+        proxy_buffering off;
+        proxy_read_timeout 1800s;
+        proxy_send_timeout 600s;
+    }
+
+    # 登录、注册和续期在进入 Node 前限制请求体与突发频率。
+    location ~ ^/api/auth/(?:login|register|refresh|session/refresh)$ {
+        client_max_body_size 64k;
+        limit_req zone=discimind_auth burst=10 nodelay;
+        limit_conn discimind_connections 8;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # PPT、视频素材与 MP4 完成上传采用更严格的入口限流。
+    location ~ ^/api/(?:teacher/ppt/generate|student/courses/[0-9]+/ppt/generate|student/courses/[0-9]+/knowledge-points/[0-9]+/resource-packages|student/resource-packages/[0-9]+/retry|student/videos/generation-tasks(?:/[0-9]+/complete)?)$ {
+        limit_req zone=discimind_generation burst=2 nodelay;
+        limit_conn discimind_connections 4;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        proxy_read_timeout 1800s;
+        proxy_send_timeout 600s;
+    }
+
+    # 鉴权 MP4 下载关闭代理缓存，并保留 Range/If-Range 以支持 206 响应。
+    location ~ ^/api/student/videos/generated/[0-9]+/media$ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Range $http_range;
+        proxy_set_header If-Range $http_if_range;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+
+    # PPT 配图、头像等由 Express 的 /uploads 静态目录提供。
+    location ^~ /uploads/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # 阿里 TTS 音频通过本 WebSocket 端点实时传输。
+    location = /ws/learning-narration {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 180s;
+    }
+
+    location ~* \.(?:css|js|woff2?|ttf|svg|png|jpe?g|webp|ico)$ {
+        try_files $uri =404;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+}

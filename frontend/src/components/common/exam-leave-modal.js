@@ -17,6 +17,17 @@
  * @param {Function} options.onAbandon - 放弃答题回调（仅限练习模式）
  * @returns {HTMLElement} 模态框 DOM 元素
  */
+export function closeExamLeaveModal() {
+  const existing = document.querySelector('.exam-leave-overlay');
+  if (!existing) return;
+  if (typeof existing.__closeExamLeaveModal === 'function') {
+    existing.__closeExamLeaveModal();
+    return;
+  }
+  existing.remove();
+  document.body.style.overflow = '';
+}
+
 export function showExamLeaveModal(options = {}) {
   const {
     mode = 'practice',
@@ -37,8 +48,7 @@ export function showExamLeaveModal(options = {}) {
   const isTask = mode === 'task';
 
   // 移除已有模态框
-  const existing = document.querySelector('.exam-leave-overlay');
-  if (existing) existing.remove();
+  closeExamLeaveModal();
 
   const overlay = document.createElement('div');
   overlay.className = 'exam-leave-overlay';
@@ -133,10 +143,14 @@ export function showExamLeaveModal(options = {}) {
   const prevOverflow = document.body.style.overflow;
   document.body.style.overflow = 'hidden';
 
+  let closed = false;
   function close() {
+    if (closed) return;
+    closed = true;
     overlay.remove();
     document.body.style.overflow = prevOverflow;
   }
+  overlay.__closeExamLeaveModal = close;
 
   function setButtonsDisabled(disabled) {
     overlay.querySelectorAll('.exam-leave-btn').forEach((btn) => {

@@ -6,6 +6,7 @@ const {
   getAccessibleTeachingClassIds,
   ensureCourseAccess,
   ensureTeachingClassAccess,
+  ensureDocumentAccess,
   isAdmin,
 } = require('./teacher-access.service');
 
@@ -118,6 +119,57 @@ function parseOptionalDate(value, field) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw Object.assign(new Error(`${field} 时间格式不合法`), { code: 40001 });
   return date;
+}
+
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function firstProvided(body, ...keys) {
+  const key = keys.find((item) => hasOwn(body, item));
+  return key ? { provided: true, value: body[key] } : { provided: false, value: undefined };
+}
+
+function parsePositiveId(value, field) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw Object.assign(new Error(`${field} 参数不合法`), { code: 40001 });
+  }
+  return parsed;
+}
+
+function parseOptionalNumber(value, field, options = {}) {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw Object.assign(new Error(`${field} 必须是有效数字`), { code: 40001 });
+  if (options.integer && !Number.isInteger(parsed)) throw Object.assign(new Error(`${field} 必须是整数`), { code: 40001 });
+  if (options.min != null && parsed < options.min) throw Object.assign(new Error(`${field} 不能小于 ${options.min}`), { code: 40001 });
+  if (options.max != null && parsed > options.max) throw Object.assign(new Error(`${field} 不能大于 ${options.max}`), { code: 40001 });
+  return parsed;
+}
+
+function parseBoolean(value, field) {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1' || value === 'true') return true;
+  if (value === 0 || value === '0' || value === 'false') return false;
+  throw Object.assign(new Error(`${field} 必须是布尔值`), { code: 40001 });
+}
+
+function parseIdArray(value, field) {
+  if (!Array.isArray(value)) throw Object.assign(new Error(`${field} 必须是数组`), { code: 40001 });
+  return [...new Set(value.map((item) => parsePositiveId(item, field)))];
+}
+
+function parseQuestionScoreMap(value) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw Object.assign(new Error('question_scores 必须是题目 ID 到分值的映射'), { code: 40001 });
+  }
+  const scores = new Map();
+  Object.entries(value).forEach(([questionId, score]) => {
+    scores.set(parsePositiveId(questionId, 'question_scores'), parseOptionalNumber(score, `题目 ${questionId} 分值`, { min: 0 }));
+  });
+  return scores;
 }
 
 function normalizeTaskConfiguration(body) {
@@ -343,6 +395,8 @@ async function getTask(user, taskId) {
     rules: task.rules,
     configuration: task.configuration_json,
     published_at: task.published_at?.toISOString() || null,
+    score_release_at: task.score_release_at?.toISOString() || null,
+    analysis_release_at: task.analysis_release_at?.toISOString() || null,
     submission_count: task._count.submissions,
     questions: task.question_links.map((ql) => ({
       question_id: ql.question_id,
@@ -381,65 +435,215 @@ async function getTask(user, taskId) {
 // ---------- 更新任务 ----------
 
 async function updateTask(user, taskId, body) {
-  const task = await prisma.learningTask.findUnique({ where: { task_id: taskId } });
+  const task = await prisma.learningTask.findUnique({
+    where: { task_id: taskId },
+    include: {
+      question_links: {
+        include: { question: true },
+        orderBy: { question_order: 'asc' },
+      },
+    },
+  });
   if (!task) throw Object.assign(new Error('任务不存在'), { code: 40002 });
-  await ensureTeachingClassAccess(user, task.teaching_class_id);
+  const currentTeachingClass = await ensureTeachingClassAccess(user, task.teaching_class_id);
 
-  const { title, description, start_time, deadline, allow_late_submit, status, question_ids, knowledge_point_ids } = body;
   const data = {};
-  if (title !== undefined) data.title = title;
-  if (description !== undefined) data.description = description;
-  if (start_time !== undefined || body.startAt !== undefined) data.start_time = parseOptionalDate(body.startAt ?? start_time, 'startAt');
-  if (deadline !== undefined || body.dueAt !== undefined) data.deadline = parseOptionalDate(body.dueAt ?? deadline, 'dueAt');
-  if (allow_late_submit !== undefined || body.allowLateSubmission !== undefined) data.allow_late_submit = body.allowLateSubmission ?? allow_late_submit;
-  const fieldMap = {
-    duration_minutes: body.durationMinutes ?? body.duration_minutes,
-    allowed_attempts: body.allowedAttempts ?? body.allowed_attempts,
-    allow_pause: body.allowPause ?? body.allow_pause,
-    save_draft: body.saveDraft ?? body.save_draft,
-    randomize_questions: body.randomizeQuestions ?? body.randomize_questions,
-    randomize_options: body.randomizeOptions ?? body.randomize_options,
-    show_score_policy: body.showScorePolicy ?? body.show_score_policy,
-    show_answer_policy: body.showAnswerPolicy ?? body.show_answer_policy,
-    show_analysis_policy: body.showAnalysisPolicy ?? body.show_analysis_policy,
-    auto_grade: body.autoGrade ?? body.auto_grade,
-    ai_grade_subjective: body.aiGradeSubjective ?? body.ai_grade_subjective,
-    full_screen_mode: body.fullScreenMode ?? body.full_screen_mode,
-    source_mode: body.sourceMode ?? body.source_mode,
-    total_score: body.totalScore ?? body.total_score,
-    pass_score: body.passScore ?? body.pass_score,
-    instructions: body.instructions,
-    rules: body.rules,
-    configuration_json: body.configuration ?? body.composition,
-  };
-  Object.entries(fieldMap).forEach(([key, value]) => { if (value !== undefined) data[key] = value; });
-  let publishing = false;
-  if (status !== undefined) {
-    const st = TASK_STATUS_MAP[status];
-    if (st) {
-      data.status = st;
-      publishing = st === 'PUBLISHED' && task.status !== 'PUBLISHED';
-      if (publishing) data.published_at = new Date();
+
+  const courseInput = firstProvided(body, 'course_id', 'courseId');
+  const classInput = firstProvided(body, 'teaching_class_id', 'teachingClassId');
+  const typeInput = firstProvided(body, 'task_type', 'taskType');
+  const nextCourseId = courseInput.provided ? parsePositiveId(courseInput.value, 'course_id') : task.course_id;
+  const nextClassId = classInput.provided ? parsePositiveId(classInput.value, 'teaching_class_id') : task.teaching_class_id;
+  if (courseInput.provided && nextCourseId !== task.course_id) await ensureCourseAccess(user, nextCourseId);
+  const nextTeachingClass = nextClassId === task.teaching_class_id
+    ? currentTeachingClass
+    : await ensureTeachingClassAccess(user, nextClassId);
+  if (nextTeachingClass.course_id !== nextCourseId) {
+    throw Object.assign(new Error('教学班不属于所选课程'), { code: 40001 });
+  }
+
+  let nextTaskType = task.task_type;
+  if (typeInput.provided) {
+    nextTaskType = TASK_TYPE_MAP[toLower(typeInput.value)];
+    if (!nextTaskType) throw Object.assign(new Error('task_type 参数不合法'), { code: 40001 });
+  }
+  const structuralChange = nextCourseId !== task.course_id
+    || nextClassId !== task.teaching_class_id
+    || nextTaskType !== task.task_type;
+  if (structuralChange && task.status !== 'DRAFT') {
+    throw Object.assign(new Error('已发布或已关闭的任务不能修改课程、教学班或任务类型'), { code: 40001 });
+  }
+  if (courseInput.provided) data.course_id = nextCourseId;
+  if (classInput.provided) data.teaching_class_id = nextClassId;
+  if (typeInput.provided) data.task_type = nextTaskType;
+
+  if (hasOwn(body, 'title')) {
+    const title = String(body.title || '').trim();
+    if (!title) throw Object.assign(new Error('任务标题不能为空'), { code: 40001 });
+    data.title = title;
+  }
+  if (hasOwn(body, 'description')) data.description = body.description || null;
+  if (hasOwn(body, 'instructions')) data.instructions = body.instructions || null;
+  if (hasOwn(body, 'rules')) data.rules = body.rules || null;
+
+  const startInput = firstProvided(body, 'startAt', 'start_time');
+  const deadlineInput = firstProvided(body, 'dueAt', 'deadline');
+  const nextStartTime = startInput.provided ? parseOptionalDate(startInput.value, 'startAt') : task.start_time;
+  const nextDeadline = deadlineInput.provided ? parseOptionalDate(deadlineInput.value, 'dueAt') : task.deadline;
+  if (nextStartTime && nextDeadline && nextStartTime >= nextDeadline) {
+    throw Object.assign(new Error('截止时间必须晚于开始时间'), { code: 40001 });
+  }
+  if (startInput.provided) data.start_time = nextStartTime;
+  if (deadlineInput.provided) data.deadline = nextDeadline;
+
+  const scoreReleaseInput = firstProvided(body, 'scoreReleaseAt', 'score_release_at');
+  const analysisReleaseInput = firstProvided(body, 'analysisReleaseAt', 'analysis_release_at');
+  if (scoreReleaseInput.provided) data.score_release_at = parseOptionalDate(scoreReleaseInput.value, 'scoreReleaseAt');
+  if (analysisReleaseInput.provided) data.analysis_release_at = parseOptionalDate(analysisReleaseInput.value, 'analysisReleaseAt');
+
+  const durationInput = firstProvided(body, 'durationMinutes', 'duration_minutes');
+  if (durationInput.provided) data.duration_minutes = parseOptionalNumber(durationInput.value, 'durationMinutes', { integer: true, min: 1, max: 1440 });
+  const attemptsInput = firstProvided(body, 'allowedAttempts', 'allowed_attempts');
+  if (attemptsInput.provided) {
+    data.allowed_attempts = parseOptionalNumber(attemptsInput.value, 'allowedAttempts', { integer: true, min: 1, max: 100 });
+    if (data.allowed_attempts == null) throw Object.assign(new Error('allowedAttempts 不能为空'), { code: 40001 });
+  }
+
+  const booleanFields = [
+    ['allow_late_submit', ['allowLateSubmission', 'allow_late_submit']],
+    ['allow_pause', ['allowPause', 'allow_pause']],
+    ['save_draft', ['saveDraft', 'save_draft']],
+    ['randomize_questions', ['randomizeQuestions', 'randomize_questions']],
+    ['randomize_options', ['randomizeOptions', 'randomize_options']],
+    ['auto_grade', ['autoGrade', 'auto_grade']],
+    ['ai_grade_subjective', ['aiGradeSubjective', 'ai_grade_subjective']],
+    ['full_screen_mode', ['fullScreenMode', 'full_screen_mode']],
+  ];
+  booleanFields.forEach(([column, keys]) => {
+    const input = firstProvided(body, ...keys);
+    if (input.provided) data[column] = parseBoolean(input.value, keys[0]);
+  });
+
+  const stringFields = [
+    ['show_score_policy', ['showScorePolicy', 'show_score_policy']],
+    ['show_answer_policy', ['showAnswerPolicy', 'show_answer_policy']],
+    ['show_analysis_policy', ['showAnalysisPolicy', 'show_analysis_policy']],
+    ['source_mode', ['sourceMode', 'source_mode']],
+  ];
+  stringFields.forEach(([column, keys]) => {
+    const input = firstProvided(body, ...keys);
+    if (input.provided) data[column] = input.value;
+  });
+  const configurationInput = firstProvided(body, 'configuration', 'composition');
+  if (configurationInput.provided) data.configuration_json = configurationInput.value;
+
+  const questionInput = firstProvided(body, 'question_ids', 'questionIds');
+  const scoreInput = firstProvided(body, 'question_scores', 'questionScores');
+  const finalQuestionIds = questionInput.provided
+    ? parseIdArray(questionInput.value, 'question_ids')
+    : task.question_links.map((link) => link.question_id);
+  const questionScoreMap = scoreInput.provided ? parseQuestionScoreMap(scoreInput.value) : null;
+  if (questionScoreMap) {
+    const selectedIds = new Set(finalQuestionIds);
+    const unknownScoreId = [...questionScoreMap.keys()].find((questionId) => !selectedIds.has(questionId));
+    if (unknownScoreId) throw Object.assign(new Error(`题目 ${unknownScoreId} 不在当前任务中`), { code: 40001 });
+  }
+
+  let questionRecords = task.question_links.map((link) => link.question);
+  if (questionInput.provided || nextCourseId !== task.course_id) {
+    questionRecords = finalQuestionIds.length
+      ? await prisma.question.findMany({
+        where: { question_id: { in: finalQuestionIds }, course_id: nextCourseId, status: { not: 'deleted' } },
+      })
+      : [];
+    if (questionRecords.length !== finalQuestionIds.length) {
+      throw Object.assign(new Error('题目不存在、已停用或不属于任务课程'), { code: 40001 });
     }
+  }
+  const questionsById = new Map(questionRecords.map((question) => [question.question_id, question]));
+  const existingScores = new Map(task.question_links.map((link) => [link.question_id, link.score]));
+  const questionRows = finalQuestionIds.map((questionId, index) => ({
+    task_id: taskId,
+    question_id: questionId,
+    question_order: index,
+    score: questionScoreMap?.has(questionId)
+      ? questionScoreMap.get(questionId)
+      : (existingScores.has(questionId) ? existingScores.get(questionId) : questionsById.get(questionId)?.score ?? 0),
+  }));
+  const calculatedScore = questionRows.reduce((sum, row) => (
+    sum + Number(row.score ?? questionsById.get(row.question_id)?.score ?? 0)
+  ), 0);
+
+  const totalScoreInput = firstProvided(body, 'totalScore', 'total_score');
+  const passScoreInput = firstProvided(body, 'passScore', 'pass_score');
+  if (totalScoreInput.provided) data.total_score = parseOptionalNumber(totalScoreInput.value, 'totalScore', { min: 0 });
+  else if (questionInput.provided || scoreInput.provided) data.total_score = calculatedScore;
+  if (passScoreInput.provided) data.pass_score = parseOptionalNumber(passScoreInput.value, 'passScore', { min: 0 });
+  const finalTotalScore = hasOwn(data, 'total_score') ? data.total_score : task.total_score;
+  const finalPassScore = hasOwn(data, 'pass_score') ? data.pass_score : task.pass_score;
+  if (finalQuestionIds.length && finalTotalScore != null && Math.abs(calculatedScore - finalTotalScore) > 0.001) {
+    throw Object.assign(new Error(`题目总分 ${calculatedScore} 与设置总分 ${finalTotalScore} 不一致`), { code: 40001 });
+  }
+  if (finalPassScore != null && finalTotalScore != null && finalPassScore > finalTotalScore) {
+    throw Object.assign(new Error('passScore 不能高于 totalScore'), { code: 40001 });
+  }
+
+  const knowledgePointInput = firstProvided(body, 'knowledge_point_ids', 'knowledgePointIds');
+  const knowledgePointIds = knowledgePointInput.provided ? parseIdArray(knowledgePointInput.value, 'knowledge_point_ids') : null;
+  if (knowledgePointIds?.length) {
+    const count = await prisma.knowledgePoint.count({
+      where: { knowledge_point_id: { in: knowledgePointIds }, course_id: nextCourseId },
+    });
+    if (count !== knowledgePointIds.length) throw Object.assign(new Error('知识点不存在或不属于任务课程'), { code: 40001 });
+  }
+
+  const attachmentInput = firstProvided(body, 'attachment_ids', 'attachmentIds');
+  const attachmentIds = attachmentInput.provided ? parseIdArray(attachmentInput.value, 'attachment_ids') : null;
+  if (attachmentIds?.length) {
+    const documents = await Promise.all(attachmentIds.map((documentId) => ensureDocumentAccess(user, documentId)));
+    const invalidDocument = documents.find((document) => (
+      (document.course_id && document.course_id !== nextCourseId)
+      || (document.teaching_class_id && document.teaching_class_id !== nextClassId)
+    ));
+    if (invalidDocument) throw Object.assign(new Error('附件不属于所选课程或教学班'), { code: 40001 });
+  }
+
+  let publishing = false;
+  const statusInput = firstProvided(body, 'status');
+  if (statusInput.provided) {
+    const status = TASK_STATUS_MAP[toLower(statusInput.value)];
+    if (!status) throw Object.assign(new Error('status 参数不合法'), { code: 40001 });
+    data.status = status;
+    publishing = status === 'PUBLISHED' && task.status !== 'PUBLISHED';
+    if (publishing) data.published_at = new Date();
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    if (Array.isArray(question_ids)) {
-      const normalizedIds = [...new Set(question_ids.map(Number).filter(Boolean))];
-      const count = await tx.question.count({ where: { question_id: { in: normalizedIds }, course_id: task.course_id } });
-      if (count !== normalizedIds.length) throw Object.assign(new Error('题目不存在或不属于任务课程'), { code: 40001 });
+    if (questionInput.provided) {
       await tx.taskQuestion.deleteMany({ where: { task_id: taskId } });
-      if (normalizedIds.length) {
-        await tx.taskQuestion.createMany({ data: normalizedIds.map((qid, idx) => ({ task_id: taskId, question_id: qid, question_order: idx })) });
+      if (questionRows.length) await tx.taskQuestion.createMany({ data: questionRows });
+    } else if (questionScoreMap) {
+      for (const [questionId, score] of questionScoreMap) {
+        await tx.taskQuestion.updateMany({ where: { task_id: taskId, question_id: questionId }, data: { score } });
       }
     }
-    if (Array.isArray(knowledge_point_ids)) {
-      const normalizedIds = [...new Set(knowledge_point_ids.map(Number).filter(Boolean))];
+    if (knowledgePointIds) {
       await tx.taskKnowledgePoint.deleteMany({ where: { task_id: taskId } });
-      if (normalizedIds.length) await tx.taskKnowledgePoint.createMany({ data: normalizedIds.map((id) => ({ task_id: taskId, knowledge_point_id: id })) });
+      if (knowledgePointIds.length) {
+        await tx.taskKnowledgePoint.createMany({
+          data: knowledgePointIds.map((knowledgePointId) => ({ task_id: taskId, knowledge_point_id: knowledgePointId })),
+        });
+      }
     }
-    const questionCount = await tx.taskQuestion.count({ where: { task_id: taskId } });
-    if (publishing && ['HOMEWORK', 'EXAM', 'PRACTICE', 'QUIZ'].includes(task.task_type) && !questionCount) {
+    if (attachmentIds) {
+      await tx.teachingTaskAttachment.deleteMany({ where: { task_id: taskId } });
+      if (attachmentIds.length) {
+        await tx.teachingTaskAttachment.createMany({
+          data: attachmentIds.map((documentId) => ({ task_id: taskId, document_id: documentId })),
+        });
+      }
+    }
+    if (publishing && ['HOMEWORK', 'EXAM', 'PRACTICE', 'QUIZ'].includes(nextTaskType) && !finalQuestionIds.length) {
       throw Object.assign(new Error('作业、考试或练习发布时至少需要一道题目'), { code: 40001 });
     }
     const updated = await tx.learningTask.update({ where: { task_id: taskId }, data });

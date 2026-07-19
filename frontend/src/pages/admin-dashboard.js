@@ -198,8 +198,8 @@ function renderTodo(todo) {
     ['知识文档审核', todo?.pending_knowledge_reviews, '#/admin/knowledge'],
     ['智能体举报', todo?.pending_agent_reports, '#/admin/agent-reviews'],
     ['知识治理问题', todo?.pending_knowledge_issues, '#/admin/knowledge'],
-    ['AI 风险事件', todo?.pending_risks, '#/admin/governance'],
-    ['教学干预', todo?.pending_interventions, '#/admin/governance'],
+    ['AI 风险事件', todo?.pending_risks, '#/admin/risks'],
+    ['教学干预', todo?.pending_interventions, '#/admin/teaching-issues'],
   ]
   return `<div class="admin-todo-list">${rows.map(([label, value, href]) => `<a href="${href}"><span>${escapeHtml(label)}</span><strong>${value == null ? '不可用' : formatMetric(value)}</strong>${getIcon('arrow-right')}</a>`).join('')}</div>`
 }

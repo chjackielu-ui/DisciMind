@@ -19,8 +19,8 @@ const wrap = (handler) => async (req, res) => {
 };
 
 function safeDownloadName(value) {
-  const base = path.basename(String(value || '学习资料.docx')).normalize('NFKC');
-  return base.replace(/[\x00-\x1f<>:"/\\|?*]/g, '_').slice(0, 180) || '学习资料.docx';
+  const base = path.basename(String(value || '学习资料')).normalize('NFKC');
+  return base.replace(/[\x00-\x1f<>:"/\\|?*]/g, '_').slice(0, 180) || '学习资料';
 }
 
 const list = wrap(async (req, res) => success(res, await service.listArtifacts(req.user, schemas.parse(schemas.listSchema, req.query))));
@@ -41,7 +41,8 @@ const download = wrap(async (req, res) => {
   const fileName = safeDownloadName(file.fileName);
   res.setHeader('Content-Type', file.mimeType);
   res.setHeader('Content-Length', String(file.size));
-  res.setHeader('Content-Disposition', `attachment; filename="artifact.docx"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+  const extension = String(file.extension || path.extname(fileName).slice(1) || 'bin').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'bin';
+  res.setHeader('Content-Disposition', `attachment; filename="artifact.${extension}"; filename*=UTF-8''${encodeURIComponent(fileName)}`);
   return res.sendFile(file.absolutePath, (error) => {
     if (error && !res.headersSent) handle(res, Object.assign(error, { status: error.status || 500 }));
   });

@@ -4,6 +4,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const roleMiddleware = require('../middlewares/role.middleware');
 const controller = require('../controllers/teacher-preparation.controller');
 const documentController = require('../controllers/teacher-preparation-document.controller');
+const pptController = require('../controllers/teacher-ppt.controller');
 
 const router = Router();
 const teacherOnly = [authMiddleware, roleMiddleware(['teacher', 'admin'])];
@@ -22,6 +23,17 @@ function acceptWorkspaceFile(req, res, next) {
     return res.status(400).json({ success: false, code: 40001, message: '文件上传失败', data: null });
   });
 }
+
+router.get('/syllabuses', ...teacherOnly, controller.listSyllabuses);
+router.post('/syllabuses', ...teacherOnly, controller.createSyllabus);
+router.get('/syllabuses/:id', ...teacherOnly, controller.syllabusDetail);
+router.put('/syllabuses/:id', ...teacherOnly, controller.updateSyllabus);
+router.post('/syllabuses/:id/generate-lesson-plan', ...teacherOnly, controller.generateFromSyllabus);
+// 兼容教师备课流程对外约定的教案详情路径，内部复用现有备课方案详情服务。
+router.get('/lesson-plans/:id', ...teacherOnly, controller.detail);
+
+router.post('/ppt/generate', ...teacherOnly, pptController.generate);
+router.get('/ppt/tasks/:taskId', ...teacherOnly, pptController.task);
 
 router.get('/preparation/plans', ...teacherOnly, controller.list);
 router.post('/preparation/plans', ...teacherOnly, controller.create);

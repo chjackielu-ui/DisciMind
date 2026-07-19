@@ -9,9 +9,37 @@ const router = express.Router();
 
 const authController = require('../controllers/auth.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
+const { rateLimit } = require('../middlewares/rate-limit.middleware');
+
+function positiveEnv(name, fallback) {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: positiveEnv('AUTH_REGISTER_RATE_LIMIT_MAX', 5),
+  keyPrefix: 'auth-register',
+});
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: positiveEnv('AUTH_LOGIN_RATE_LIMIT_MAX', 20),
+  keyPrefix: 'auth-login',
+});
+const refreshLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: positiveEnv('AUTH_REFRESH_RATE_LIMIT_MAX', 60),
+  keyPrefix: 'auth-refresh',
+});
 
 const avatarDir = path.join(__dirname, '../../../storage/uploads/avatars');
 fs.mkdirSync(avatarDir, { recursive: true });
+const AVATAR_EXTENSION_BY_MIME = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
 
 const AVATAR_FORMATS = new Map([
   ['image/png', { extension: '.png', accepted: new Set(['.png']) }],
@@ -31,15 +59,24 @@ const avatarUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, avatarDir),
     filename: (req, file, cb) => {
+<<<<<<< Updated upstream
       const format = AVATAR_FORMATS.get(String(file.mimetype || '').toLowerCase());
       cb(null, `avatar-${req.user.user_id}-${Date.now()}${format?.extension || '.bin'}`);
+=======
+      const ext = AVATAR_EXTENSION_BY_MIME[file.mimetype] || '.png';
+      cb(null, `avatar-${req.user.user_id}-${Date.now()}${ext}`);
+>>>>>>> Stashed changes
     },
   }),
   limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
+<<<<<<< Updated upstream
     const format = AVATAR_FORMATS.get(String(file.mimetype || '').toLowerCase());
     const extension = path.extname(file.originalname || '').toLowerCase();
     if (format?.accepted.has(extension)) {
+=======
+    if (AVATAR_EXTENSION_BY_MIME[file.mimetype]) {
+>>>>>>> Stashed changes
       cb(null, true);
       return;
     }
@@ -48,19 +85,19 @@ const avatarUpload = multer({
 });
 
 // POST /api/auth/register — 用户注册
-router.post('/register', authController.register);
+router.post('/register', registerLimiter, authController.register);
 
 // POST /api/auth/login — 用户登录
-router.post('/login', authController.login);
+router.post('/login', loginLimiter, authController.login);
 
 // POST /api/auth/refresh — 使用 Refresh Token 续期
-router.post('/refresh', authController.refresh);
+router.post('/refresh', refreshLimiter, authController.refresh);
 
 // POST /api/auth/logout — 退出登录并撤销当前 Refresh Token
 router.post('/logout', authController.logout);
 
-// POST /api/auth/session/refresh — 前端 sessionStorage 会话刷新（无需 HttpOnly Cookie）
-router.post('/session/refresh', authController.sessionRefresh);
+// POST /api/auth/session/refresh — 兼容旧前端路径，但必须同时持有 HttpOnly Refresh Token Cookie
+router.post('/session/refresh', refreshLimiter, authController.sessionRefresh);
 
 // GET /api/auth/me — 获取当前登录用户（需要登录）
 router.get('/me', authMiddleware, authController.getMe);

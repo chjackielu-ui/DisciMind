@@ -8,7 +8,7 @@ const { getNarrationConfig, safeConfigSummary } = require('../src/modules/learni
 const { normalizeMathExpression, normalizeMathInText } = require('../src/modules/learning-narration/services/math-speech-normalizer.service');
 const { normalizeSpeechText } = require('../src/modules/learning-narration/services/speech-text-normalizer.service');
 const { buildNarrationScript, splitSpeechText } = require('../src/modules/learning-narration/services/narration-script.service');
-const { BailianRealtimeTtsAdapter, buildSessionUpdate } = require('../src/modules/learning-narration/adapters/bailian-realtime-tts.adapter');
+const { BailianRealtimeTtsAdapter, buildSessionUpdate, summarizeUpstreamError } = require('../src/modules/learning-narration/adapters/bailian-realtime-tts.adapter');
 const { NarrationCacheService } = require('../src/modules/learning-narration/services/narration-cache.service');
 
 const baseConfig = {
@@ -39,6 +39,23 @@ test('session.update contains only Flash commit fields and unique event ids', ()
   assert.equal(first.session.sample_rate, 24000);
   assert.equal('instructions' in first.session, false);
   assert.notEqual(first.event_id, second.event_id);
+});
+
+test('TTS upstream error summary keeps only safe diagnostic fields', () => {
+  const summary = summarizeUpstreamError({
+    type: 'error',
+    event_id: 'evt-1',
+    text: '不应进入日志的讲稿',
+    error: { code: 'InvalidVoice', param: 'voice', message: '音色\n不匹配', authorization: 'Bearer secret' },
+  });
+  assert.deepEqual(summary, {
+    code: 'InvalidVoice',
+    eventId: 'evt-1',
+    param: 'voice',
+    message: '音色 不匹配',
+  });
+  assert.equal(JSON.stringify(summary).includes('secret'), false);
+  assert.equal(JSON.stringify(summary).includes('讲稿'), false);
 });
 
 test('Markdown, JSON, URL, image, code and table are normalized for speech', () => {

@@ -234,6 +234,7 @@ function sourceNotice(records, fallback) {
 }
 
 async function retrieveSafeContext(artifact) {
+  if (!artifact.conversationId) return { records: [], fallback: false, unavailable: false };
   const conversation = await prisma.marketplaceAgentConversation.findUnique({
     where: { id: artifact.conversationId },
     include: { agentVersion: true },
@@ -416,9 +417,9 @@ async function generateHandout(artifact, modelCall, taskId, retrieval = { record
       `为${requirements.courseName}课程的${requirements.knowledgePointNames.join('、')}生成“${sectionTitles[index]}”讲义小节。`,
       `面向对象：${requirements.targetAudience || '本科生'}；难度：${requirements.difficulty}；篇幅：${requirements.handoutLength || 'MEDIUM'}。`,
       `学习目标：${(requirements.learningObjectives || []).join('；') || '理解并应用核心知识'}。`,
-      `需要例题：${requirements.includeExamples !== false ? '是' : '否'}；需要练习：${requirements.includeExercises !== false ? '是' : '否'}；练习答案：${requirements.includeAnswers ? '需要单独给出' : '不得泄露'}。`,
+      `需要例题：${requirements.includeExamples !== false ? '是' : '否'}；需要练习：${requirements.includeExercises !== false ? '是' : '否'}；练习答案展示：${requirements.includeAnswers ? '在讲义中展示' : '由展示层隐藏'}。`,
       `生成风格：${requirements.generationStyle || '结构清晰'}。补充要求：${requirements.specialRequirements || '无'}。`,
-      '输出 title,content 字符串数组,examples,keyPoints,commonMistakes,practice。内容层级清楚，公式使用 Markdown/LaTeX 源码，不得输出数据库 ID。',
+      '严格输出 title、content、examples、keyPoints、commonMistakes、practice 六个字段。content 必须是字符串数组；examples 的每项必须包含 title、content；practice 的每项必须始终包含 question、answer、analysis 三个字符串字段，即使展示层会隐藏答案也不得省略。内容层级清楚，公式使用 Markdown/LaTeX 源码，不得输出数据库 ID。',
       context,
     ].join('\n');
     batches.push(await callJson(prompt, handoutBatchSchema, modelCall, 'handout section', options));
@@ -491,12 +492,15 @@ async function generateArtifact(artifactId, { modelCall = bailianModelCall, task
     return updated;
   } catch (error) {
     const cancelled = signal?.aborted || error.name === 'AbortError';
-    await prisma.generatedArtifact.updateMany({
-      where: { id: artifact.id, contentSchemaJson: null },
-      data: cancelled
-        ? { status: 'DRAFT', errorCode: null }
-        : { status: 'FAILED', errorCode: String(error.code || 'CONTENT_GENERATION_FAILED').slice(0, 100) },
-    });
+    const current = await prisma.generatedArtifact.findUnique({ where: { id: artifact.id }, select: { contentSchemaJson: true } }).catch(() => null);
+    if (!current?.contentSchemaJson) {
+      await prisma.generatedArtifact.update({
+        where: { id: artifact.id },
+        data: cancelled
+          ? { status: 'DRAFT', errorCode: null }
+          : { status: 'FAILED', errorCode: String(error.code || 'CONTENT_GENERATION_FAILED').slice(0, 100) },
+      }).catch(() => null);
+    }
     throw error;
   }
 }
