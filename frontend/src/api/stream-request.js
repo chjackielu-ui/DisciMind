@@ -102,9 +102,10 @@ export async function streamRequest(url, body, signal, callbacks = {}) {
           sseEventName = ''; // reset for next event
           continue;
         }
+        const eventName = sseEventName || data.event || '';
 
         // Prioritize SSE event name over data.event field
-        if (!streamStarted && (sseEventName === 'start' || data.event === 'start' || data.text)) {
+        if (!streamStarted && (eventName === 'start' || data.text)) {
           streamStarted = true;
           if (callbacks.onStreamStart) callbacks.onStreamStart(data);
         }
@@ -116,39 +117,32 @@ export async function streamRequest(url, body, signal, callbacks = {}) {
 
         if (data.conversationId) conversationId = data.conversationId;
         if (data.messageId) messageId = data.messageId;
-        if (data.answer) {
-          resultAnswer = data.answer;
-          if (callbacks.onResult) callbacks.onResult(data.answer, data);
+
+        // A backend result frame commonly contains both `event: result` and
+        // `data.answer`. Resolve the payload once so onResult cannot fire twice.
+        const answer = data.answer || (eventName === 'result' ? data.result : null);
+        if (answer) {
+          resultAnswer = answer;
+          if (callbacks.onResult) callbacks.onResult(answer, data);
         }
 
         // Handle metadata (via event name or data field)
-        if ((sseEventName === 'metadata' || data.event === 'metadata') && callbacks.onMetadata) {
+        if (eventName === 'metadata' && callbacks.onMetadata) {
           callbacks.onMetadata(data);
         }
 
         // Handle done (via event name or data field)
-        if (sseEventName === 'done' || data.event === 'done') {
+        if (eventName === 'done') {
           done = true;
         }
 
         // Handle error (via event name or data field)
-        if (sseEventName === 'error' || data.event === 'error') {
+        if (eventName === 'error') {
           const err = new Error(data.message || 'Agent 流式响应错误');
           err.code = data.code || 'STREAM_ERROR';
           err.retryable = data.retryable !== false;
           if (callbacks.onError) callbacks.onError(err);
           throw err;
-        }
-
-        // Handle result (via SSE event name from backend — event: result)
-        if (sseEventName === 'result' && callbacks.onResult) {
-          if (data.answer) {
-            resultAnswer = data.answer;
-            callbacks.onResult(data.answer, data);
-          } else if (data.result) {
-            resultAnswer = data.result;
-            callbacks.onResult(data.result, data);
-          }
         }
 
         // Reset SSE event name after processing to avoid stale bleed

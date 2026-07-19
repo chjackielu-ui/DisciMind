@@ -5,6 +5,9 @@ const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { resolveStoredPath, WORD_MIME } = require('./document-export.service');
 const { PDF_MIME } = require('./pdf-export.service');
 
+const PPTX_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+const MP4_MIME = 'video/mp4';
+
 const ACTIVE_EXPORT_STATUSES = ['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'];
 
 const ARTIFACT_INCLUDE = {
@@ -43,7 +46,8 @@ function serializeExport(record) {
 
 function serializeArtifact(artifact, { detail = false, adminMetadataOnly = false } = {}) {
   const activeExports = (artifact.exports || []).filter((item) => !item.deletedAt);
-  const hasDownload = activeExports.some(item => item.status === 'READY' && item.downloadAvailable === true);
+  const hasPrimaryDownload = artifact.status === 'READY' && Boolean(artifact.storagePath);
+  const hasDownload = hasPrimaryDownload || activeExports.some(item => item.status === 'READY' && item.downloadAvailable === true);
   const hasActiveExport = activeExports.some(item => ['QUEUED', 'EXPORTING'].includes(item.status));
   const allExportsFailed = activeExports.length > 0 && activeExports.every(item => item.status === 'FAILED');
   const allExportsCancelled = allExportsFailed && activeExports.every(item => item.errorCode === 'TASK_CANCELLED');
@@ -152,8 +156,9 @@ async function getArtifact(user, id) {
       ...serializeExport(item),
       downloadAvailable: await exportFileExists(item),
     })));
-    data.downloadAvailable = data.exports.some(item => item.downloadAvailable);
-    data.fileMissing = data.exports.some(item => item.status === 'READY' && !item.downloadAvailable);
+    const primaryDownload = access.artifact.status === 'READY' && Boolean(access.artifact.storagePath);
+    data.downloadAvailable = primaryDownload || data.exports.some(item => item.downloadAvailable);
+    data.fileMissing = (!primaryDownload && Boolean(access.artifact.storagePath)) || data.exports.some(item => item.status === 'READY' && !item.downloadAvailable);
     const allFailed = data.exports.length > 0 && data.exports.every(item => item.status === 'FAILED');
     const allCancelled = allFailed && data.exports.every(item => item.errorCode === 'TASK_CANCELLED');
     data.publicStatus = access.artifact.status === 'FAILED' ? 'FAILED' : access.artifact.task?.status === 'CANCELLED' || allCancelled ? 'CANCELLED' : data.downloadAvailable ? 'DOWNLOADABLE' : allFailed ? 'FAILED' : 'GENERATING';
@@ -163,6 +168,19 @@ async function getArtifact(user, id) {
 
 async function getDownload(user, id) {
   const { artifact } = await findAccessible(user, id, { ownerOnly: true });
+  const primaryFormat = String(artifact.fileFormat || '').toUpperCase();
+  if (primaryFormat === 'PPTX') {
+    assert(artifact.status === 'READY' && artifact.storagePath, 'PPTX 文件尚未准备好', 40901, 409);
+    const { absolutePath, stat } = await validateExportFile({ storagePath: artifact.storagePath, mimeType: artifact.mimeType }, 'PPTX');
+    await prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: new Date(), downloadCount: { increment: 1 } } });
+    return { absolutePath, fileName: artifact.fileName || `${artifact.title}.pptx`, mimeType: PPTX_MIME, extension: 'pptx', size: stat.size };
+  }
+  if (primaryFormat === 'MP4') {
+    assert(artifact.status === 'READY' && artifact.storagePath, 'MP4 文件尚未准备好', 40901, 409);
+    const { absolutePath, stat } = await validateExportFile({ storagePath: artifact.storagePath, mimeType: artifact.mimeType }, 'MP4');
+    await prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: new Date(), downloadCount: { increment: 1 } } });
+    return { absolutePath, fileName: artifact.fileName || `${artifact.title}.mp4`, mimeType: MP4_MIME, extension: 'mp4', size: stat.size };
+  }
   const docxExport = (artifact.exports || []).find(item => item.format === 'DOCX' && !item.deletedAt);
   if (docxExport) return getExportDownload(user, id, 'DOCX');
   assert(artifact.status === 'READY' && artifact.storagePath, '文件尚未准备好', 40901, 409);
@@ -177,30 +195,33 @@ async function exportFileExists(record) {
 }
 
 async function validateExportFile(record, format) {
-  const expectedMime = format === 'PDF' ? PDF_MIME : WORD_MIME;
+  const expectedMime = format === 'PDF' ? PDF_MIME : format === 'PPTX' ? PPTX_MIME : format === 'MP4' ? MP4_MIME : WORD_MIME;
   assert(record.mimeType === expectedMime, '文件格式与 MIME 不一致', 40901, 409);
   const absolutePath = resolveStoredPath(record.storagePath);
   let handle;
   try {
     const stat = await fs.stat(absolutePath);
-    assert(stat.isFile() && stat.size > 0 && stat.size <= Number(process.env.GENERATED_ARTIFACT_MAX_MB || 20) * 1024 * 1024, '文件不存在或已失效', 40002, 404);
+    const maxBytes = format === 'MP4' ? Number(process.env.GENERATED_VIDEO_MAX_MB || 200) * 1024 * 1024 : Number(process.env.GENERATED_ARTIFACT_MAX_MB || 20) * 1024 * 1024;
+    assert(stat.isFile() && stat.size > 0 && stat.size <= maxBytes, '文件不存在或已失效', 40002, 404);
     handle = await fs.open(absolutePath, 'r');
-    const length = format === 'PDF' ? 5 : 4;
+    const length = format === 'PDF' ? 5 : format === 'MP4' ? 12 : 4;
     const signature = Buffer.alloc(length);
     await handle.read(signature, 0, length, 0);
     const valid = format === 'PDF'
       ? signature.toString() === '%PDF-'
-      : signature.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+      : format === 'MP4' ? signature.subarray(4, 8).toString() === 'ftyp'
+        : signature.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
     assert(valid, '文件内容与导出格式不一致', 40901, 409);
     if (format === 'PDF') {
       const tailLength = Math.min(2048, stat.size);
       const tail = Buffer.alloc(tailLength);
       await handle.read(tail, 0, tailLength, stat.size - tailLength);
       assert(tail.toString('latin1').includes('%%EOF'), 'PDF 文件结构不完整', 40901, 409);
-    } else {
+    } else if (format !== 'MP4') {
       const buffer = await fs.readFile(absolutePath);
       const manifest = buffer.toString('latin1');
-      assert(buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) >= 0 && manifest.includes('[Content_Types].xml') && manifest.includes('word/document.xml'), 'DOCX OpenXML 结构不完整', 40901, 409);
+      const documentPart = format === 'PPTX' ? 'ppt/presentation.xml' : 'word/document.xml';
+      assert(buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) >= 0 && manifest.includes('[Content_Types].xml') && manifest.includes(documentPart), `${format} OpenXML 结构不完整`, 40901, 409);
     }
     return { absolutePath, stat };
   } catch (error) {

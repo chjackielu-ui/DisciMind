@@ -938,7 +938,7 @@ function renderResourceList() {
   const rows = state.selectable.filter(item => (!query || item.title.toLowerCase().includes(query)) && (!group || item.group === group) && (!type || (type === 'internal' ? item.file_ext === 'internal' : type === 'pptx' ? ['ppt', 'pptx'].includes(item.file_ext) : item.file_ext === type)))
   const groupLabels = { current_plan: '当前备课方案', generated: '智慧备课产物', my_lessons: '我的教案', teacher_resource: '教师资源中心', course_resource: '课程资源', class_resource: '教学班资源', knowledge_base: '知识库文件', recent: '最近使用' }
   document.getElementById('doc-resource-list').innerHTML = rows.map(item => {
-    const artifactReady = item.source_kind !== 'artifact' || (item.exports || []).some(entry => entry.status === 'ready')
+    const artifactReady = item.source_kind !== 'artifact' || ['ppt', 'pptx'].includes(item.file_ext) || (item.exports || []).some(entry => entry.status === 'ready')
     const ready = artifactReady && ['ready', 'content_ready', 'draft', 'published', 'active'].includes(item.status) && !['running', 'queued', 'generating', 'exporting'].includes(item.task_status)
     return `<button data-resource-item="${escapeHtml(item.source_kind)}:${item.id}" ${ready ? '' : 'disabled'}><i>${escapeHtml(item.file_ext.toUpperCase() || 'FILE')}</i><span><b>${escapeHtml(item.title)}</b><em>${escapeHtml(groupLabels[item.group] || item.group)} · ${ready ? '可打开' : `真实状态：${item.task_status || item.status}`}</em></span><strong>${ready ? '打开' : '等待'}</strong></button>`
   }).join('') || '<div class="prep-workspace-empty"><p>没有匹配的真实文件</p></div>'
@@ -1778,6 +1778,7 @@ export async function renderTeacherPreparationImmersive(app) {
     await loadCourses()
     const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
     const routeDate = params.get('date'); const lessonPlanId = Number(params.get('planId') || params.get('lesson_plan_id'))
+    const generatedArtifactId = Number(params.get('generatedArtifactId') || params.get('artifact_id'))
     if (lessonPlanId) await openPlan(lessonPlanId)
     else if (/^\d{4}-\d{2}-\d{2}$/.test(routeDate || '')) { document.querySelector('#prep-create-form [name="teaching_date"]').value = routeDate; document.getElementById('prep-create-dialog').showModal() }
     else {
@@ -1785,6 +1786,12 @@ export async function renderTeacherPreparationImmersive(app) {
       const persisted = state.tabs.find(tab => tab.key === state.activeTab)
       if (persisted?.kind === 'pdf') await openPdfSource({ id: persisted.id, source_kind: persisted.sourceKind, title: persisted.title, file_ext: 'pdf' }, false)
       else if (persisted?.kind === 'editable') await openEditableDocument(persisted.id, false)
+    }
+    if (generatedArtifactId) {
+      await refreshSelectable(false)
+      const generatedPpt = state.selectable.find(item => item.source_kind === 'artifact' && item.id === generatedArtifactId && ['ppt', 'pptx'].includes(item.file_ext))
+      if (generatedPpt) await openPptItem(generatedPpt)
+      else showToast('生成的 PPTX 已保存在产物中心，但当前账号无法载入该课件', 'warning')
     }
   } catch (error) { showToast(error.message || '沉浸式备课初始化失败', 'error') }
   return async () => {

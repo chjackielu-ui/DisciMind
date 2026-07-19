@@ -298,41 +298,41 @@ export async function renderStudentTaskAnswer(app, params = {}) {
     }
   }
 
-  async function submitNow() {
+  async function submitTaskAnswer() {
+    if (state.submitting) return false
+    state.submitting = true
+    updateButtons(true, true)
+    try {
+      // 统一 attempt API：整卷提交
+      await submitPracticeSession(sessionId, {
+        answers: buildPayload(questions, state.answers),
+      })
+      showToast('提交成功，正在进入结果页', 'success')
+      window.location.hash = `#/student/practice/sessions/${sessionId}`
+      return true
+    } catch (err) {
+      if (/已提交|重复提交|已截止/.test(err.message || '')) {
+        showToast(err.message || '该任务已提交', 'info')
+        window.location.hash = `#/student/practice/sessions/${sessionId}`
+        return true
+      }
+      showToast(err.message || '提交失败，请稍后重试', 'error')
+      state.submitting = false
+      updateButtons(false, false)
+      throw err
+    }
+  }
+
+  function submitNow() {
     if (state.submitting) return
-
-    const answeredCount = getAnsweredCount(questions, state.answers)
-
-    // 使用统一模态框
     showExamLeaveModal({
       mode: 'task',
       title: data.task?.task_title || '教师任务',
-      answeredCount,
+      answeredCount: getAnsweredCount(questions, state.answers),
       totalCount: questions.length,
       hasUnsavedChanges: state.saveStatus === '有未保存修改',
       onContinue: () => {},
-      onSubmitAndLeave: async () => {
-        state.submitting = true
-        updateButtons(true, true)
-        try {
-          // 统一 attempt API：整卷提交
-          await submitPracticeSession(sessionId, {
-            answers: buildPayload(questions, state.answers),
-          })
-          showToast('提交成功，正在进入结果页', 'success')
-          window.location.hash = `#/student/practice/sessions/${sessionId}`
-        } catch (err) {
-          if (/已提交|重复提交|已截止/.test(err.message || '')) {
-            showToast(err.message || '该任务已提交', 'info')
-            window.location.hash = `#/student/practice/sessions/${sessionId}`
-            return
-          }
-          showToast(err.message || '提交失败，请稍后重试', 'error')
-          state.submitting = false
-          updateButtons(false, false)
-          throw err // re-throw to keep modal open
-        }
-      },
+      onSubmitAndLeave: submitTaskAnswer,
     })
   }
 
@@ -374,9 +374,7 @@ export async function renderStudentTaskAnswer(app, params = {}) {
           await saveDraft(true)
           window.location.hash = '#/student/courses'
         },
-        onSubmitAndLeave: async () => {
-          await submitNow()
-        },
+        onSubmitAndLeave: submitTaskAnswer,
       })
     })
     document.getElementById('btn-save-draft')?.addEventListener('click', () => saveDraft(false))

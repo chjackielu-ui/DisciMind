@@ -2,10 +2,13 @@ import DOMPurify from 'dompurify'
 import {
   getTeacherCourses, getTeachingClasses, getChapters,
   getPreparationPlans, createPreparationPlan, getPreparationPlan, savePreparationPlan,
+  getPreparationSyllabuses, createPreparationSyllabus, updatePreparationSyllabus, generateLessonPlanFromSyllabus,
+  generateTeacherPpt, getTeacherPptTask,
   generatePreparationPlan, getPreparationStatus, streamPreparationEvents,
   getPreparationVersions, restorePreparationVersion, publishPreparationPlan, exportPreparationPlan,
-  getAnalyticsWorkbench, getTeachingResources, refinePreparationStage,
+  getAnalyticsWorkbench, getTeachingResources, uploadKnowledgeDocument, refinePreparationStage,
 } from '../api/teacher.js'
+import { downloadGeneratedArtifact } from '../api/marketplace.js'
 import { getMe } from '../api/auth.js'
 import { getUser, getToken, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
@@ -36,8 +39,9 @@ const FIELD_LABELS = {
 
 function initialState() {
   return {
-    courses: [], classes: [], plans: [], resources: [], courseId: '', classId: '', plan: null,
+    courses: [], classes: [], plans: [], resources: [], syllabuses: [], courseId: '', classId: '', plan: null, syllabus: null,
     content: {}, locked: [], stepIndex: 0, analytics: null, generation: null, versions: [],
+    flowStep: 0, pptResult: null,
     pendingGeneration: null, pendingRefinement: null, eventAbort: null,
     dirty: false, saving: false, refining: false, disposed: false,
   }
@@ -80,13 +84,15 @@ function readWorkspace() {
     state.courseId = String(stored.courseId || '')
     state.classId = String(stored.classId || '')
     state.stepIndex = Math.max(0, Number(stored.stepIndex) || 0)
+    state.flowStep = Math.min(3, Math.max(0, Number(stored.flowStep) || 0))
+    state.persistedSyllabusId = Number(stored.syllabusId) || null
     return Number(stored.planId) || null
   } catch { return null }
 }
 
 function persistWorkspace() {
   sessionStorage.setItem(WORKBENCH_KEY, JSON.stringify({
-    courseId: state.courseId, classId: state.classId, planId: state.plan?.lesson_plan_id || null, stepIndex: state.stepIndex,
+    courseId: state.courseId, classId: state.classId, planId: state.plan?.lesson_plan_id || null, syllabusId: state.syllabus?.syllabus_id || null, stepIndex: state.stepIndex, flowStep: state.flowStep,
   }))
 }
 
@@ -102,6 +108,8 @@ function shell() {
         <button class="teacher-btn teacher-btn--primary teacher-btn--sm" id="prep-enter-immersive" disabled>进入沉浸式备课</button>
       </div>
     </header>
+    <nav class="prep-flow-rail" id="prep-flow" aria-label="流程式备课"></nav>
+    <section class="prep-flow-summary" id="prep-flow-summary"></section>
     <nav class="prep-stage-rail" id="prep-steps" aria-label="备课阶段"></nav>
     <main class="prep-workbench-grid">
       <aside class="prep-workbench-left">
@@ -109,6 +117,7 @@ function shell() {
           <label>课程<select id="prep-course"><option value="">选择课程</option></select></label>
           <label>教学班<select id="prep-class"><option value="">选择教学班</option></select></label>
         </section>
+        <section class="prep-panel prep-syllabus-panel"><header><b>教学大纲</b><span id="prep-syllabus-count">0 份</span></header><div class="prep-syllabus-actions"><button class="teacher-btn teacher-btn--ghost teacher-btn--sm" id="prep-upload-syllabus">上传</button><button class="teacher-btn teacher-btn--secondary teacher-btn--sm" id="prep-new-syllabus">创建</button></div><div id="prep-syllabus-list" class="prep-syllabus-list"><p class="prep-muted">请先选择课程</p></div><input id="prep-syllabus-file" type="file" accept=".doc,.docx,.pdf,.md,.txt" hidden></section>
         <section class="prep-panel prep-plan-panel"><header><b>备课方案</b><span id="prep-plan-count">0 个</span></header><div id="prep-plan-list" class="prep-plan-list"><p class="prep-muted">请先选择课程</p></div></section>
         <section class="prep-panel prep-resource-panel"><header><b>关联资源</b><span id="prep-resource-count">0 项</span></header><div id="prep-resource-list" class="prep-resource-list"><p class="prep-muted">选择课程后加载真实资源</p></div></section>
       </aside>
@@ -137,7 +146,16 @@ function shell() {
 }
 
 function dialogs() {
-  return `<dialog id="prep-create-dialog" class="teacher-dialog"><form id="prep-create-form"><header><h3>创建备课方案</h3><button type="button" data-create-close>×</button></header><div class="teacher-form-grid">
+  return `<dialog id="prep-syllabus-dialog" class="teacher-dialog prep-syllabus-dialog"><form id="prep-syllabus-form"><header><div><h3 id="prep-syllabus-dialog-title">创建教学大纲</h3><p>大纲将作为教案、课件与资源匹配的流程起点</p></div><button type="button" data-syllabus-close>×</button></header><input type="hidden" name="syllabus_id"><div class="teacher-form-grid">
+    <label>课程<select name="course_id" required></select></label><label>教学班<select name="teaching_class_id"><option value="">课程通用</option></select></label>
+    <label class="wide">大纲标题<input name="title" required maxlength="200" placeholder="例如：数据结构课程教学大纲"></label>
+    <label class="wide">教学目标<textarea name="objectives" rows="3" placeholder="每行一项目标"></textarea></label>
+    <label class="wide">教学要求<textarea name="requirements" rows="2" placeholder="课程考核、先修基础与能力要求"></textarea></label>
+    <label class="wide">核心知识点<textarea name="knowledge_points" rows="2" placeholder="每行一个知识点"></textarea></label>
+    <label class="wide">章节结构<textarea name="chapters" rows="5" placeholder="每行格式：章节名称 | 知识点1、知识点2 | 本章目标"></textarea></label>
+    <label class="wide">大纲正文<textarea name="content" rows="6" placeholder="可补充或编辑完整 Markdown 大纲正文"></textarea></label>
+    </div><footer><button type="button" data-syllabus-close>取消</button><button class="primary" type="submit">保存大纲</button></footer></form></dialog>
+    <dialog id="prep-create-dialog" class="teacher-dialog"><form id="prep-create-form"><header><h3>创建备课方案</h3><button type="button" data-create-close>×</button></header><div class="teacher-form-grid">
     <label>课程<select name="course_id" required></select></label><label>教学班<select name="teaching_class_id" required></select></label>
     <label class="wide">授课主题<input name="topic" required maxlength="240"></label><label>授课日期<input name="teaching_date" type="date"></label><label>课时（分钟）<input name="duration_minutes" type="number" min="15" max="240" value="45"></label>
     <label>章节<select name="chapter_id"><option value="">不指定</option></select></label><label>课型模板<select name="lesson_type">${LESSON_TYPES.map(type => `<option>${type}</option>`).join('')}</select></label>
@@ -147,7 +165,82 @@ function dialogs() {
     </div><footer><button type="button" data-create-close>取消</button><button class="primary" type="submit">创建</button></footer></form></dialog>
     <dialog id="prep-version-dialog" class="teacher-dialog version-dialog"><header><h3>方案版本</h3><button data-plan-version-close>×</button></header><div id="prep-version-list"></div></dialog>
     <dialog id="prep-confirm-dialog" class="teacher-dialog prep-confirm-dialog"><header><h3>确认 Agent 生成范围</h3><button data-confirm-close>×</button></header><div id="prep-confirm-summary"></div><p>确认后读取授权范围内的实时学情并启动 Agent；已锁定阶段不会被覆盖。</p><footer><button data-confirm-close>返回</button><button class="primary" id="prep-confirm-generate">确认并开始</button></footer></dialog>
-    <dialog id="prep-refine-dialog" class="teacher-dialog prep-refine-dialog"><header><div><h3>AI 优化稿</h3><span id="prep-refine-dialog-meta">等待教师确认</span></div><button type="button" data-refine-close>×</button></header><div class="prep-refine-compare"><section><h4>当前内容</h4><article id="prep-refine-before"></article></section><section><h4>AI 优化建议</h4><article id="prep-refine-after"></article></section></div><p>AI 只生成候选稿；点击“应用并保存”后才会修改当前阶段并创建新版本。</p><footer><button type="button" data-refine-close>保留原稿</button><button type="button" id="prep-refine-regenerate">重新生成</button><button type="button" class="primary" id="prep-refine-apply">应用并保存</button></footer></dialog>`
+    <dialog id="prep-refine-dialog" class="teacher-dialog prep-refine-dialog"><header><div><h3>AI 优化稿</h3><span id="prep-refine-dialog-meta">等待教师确认</span></div><button type="button" data-refine-close>×</button></header><div class="prep-refine-compare"><section><h4>当前内容</h4><article id="prep-refine-before"></article></section><section><h4>AI 优化建议</h4><article id="prep-refine-after"></article></section></div><p>AI 只生成候选稿；点击“应用并保存”后才会修改当前阶段并创建新版本。</p><footer><button type="button" data-refine-close>保留原稿</button><button type="button" id="prep-refine-regenerate">重新生成</button><button type="button" class="primary" id="prep-refine-apply">应用并保存</button></footer></dialog>
+    <dialog id="prep-ppt-dialog" class="teacher-dialog prep-ppt-dialog"><form id="prep-ppt-form"><header><div><h3>生成教学 PPT</h3><p>结构生成完成后将自动渲染为可下载的真实 PPTX</p></div><button type="button" data-ppt-close>×</button></header><div class="teacher-form-grid">
+    <label>生成来源<select name="generationSource"><option value="syllabus">根据教学大纲</option><option value="lesson-plan">根据教案</option><option value="topic">根据课程主题</option><option value="knowledge-points">根据知识点</option><option value="text">根据正文内容</option></select></label>
+    <label>课程名称<input name="courseName" maxlength="120" required></label><label class="wide">课程主题<input name="topic" maxlength="240" required></label>
+    <label>PPT 页数<input name="pageCount" type="number" min="6" max="30" value="10"></label><label>PPT 风格<select name="style"><option value="教学型">教学型</option><option value="课堂讲授型">课堂讲授型</option><option value="竞赛展示型">竞赛展示型</option><option value="简洁型">简洁型</option><option value="学术型">学术型</option></select></label>
+    <label class="wide">知识点<textarea name="knowledgePoints" rows="2" placeholder="每行一个知识点"></textarea></label><label class="wide">教学大纲、教案或资源正文<textarea name="sourceText" rows="6" placeholder="可直接粘贴课程正文；选择大纲或教案时会自动读取平台内容"></textarea></label>
+    </div><div id="prep-ppt-generation-state" class="prep-ppt-generation-state"><p>填写生成参数后开始生成。</p></div><footer><button type="button" data-ppt-close>关闭</button><button class="primary" type="submit" id="prep-ppt-generate">生成 PPTX</button></footer></form></dialog>`
+}
+
+const FLOW_STEPS = [
+  ['教学大纲', '导入或设计课程结构'],
+  ['教案生成', '基于大纲生成并编辑'],
+  ['课件生成', '进入 PPT 生成与任务状态'],
+  ['资源匹配', '匹配资料、题目与学习任务'],
+]
+
+function flowStatuses() {
+  const hasSyllabus = Boolean(state.syllabus)
+  const hasSyllabusPlan = Boolean(state.syllabus?.lesson_plan_id || state.plan?.input?.syllabusId)
+  const hasPresentation = state.resources.some(item => /ppt|presentation|课件/i.test(`${item.file_ext || ''} ${item.resource_kind || ''} ${item.resource_category || ''}`))
+  const matchedResources = state.resources.filter(item => item.document_id !== state.syllabus?.syllabus_id && item.resource_kind !== 'syllabus')
+  return [
+    hasSyllabus ? '已完成' : '未开始',
+    hasSyllabusPlan ? '已生成' : hasSyllabus ? '可生成' : '未开始',
+    hasPresentation ? '已生成' : state.plan || hasSyllabus ? '可生成' : '未开始',
+    matchedResources.length ? '已完成' : state.plan ? '可生成' : '未开始',
+  ]
+}
+
+function renderWorkflow() {
+  const statuses = flowStatuses()
+  const rail = document.getElementById('prep-flow')
+  rail.innerHTML = FLOW_STEPS.map(([title, description], index) => `<button data-flow-step="${index}" class="${state.flowStep === index ? 'active' : ''}" ${index && statuses[index] === '未开始' ? 'disabled' : ''}><i>${index + 1}</i><span><b>${title}</b><em>${description}</em></span><strong data-status="${statuses[index]}">${statuses[index]}</strong></button>`).join('')
+  const syllabusTitle = state.syllabus?.title || '尚未选择教学大纲'
+  const matchedResources = state.resources.filter(item => item.document_id !== state.syllabus?.syllabus_id && item.resource_kind !== 'syllabus')
+  const panels = [
+    `<div><span>流程起点</span><h3>${escapeHtml(syllabusTitle)}</h3><p>${state.syllabus ? `${state.syllabus.chapters?.length || 0} 个章节 · ${state.syllabus.knowledge_points?.length || 0} 个知识点 · ${state.syllabus.source_type === 'manual' ? '自主创建' : '文件导入'}` : '上传已有文件，或在系统中自主设计课程大纲。'}</p></div><div class="prep-flow-actions"><button class="teacher-btn teacher-btn--secondary teacher-btn--sm" data-flow-action="upload">上传大纲</button><button class="teacher-btn teacher-btn--primary teacher-btn--sm" data-flow-action="edit">${state.syllabus ? '查看并编辑' : '创建大纲'}</button></div>`,
+    `<div><span>教案状态</span><h3>${state.syllabus?.lesson_plan_id || state.plan?.input?.syllabusId ? '结构化教案已生成' : '从大纲生成可编辑教案'}</h3><p>自动整理教学目标、重点难点、教学过程和作业安排；生成后继续使用现有分阶段编辑能力。</p></div><div class="prep-flow-actions">${state.syllabus?.lesson_plan_id ? '<button class="teacher-btn teacher-btn--secondary teacher-btn--sm" data-flow-action="lesson">重新生成</button><button class="teacher-btn teacher-btn--primary teacher-btn--sm" data-flow-action="open-lesson">打开已有教案</button>' : `<button class="teacher-btn teacher-btn--primary teacher-btn--sm" data-flow-action="lesson" ${state.syllabus ? '' : 'disabled'}>生成教案</button>`}</div>`,
+    `<div><span>课件任务</span><h3>${statuses[2] === '已生成' ? '课程课件已就绪' : 'PPT 生成入口可用'}</h3><p>根据大纲、教案、主题、知识点或正文生成真实 PPTX，并登记到产物中心。</p></div><div class="prep-flow-actions"><button class="teacher-btn teacher-btn--primary teacher-btn--sm" data-flow-action="ppt" ${state.plan || state.syllabus ? '' : 'disabled'}>生成 PPT</button></div>`,
+    `<div><span>资源匹配</span><h3>已匹配 ${matchedResources.length} 项课程资源</h3><p>根据当前课程汇集课程资料、题目、课件与学习任务，避免重复上传。</p></div><div class="prep-flow-actions"><button class="teacher-btn teacher-btn--secondary teacher-btn--sm" data-flow-action="resources" ${state.courseId ? '' : 'disabled'}>刷新匹配</button></div>`,
+  ]
+  document.getElementById('prep-flow-summary').innerHTML = panels[state.flowStep]
+}
+
+function renderSyllabuses() {
+  document.getElementById('prep-syllabus-count').textContent = `${state.syllabuses.length} 份`
+  document.getElementById('prep-syllabus-list').innerHTML = state.syllabuses.length ? state.syllabuses.map(item => `<button data-syllabus-id="${item.syllabus_id}" class="${state.syllabus?.syllabus_id === item.syllabus_id ? 'active' : ''}"><span><b>${escapeHtml(item.title)}</b><em>${item.chapters?.length || 0} 章 · ${item.knowledge_points?.length || 0} 个知识点</em></span><i>${item.lesson_plan_id ? '已生成教案' : '可生成'}</i></button>`).join('') : `<p class="prep-muted">${state.courseId ? '暂无大纲，可上传或手动创建' : '请先选择课程'}</p>`
+  renderWorkflow()
+}
+
+function chapterLines(chapters = []) {
+  return chapters.map(chapter => `${chapter.title || ''} | ${(chapter.knowledgePoints || []).join('、')} | ${chapter.objective || ''}`).join('\n')
+}
+
+function openSyllabusDialog(syllabus = null) {
+  const form = document.getElementById('prep-syllabus-form')
+  form.reset()
+  form.elements.syllabus_id.value = syllabus?.syllabus_id || ''
+  form.elements.course_id.value = syllabus?.course_id || state.courseId || ''
+  form.elements.teaching_class_id.value = syllabus?.teaching_class_id || state.classId || ''
+  form.elements.title.value = syllabus?.title || ''
+  form.elements.objectives.value = (syllabus?.objectives || []).join('\n')
+  form.elements.requirements.value = syllabus?.requirements || ''
+  form.elements.knowledge_points.value = (syllabus?.knowledge_points || []).join('\n')
+  form.elements.chapters.value = chapterLines(syllabus?.chapters)
+  form.elements.content.value = syllabus?.content || ''
+  form.elements.course_id.disabled = Boolean(syllabus)
+  form.elements.teaching_class_id.disabled = Boolean(syllabus)
+  document.getElementById('prep-syllabus-dialog-title').textContent = syllabus ? '编辑教学大纲' : '创建教学大纲'
+  document.getElementById('prep-syllabus-dialog').showModal()
+}
+
+function selectSyllabus(id) {
+  state.syllabus = state.syllabuses.find(item => item.syllabus_id === Number(id)) || null
+  renderSyllabuses()
+  persistWorkspace()
 }
 
 function renderStepRail() {
@@ -174,6 +267,7 @@ function updateSaveState(text, tone = '') {
 
 function renderStage() {
   renderStepRail()
+  renderWorkflow()
   const enabled = Boolean(state.plan)
   document.getElementById('prep-stage-number').textContent = enabled ? `阶段 ${state.stepIndex + 1} / ${activeSteps().length}` : '阶段 —'
   document.getElementById('prep-stage-title').textContent = enabled ? activeStepLabel() : '选择方案开始编辑'
@@ -232,6 +326,7 @@ async function loadCourses() {
   const html = '<option value="">选择课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('')
   document.getElementById('prep-course').innerHTML = html
   document.querySelector('#prep-create-form [name="course_id"]').innerHTML = html
+  document.querySelector('#prep-syllabus-form [name="course_id"]').innerHTML = html
 }
 
 async function loadClasses(courseId) {
@@ -239,6 +334,15 @@ async function loadClasses(courseId) {
   const html = '<option value="">全部教学班</option>' + state.classes.map(item => `<option value="${item.teaching_class_id}">${escapeHtml(item.teaching_class_name)}</option>`).join('')
   document.getElementById('prep-class').innerHTML = html
   document.querySelector('#prep-create-form [name="teaching_class_id"]').innerHTML = html.replace('全部教学班', '请选择教学班')
+  document.querySelector('#prep-syllabus-form [name="teaching_class_id"]').innerHTML = html.replace('全部教学班', '课程通用')
+}
+
+async function loadSyllabuses() {
+  state.syllabuses = state.courseId ? ((await getPreparationSyllabuses({ course_id: state.courseId, ...(state.classId ? { teaching_class_id: state.classId } : {}) })).data?.list || []) : []
+  const preferredId = state.plan?.input?.syllabusId || state.persistedSyllabusId || state.syllabus?.syllabus_id
+  state.syllabus = state.syllabuses.find(item => item.syllabus_id === Number(preferredId)) || state.syllabuses[0] || null
+  state.persistedSyllabusId = null
+  renderSyllabuses()
 }
 
 async function loadPlans() {
@@ -281,7 +385,7 @@ async function openPlan(id) {
   document.getElementById('prep-course').value = state.courseId
   await loadClasses(state.courseId)
   document.getElementById('prep-class').value = state.classId
-  await Promise.all([loadPlans(), loadResources(), loadAnalytics(), loadGeneration()])
+  await Promise.all([loadPlans(), loadResources(), loadSyllabuses(), loadAnalytics(), loadGeneration()])
   if (state.disposed) return
   renderPlanHeader()
   state.dirty = false
@@ -449,6 +553,147 @@ async function exportPlan(format, artifactType = 'TEACHER_LESSON_PLAN') {
   showToast(`${artifactType === 'STUDENT_HANDOUT' ? '学生讲义' : format} 导出任务 ${result.data.task_id} 已进入任务中心`, 'success')
 }
 
+async function saveSyllabusForm(form) {
+  const payload = Object.fromEntries(new FormData(form).entries())
+  const syllabusId = Number(payload.syllabus_id)
+  delete payload.syllabus_id
+  const result = syllabusId ? await updatePreparationSyllabus(syllabusId, payload) : await createPreparationSyllabus(payload)
+  document.getElementById('prep-syllabus-dialog').close()
+  await loadSyllabuses()
+  selectSyllabus(result.data.syllabus_id)
+  state.flowStep = 0
+  renderWorkflow()
+  showToast(syllabusId ? '教学大纲已保存' : '教学大纲已创建，可以生成教案', 'success')
+}
+
+async function uploadSyllabus(file) {
+  if (!file) return
+  if (!state.courseId) return showToast('请先选择课程', 'warning')
+  const data = new FormData()
+  data.append('file', file)
+  data.append('title', file.name.replace(/\.[^.]+$/, ''))
+  data.append('course_id', state.courseId)
+  if (state.classId) data.append('teaching_class_id', state.classId)
+  data.append('scope_type', state.classId ? 'class' : 'course')
+  data.append('visibility', state.classId ? 'class' : 'private')
+  data.append('is_teaching_resource', 'true')
+  data.append('resource_kind', 'syllabus')
+  data.append('resource_category', '教学大纲')
+  const result = await uploadKnowledgeDocument(data)
+  await loadSyllabuses()
+  selectSyllabus(result.data?.document_id)
+  state.flowStep = 0
+  renderWorkflow()
+  showToast('教学大纲已上传，可继续编辑结构化信息', 'success')
+}
+
+async function generateFromSelectedSyllabus() {
+  if (!state.syllabus) return showToast('请先选择或创建教学大纲', 'warning')
+  const classId = Number(state.classId || state.syllabus.teaching_class_id || state.classes[0]?.teaching_class_id)
+  if (!classId) return showToast('当前课程暂无教学班，暂不能生成教案', 'warning')
+  state.classId = String(classId)
+  document.getElementById('prep-class').value = state.classId
+  const result = await generateLessonPlanFromSyllabus(state.syllabus.syllabus_id, { teaching_class_id: classId, lesson_type: '新授课', duration_minutes: 45 })
+  state.flowStep = 1
+  await openPlan(result.data.lesson_plan_id)
+  showToast(result.data.message || '已根据大纲生成教案', 'success')
+}
+
+function renderPptResult(result = state.pptResult) {
+  const host = document.getElementById('prep-ppt-generation-state')
+  if (!host) return
+  if (!result) { host.innerHTML = '<p>填写生成参数后开始生成。</p>'; return }
+  if (['pending', 'queued', 'running', 'generating'].includes(result.status)) {
+    host.innerHTML = `<div class="prep-ppt-progress"><span>正在生成 PPTX</span><b>${Number(result.progress || 0)}%</b><i><em style="width:${Number(result.progress || 0)}%"></em></i><p>${escapeHtml(result.stage || '正在组织课件结构与页面内容')}</p></div>`
+    return
+  }
+  if (result.status === 'failed') {
+    host.innerHTML = `<div class="prep-ppt-error"><b>PPTX 生成失败</b><p>${escapeHtml(result.errorMessage || '请检查输入内容后重试')}</p></div>`
+    return
+  }
+  const slides = result.slides || []
+  host.innerHTML = `<section class="prep-ppt-result"><header><div><small>${result.isDemo ? '演示模式 · 本地真实渲染' : escapeHtml(result.provider || 'PPT 生成服务')}</small><h4>${escapeHtml(result.title || '教学课件')}</h4><p>${slides.length} 页 · 已登记到产物中心</p></div><div><button type="button" class="teacher-btn teacher-btn--secondary teacher-btn--sm" data-ppt-download="${result.artifactId}">下载 PPTX</button><button type="button" class="teacher-btn teacher-btn--primary teacher-btn--sm" data-ppt-preview="${result.artifactId}">进入课件预览</button></div></header>${result.notice ? `<p class="prep-ppt-notice">${escapeHtml(result.notice)}</p>` : ''}<div class="prep-ppt-slide-grid">${slides.map(item => `<article><span>第 ${item.page || item.pageNumber} 页 · ${escapeHtml(item.type || 'content')}</span><h5>${escapeHtml(item.title)}</h5>${item.subtitle ? `<p>${escapeHtml(item.subtitle)}</p>` : ''}<ul>${(item.bullets || []).map(point => `<li>${escapeHtml(point)}</li>`).join('')}</ul><dl><dt>建议配图</dt><dd>${escapeHtml(item.imagePrompt || item.imageSuggestion || '教学配图区域')}</dd><dt>讲解备注</dt><dd>${escapeHtml(item.notes || item.speakerNotes || '')}</dd></dl></article>`).join('')}</div></section>`
+}
+
+function openPptGeneration() {
+  const form = document.getElementById('prep-ppt-form')
+  const course = state.courses.find(item => Number(item.course_id) === Number(state.courseId))
+  const planId = state.plan?.lesson_plan_id || state.syllabus?.lesson_plan_id
+  form.elements.generationSource.value = state.syllabus ? 'syllabus' : planId ? 'lesson-plan' : 'topic'
+  form.elements.courseName.value = course?.course_name || state.syllabus?.course_name || ''
+  form.elements.topic.value = state.plan?.topic || state.syllabus?.title || course?.course_name || ''
+  form.elements.knowledgePoints.value = (state.syllabus?.knowledge_points || state.content?.keyPoints || []).join('\n')
+  form.elements.sourceText.value = state.syllabus?.content || ''
+  state.pptResult = null
+  renderPptResult()
+  document.getElementById('prep-ppt-dialog').showModal()
+}
+
+async function waitForPptTask(taskId) {
+  for (let attempt = 0; attempt < 60 && !state.disposed; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    const task = (await getTeacherPptTask(taskId)).data
+    state.pptResult = task
+    renderPptResult(task)
+    if (['completed', 'failed'].includes(task.status)) return task
+  }
+  throw new Error('PPT 生成仍在进行，可稍后在任务中心查看')
+}
+
+async function submitPptGeneration(form) {
+  const fields = Object.fromEntries(new FormData(form).entries())
+  const source = fields.generationSource
+  const payload = {
+    generationSource: source,
+    courseName: fields.courseName,
+    topic: fields.topic,
+    pageCount: Number(fields.pageCount),
+    style: fields.style,
+    knowledgePoints: String(fields.knowledgePoints || '').split(/\r?\n|[，,；;]/).map(item => item.trim()).filter(Boolean),
+    sourceText: fields.sourceText,
+    ...(source === 'syllabus' && state.syllabus?.syllabus_id ? { syllabusId: state.syllabus.syllabus_id } : {}),
+    ...(source === 'lesson-plan' && (state.plan?.lesson_plan_id || state.syllabus?.lesson_plan_id) ? { lessonPlanId: state.plan?.lesson_plan_id || state.syllabus?.lesson_plan_id } : {}),
+  }
+  const button = document.getElementById('prep-ppt-generate')
+  button.disabled = true; button.textContent = '正在生成…'
+  state.pptResult = { status: 'generating', progress: 12, stage: '正在读取课程内容' }
+  renderPptResult()
+  try {
+    const response = await generateTeacherPpt(payload)
+    state.pptResult = response.data
+    renderPptResult()
+    if (!['completed', 'failed'].includes(state.pptResult.status) && state.pptResult.taskId) await waitForPptTask(state.pptResult.taskId)
+    if (state.pptResult.status === 'completed') { await loadResources(); renderWorkflow(); showToast('真实 PPTX 已生成并保存到产物中心', 'success') }
+  } catch (error) {
+    state.pptResult = { status: 'failed', errorMessage: error.message || 'PPTX 生成失败' }
+    renderPptResult()
+    throw error
+  } finally {
+    button.disabled = false; button.textContent = '生成 PPTX'
+  }
+}
+
+function openGeneratedPptPreview(artifactId) {
+  const planId = state.plan?.lesson_plan_id || state.syllabus?.lesson_plan_id || ''
+  document.getElementById('prep-ppt-dialog').close()
+  window.location.hash = `#/teacher/preparation/immersive?planId=${planId}&courseId=${state.plan?.course_id || state.syllabus?.course_id || state.courseId || ''}&teachingClassId=${state.plan?.teaching_class_id || state.syllabus?.teaching_class_id || state.classId || ''}&mode=ppt&generatedArtifactId=${artifactId}`
+}
+
+async function handleFlowAction(action) {
+  if (action === 'upload') return document.getElementById('prep-syllabus-file').click()
+  if (action === 'edit') return openSyllabusDialog(state.syllabus)
+  if (action === 'lesson') return generateFromSelectedSyllabus()
+  if (action === 'open-lesson') return openPlan(state.syllabus.lesson_plan_id)
+  if (action === 'ppt') return openPptGeneration()
+  if (action === 'resources') {
+    await loadResources()
+    state.flowStep = 3
+    renderWorkflow()
+    document.querySelector('.prep-resource-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    return showToast(`已匹配 ${state.resources.length} 项课程资源`, 'success')
+  }
+}
+
 function switchStep(index) {
   if (!state.plan || index === state.stepIndex) return
   if (state.dirty) syncStageEditor()
@@ -460,14 +705,34 @@ function switchStep(index) {
 function bindEvents() {
   document.getElementById('prep-course').addEventListener('change', async event => {
     if (state.dirty && !(await saveStageDraft('切换课程前自动保存', true))) { event.target.value = state.courseId; return }
-    state.courseId = event.target.value; state.classId = ''; state.plan = null; state.content = {}; state.locked = []
-    await Promise.all([loadClasses(state.courseId), loadPlans(), loadResources()])
+    state.courseId = event.target.value; state.classId = ''; state.plan = null; state.syllabus = null; state.content = {}; state.locked = []
+    await Promise.all([loadClasses(state.courseId), loadPlans(), loadResources(), loadSyllabuses()])
     renderAnalytics(null); renderGeneration(null); renderStage(); renderPlanList(); persistWorkspace()
   })
   document.getElementById('prep-class').addEventListener('change', async event => {
     if (state.dirty && !(await saveStageDraft('切换教学班前自动保存', true))) { event.target.value = state.classId; return }
     state.classId = event.target.value; state.plan = null; state.content = {}; state.locked = []
-    await loadPlans(); renderAnalytics(null); renderGeneration(null); renderStage(); persistWorkspace()
+    await Promise.all([loadPlans(), loadSyllabuses()]); renderAnalytics(null); renderGeneration(null); renderStage(); persistWorkspace()
+  })
+  document.getElementById('prep-flow').addEventListener('click', event => { const button = event.target.closest('[data-flow-step]'); if (!button || button.disabled) return; state.flowStep = Number(button.dataset.flowStep); renderWorkflow(); persistWorkspace() })
+  document.getElementById('prep-flow-summary').addEventListener('click', event => { const button = event.target.closest('[data-flow-action]'); if (button) void handleFlowAction(button.dataset.flowAction).catch(error => showToast(error.message || '备课流程操作失败', 'error')) })
+  document.getElementById('prep-syllabus-list').addEventListener('click', event => { const button = event.target.closest('[data-syllabus-id]'); if (button) selectSyllabus(button.dataset.syllabusId) })
+  document.getElementById('prep-new-syllabus').onclick = () => { if (!state.courseId) return showToast('请先选择课程', 'warning'); openSyllabusDialog() }
+  document.getElementById('prep-upload-syllabus').onclick = () => { if (!state.courseId) return showToast('请先选择课程', 'warning'); document.getElementById('prep-syllabus-file').click() }
+  document.getElementById('prep-syllabus-file').addEventListener('change', event => { const [file] = event.target.files || []; event.target.value = ''; void uploadSyllabus(file).catch(error => showToast(error.message || '教学大纲上传失败', 'error')) })
+  document.querySelectorAll('[data-syllabus-close]').forEach(button => button.onclick = () => document.getElementById('prep-syllabus-dialog').close())
+  document.getElementById('prep-syllabus-form').addEventListener('submit', event => { event.preventDefault(); void saveSyllabusForm(event.target).catch(error => showToast(error.message || '教学大纲保存失败', 'error')) })
+  document.querySelectorAll('[data-ppt-close]').forEach(button => button.onclick = () => document.getElementById('prep-ppt-dialog').close())
+  document.getElementById('prep-ppt-form').addEventListener('submit', event => { event.preventDefault(); void submitPptGeneration(event.target).catch(error => showToast(error.message || 'PPTX 生成失败', 'error')) })
+  document.getElementById('prep-ppt-generation-state').addEventListener('click', event => {
+    const download = event.target.closest('[data-ppt-download]')
+    const preview = event.target.closest('[data-ppt-preview]')
+    if (download) void downloadGeneratedArtifact(Number(download.dataset.pptDownload), `${state.pptResult?.title || '教学课件'}.pptx`).catch(error => showToast(error.message || 'PPTX 下载失败', 'error'))
+    if (preview) openGeneratedPptPreview(Number(preview.dataset.pptPreview))
+  })
+  document.querySelector('#prep-syllabus-form [name="course_id"]').addEventListener('change', async event => {
+    const classes = (await getTeachingClasses(event.target.value, { page_size: 100 })).data?.list || []
+    document.querySelector('#prep-syllabus-form [name="teaching_class_id"]').innerHTML = '<option value="">课程通用</option>' + classes.map(item => `<option value="${item.teaching_class_id}">${escapeHtml(item.teaching_class_name)}</option>`).join('')
   })
   document.getElementById('prep-plan-list').addEventListener('click', event => { const button = event.target.closest('[data-plan-id]'); if (button) void openPlan(Number(button.dataset.planId)) })
   document.getElementById('prep-steps').addEventListener('click', event => { const button = event.target.closest('[data-step-index]'); if (button) switchStep(Number(button.dataset.stepIndex)) })
@@ -523,16 +788,18 @@ export async function renderTeacherPreparation(app) {
   renderDashboardLayout(app, { title: '智慧备课', menuItems: TEACHER_MENU_ITEMS, contentHTML: shell(), user })
   bindEvents()
   renderStepRail()
+  renderWorkflow()
   try {
     await loadCourses()
     const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
     const planId = Number(params.get('planId') || params.get('lesson_plan_id') || persistedPlanId)
-    const routeCourseId = params.get('courseId') || state.courseId
+    const routeCourseId = params.get('courseId') || params.get('course_id') || state.courseId
+    const routeClassId = params.get('teachingClassId') || params.get('teaching_class_id') || state.classId
     if (planId) await openPlan(planId)
     else if (routeCourseId) {
       state.courseId = String(routeCourseId); document.getElementById('prep-course').value = state.courseId
-      await loadClasses(state.courseId); document.getElementById('prep-class').value = state.classId
-      await Promise.all([loadPlans(), loadResources()])
+      await loadClasses(state.courseId); state.classId = String(routeClassId || ''); document.getElementById('prep-class').value = state.classId
+      await Promise.all([loadPlans(), loadResources(), loadSyllabuses()])
     }
   } catch (error) { showToast(error.message || '智慧备课数据加载失败', 'error') }
   return async () => {

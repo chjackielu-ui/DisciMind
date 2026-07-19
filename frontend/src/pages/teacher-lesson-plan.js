@@ -11,7 +11,7 @@ import { getIcon } from '../utils/icons.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
 import { getSeedKeywords, shouldUseSeed } from '../data/lesson-plan-seed-keywords.js'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 // sessionStorage keys for cross-page task state recovery
 const TASK_STATE_KEY = 'discimind.lessonPlanTask'
@@ -104,7 +104,7 @@ function startGlobalPoller(taskId) {
 
     try {
       const token = (await import('../utils/auth.js')).getToken()
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
       const res = await fetch(`${API_BASE_URL}/teacher/lesson-plan/task/${taskId}`, {
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'include',

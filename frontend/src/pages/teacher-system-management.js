@@ -64,6 +64,7 @@ export async function renderTeacherSystemManagement(app) {
       <div id="systab-content" style="padding-top:${SYSTAB_HEIGHT + 16}px;min-height:60vh;">
         <!-- Tab1: 班级管理 -->
         <div id="tab-classes" class="systab-pane">
+          <header class="teacher-class-list-head"><div><span>CLASS WORKSPACE</span><h2>我的班级</h2><p>先进入班级，再管理学生、资料、作业、题库、资源与评价。</p></div></header>
           <div class="class-domain-switch" role="tablist"><button class="active" data-class-domain="teaching">教学班</button><button data-class-domain="administrative">行政班</button><span>教学班用于授课与任务发布；行政班仅表示学生组织归属。</span></div>
           <div class="card" style="margin-bottom:20px;">
             <div class="filter-bar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
@@ -310,7 +311,7 @@ export async function renderTeacherSystemManagement(app) {
   })
 
   // 激活初始 tab
-  activateTab(targetTab)
+  queueMicrotask(() => activateTab(targetTab))
 
   // ============================
   // 班级管理
@@ -371,24 +372,24 @@ export async function renderTeacherSystemManagement(app) {
         container.querySelectorAll('.ad-import').forEach(button => button.addEventListener('click', () => openAdministrativeImport(Number(button.dataset.id))))
         return
       }
-      container.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">
-        ${classesData.map(tc => `<div class="card" style="padding:18px;border-left:4px solid var(--primary);">
-          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
-            <h4 style="font-size:1rem;font-weight:600;color:var(--stu-dark);margin:0;">${escapeHtml(tc.teaching_class_name)}</h4>
-            <span style="background:var(--bg);color:var(--text-secondary);padding:2px 10px;border-radius:12px;font-size:0.8rem;border:1px solid var(--border);">${tc.student_count || 0} 人</span>
-          </div>
-          <div style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">
-            <div>${escapeHtml(tc.course_name || '未知课程')}</div>
-            <div>${tc.semester_name || tc.semester || '未设置学期'}${tc.code ? ` · ${escapeHtml(tc.code)}` : ''}</div>
-            <div>${escapeHtml(formatTeachingSchedule(tc.schedule))} · ${escapeHtml(tc.location || '未设置地点')}</div>
-            ${tc.description ? `<div style="margin-top:4px;color:var(--text-muted);font-size:0.8rem;">${escapeHtml(tc.description.substring(0, 60))}</div>` : ''}
-          </div>
-          <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border);">
-            <button class="cl-view" data-id="${tc.teaching_class_id}" style="flex:2;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:0.85rem;">查看学生</button>
-            <button class="cl-edit" data-id="${tc.teaching_class_id}" style="flex:1;padding:6px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.85rem;">编辑</button>
-            <button class="cl-del" data-id="${tc.teaching_class_id}" data-name="${tc.teaching_class_name}" style="flex:1;padding:6px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.85rem;">删除</button>
-          </div>
-        </div>`).join('')}</div>`
+      container.innerHTML = `<div class="teacher-class-management-grid">
+        ${classesData.map(tc => `<article class="teacher-class-management-card">
+          <header><div><span>${escapeHtml(tc.course_name || '未知课程')}</span><h4>${escapeHtml(tc.teaching_class_name)}</h4></div><em>${tc.status === 'archived' ? '已归档' : '使用中'}</em></header>
+          <p>${escapeHtml(tc.semester_name || tc.semester || '未设置学期')}${tc.code ? ` · ${escapeHtml(tc.code)}` : ''}<br>${escapeHtml(formatTeachingSchedule(tc.schedule))} · ${escapeHtml(tc.location || '未设置地点')}</p>
+          <dl>
+            <div><dt>学生</dt><dd>${tc.student_count || 0}<i>人</i></dd></div>
+            <div><dt>近 30 天作业</dt><dd>${tc.recent_assignment_count || 0}<i>项</i></dd></div>
+            <div><dt>学习进度</dt><dd>${tc.learning_progress || 0}<i>%</i></dd></div>
+            <div class="risk"><dt>风险学生</dt><dd>${tc.risk_student_count || 0}<i>人</i></dd></div>
+          </dl>
+          <button class="cl-open" data-id="${tc.teaching_class_id}">进入班级工作区</button>
+          <footer>
+            <button class="cl-view" data-id="${tc.teaching_class_id}">学生名单</button>
+            <button class="cl-edit" data-id="${tc.teaching_class_id}">编辑</button>
+            <button class="cl-del" data-id="${tc.teaching_class_id}" data-name="${escapeHtml(tc.teaching_class_name)}">删除</button>
+          </footer>
+        </article>`).join('')}</div>`
+      container.querySelectorAll('.cl-open').forEach(b => b.addEventListener('click', () => { window.location.hash = `#/teacher/classes/${b.dataset.id}` }))
       container.querySelectorAll('.cl-view').forEach(b => b.addEventListener('click', () => openClassDetail(parseInt(b.dataset.id))))
       container.querySelectorAll('.cl-edit').forEach(b => { const id = parseInt(b.dataset.id); const tc = classesData.find(c => c.teaching_class_id === id); b.addEventListener('click', () => openClassModal(tc)) })
       container.querySelectorAll('.cl-del').forEach(b => { const id = parseInt(b.dataset.id); const name = b.dataset.name; b.addEventListener('click', () => openClassDelete(id, name)) })
@@ -587,14 +588,20 @@ export async function renderTeacherSystemManagement(app) {
       stuTotalPages = data.total_pages || Math.ceil((data.total || 0) / stuPageSize) || 1
       if (!studentsData.length) { container.innerHTML = '<div class="empty-hint" style="padding:60px 0;">暂无学生</div>'; updateStuPage(); return }
       container.innerHTML = `<div class="card" style="overflow:auto;padding:0;">
-        <table style="width:100%;min-width:1120px;border-collapse:collapse;font-size:0.85rem;">
+        <table style="width:100%;min-width:1200px;border-collapse:collapse;font-size:0.85rem;">
           <thead><tr style="background:#f8f9fa;border-bottom:2px solid var(--border);">
-            <th style="padding:12px 16px;text-align:left;">姓名</th><th style="padding:12px 16px;text-align:left;">学号</th><th style="padding:12px 16px;text-align:left;">教学班</th><th style="padding:12px 16px;text-align:left;">学院/专业</th><th style="padding:12px 10px;text-align:center;">掌握度</th><th style="padding:12px 10px;text-align:center;">作业完成</th><th style="padding:12px 10px;text-align:center;">活跃度</th><th style="padding:12px 10px;text-align:center;">干预</th><th style="padding:12px 16px;text-align:center;">操作</th>
+            <th style="padding:12px 16px;text-align:left;">姓名</th><th style="padding:12px 16px;text-align:left;">学号</th><th style="padding:12px 16px;text-align:left;">教学班</th><th style="padding:12px 16px;text-align:left;">学院/专业</th><th style="padding:12px 10px;text-align:center;">掌握度</th><th style="padding:12px 10px;text-align:center;">作业完成</th><th style="padding:12px 10px;text-align:center;">活跃度</th><th style="padding:12px 10px;text-align:center;">综合评分</th><th style="padding:12px 10px;text-align:center;">画像风险</th><th style="padding:12px 16px;text-align:center;">操作</th>
           </tr></thead><tbody>
           ${studentsData.map(s => {
             const name = s.student_name || s.real_name || s.username || '(未命名)'
             const classes = [...new Set((s.courses || []).map(c => c.class_name).filter(Boolean))]
             const metrics = s.metrics || {}
+            const evaluation = s.evaluation || {}
+            const comprehensiveScore = Math.round(Number(evaluation.comprehensive_score ?? metrics.comprehensive_score) || 0)
+            const riskLevel = ['normal', 'attention', 'high'].includes(evaluation.risk_level || metrics.risk_level)
+              ? (evaluation.risk_level || metrics.risk_level)
+              : 'normal'
+            const riskLabel = evaluation.risk_label || ({ normal: '正常', attention: '需要关注', high: '高风险' }[riskLevel])
             return `<tr style="border-bottom:1px solid var(--border);">
               <td style="padding:12px 16px;font-weight:500;"><div style="display:flex;align-items:center;gap:10px;"><div style="width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:600;">${name[0]}</div>${escapeHtml(name)}</div></td>
               <td style="padding:12px 16px;color:var(--text-secondary);">${s.student_no || '-'}</td>
@@ -603,7 +610,8 @@ export async function renderTeacherSystemManagement(app) {
               <td style="padding:12px 10px;text-align:center;">${metrics.mastery_score ?? 0}%</td>
               <td style="padding:12px 10px;text-align:center;">${metrics.homework_completion_rate ?? 0}%</td>
               <td style="padding:12px 10px;text-align:center;">${metrics.activity_count ?? 0}</td>
-              <td style="padding:12px 10px;text-align:center;color:${metrics.open_intervention_count ? '#b45309' : 'var(--text-secondary)'};">${metrics.open_intervention_count ? '需关注' : '正常'}</td>
+              <td style="padding:12px 10px;text-align:center;font-weight:600;">${comprehensiveScore} 分</td>
+              <td style="padding:12px 10px;text-align:center;"><span class="tsp-risk-badge tsp-risk-${riskLevel}">${escapeHtml(riskLabel)}</span>${metrics.open_intervention_count ? `<small style="display:block;color:#b45309;margin-top:4px;">${metrics.open_intervention_count} 项干预</small>` : ''}</td>
               <td style="padding:12px 16px;text-align:center;white-space:nowrap;"><button class="stu-view" data-uid="${s.student_user_id ?? s.user_id}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.8rem;">详情</button><button class="stu-edit" data-uid="${s.student_user_id ?? s.user_id}" style="padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:0.8rem;margin-left:4px;">编辑</button>
               <button class="stu-del" data-uid="${s.student_user_id ?? s.user_id}" data-name="${name}" style="padding:4px 10px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:0.8rem;margin-left:4px;">删除</button></td>
             </tr>`

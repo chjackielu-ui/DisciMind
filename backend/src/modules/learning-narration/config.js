@@ -14,8 +14,11 @@ function number(name, fallback, { min = -Infinity, max = Infinity } = {}) {
 
 function getNarrationConfig() {
   const cacheDir = path.resolve(process.cwd(), process.env.LEARNING_NARRATION_CACHE_DIR || './storage/learning-narration');
-  const ttsConfigured = Boolean(process.env.BAILIAN_TTS_API_KEY && process.env.BAILIAN_TTS_MODEL
-    && process.env.BAILIAN_TTS_VOICE && process.env.BAILIAN_TTS_WS_URL);
+  const apiKey = process.env.BAILIAN_TTS_API_KEY || process.env.BAILIAN_API_KEY || '';
+  const model = process.env.BAILIAN_TTS_MODEL || 'qwen3-tts-flash-realtime';
+  const voice = process.env.BAILIAN_TTS_VOICE || '';
+  const wsUrl = process.env.BAILIAN_TTS_WS_URL || 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime';
+  const ttsConfigured = Boolean(apiKey && model && voice && wsUrl);
   const featureEnabled = bool('LEARNING_NARRATION_ENABLED', true);
   const upstreamEnabled = bool('BAILIAN_TTS_ENABLED', false);
   return {
@@ -34,10 +37,10 @@ function getNarrationConfig() {
     cacheDir,
     jobTimeoutMs: number('LEARNING_NARRATION_JOB_TIMEOUT_MS', 90000, { min: 5000, max: 300000 }),
     debug: bool('LEARNING_NARRATION_DEBUG', false),
-    model: process.env.BAILIAN_TTS_MODEL || 'qwen3-tts-flash-realtime',
-    voice: process.env.BAILIAN_TTS_VOICE || '',
-    wsUrl: process.env.BAILIAN_TTS_WS_URL || 'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
-    apiKey: process.env.BAILIAN_TTS_API_KEY || '',
+    model,
+    voice,
+    wsUrl,
+    apiKey,
     workspaceId: process.env.BAILIAN_TTS_WORKSPACE_ID || '',
     mode: process.env.BAILIAN_TTS_MODE || 'commit',
     languageType: process.env.BAILIAN_TTS_LANGUAGE_TYPE || 'Chinese',

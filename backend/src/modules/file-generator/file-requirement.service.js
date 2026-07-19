@@ -274,7 +274,11 @@ async function prefillFromOrchestration(userId, conversationId, input = {}) {
     includeAnswers: true, includeAnalysis: true, includeAnswerSheet: true,
   } : {
     targetAudience: '本科生', handoutLength: 'MEDIUM',
+<<<<<<< Updated upstream
     learningObjectives: [`理解并能应用${courseWide ? courseEntry[1].course_name : pointEntries[0][1].knowledge_point_name}核心内容`],
+=======
+    learningObjectives: [`理解并能应用${pointEntries[0][1].knowledge_point_name}`],
+>>>>>>> Stashed changes
     includeExamples: true, includeExercises: true, includeAnswers: false,
   };
   await resolveAndPersist(userId, conversation, { ...common, ...defaults }, { explicit: false });

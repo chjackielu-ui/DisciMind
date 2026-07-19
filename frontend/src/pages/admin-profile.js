@@ -1,11 +1,10 @@
 ﻿// 管理员端个人中心页面
 
-import { getMe } from '../api/auth.js'
+import { changePassword, getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getUserDisplayName, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { ADMIN_MENU_ITEMS } from '../utils/admin-menu.js'
-import { resetUserPassword } from '../api/admin.js'
-import { promptAdmin, notifyAdmin, confirmAdmin } from '../utils/admin-ui.js'
+import { notifyAdmin, openAdminDrawer } from '../utils/admin-ui.js'
 import { escapeHtml } from '../utils/format.js'
 
 export async function renderAdminProfile(app) {
@@ -101,11 +100,29 @@ export async function renderAdminProfile(app) {
     user,
   })
 
-  document.getElementById('btn-change-password')?.addEventListener('click', async () => {
-    const password = await promptAdmin({ title: '修改管理员密码', label: '新密码', placeholder: '至少 6 位字符', multiline: false })
-    if (!password) return
-    if (password.length < 6) { notifyAdmin('新密码至少需要 6 位字符', true); return }
-    if (!(await confirmAdmin({ title: '确认修改密码', message: '修改后下次登录需使用新密码。', confirmLabel: '修改密码', danger: true }))) return
-    try { await resetUserPassword(user.user_id, password); notifyAdmin('密码修改成功') } catch (error) { notifyAdmin(error.message || '密码修改失败', true) }
+  document.getElementById('btn-change-password')?.addEventListener('click', () => {
+    openAdminDrawer({
+      title: '修改管理员密码',
+      submitLabel: '确认修改',
+      content: `<div class="admin-form-grid">
+        <div class="admin-field is-wide"><label for="admin-current-password">当前密码</label><input class="admin-input" id="admin-current-password" name="current_password" type="password" autocomplete="current-password" required></div>
+        <div class="admin-field"><label for="admin-new-password">新密码</label><input class="admin-input" id="admin-new-password" name="new_password" type="password" autocomplete="new-password" minlength="6" required></div>
+        <div class="admin-field"><label for="admin-confirm-password">确认新密码</label><input class="admin-input" id="admin-confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="6" required></div>
+      </div>`,
+      onSubmit: async (formData) => {
+        const currentPassword = String(formData.get('current_password') || '')
+        const newPassword = String(formData.get('new_password') || '')
+        const confirmPassword = String(formData.get('confirm_password') || '')
+        if (newPassword.length < 6) throw new Error('新密码至少需要 6 位字符')
+        if (newPassword !== confirmPassword) throw new Error('两次输入的新密码不一致')
+        await changePassword({ current_password: currentPassword, new_password: newPassword })
+        notifyAdmin('密码修改成功，请重新登录')
+        setTimeout(() => {
+          clearAuth()
+          window.location.hash = '#/login'
+        }, 800)
+        return true
+      },
+    })
   })
 }

@@ -411,3 +411,104 @@
 .role-teacher .home-student-name {
   color: #451A03 !important;
 }
+
+/* ============================================
+   教师端布局间距统调
+   ============================================ */
+
+/* 页面头部对齐 */
+.role-teacher .teacher-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.role-teacher .teacher-page-head h2 {
+  margin: 2px 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.role-teacher .teacher-page-head p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* 卡片间距统一 */
+.role-teacher .teacher-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+/* 表格容器统一 */
+.role-teacher .teacher-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+}
+
+/* 筛选区统调 */
+.role-teacher .teacher-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  margin-bottom: 14px;
+}
+
+/* 操作按钮区 */
+.role-teacher .teacher-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 统计卡片最小高度 */
+.role-teacher .teacher-stat-card {
+  min-height: 110px;
+  padding: 16px;
+}
+
+/* 图表容器 */
+.role-teacher .teacher-chart-container {
+  min-height: 280px;
+  padding: 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+}
+
+/* 详情字段网格 */
+.role-teacher .teacher-detail-grid {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 12px 18px;
+  align-items: baseline;
+}
+
+.role-teacher .teacher-detail-grid .detail-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: right;
+  padding-top: 6px;
+}
+
+.role-teacher .teacher-detail-grid .detail-value {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  padding-top: 6px;
+  word-break: break-word;
+}

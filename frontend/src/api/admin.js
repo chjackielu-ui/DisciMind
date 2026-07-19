@@ -366,6 +366,10 @@ export const getGovernanceOverview = (module) => get(`/admin/governance/${module
 export const getGovernanceList = (module, params) => get(`/admin/governance/${module}`, { params })
 export const runGovernanceAction = (module, action, data = {}) => post(`/admin/governance/${module}/actions/${action}`, data)
 
+export const getAiSafetyOverview = () => get('/admin/ai-safety/overview')
+export const syncAiSafetyStandards = () => post('/admin/ai-safety/standards/sync', {})
+export const setAiSafetyRuleEnabled = (ruleId, enabled) => put(`/admin/ai-safety/rules/${ruleId}/enabled`, { enabled })
+
 // ==================== 管理员角色与权限 ====================
 export const getAdminAccess = () => get('/admin/rbac/me')
 export const getAdminRbacOverview = () => get('/admin/rbac/overview')

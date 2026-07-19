@@ -24,6 +24,11 @@ async function compare(req, res) { try { return success(res, await service.compa
 async function restore(req, res) { try { return success(res, await service.restoreVersion(req.user, id(req.params.id), id(req.params.version, 'version'))); } catch (error) { return handle(res, 'restore', error); } }
 async function publish(req, res) { try { return success(res, await service.publishPlan(req.user, id(req.params.id)), '备课方案已发布'); } catch (error) { return handle(res, 'publish', error); } }
 async function exportFile(req, res) { try { return success(res, await service.exportPlan(req.user, id(req.params.id), req.body?.format, req.body?.artifact_type), '导出任务已创建'); } catch (error) { return handle(res, 'export', error); } }
+async function listSyllabuses(req, res) { try { return success(res, await service.listSyllabuses(req.user, req.query || {})); } catch (error) { return handle(res, 'listSyllabuses', error); } }
+async function createSyllabus(req, res) { try { return success(res, await service.createSyllabus(req.user, req.body || {}), '教学大纲已创建'); } catch (error) { return handle(res, 'createSyllabus', error); } }
+async function syllabusDetail(req, res) { try { return success(res, await service.getSyllabus(req.user, id(req.params.id))); } catch (error) { return handle(res, 'syllabusDetail', error); } }
+async function updateSyllabus(req, res) { try { return success(res, await service.updateSyllabus(req.user, id(req.params.id), req.body || {}), '教学大纲已保存'); } catch (error) { return handle(res, 'updateSyllabus', error); } }
+async function generateFromSyllabus(req, res) { try { return success(res, await service.generateLessonPlanFromSyllabus(req.user, id(req.params.id), req.body || {}), '教案已生成'); } catch (error) { return handle(res, 'generateFromSyllabus', error); } }
 
 async function stream(req, res) {
   try {
@@ -46,4 +51,4 @@ async function stream(req, res) {
   }
 }
 
-module.exports = { list, create, detail, save, generate, refine, status, versions, compare, restore, publish, exportFile, stream };
+module.exports = { list, create, detail, save, generate, refine, status, versions, compare, restore, publish, exportFile, stream, listSyllabuses, createSyllabus, syllabusDetail, updateSyllabus, generateFromSyllabus };

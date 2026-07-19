@@ -144,3 +144,60 @@
 @media (max-width: 1400px) { .admin-provider-grid { grid-template-columns: repeat(2,minmax(280px,1fr)); }.admin-status-strip { grid-template-columns: repeat(3,minmax(0,1fr)); }.admin-status-strip > div { border-bottom: 1px solid var(--admin-border); } }
 @media (max-width: 900px) { .admin-command-hero { align-items: flex-start; flex-direction: column; }.admin-command-status { width: 100%; min-width: 0; }.admin-provider-grid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .admin-command-hero { min-height: 210px; padding: 17px; }.admin-command-copy h2 { font-size: 21px; }.admin-command-status { grid-template-columns: 1fr; }.admin-status-strip { grid-template-columns: 1fr; }.admin-status-strip > div { border-right: 0; }.admin-todo-grid { grid-template-columns: 1fr; }.admin-trace-summary { grid-template-columns: 1fr; } }
+
+/* ============================================
+   Admin UI enhancement primitives
+   ============================================ */
+
+/* Detail grid for admin detail pages */
+.admin-detail-grid { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 14px 20px; align-items: baseline; }
+.admin-detail-grid .detail-label { font-size:12px; font-weight:700; color:var(--admin-text-secondary); text-align:right; line-height:1.45; padding-top:7px; }
+.admin-detail-grid .detail-value { font-size:13px; color:var(--admin-text); line-height:1.45; padding-top:7px; word-break:break-word; }
+
+/* Section header alignment */
+.admin-section-header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; flex-wrap:wrap; }
+.admin-section-header h2 { margin:0; font-size:1.25rem; font-weight:700; }
+.admin-section-header p { margin:4px 0 0; color:var(--admin-text-secondary); font-size:12px; }
+.admin-section-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+/* Compact filter bar variant */
+.admin-filter-bar-compact { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 14px; border:1px solid var(--admin-border); border-radius:10px; background:var(--admin-surface); }
+
+/* Badge size variants */
+.admin-badge.is-sm { padding:2px 7px; font-size:10px; }
+.admin-badge.is-lg { padding:5px 12px; font-size:12px; }
+
+/* Metric card refinements */
+.admin-metric-card .metric-icon { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px; margin-bottom:10px; }
+.admin-metric-card .metric-icon svg { width:20px; height:20px; }
+
+/* Table header with count */
+.admin-table-caption { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--admin-border); font-size:12px; color:var(--admin-text-secondary); }
+.admin-table-caption strong { color:var(--admin-text); }
+
+/* Inline actions spacing */
+.admin-inline-actions { display:inline-flex; align-items:center; gap:6px; flex-shrink:0; }
+.admin-inline-actions .admin-button { min-height:30px; padding:5px 10px; font-size:11px; }
+
+/* Action toolbar */
+.admin-action-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; flex-wrap:wrap; }
+.admin-action-bar-left { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.admin-action-bar-right { display:flex; align-items:center; gap:8px; }
+.admin-action-bar .admin-button svg { width:15px; height:15px; }
+
+/* Tabs enhancements */
+.admin-tab-count { display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 5px; margin-left:4px; border-radius:999px; background:rgba(109,93,251,.12); color:var(--admin-primary); font-size:10px; font-weight:700; }
+.admin-tab.is-active .admin-tab-count { background:var(--admin-primary); color:#fff; }
+
+/* Notification dot */
+.admin-dot { display:inline-block; width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.admin-dot.is-active { background:var(--admin-teal); box-shadow:0 0 0 3px rgba(15,159,143,.12); }
+.admin-dot.is-warning { background:var(--admin-amber); box-shadow:0 0 0 3px rgba(217,119,6,.1); }
+.admin-dot.is-danger { background:var(--admin-rose); }
+.admin-dot.is-muted { background:#c9cdd8; }
+
+/* Compact stat row */
+.admin-stat-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0; border-bottom:1px solid #eef0f5; }
+.admin-stat-row:last-child { border-bottom:0; }
+.admin-stat-row-label { font-size:12px; color:var(--admin-text-secondary); }
+.admin-stat-row-value { font-size:13px; font-weight:700; color:var(--admin-text); }

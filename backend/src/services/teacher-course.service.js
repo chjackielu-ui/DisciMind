@@ -640,14 +640,151 @@ async function listAllTeachingClasses(user, query) {
     orderBy: { created_at: 'desc' },
     include: {
       course: { select: { course_id: true, course_name: true } },
-      _count: { select: { enrollments: true } },
+      enrollments: {
+        where: { enrollment_status: 'active' },
+        select: { student_user_id: true },
+      },
+      _count: {
+        select: {
+          learning_tasks: true,
+          knowledge_documents: {
+            where: { deleted_at: null, is_teaching_resource: true },
+          },
+          question_bank_links: true,
+        },
+      },
       course_offering: { include: { semester: true } },
       primary_teacher: { include: { profile: true } },
     },
   });
 
+  const classIds = classes.map((item) => item.teaching_class_id);
+  const studentIds = [...new Set(classes.flatMap((item) => item.enrollments.map((enrollment) => enrollment.student_user_id)))];
+  const courseIds = [...new Set(classes.map((item) => item.course_id))];
+  const recentThreshold = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+  const [portraits, recentTasks, interventions, masteryRows, activityRows, recipients, submissions] = classIds.length
+    ? await Promise.all([
+      studentIds.length
+        ? prisma.studentPortrait.findMany({
+          where: { student_user_id: { in: studentIds }, course_id: { in: courseIds } },
+          select: {
+            student_user_id: true,
+            course_id: true,
+            learning_total_score: true,
+            progress_score: true,
+          },
+        })
+        : [],
+      prisma.learningTask.findMany({
+        where: {
+          teaching_class_id: { in: classIds },
+          created_at: { gte: recentThreshold },
+          task_type: { in: ['HOMEWORK', 'EXAM', 'QUIZ', 'PRACTICE'] },
+        },
+        select: { teaching_class_id: true },
+      }),
+      prisma.teacherStudentIntervention.findMany({
+        where: { teaching_class_id: { in: classIds }, status: { not: 'closed' } },
+        select: { teaching_class_id: true, student_user_id: true },
+      }),
+      studentIds.length
+        ? prisma.studentMasteryRecord.groupBy({
+          by: ['student_user_id', 'course_id'],
+          where: { student_user_id: { in: studentIds }, course_id: { in: courseIds } },
+          _avg: { mastery_score: true },
+        })
+        : [],
+      studentIds.length
+        ? prisma.studyRecord.groupBy({
+          by: ['student_user_id', 'course_id'],
+          where: { student_user_id: { in: studentIds }, course_id: { in: courseIds } },
+          _count: { _all: true },
+          _sum: { duration_seconds: true },
+        })
+        : [],
+      prisma.learningTaskRecipient.findMany({
+        where: { teaching_class_id: { in: classIds } },
+        select: { teaching_class_id: true, student_user_id: true, task_id: true },
+      }),
+      prisma.taskSubmission.findMany({
+        where: {
+          student_user_id: { in: studentIds },
+          submission_status: { in: ['SUBMITTED', 'GRADED'] },
+          task: { teaching_class_id: { in: classIds } },
+        },
+        select: {
+          student_user_id: true,
+          task_id: true,
+          task: { select: { teaching_class_id: true } },
+        },
+      }),
+    ])
+    : [[], [], [], [], [], [], []];
+
+  const portraitByStudentCourse = new Map(
+    portraits.map((item) => [`${item.student_user_id}:${item.course_id}`, item]),
+  );
+  const recentTaskCount = new Map();
+  recentTasks.forEach((item) => recentTaskCount.set(
+    item.teaching_class_id,
+    (recentTaskCount.get(item.teaching_class_id) || 0) + 1,
+  ));
+  const interventionStudents = new Map();
+  interventions.forEach((item) => {
+    const students = interventionStudents.get(item.teaching_class_id) || new Set();
+    students.add(item.student_user_id);
+    interventionStudents.set(item.teaching_class_id, students);
+  });
+  const masteryByStudentCourse = new Map(masteryRows.map((item) => [
+    `${item.student_user_id}:${item.course_id}`,
+    Number(item._avg.mastery_score) || 0,
+  ]));
+  const activityByStudentCourse = new Map(activityRows.map((item) => {
+    const count = item._count?._all || 0;
+    const duration = item._sum?.duration_seconds || 0;
+    return [`${item.student_user_id}:${item.course_id}`, Math.min(100, Math.round(count * 4 + (duration / 3600) * 3))];
+  }));
+  const recipientCountByClassStudent = new Map();
+  recipients.forEach((item) => {
+    const key = `${item.teaching_class_id}:${item.student_user_id}`;
+    recipientCountByClassStudent.set(key, (recipientCountByClassStudent.get(key) || 0) + 1);
+  });
+  const submittedTasksByClassStudent = new Map();
+  submissions.forEach((item) => {
+    const key = `${item.task.teaching_class_id}:${item.student_user_id}`;
+    const taskIds = submittedTasksByClassStudent.get(key) || new Set();
+    taskIds.add(item.task_id);
+    submittedTasksByClassStudent.set(key, taskIds);
+  });
+
   return {
-    list: classes.map((tc) => ({
+    list: classes.map((tc) => {
+      const classPortraits = tc.enrollments
+        .map((enrollment) => portraitByStudentCourse.get(`${enrollment.student_user_id}:${tc.course_id}`))
+        .filter(Boolean);
+      const progressValues = classPortraits
+        .map((portrait) => Number(portrait.progress_score))
+        .filter(Number.isFinite);
+      const riskStudents = new Set(interventionStudents.get(tc.teaching_class_id) || []);
+      tc.enrollments.forEach((enrollment) => {
+        const portrait = portraitByStudentCourse.get(`${enrollment.student_user_id}:${tc.course_id}`);
+        const studentCourseKey = `${enrollment.student_user_id}:${tc.course_id}`;
+        const classStudentKey = `${tc.teaching_class_id}:${enrollment.student_user_id}`;
+        const recipientCount = recipientCountByClassStudent.get(classStudentKey) || 0;
+        const submittedCount = submittedTasksByClassStudent.get(classStudentKey)?.size || 0;
+        const completionRate = recipientCount ? (submittedCount / recipientCount) * 100 : 100;
+        const masteryScore = masteryByStudentCourse.get(studentCourseKey) || 0;
+        const activityScore = activityByStudentCourse.get(studentCourseKey) || 0;
+        const totalScore = Number(portrait?.learning_total_score) || 0;
+        if (totalScore < 72 || completionRate < 70 || masteryScore < 50 || activityScore < 60) {
+          riskStudents.add(enrollment.student_user_id);
+        }
+      });
+      const learningProgress = progressValues.length
+        ? Math.round(progressValues.reduce((sum, score) => sum + score, 0) / progressValues.length)
+        : 0;
+
+      return {
       teaching_class_id: tc.teaching_class_id,
       teaching_class_name: tc.teaching_class_name,
       semester: tc.semester,
@@ -659,14 +796,21 @@ async function listAllTeachingClasses(user, query) {
       status: tc.status,
       course_id: tc.course_id,
       course_name: tc.course?.course_name || null,
-      student_count: tc._count.enrollments,
+      student_count: tc.enrollments.length,
+      recent_assignment_count: recentTaskCount.get(tc.teaching_class_id) || 0,
+      task_count: tc._count.learning_tasks,
+      learning_progress: learningProgress,
+      risk_student_count: riskStudents.size,
+      resource_count: tc._count.knowledge_documents,
+      question_bank_count: tc._count.question_bank_links,
       course_offering_id: tc.course_offering_id,
       semester_id: tc.course_offering?.semester_id || null,
       semester_name: tc.course_offering?.semester?.name || tc.semester,
       teacher_user_id: tc.teacher_user_id,
       teacher_name: tc.primary_teacher?.profile?.real_name || tc.primary_teacher?.username || null,
       created_at: tc.created_at.toISOString(),
-    })),
+      };
+    }),
     total: classes.length,
   };
 }

@@ -69,10 +69,12 @@ let pdfSwitchPromise = Promise.resolve();
 let pdfControlsCleanup = null;
 let pdfSourcesLoaded = false;
 let learningCardDeck = null;
+const sessionTimeoutIds = new Set();
 
 function initState(sessionId) {
   return {
     sessionId,
+    disposed: false,
     nodeId: null,
     sessionPhase: 'LOADING',
     guide: { phase: PHASE.IDLE, requestId: '', blocks: [], error: null },
@@ -118,7 +120,7 @@ function invalidateExecution() {
 }
 
 function isExecutionCurrent(execution) {
-  return Boolean(state && execution && !execution.invalidated
+  return Boolean(state && !state.disposed && execution && !execution.invalidated
     && state.sessionId === Number(S?.session_id || state.sessionId)
     && state.execution?.requestVersion === execution.requestVersion
     && String(state.nodeId) === String(execution.nodeId));
@@ -219,6 +221,7 @@ export function renderStudentLearningSession(app, params) {
   sessionEventCleanup?.();
   sessionEventCleanup = null;
   state = initState(sessionId);
+  const pageState = state;
   completionChat.abortController?.abort();
   completionChat = { messages: [], sending: false, abortController: null };
   narrationClient?.destroy().catch(() => {});
@@ -251,12 +254,32 @@ export function renderStudentLearningSession(app, params) {
   document.querySelector('.student-dashboard-wrapper')?.classList.add('learning-session-layout');
   const resetInitialScroll = () => window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   resetInitialScroll();
-  requestAnimationFrame(resetInitialScroll);
-  setTimeout(resetInitialScroll, 0);
+  const initialScrollFrame = requestAnimationFrame(resetInitialScroll);
+  const initialScrollTimer = scheduleSessionTimeout(resetInitialScroll, 0);
+  let pageEventCleanup = null;
+  let disposed = false;
 
-  setTimeout(() => bindEvents(), 50);
-  setTimeout(() => initializeNarration(), 60);
-  initSession(sessionId);
+  const bindTimer = scheduleSessionTimeout(() => {
+    if (!disposed && state === pageState) pageEventCleanup = bindEvents() || null;
+  }, 50);
+  const narrationTimer = scheduleSessionTimeout(() => {
+    if (!disposed && state === pageState) initializeNarration();
+  }, 60);
+  void initSession(sessionId, pageState);
+
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    pageState.disposed = true;
+    cancelAnimationFrame(initialScrollFrame);
+    [initialScrollTimer, bindTimer, narrationTimer].forEach((timerId) => {
+      clearTimeout(timerId);
+      sessionTimeoutIds.delete(timerId);
+    });
+    if (sessionEventCleanup === pageEventCleanup) sessionEventCleanup = null;
+    if (pageEventCleanup) pageEventCleanup();
+    else if (state === pageState) cleanup();
+  };
 }
 
 function buildPageShell() {
@@ -500,7 +523,11 @@ function bindEvents() {
   };
   document.addEventListener('fullscreenchange', fullscreenHandler);
 
+  const boundState = state;
+  let cleaned = false;
   sessionEventCleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     root.removeEventListener('click', handler);
     delete root.dataset.learningEventsBound;
     if (modalOverlay) {
@@ -512,11 +539,13 @@ function bindEvents() {
     subtitles?.removeEventListener('change', onSubtitles);
     pdfControlsCleanup?.();
     pdfControlsCleanup = null;
-    cleanup();
+    if (state === boundState) cleanup();
   };
+  return sessionEventCleanup;
 }
 
 function cleanup() {
+  if (state) state.disposed = true;
   invalidateExecution();
   // Abort active requests
   if (guideAbortCtrl) { guideAbortCtrl.abort(); guideAbortCtrl = null; }
@@ -536,6 +565,7 @@ function cleanup() {
   // Clear all timers
   clearFormalAgentTimer();
   clearGuideTimer();
+  clearNodeTimers();
 
   // Clear sticky observer
   if (stickyObserver) { stickyObserver.disconnect(); stickyObserver = null; }
@@ -1074,14 +1104,18 @@ function abortBoth() {
   lastNarrationKey = '';
 }
 
+function scheduleSessionTimeout(callback, delay = 0) {
+  const timerId = setTimeout(() => {
+    sessionTimeoutIds.delete(timerId);
+    callback();
+  }, delay);
+  sessionTimeoutIds.add(timerId);
+  return timerId;
+}
+
 function clearNodeTimers() {
-  // Clear any pending timeouts attached to the current node
-  // (guide block animation timers, etc.)
-  // The highest timeout ID is tracked implicitly; we use a brute-force approach
-  // for small ID ranges commonly used by setTimeout in this module.
-  for (let i = 1; i < 1000; i++) {
-    clearTimeout(i);
-  }
+  sessionTimeoutIds.forEach((timerId) => clearTimeout(timerId));
+  sessionTimeoutIds.clear();
 }
 
 function resetCurrentNodeState() {
@@ -1195,12 +1229,14 @@ function buildUnifiedHistoryHtml(content) {
 
 let S = null, knowledgePointData = null;
 
-async function initSession(sessionId) {
+async function initSession(sessionId, expectedState = state) {
   try {
     let res;
     try { res = await learningWorkflowApi.getSession(sessionId); } catch {
+      if (state !== expectedState || expectedState.disposed) return;
       res = await learningWorkflowApi.getSession(sessionId);
     }
+    if (state !== expectedState || expectedState.disposed) return;
     S = res.data || res;
     if (!S) { showGlobalError('会话加载失败', true); return; }
 
@@ -1221,31 +1257,39 @@ async function initSession(sessionId) {
 
     if (S.status === 'PAUSED') { showPaused(); return; }
     if (S.status === 'COMPLETED') {
-      await loadKnowledgePointData();
+      await loadKnowledgePointData(expectedState);
+      if (state !== expectedState || expectedState.disposed) return;
       await showFlowCompleted();
       return;
     }
     if (S.status === 'CREATED') {
       const started = await learningWorkflowApi.startSession(sessionId);
+      if (state !== expectedState || expectedState.disposed) return;
       applySessionSnapshot(started);
       state.sessionPhase = 'RUNNING';
       state.nodeId = S.current_node_id;
     }
 
-    await loadKnowledgePointData();
+    await loadKnowledgePointData(expectedState);
+    if (state !== expectedState || expectedState.disposed) return;
     await execCurrentNode(sessionId);
   } catch (e) {
+    if (state !== expectedState || expectedState.disposed) return;
     showGlobalError('加载失败: ' + escHtml(e.message || ''), true);
   }
 }
 
-async function loadKnowledgePointData() {
+async function loadKnowledgePointData(expectedState = state) {
   if (!S || !S.knowledge_point_id) return;
+  const knowledgePointId = S.knowledge_point_id;
   try {
-    const r = await fetch(apiUrl(`/student/knowledge-points/${S.knowledge_point_id}`), {
+    const r = await fetch(apiUrl(`/student/knowledge-points/${knowledgePointId}`), {
       headers: { Authorization: `Bearer ${getToken()}` },
     });
-    if (r.ok) { const data = await r.json(); knowledgePointData = data.data || data; }
+    if (r.ok) {
+      const data = await r.json();
+      if (state === expectedState && !expectedState?.disposed) knowledgePointData = data.data || data;
+    }
   } catch { /* non-critical */ }
 }
 
@@ -1449,7 +1493,7 @@ function setProgressCollapsed(collapsed, options = {}) {
     shell.dataset.progressState = 'transitioning';
     shell.classList.add('is-progress-transitioning');
     if (progressNavState.transitionTimer) clearTimeout(progressNavState.transitionTimer);
-    progressNavState.transitionTimer = setTimeout(finishProgressTransition, 260);
+    progressNavState.transitionTimer = scheduleSessionTimeout(finishProgressTransition, 260);
   }
   updateProgressControls();
   requestAnimationFrame(syncProgressOffset);
@@ -1495,7 +1539,7 @@ function brieflyRevealProgress() {
   if (!progressNavState || progressNavState.locked === 'collapsed') return;
   setProgressCollapsed(false, { reason: 'node-change', minimumHold: 1200 });
   if (progressRevealTimer) clearTimeout(progressRevealTimer);
-  progressRevealTimer = setTimeout(() => { progressRevealTimer = null; }, 1200);
+  progressRevealTimer = scheduleSessionTimeout(() => { progressRevealTimer = null; }, 1200);
 }
 
 function syncProgressOffset() {
@@ -1636,7 +1680,7 @@ function renderGuideBlocks(blocks, isRestore = false) {
     } else {
       // Live streaming: use short staggered animation (180-280ms per block)
       const delay = Math.min((block.index - 1) * 220, 280);
-      setTimeout(() => {
+      scheduleSessionTimeout(() => {
         guideEl.classList.add('lws-guide-block-visible');
       }, delay);
     }
@@ -2195,7 +2239,7 @@ function renderInfoCards(title, cards, sources = []) {
   }).join('');
   const sourceHtml = sources.length ? `<details class="lws-sources-details"><summary class="lws-sources-summary">📚 知识库来源 (${sources.length})</summary><div class="lws-sources-list">${sources.map((source) => `<div class="lws-source-item"><span class="lws-source-name">${escHtml(source.document_name || source.documentName || source.name || '课程资料')}</span></div>`).join('')}</div></details>` : '';
   el.innerHTML = `<div class="lws-teaching-header"><h3>${escHtml(title || '学习内容')}</h3></div><div class="lws-sections-container">${body || '<p class="lws-fallback-text">该条内容格式较旧，暂时无法展示。</p>'}</div>${sourceHtml}`;
-  setTimeout(() => renderMathInMarkdownElements?.(el), 50);
+  scheduleSessionTimeout(() => renderMathInMarkdownElements?.(el), 50);
 }
 
 function renderExplainerContent(data, node) {
@@ -2536,9 +2580,9 @@ function renderTeachingResult(teachingData, nodeOrRun) {
 
   // 渲染数学公式
   if (typeof renderMathInMarkdownElements === 'function') {
-    setTimeout(() => renderMathInMarkdownElements(el), 100);
+    scheduleSessionTimeout(() => renderMathInMarkdownElements(el), 100);
   } else if (window.renderMathInElement) {
-    setTimeout(() => {
+    scheduleSessionTimeout(() => {
       el.querySelectorAll('.message-markdown').forEach(child => {
         try {
           window.renderMathInElement(child);
@@ -2838,10 +2882,10 @@ function renderLearningInputComposer(interaction, afterElId = 'lws-teaching-resu
   composer.innerHTML = html;
 
   // Bind events
-  setTimeout(() => mountLearningInputComposer(interaction), 30);
+  scheduleSessionTimeout(() => mountLearningInputComposer(interaction), 30);
 
   // Scroll composer into view
-  setTimeout(() => composer.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+  scheduleSessionTimeout(() => composer.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
 }
 
 function buildComposerHtml(itype, isChoice, isFreeText, placeholder, submitLabel, options, maxImages) {
@@ -3469,7 +3513,7 @@ async function handleTrainerSubmit(qId, question, trainerSession, sessionId, nod
     // 题目已由后端在确认未达到退出条件后生成；前端只展示它，不自行追加 Agent 请求。
     if (data.nextQuestion) {
       trainerState.loadingNext = true;
-      setTimeout(() => {
+      scheduleSessionTimeout(() => {
         if (!isExecutionCurrent(execution)) return;
         trainerState.loadingNext = false;
         appendTrainerQuestionToTimeline(data.nextQuestion, trainerSession, sessionId, node);
@@ -3528,7 +3572,7 @@ function applyLangGraphSubmitResult(data, context) {
     const next = toTimelineQuestion(data.content.data.currentQuestion, data.content.data.currentQuestionIndex || trainerState.answeredQuestions.length);
     trainerState.currentQuestion = next;
     setFormalPhase(PHASE.STREAMING, { agentName: 'Trainer', executionStatus: 'WAITING_INPUT', workflowConnected: true });
-    setTimeout(() => {
+    scheduleSessionTimeout(() => {
       if (isExecutionCurrent(execution)) appendTrainerQuestionToTimeline(next, trainerSession, sessionId, node);
     }, 250);
     return;

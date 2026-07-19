@@ -20,8 +20,11 @@ import './styles/teacher-agent-marketplace.css'
 import './styles/teacher-publisher.css'
 import './styles/teacher-question-bank.css'
 import './styles/teacher-system-upgrade.css'
+import './styles/teacher-class-workspace.css'
 import './styles/teacher-course-upgrade.css'
+import './styles/teacher-student-profile.css'
 import './styles/student-teaching-tasks.css'
+import './styles/learning-media.css'
 import { initRouter } from './utils/router.js'
 
 // 启动 Hash 路由

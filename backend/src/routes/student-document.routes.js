@@ -49,8 +49,12 @@ const documentUpload = multer({
   },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase();
+<<<<<<< Updated upstream
     const allowedMimes = ALLOWED_MIMES_BY_EXTENSION[ext] || [];
     if (ALLOWED_EXTENSIONS.includes(ext) && ALLOWED_MIMETYPES.includes(file.mimetype) && allowedMimes.includes(file.mimetype)) {
+=======
+    if (ALLOWED_MIMETYPES.includes(file.mimetype) && ALLOWED_EXTENSIONS.includes(ext)) {
+>>>>>>> Stashed changes
       cb(null, true);
       return;
     }

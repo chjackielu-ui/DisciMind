@@ -199,7 +199,7 @@ export async function downloadStudentTemplate() {
   // 直接通过 fetch 下载（避免 JSON 解析）
   const { getToken } = await import('../utils/auth.js')
   const token = getToken()
-  const BASE_URL = (await import('./request.js')).BASE_URL || 'http://localhost:3000/api'
+  const BASE_URL = (await import('./request.js')).BASE_URL || '/api'
   const response = await fetch(`${BASE_URL}/teacher/students/template`, {
     headers: { Authorization: token ? `Bearer ${token}` : '' },
     credentials: 'include',
@@ -284,7 +284,7 @@ export function deleteTeacherQuestion(questionId) {
 
 export function batchImportQuestions(data) { return post('/teacher/questions/batch-import', data) }
 export function batchUpdateQuestions(data) { return patch('/teacher/questions/batch', data) }
-export function batchDeleteQuestions(data) { return request('/teacher/questions/batch', { method: 'DELETE', body: data }) }
+export function batchDeleteQuestions(data) { return request('/teacher/questions/batch', { method: 'DELETE', body: JSON.stringify(data) }) }
 export function exportQuestions(params = {}) { return get('/teacher/questions/export', { params }) }
 
 // ========================
@@ -487,6 +487,14 @@ export function getLessonPlanKeywords(params = {}) {
 }
 
 export function getPreparationPlans(params = {}) { return get('/teacher/preparation/plans', { params }) }
+export function generateTeacherPpt(data) { return post('/teacher/ppt/generate', data) }
+export function getTeacherPptTask(taskId) { return get(`/teacher/ppt/tasks/${taskId}`) }
+export function getPreparationSyllabuses(params = {}) { return get('/teacher/syllabuses', { params }) }
+export function createPreparationSyllabus(data) { return post('/teacher/syllabuses', data) }
+export function getPreparationSyllabus(id) { return get(`/teacher/syllabuses/${id}`) }
+export function updatePreparationSyllabus(id, data) { return put(`/teacher/syllabuses/${id}`, data) }
+export function generateLessonPlanFromSyllabus(id, data = {}) { return post(`/teacher/syllabuses/${id}/generate-lesson-plan`, data) }
+export function getTeacherLessonPlan(id) { return get(`/teacher/lesson-plans/${id}`) }
 export function createPreparationPlan(data) { return post('/teacher/preparation/plans', data) }
 export function getPreparationPlan(id) { return get(`/teacher/preparation/plans/${id}`) }
 export function savePreparationPlan(id, data) { return put(`/teacher/preparation/plans/${id}`, data) }

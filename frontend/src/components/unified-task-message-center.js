@@ -388,7 +388,11 @@ export function mountUnifiedTaskMessageCenter(user) {
   })
   root.querySelector('#unified-view-task-center').addEventListener('click', () => {
     const role = String(user.role).toLowerCase()
-    window.location.hash = role === 'student' ? '#/student/agent-tasks' : role === 'teacher' ? '#/teacher/artifacts' : '#/admin/logs'
+    const current = String(window.location.hash || '')
+    const studentTaskUrl = current.startsWith('#/student/') && !current.startsWith('#/student/agent-tasks')
+      ? `#/student/agent-tasks?returnTo=${encodeURIComponent(current)}`
+      : '#/student/agent-tasks'
+    window.location.hash = role === 'student' ? studentTaskUrl : role === 'teacher' ? '#/teacher/artifacts' : '#/admin/logs'
   })
   root.querySelector('#unified-view-all-messages').addEventListener('click', async () => {
     expandedMessages = true

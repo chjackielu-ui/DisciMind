@@ -17,13 +17,18 @@ import { getCourseCoverUrl } from '../utils/course-cover.js'
 
 function sortCourses(courses, sortBy) {
   const sorted = [...courses]
+  const sampleRank = (course) => course.is_sample_course ? Number(course.display_order || 0) : 1000
+  const withSamplePriority = (compare) => sorted.sort((a, b) => {
+    const priority = sampleRank(a) - sampleRank(b)
+    return priority || compare(a, b)
+  })
   switch (sortBy) {
-    case 'progress-desc': return sorted.sort((a, b) => (b.progress || 0) - (a.progress || 0))
-    case 'progress-asc': return sorted.sort((a, b) => (a.progress || 0) - (b.progress || 0))
-    case 'name': return sorted.sort((a, b) => (a.course_name || '').localeCompare(b.course_name || ''))
-    case 'weak-desc': return sorted.sort((a, b) => (b.weak_knowledge_count || 0) - (a.weak_knowledge_count || 0))
-    case 'mastered-desc': return sorted.sort((a, b) => (b.mastered_knowledge_count || 0) - (a.mastered_knowledge_count || 0))
-    default: return sorted
+    case 'progress-desc': return withSamplePriority((a, b) => (b.progress || 0) - (a.progress || 0))
+    case 'progress-asc': return withSamplePriority((a, b) => (a.progress || 0) - (b.progress || 0))
+    case 'name': return withSamplePriority((a, b) => (a.course_name || '').localeCompare(b.course_name || ''))
+    case 'weak-desc': return withSamplePriority((a, b) => (b.weak_knowledge_count || 0) - (a.weak_knowledge_count || 0))
+    case 'mastered-desc': return withSamplePriority((a, b) => (b.mastered_knowledge_count || 0) - (a.mastered_knowledge_count || 0))
+    default: return withSamplePriority((a, b) => a.course_id - b.course_id)
   }
 }
 
@@ -121,6 +126,7 @@ function buildCourseCard(course) {
       </div>
       <div class="course-card-actions-h">
         <button class="btn-enter-course-h">${progress > 0 ? '继续学习' : '开始学习'} →</button>
+        <button class="btn-course-knowledge-graph-h" type="button">知识图谱</button>
         <button class="btn-course-wrong-book-h" type="button">错题本</button>
       </div>
     </div>
@@ -214,6 +220,14 @@ function bindEvents(courses) {
         const card = btn.closest('.course-card-h')
         const cid = card?.dataset.courseId
         if (cid) window.location.hash = `#/student/wrong-questions?subjectId=${encodeURIComponent(cid)}`
+      })
+    })
+    document.querySelectorAll('.btn-course-knowledge-graph-h').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const card = btn.closest('.course-card-h')
+        const cid = card?.dataset.courseId
+        if (cid) window.location.hash = `#/student/courses/${cid}?section=knowledge-graph`
       })
     })
   }

@@ -54,6 +54,22 @@ router.get(
   studentController.getCourseKnowledgePoints,
 );
 
+// 学生知识图谱课程总览
+router.get(
+  '/knowledge-graph',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.getKnowledgeGraphOverview,
+);
+
+// 单门课程知识图谱
+router.get(
+  '/courses/:course_id/knowledge-graph',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.getCourseKnowledgeGraph,
+);
+
 // 课程知识点掌握分布
 router.get(
   '/courses/:course_id/mastery-distribution',

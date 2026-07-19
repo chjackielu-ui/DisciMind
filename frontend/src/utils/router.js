@@ -3,6 +3,52 @@
 
 import { isLoggedIn, getUser, initializeAuth, getAuthStatus, AUTH_STATUS } from './auth.js'
 import { getActivePracticeAttempt } from '../api/student.js'
+<<<<<<< Updated upstream
+=======
+import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
+import { renderTeacherCourses } from '../pages/teacher-courses.js'
+import { renderTeacherCourseDetail } from '../pages/teacher-course-detail.js'
+import { renderTeacherStudents } from '../pages/teacher-students.js'
+import { renderTeacherStudentDetail } from '../pages/teacher-student-detail.js'
+import { renderTeacherTasks } from '../pages/teacher-tasks.js'
+import { renderTeacherTaskCreate } from '../pages/teacher-task-create.js'
+import { renderTeacherTaskDetail } from '../pages/teacher-task-detail.js'
+import { renderTeacherQuestions } from '../pages/teacher-questions.js'
+import { renderTeacherQuestionCreate } from '../pages/teacher-question-create.js'
+import { renderTeacherKnowledge } from '../pages/teacher-knowledge.js'
+import { renderTeacherAnalytics } from '../pages/teacher-analytics.js'
+import { renderTeacherProfile } from '../pages/teacher-profile.js'
+import { renderTeacherClasses } from '../pages/teacher-classes.js'
+import { renderTeacherSystemManagement } from '../pages/teacher-system-management.js'
+import { renderTeacherClassWorkspace } from '../pages/teacher-class-workspace.js'
+import { renderTeacherLessonPlan } from '../pages/teacher-lesson-plan.js'
+import { renderTeacherHomework } from '../pages/teacher-homework.js'
+import { renderTeacherAiChat } from '../pages/teacher-ai-chat.js'
+import { renderTeacherPreparation } from '../pages/teacher-preparation.js'
+import { renderTeacherPreparationImmersive } from '../pages/teacher-preparation-immersive.js'
+import { renderTeacherArtifacts } from '../pages/teacher-artifacts.js'
+import { renderTeacherAgentMarketplace } from '../pages/teacher-agent-marketplace.js'
+import { renderAdminDashboard } from '../pages/admin-dashboard.js'
+import { renderAdminUsers } from '../pages/admin-users.js'
+import { renderAdminCourses } from '../pages/admin-courses.js'
+import { renderAdminCourseDetail } from '../pages/admin-course-detail.js'
+import { renderAdminClasses } from '../pages/admin-classes.js'
+import { renderAdminTeachingClasses } from '../pages/admin-teaching-classes.js'
+import { renderAdminKnowledge } from '../pages/admin-knowledge.js'
+import { renderAdminLogs } from '../pages/admin-logs.js'
+import { renderAdminNotifications } from '../pages/admin-notifications.js'
+import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
+import { renderAdminProfile } from '../pages/admin-profile.js'
+import { renderAdminAgentReviews } from '../pages/admin-agent-reviews.js'
+import { renderAdminTraces } from '../pages/admin-traces.js'
+import { renderAdminPermissions } from '../pages/admin-permissions.js'
+import { renderAdminAiSafety } from '../pages/admin-ai-safety.js'
+import {
+  renderAdminLearningFlows, renderAdminKnowledgeHealth, renderAdminTeachingIssues,
+  renderAdminEvaluations, renderAdminExperiments, renderAdminDigitalTwin,
+  renderAdminAssets, renderAdminStrategyProfiles, renderAdminRisks,
+} from '../pages/admin-governance.js'
+>>>>>>> Stashed changes
 import { loadAdminAccess, hasAdminPermission } from './admin-access.js'
 import { ADMIN_MENU_ITEMS } from './admin-menu.js'
 import { renderDashboardLayout } from './dashboard.js'
@@ -203,6 +249,7 @@ const staticRoutes = {
   '/admin/assets': { render: renderAdminAssets, auth: true, roles: ['admin'], permission: 'admin.assets.view' },
   '/admin/strategy-profiles': { render: renderAdminStrategyProfiles, auth: true, roles: ['admin'], permission: 'admin.teaching.view' },
   '/admin/risks': { render: renderAdminRisks, auth: true, roles: ['admin'], permission: 'admin.risks.view' },
+  '/admin/ai-safety': { render: renderAdminAiSafety, auth: true, roles: ['admin'], permission: 'admin.risks.view' },
   '/admin/environment': { render: renderAdminAiConfig, auth: true, roles: ['admin'], permission: 'admin.system.view' },
   '/admin/permissions': { render: renderAdminPermissions, auth: true, roles: ['admin'], permission: 'admin.system.view' },
 
@@ -372,6 +419,14 @@ const dynamicRoutes = [
   },
   // ========== 教师端动态路由 ==========
   {
+    // #/teacher/classes/:class_id
+    pattern: /^\/teacher\/classes\/(\d+)$/,
+    render: renderTeacherClassWorkspace,
+    auth: true,
+    roles: ['teacher', 'admin'],
+    paramNames: ['class_id'],
+  },
+  {
     // #/teacher/courses/:course_id
     pattern: /^\/teacher\/courses\/(\d+)$/,
     render: renderTeacherCourseDetail,
@@ -492,6 +547,7 @@ function matchRoute(path) {
 
 let renderSeq = 0
 let activePageCleanup = null
+let renderQueue = Promise.resolve()
 
 function buildAuthCheckingHTML() {
   return `
@@ -534,8 +590,20 @@ function renderAdminAccessState(app, user, title, message) {
   })
 }
 
-async function render() {
+function render() {
   const seq = ++renderSeq
+  const pendingRender = renderQueue.then(
+    () => renderRoute(seq),
+    () => renderRoute(seq),
+  )
+  renderQueue = pendingRender.catch((error) => {
+    console.error('页面渲染失败', error)
+  })
+  return pendingRender
+}
+
+async function renderRoute(seq) {
+  if (seq !== renderSeq) return
   const app = document.getElementById('app')
   if (!app) return
 
@@ -618,11 +686,17 @@ async function render() {
 
   if (route.auth && isLoggedIn()) {
     const redirected = await guardActiveExam(path, getUser())
+    if (seq !== renderSeq) return
     if (redirected) return
   }
 
   // 渲染页面
+<<<<<<< Updated upstream
   app.innerHTML = buildRouteLoadingHTML()
+=======
+  if (seq !== renderSeq) return
+  app.innerHTML = ''
+>>>>>>> Stashed changes
   if (path.startsWith('/admin/')) {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }

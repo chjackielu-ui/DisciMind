@@ -245,7 +245,25 @@ async function register(params) {
   }
 
   // 2. 角色映射
-  const prismaRole = toPrismaRole(role);
+  const normalizedRole = String(role).trim().toLowerCase();
+  if (normalizedRole === 'admin') {
+    const err = new Error('管理员账号只能由已有管理员在管理端创建');
+    err.code = 40301;
+    throw err;
+  }
+  const teacherRegistrationEnabled = String(process.env.PUBLIC_TEACHER_REGISTRATION_ENABLED
+    ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() === 'true';
+  if (normalizedRole === 'teacher' && !teacherRegistrationEnabled) {
+    const err = new Error('教师账号请联系管理员创建');
+    err.code = 40301;
+    throw err;
+  }
+  if (!['student', 'teacher'].includes(normalizedRole)) {
+    const err = new Error(`无效的角色: ${role}`);
+    err.code = 40001;
+    throw err;
+  }
+  const prismaRole = toPrismaRole(normalizedRole);
   const prismaGender = toPrismaGender(gender);
 
   // 3. 唯一性检查（并行检查以提升性能）
@@ -441,10 +459,14 @@ async function refreshSession(rawRefreshToken, meta = {}) {
   let sessionId = null;
   if (tokenRecord.session_id) {
     const sessionCheck = await checkSessionIdle(tokenRecord.session_id);
-    if (sessionCheck.valid) {
-      await touchSession(tokenRecord.session_id);
-      sessionId = tokenRecord.session_id;
+    if (!sessionCheck.valid) {
+      await revokeRefreshToken(rawRefreshToken);
+      const err = new Error('登录会话已过期，请重新登录');
+      err.code = 40102;
+      throw err;
     }
+    await touchSession(tokenRecord.session_id);
+    sessionId = tokenRecord.session_id;
   }
 
   const token = buildAccessToken(tokenRecord.user, sessionId);
@@ -627,6 +649,10 @@ async function changePassword(user_id, { current_password, new_password }) {
       data: { password_hash },
     }),
     prisma.refreshToken.updateMany({
+      where: { user_id, revoked_at: null },
+      data: { revoked_at: new Date() },
+    }),
+    prisma.authSession.updateMany({
       where: { user_id, revoked_at: null },
       data: { revoked_at: new Date() },
     }),

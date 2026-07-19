@@ -24,6 +24,12 @@ function stageText(task) {
   return task?.stage || ({ QUEUED: '等待开始', RUNNING: '处理中', WAITING_EXTERNAL: '等待外部服务', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已取消' })[task?.status] || '后台任务'
 }
 
+function taskCenterUrl() {
+  const current = String(window.location.hash || '')
+  if (!current.startsWith('#/student/') || current.startsWith('#/student/agent-tasks')) return '#/student/agent-tasks'
+  return `#/student/agent-tasks?returnTo=${encodeURIComponent(current)}`
+}
+
 class TaskIslandController {
   constructor(userId, root) {
     this.userId = userId
@@ -103,7 +109,7 @@ class TaskIslandController {
       <span class="global-task-island-active">${active.length ? `${active.length} 进行中` : '查看全部'}</span>
     </button>`
     const button = this.root.querySelector('.global-task-island')
-    button?.addEventListener('click', () => { window.location.hash = '#/student/agent-tasks' })
+    button?.addEventListener('click', () => { window.location.hash = taskCenterUrl() })
     button?.addEventListener('pointerenter', () => this.expand())
     button?.addEventListener('pointerleave', () => this.scheduleCollapse())
     button?.addEventListener('focus', () => this.expand())

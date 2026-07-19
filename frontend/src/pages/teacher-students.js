@@ -316,7 +316,7 @@ export async function renderTeacherStudents(app) {
               <th style="padding:14px 16px;text-align:left;font-size:0.85rem;color:var(--text-secondary);font-weight:600;">学号</th>
               <th style="padding:14px 16px;text-align:left;font-size:0.85rem;color:var(--text-secondary);font-weight:600;">班级</th>
               <th style="padding:14px 16px;text-align:left;font-size:0.85rem;color:var(--text-secondary);font-weight:600;">学院/专业</th>
-              <th style="padding:14px 16px;text-align:center;font-size:0.85rem;color:var(--text-secondary);font-weight:600;">状态</th>
+              <th style="padding:14px 16px;text-align:center;font-size:0.85rem;color:var(--text-secondary);font-weight:600;">学习画像</th>
               <th style="padding:14px 16px;text-align:center;font-size:0.85rem;color:var(--text-secondary);font-weight:600;">操作</th>
             </tr>
           </thead>
@@ -330,6 +330,10 @@ export async function renderTeacherStudents(app) {
               const classes = (s.courses || []).map(c => c.class_name).filter(Boolean)
               const classNames = classes.length > 0 ? classes.join('、') : '-'
               const courseCount = s.enrolled_course_count ?? s.course_count ?? (s.courses || []).length
+              const evaluation = s.evaluation || {}
+              const comprehensiveScore = evaluation.comprehensive_score ?? s.metrics?.comprehensive_score ?? 0
+              const riskLevel = evaluation.risk_level || s.metrics?.risk_level || 'normal'
+              const riskLabel = evaluation.risk_label || ({ normal: '正常', attention: '需要关注', high: '高风险' }[riskLevel] || '正常')
               return `
                 <tr class="student-row" data-user-id="${s.student_user_id ?? s.user_id}" style="cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.15s;">
                   <td style="padding:14px 16px;font-weight:500;color:var(--stu-dark);">
@@ -344,7 +348,11 @@ export async function renderTeacherStudents(app) {
                   <td style="padding:14px 16px;color:var(--text-secondary);font-size:0.9rem;">${classNames}</td>
                   <td style="padding:14px 16px;color:var(--text-secondary);font-size:0.9rem;">${college}${major && major !== '-' ? ' · ' + major : ''}${grade ? ' (' + grade + '级)' : ''}</td>
                   <td style="padding:14px 16px;text-align:center;">
-                    <span style="background:#d1fae5;color:#065f46;padding:2px 10px;border-radius:12px;font-size:0.8rem;font-weight:500;">${courseCount} 门课程</span>
+                    <div class="tsp-list-evaluation">
+                      <strong>${Math.round(Number(comprehensiveScore) || 0)} 分</strong>
+                      <span class="tsp-risk-badge tsp-risk-${riskLevel}">${riskLabel}</span>
+                      <small>${courseCount} 门课程</small>
+                    </div>
                   </td>
                   <td style="padding:14px 16px;text-align:center;">
                     <div style="display:flex;gap:6px;justify-content:center;" onclick="event.stopPropagation();">

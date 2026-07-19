@@ -675,6 +675,7 @@ body.prep-is-resizing *,body.prep-is-resizing-row *{pointer-events:none!importan
 }
 @media(prefers-reduced-motion:reduce){.prep-row-splitter::after{transition:none}}
 
+<<<<<<< Updated upstream
 /* 教师产物详情：与学生智能体市场完全隔离的教师工作台视图 */
 .teacher-artifact-detail-page{--artifact-ink:#33271d;--artifact-muted:#806f60;--artifact-line:#eadfd2;--artifact-accent:#a96832;display:grid;gap:18px;max-width:1480px;margin:0 auto;padding:18px 24px 42px;color:var(--artifact-ink)}
 .teacher-artifact-detail-breadcrumb{display:flex;align-items:center;gap:8px;color:var(--artifact-muted);font-size:.84rem}.teacher-artifact-detail-breadcrumb a{color:#89572f;text-decoration:none;font-weight:700}.teacher-artifact-detail-breadcrumb a:hover{text-decoration:underline}
@@ -687,3 +688,49 @@ body.prep-is-resizing *,body.prep-is-resizing-row *{pointer-events:none!importan
 .teacher-artifact-detail-request>p{margin:0;padding:20px;white-space:pre-wrap;line-height:1.75;color:#554538}.teacher-artifact-detail-preview>.artifact-rich-preview{max-width:1050px;margin:22px auto;padding:34px 44px;border:1px solid #ebe3da;border-radius:10px;background:#fff;box-shadow:0 9px 26px rgba(60,45,32,.08);line-height:1.75}.teacher-artifact-detail-preview>.artifact-rich-preview img{max-width:100%}.teacher-artifact-detail-empty{display:grid;place-items:center;min-height:150px;padding:24px;text-align:center;color:var(--artifact-muted)}.teacher-artifact-detail-empty b{color:var(--artifact-ink)}.teacher-artifact-detail-empty p{margin:7px 0 0}.teacher-artifact-detail-page>.artifact-loading,.teacher-artifact-detail-page>.artifact-empty{min-height:280px;border:1px solid var(--artifact-line);border-radius:16px;background:#fff}
 @media(max-width:1100px){.teacher-artifact-detail-grid{grid-template-columns:1fr}.teacher-artifact-detail-overview dl{grid-template-columns:repeat(2,minmax(0,1fr))}.teacher-artifact-detail-hero{flex-direction:column}.teacher-artifact-detail-actions{justify-content:flex-start}}
 @media(max-width:720px){.teacher-artifact-detail-page{padding:12px}.teacher-artifact-detail-hero{padding:20px}.teacher-artifact-detail-overview dl{grid-template-columns:1fr}.teacher-artifact-detail-preview>.artifact-rich-preview{margin:12px;padding:22px 18px}.teacher-artifact-detail-actions{width:100%}.teacher-artifact-detail-actions>a,.teacher-artifact-detail-actions>button{flex:1 1 130px;text-align:center}}
+=======
+/* Syllabus-centered teacher preparation flow */
+.preparation-workbench{grid-template-rows:auto auto auto auto minmax(0,1fr)}
+.prep-flow-rail{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));min-width:0;border-bottom:1px solid #dfe5e2;background:#fff}
+.prep-flow-rail button{position:relative;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0;min-height:56px;padding:7px 12px;border:0;border-right:1px solid #e5e9e7;border-radius:0;background:#fff;text-align:left}
+.prep-flow-rail button:last-child{border-right:0}.prep-flow-rail button::after{content:"";position:absolute;right:-5px;z-index:1;width:9px;height:9px;border-top:1px solid #d7ddda;border-right:1px solid #d7ddda;background:#fff;transform:rotate(45deg)}.prep-flow-rail button:last-child::after{display:none}
+.prep-flow-rail button>i{display:grid;place-items:center;width:28px;height:28px;border:1px solid #c9d2ce;border-radius:6px;background:#f3f6f5;color:#557067;font-size:.68rem;font-style:normal;font-weight:800}
+.prep-flow-rail button>span{display:grid;min-width:0;gap:2px}.prep-flow-rail button b{overflow:hidden;color:#243b34;font-size:.71rem;text-overflow:ellipsis;white-space:nowrap}.prep-flow-rail button em{overflow:hidden;color:#7b8b85;font-size:.56rem;font-style:normal;text-overflow:ellipsis;white-space:nowrap}
+.prep-flow-rail button strong{padding:3px 6px;border-radius:5px;background:#f0f2f1;color:#6e7b77;font-size:.54rem;font-weight:700}.prep-flow-rail button strong[data-status="已完成"],.prep-flow-rail button strong[data-status="已生成"]{background:#e6f4eb;color:#28704b}.prep-flow-rail button strong[data-status="可生成"]{background:#e8f1f8;color:#2f6e98}
+.prep-flow-rail button.active{background:#f4faf7;color:#216445;box-shadow:inset 0 -3px #3b8d62}.prep-flow-rail button.active>i{border-color:#3b8d62;background:#3b8d62;color:#fff}.prep-flow-rail button.active::after{background:#f4faf7}
+.prep-flow-summary{display:flex;align-items:center;justify-content:space-between;gap:18px;min-width:0;min-height:67px;box-sizing:border-box;padding:9px 16px;border-bottom:1px solid #e4ddd4;background:#fbfaf7}.prep-flow-summary>div:first-child{min-width:0}.prep-flow-summary span{display:block;margin-bottom:2px;color:#58766b;font-size:.55rem;font-weight:750}.prep-flow-summary h3{margin:0;overflow:hidden;color:#243a33;font-size:.82rem;text-overflow:ellipsis;white-space:nowrap}.prep-flow-summary p{margin:3px 0 0;overflow:hidden;color:#786f67;font-size:.62rem;text-overflow:ellipsis;white-space:nowrap}.prep-flow-actions{display:flex;flex:0 0 auto;gap:6px}
+.prep-syllabus-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:8px}.prep-syllabus-actions button{width:100%;padding:5px 7px}
+.prep-syllabus-list{display:grid;gap:5px;margin-top:7px}.prep-syllabus-list>button{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px;width:100%;padding:7px;text-align:left}.prep-syllabus-list>button>span{display:grid;min-width:0;gap:2px}.prep-syllabus-list b,.prep-syllabus-list em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.prep-syllabus-list b{color:#3c4d47;font-size:.65rem}.prep-syllabus-list em{color:#91867d;font-size:.55rem;font-style:normal}.prep-syllabus-list>button>i{color:#3f765c;font-size:.52rem;font-style:normal}.prep-syllabus-list>button.active{border-color:#73a88b;background:#eef7f1;box-shadow:inset 3px 0 #3b8d62}
+.prep-syllabus-dialog{width:min(820px,calc(100vw - 32px))}.prep-syllabus-dialog header>div{display:grid;gap:2px}.prep-syllabus-dialog header p{margin:0;color:var(--teacher-muted);font-size:.63rem}.prep-syllabus-dialog textarea{resize:vertical}
+@media(max-width:900px){.prep-flow-rail{display:flex;overflow-x:auto}.prep-flow-rail button{flex:0 0 215px}.prep-flow-summary{min-height:61px;padding:7px 10px}.prep-flow-summary p{max-width:58vw}.prep-flow-rail button em{display:none}}
+@media(max-width:620px){.prep-flow-summary p{display:none}.prep-flow-summary h3{max-width:48vw}.prep-flow-actions button{padding-inline:7px}.prep-syllabus-dialog .teacher-form-grid{grid-template-columns:1fr}.prep-syllabus-dialog .teacher-form-grid .wide{grid-column:1}}
+.prep-ppt-dialog { width: min(1040px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+.prep-ppt-dialog form { display: flex; flex-direction: column; max-height: calc(100vh - 48px); }
+.prep-ppt-dialog .teacher-form-grid { flex: 0 0 auto; }
+.prep-ppt-generation-state { min-height: 90px; margin: 14px 0; overflow: auto; border-top: 1px solid var(--teacher-border, #d9e1e5); padding-top: 14px; }
+.prep-ppt-generation-state > p { color: var(--teacher-muted, #64737b); text-align: center; }
+.prep-ppt-progress { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: center; }
+.prep-ppt-progress i { grid-column: 1 / -1; height: 7px; overflow: hidden; background: #e6ecef; border-radius: 4px; }
+.prep-ppt-progress i em { display: block; height: 100%; background: #367c68; transition: width .2s ease; }
+.prep-ppt-progress p { grid-column: 1 / -1; margin: 0; color: #63727a; }
+.prep-ppt-error { padding: 14px; border: 1px solid #e5b9ac; background: #fff5f1; border-radius: 6px; color: #8b3e2d; }
+.prep-ppt-result > header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+.prep-ppt-result > header h4 { margin: 4px 0; font-size: 19px; letter-spacing: 0; }
+.prep-ppt-result > header p, .prep-ppt-result > header small { margin: 0; color: #667780; }
+.prep-ppt-result > header > div:last-child { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.prep-ppt-notice { padding: 9px 11px; background: #eef6f2; border-left: 3px solid #3f8c70; color: #315e4e; }
+.prep-ppt-slide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.prep-ppt-slide-grid article { min-width: 0; padding: 13px; border: 1px solid #d8e1e5; border-radius: 6px; background: #fff; }
+.prep-ppt-slide-grid article > span { font-size: 11px; color: #61717a; }
+.prep-ppt-slide-grid h5 { margin: 6px 0 8px; font-size: 15px; letter-spacing: 0; }
+.prep-ppt-slide-grid ul { margin: 0 0 10px; padding-left: 20px; color: #384850; }
+.prep-ppt-slide-grid li { margin: 4px 0; }
+.prep-ppt-slide-grid dl { margin: 0; padding-top: 9px; border-top: 1px solid #edf0f2; }
+.prep-ppt-slide-grid dt { margin-top: 6px; font-size: 11px; font-weight: 700; color: #527080; }
+.prep-ppt-slide-grid dd { margin: 2px 0 0; color: #64747c; line-height: 1.55; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .prep-ppt-result > header { flex-direction: column; }
+  .prep-ppt-result > header > div:last-child { justify-content: flex-start; }
+  .prep-ppt-slide-grid { grid-template-columns: 1fr; }
+}
+>>>>>>> Stashed changes

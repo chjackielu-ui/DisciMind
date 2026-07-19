@@ -26,6 +26,20 @@ function buildSessionUpdate(config, eventId = randomUUID()) {
   };
 }
 
+function summarizeUpstreamError(event = {}) {
+  const details = event.error && typeof event.error === 'object' ? event.error : event;
+  const clean = (value, fallback, maxLength) => String(value || fallback)
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+  return {
+    code: clean(details.code || details.type, 'UNKNOWN', 100),
+    eventId: clean(event.event_id || event.eventId, '', 100),
+    param: clean(details.param, '', 100),
+    message: clean(details.message, '语音服务返回未知错误', 300),
+  };
+}
+
 class BailianRealtimeTtsAdapter {
   constructor(config, options = {}) {
     this.config = config;
@@ -95,7 +109,15 @@ class BailianRealtimeTtsAdapter {
       let event;
       try { event = JSON.parse(raw.toString()); } catch { return; }
       if (event.type === 'error') {
+        const upstream = summarizeUpstreamError(event);
+        console.warn('[learning-narration] TTS upstream error', {
+          code: upstream.code,
+          ...(upstream.eventId ? { eventId: upstream.eventId } : {}),
+          ...(upstream.param ? { param: upstream.param } : {}),
+          ...(this.config.debug ? { message: upstream.message } : {}),
+        });
         const error = new NarrationUpstreamError('TTS_UPSTREAM_ERROR', '语音服务暂时不可用');
+        error.upstreamCode = upstream.code;
         failAll(error);
         return;
       }
@@ -184,4 +206,4 @@ class BailianRealtimeTtsAdapter {
   }
 }
 
-module.exports = { BailianRealtimeTtsAdapter, NarrationUpstreamError, buildSessionUpdate };
+module.exports = { BailianRealtimeTtsAdapter, NarrationUpstreamError, buildSessionUpdate, summarizeUpstreamError };

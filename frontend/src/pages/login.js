@@ -4,6 +4,11 @@ import { login, register } from '../api/auth.js'
 import { setAuth } from '../utils/auth.js'
 import { navigateTo } from '../utils/router.js'
 
+const publicTeacherRegistrationEnabled = import.meta.env.VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED !== 'false')
+const showDemoAccounts = import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_SHOW_DEMO_ACCOUNTS !== 'false')
+
 // 角色 → 默认首页路由
 const ROLE_HOME = {
   admin: '/admin/dashboard',
@@ -14,10 +19,10 @@ const ROLE_HOME = {
 // 动态标题列表
 const titleList = [
   '学研智擎',
-  '一起探索知识',
+  '探索学科知识',
   '开启智慧学习',
-  '开启智慧学习新体验',
-  '连接教学与科研',
+  '连接教学科研',
+  '让知识可追溯',
 ]
 
 // 每个标题对应的独立纯色数组（按字符索引循环使用）
@@ -77,12 +82,12 @@ const accountPlaceholders = {
 
 // 使用场景数据
 const scenarioData = [
-  { icon: '📖', title: '智能学习辅导', desc: '围绕课程知识点进行问答、讲解与个性化学习支持，让每一位学生都能获得专属学习体验。' },
-  { icon: '🔬', title: '科研知识问答', desc: '结合学科知识库，辅助师生快速检索、理解和追踪科研资料，加速科研进程。' },
-  { icon: '📊', title: '学科资源整合', desc: '整合课程资料、论文文献与教学资源，形成统一知识入口，告别信息孤岛。' },
-  { icon: '📈', title: '个性化学习分析', desc: '基于学习行为和答题情况，生成学习画像与薄弱点分析，实现精准教学干预。' },
-  { icon: '🎓', title: '智能教学辅助', desc: '辅助教师完成备课、题目生成、知识点梳理与课堂支持，减轻教学负担。' },
-  { icon: '✨', title: '多模态内容生成', desc: '支持文本、图片、视频等多模态内容生成，丰富教学表达方式，提升学习兴趣。' },
+  { icon: '📖', image: '/pics/login/scenarios/ai-tutoring.webp', imageAlt: '大学生围绕电脑协作学习', title: '智能学习辅导', desc: '围绕课程知识点进行问答、讲解与个性化学习支持，让每一位学生都能获得专属学习体验。' },
+  { icon: '🔬', image: '/pics/login/scenarios/research-qa.webp', imageAlt: '科研人员使用显微镜开展实验研究', title: '科研知识问答', desc: '结合学科知识库，辅助师生快速检索、理解和追踪科研资料，加速科研进程。' },
+  { icon: '📊', image: '/pics/login/scenarios/resource-hub.webp', imageAlt: '高校图书馆中的学科书籍资源', title: '学科资源整合', desc: '整合课程资料、论文文献与教学资源，形成统一知识入口，告别信息孤岛。' },
+  { icon: '📈', image: '/pics/login/scenarios/learning-analytics.webp', imageAlt: '电脑屏幕展示数据分析图表', title: '个性化学习分析', desc: '基于学习行为和答题情况，生成学习画像与薄弱点分析，实现精准教学干预。' },
+  { icon: '🎓', image: '/pics/login/scenarios/teaching-assistant.webp', imageAlt: '教师在课堂中使用电脑进行教学准备', title: '智能教学辅助', desc: '辅助教师完成备课、题目生成、知识点梳理与课堂支持，减轻教学负担。' },
+  { icon: '✨', image: '/pics/login/scenarios/multimodal-creation.webp', imageAlt: '创作者在电脑上编辑教学视频与音频', title: '多模态内容生成', desc: '支持文本、图片、视频等多模态内容生成，丰富教学表达方式，提升学习兴趣。' },
 ]
 
 // 智能体数据
@@ -133,6 +138,9 @@ let showScrollHint = true
 // ========== 面板切换 ==========
 function showPanel(panelName) {
   activePanel = panelName
+
+  const heroSection = document.getElementById('hero-section')
+  if (heroSection) heroSection.classList.toggle('has-auth-panel', panelName !== 'none')
 
   const loginEntryBtn = document.getElementById('btn-show-login')
   const registerEntryBtn = document.getElementById('btn-show-register')
@@ -239,8 +247,6 @@ function startTitleAnimation() {
   if (!titleEl) return
 
   let listIndex = 0
-  let expandStep = 1
-  let phase = 'expand'
 
   function buildVisibleHTML(text, step, paletteIndex) {
     const chars = Array.from(text)
@@ -264,13 +270,6 @@ function startTitleAnimation() {
       .join('')
   }
 
-  function isComplete(text, step) {
-    const len = Array.from(text).length
-    const centerLeft = Math.floor((len - 1) / 2)
-    const centerRight = len % 2 === 0 ? centerLeft + 1 : centerLeft
-    return (centerLeft - step <= 0) && (centerRight + step >= len - 1)
-  }
-
   function renderTitle(text, step, paletteIndex) {
     const cursorColor = getCursorColor(paletteIndex)
     const visibleHTML = buildVisibleHTML(text, step, paletteIndex)
@@ -281,33 +280,15 @@ function startTitleAnimation() {
       '</span>'
   }
 
-  function tick() {
-    const text = titleList[listIndex]
-
-    if (phase === 'expand') {
-      renderTitle(text, expandStep, listIndex)
-      expandStep++
-
-      if (isComplete(text, expandStep - 1)) {
-        phase = 'hold'
-        titleTimer = setTimeout(tick, 1600)
-        return
-      }
-      titleTimer = setTimeout(tick, 80)
-    } else if (phase === 'hold') {
-      phase = 'clear'
-      renderTitle(text, -1, listIndex)
-      titleTimer = setTimeout(tick, 350)
-    } else if (phase === 'clear') {
-      listIndex = (listIndex + 1) % titleList.length
-      expandStep = 1
-      phase = 'expand'
-      tick()
-    }
+  function showNextTitle() {
+    listIndex = (listIndex + 1) % titleList.length
+    renderTitle(titleList[listIndex], Number.MAX_SAFE_INTEGER, listIndex)
+    titleTimer = setTimeout(showNextTitle, 3200)
   }
 
-  renderTitle(titleList[0], 0, 0)
-  titleTimer = setTimeout(tick, 600)
+  // 首屏始终展示完整标题，避免评委打开或截图时只看到闪烁光标。
+  renderTitle(titleList[0], Number.MAX_SAFE_INTEGER, 0)
+  titleTimer = setTimeout(showNextTitle, 3200)
 }
 
 // ========== 身份胶囊高亮定位 ==========
@@ -374,7 +355,8 @@ function renderScenarioCards() {
       (item, i) => `
     <div class="scenario-card reveal" style="transition-delay:${i * 0.06}s">
       <div class="scenario-media">
-        <span class="scenario-media-icon">${item.icon}</span>
+        <span class="scenario-media-icon" aria-hidden="true">${item.icon}</span>
+        <img class="scenario-media-image" src="${item.image}" alt="${item.imageAlt}" width="1280" height="640" loading="lazy" decoding="async" />
       </div>
       <div class="scenario-content">
         <h3>${item.title}</h3>
@@ -531,15 +513,32 @@ export function renderLoginPage(app) {
           </div>
         </div>
 
+        <div class="hero-project-visual">
+          <img
+            src="/pics/login/discimind-hero.webp"
+            alt="学生、教师与研究者通过学科知识图谱协同学习和科研"
+            width="1672"
+            height="941"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </div>
+
         <!-- 主内容区 -->
         <div class="hero-content" id="hero-content">
           <!-- 顶部：大号动态标题 -->
           <div class="login-hero-area">
+            <p class="hero-eyebrow">学科大模型 · 教学科研一体化</p>
             <div class="main-title-fixed-box">
               <h1 class="login-main-title" id="login-main-title"></h1>
             </div>
             <p class="login-subtitle">面向一流学科建设的垂类大模型教学科研创新应用平台</p>
             <p class="login-brand">DisciMind</p>
+            <div class="hero-proof-points" aria-label="平台核心能力">
+              <span>教 · 学 · 研协同</span>
+              <span>多智能体驱动</span>
+              <span>安全可信可追溯</span>
+            </div>
           </div>
 
           <!-- 入口按钮：登录 / 注册 -->
@@ -565,8 +564,11 @@ export function renderLoginPage(app) {
                   <input
                     type="text"
                     id="login-account"
+                    name="username"
                     placeholder="${accountPlaceholders.student}"
                     autocomplete="username"
+                    aria-label="登录账号"
+                    aria-describedby="login-error"
                   />
                   <span class="input-glow"></span>
                 </div>
@@ -574,26 +576,29 @@ export function renderLoginPage(app) {
                   <input
                     type="password"
                     id="login-password"
+                    name="password"
                     placeholder="请输入密码"
                     autocomplete="current-password"
+                    aria-label="登录密码"
+                    aria-describedby="login-error"
                   />
                   <span class="input-glow"></span>
                 </div>
               </div>
-              <div id="login-error" class="login-error-msg" style="display:none;"></div>
+              <div id="login-error" class="login-error-msg" role="alert" aria-live="polite" style="display:none;"></div>
               <button type="submit" class="login-btn" id="login-submit">登 录</button>
             </form>
 
             <p class="panel-toggle">还没有账号？<a id="link-to-register">立即注册</a></p>
 
-            <div class="demo-section">
+            ${showDemoAccounts ? `<div class="demo-section">
               <p class="demo-hint">🔑 演示账号</p>
               <div class="demo-tags">
                 <button type="button" class="demo-tag" data-role="admin" data-account="admin_demo" data-password="123456">管理员 admin_demo / 123456</button>
                 <button type="button" class="demo-tag" data-role="teacher" data-account="teacher_demo" data-password="123456">教师 teacher_demo / 123456</button>
                 <button type="button" class="demo-tag" data-role="student" data-account="student_demo" data-password="123456">学生 student_demo / 123456</button>
               </div>
-            </div>
+            </div>` : ''}
           </div>
 
           <!-- 注册面板（初始隐藏） -->
@@ -603,7 +608,7 @@ export function renderLoginPage(app) {
               <div class="identity-capsule" id="reg-identity-capsule">
                 <div class="identity-highlight" id="reg-identity-highlight"></div>
                 <button class="identity-option active" data-role="student" type="button">学生注册</button>
-                <button class="identity-option" data-role="teacher" type="button">教师注册</button>
+                ${publicTeacherRegistrationEnabled ? '<button class="identity-option" data-role="teacher" type="button">教师注册</button>' : ''}
               </div>
             </div>
 
@@ -745,6 +750,11 @@ export function renderLoginPage(app) {
       </footer>
     </div>
   `
+
+  // 本地静态图片异常时移除 img，露出原有 emoji 兜底，不影响卡片内容。
+  app.querySelectorAll('.scenario-media-image').forEach((image) => {
+    image.addEventListener('error', () => image.remove(), { once: true })
+  })
 
   // ========== 初始化 ==========
   startTitleAnimation()

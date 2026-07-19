@@ -21,7 +21,7 @@ export function actOnAiPendingAction(pendingActionId, action, patch = undefined)
 }
 
 export function aiArtifactDownloadUrl(artifactId) {
-  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+  const base = import.meta.env.VITE_API_BASE_URL || '/api'
   return `${base}/ai-assistant/artifacts/${encodeURIComponent(artifactId)}/download`
 }
 

@@ -3,7 +3,7 @@ import { getMe } from '../api/auth.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
-import { getTeacherDashboard, getTeacherProfile, getAnalyticsWorkbench, createTeacherReminder, updateTeacherReminder, deleteTeacherReminder } from '../api/teacher.js'
+import { getTeacherDashboard, getTeacherProfile, getAnalyticsWorkbench, getAllTeachingClasses, createTeacherReminder, updateTeacherReminder, deleteTeacherReminder } from '../api/teacher.js'
 import { escapeHtml, formatRelativeTime } from '../utils/format.js'
 import { normalizeWeakKnowledgePoints, normalizeKeywords } from '../utils/analytics-contract.js'
 import { showToast } from '../utils/toast.js'
@@ -27,6 +27,14 @@ function quickEntries() {
     ['智慧备课','#/teacher/preparation'],['学情分析','#/teacher/analytics'],['发布作业','#/teacher/tasks/create?type=homework'],
     ['发布考试','#/teacher/tasks/create?type=exam'],['班级管理','#/teacher/system?tab=classes'],['教学资源','#/teacher/knowledge'],
   ].map(([label,hash]) => `<button data-teacher-nav="${hash}">${label}<span>→</span></button>`).join('')
+}
+
+function classWorkspaces(classes) {
+  if (!classes.length) return '<div class="teacher-dashboard-classes-empty">暂无负责班级，可前往系统管理创建教学班。</div>'
+  return classes.slice(0, 3).map((item) => `<button data-teacher-nav="#/teacher/classes/${item.teaching_class_id}">
+    <span>${escapeHtml(item.course_name || '未关联课程')}</span><b>${escapeHtml(item.teaching_class_name)}</b>
+    <dl><div><dt>学生</dt><dd>${item.student_count || 0} 人</dd></div><div><dt>近 30 天作业</dt><dd>${item.recent_assignment_count || 0} 项</dd></div><div><dt>进度</dt><dd>${Math.round(Number(item.learning_progress) || 0)}%</dd></div><div class="risk"><dt>风险</dt><dd>${item.risk_student_count || 0} 人</dd></div></dl>
+  </button>`).join('')
 }
 
 function scheduleText(schedule) {
@@ -177,10 +185,11 @@ function recentRows(data) {
   return groups.map(item => `<button data-teacher-nav="${item.hash}"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(item.title)}</b><em>${escapeHtml(item.status)} · ${formatRelativeTime(item.time)}</em></button>`).join('') || '<div class="teacher-inline-empty">暂无近期教学动态</div>'
 }
 
-function content(user, dashboard, profile) {
+function content(user, dashboard, profile, classes) {
   const focus = dashboard.today_focus || {}
   return `<div class="teacher-dashboard-page">
     <section class="teacher-focus-card"><div><span>今日教学重点</span><h2>${escapeHtml(focus.title || '开始下一课次智慧备课')}</h2><p>${escapeHtml(focus.description || '系统将自动读取班级学情与高频问题')}</p></div><button data-teacher-nav="${escapeHtml(focus.action_url || '#/teacher/preparation')}">${escapeHtml(focus.action_label || '开始备课')}</button></section>
+    <section class="teacher-dashboard-section compact teacher-dashboard-classes"><header><div><h3>我的班级</h3><p>以班级为单位管理学生、资料、作业、题库、资源与评价</p></div><a href="#/teacher/system?tab=classes">全部班级</a></header><div>${classWorkspaces(classes)}</div></section>
     <div class="teacher-dashboard-grid"><main>
       <section class="teacher-dashboard-section compact teacher-quick-section"><header><div><h3>快捷入口</h3><p>围绕教师日常流程的六个主要入口</p></div></header><div class="teacher-quick-grid">${quickEntries()}</div></section>
       <section class="teacher-metric-grid">${metricCards(dashboard)}</section>
@@ -218,8 +227,8 @@ export async function renderTeacherDashboard(app) {
   dashboardLifecycle?.abort(); dashboardLifecycle = new AbortController()
   let user=getUser(); try { const result=await getMe(); user=result.data.user; setAuth(getToken(),user) } catch { if(!user){clearAuth();window.location.hash='#/login';return} }
   try {
-    const [dashboardResult,profileResult]=await Promise.all([getTeacherDashboard(),getTeacherProfile()]); const dashboard=dashboardResult.data||{}; const profile=profileResult.data||{}
-    renderDashboardLayout(app,{title:'教师工作台',menuItems:TEACHER_MENU_ITEMS,contentHTML:content(user,dashboard,profile),user}); bindNavigation(); bindCalendar(dashboard)
+    const [dashboardResult,profileResult,classResult]=await Promise.all([getTeacherDashboard(),getTeacherProfile(),getAllTeachingClasses({status:'active'})]); const dashboard=dashboardResult.data||{}; const profile=profileResult.data||{}; const classes=classResult.data?.list||[]
+    renderDashboardLayout(app,{title:'教师工作台',menuItems:TEACHER_MENU_ITEMS,contentHTML:content(user,dashboard,profile,classes),user}); bindNavigation(); bindCalendar(dashboard)
     let analytics=null; const courseId=profile.default_course_id||dashboard.classes?.[0]?.course_id; const classId=dashboard.classes?.find(item=>item.course_id===courseId)?.teaching_class_id
     if(courseId){ try { const result=await getAnalyticsWorkbench({course_id:courseId,...(classId?{teaching_class_id:classId}:{}),range:'7d'});analytics=result.data; document.getElementById('teacher-chart-scope').textContent=`${analytics.filters?.course_name||'所选课程'} · 最近7天真实数据` } catch {} }
     renderCharts(dashboard,analytics)

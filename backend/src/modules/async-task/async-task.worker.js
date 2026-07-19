@@ -89,6 +89,30 @@ class AsyncTaskWorker {
       return { terminal: true };
     });
     this.register('LEARNING_FLOW_PRELOAD', async (task, { signal }) => {
+      if (task.metadataJson?.kind === 'KNOWLEDGE_RESOURCE_PACKAGE') {
+        const packages = require('../../services/student-learning-package.service');
+        const timeoutMs = Math.max(5 * 60_000, Number(process.env.RESOURCE_PACKAGE_TASK_TIMEOUT_MS || 30 * 60_000));
+        const timeoutController = new AbortController();
+        const forwardAbort = () => timeoutController.abort();
+        signal.addEventListener('abort', forwardAbort, { once: true });
+        const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+        timer.unref?.();
+        try {
+          await packages.processPackageTask(task, timeoutController.signal);
+        } catch (error) {
+          if (timeoutController.signal.aborted && !signal.aborted) {
+            throw Object.assign(new Error('个性化学习资源包生成超时'), {
+              code: 'RESOURCE_PACKAGE_TIMEOUT',
+              userMessage: '学习资源包生成超时，已完成的资料会保留；可以稍后重新生成缺失资源。',
+            });
+          }
+          throw error;
+        } finally {
+          clearTimeout(timer);
+          signal.removeEventListener('abort', forwardAbort);
+        }
+        return { terminal: true };
+      }
       if (task.metadataJson?.kind === 'DAILY_LEARNING_CARD') {
         const cards = require('../learning-card/learning-card-ai.service');
         await cards.processDailyCardTask(task, { signal });
@@ -104,6 +128,30 @@ class AsyncTaskWorker {
       return { terminal: true };
     });
     this.register('VOICE_PRELOAD', async (task, { signal }) => {
+      if (task.metadataJson?.kind === 'PPT_VIDEO_NARRATION') {
+        const media = require('../../services/student-learning-media.service');
+        const timeoutMs = Math.max(60_000, Number(process.env.VIDEO_NARRATION_TASK_TIMEOUT_MS || 15 * 60_000));
+        const timeoutController = new AbortController();
+        const forwardAbort = () => timeoutController.abort();
+        signal.addEventListener('abort', forwardAbort, { once: true });
+        const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+        timer.unref?.();
+        try {
+          await media.processVideoTask(task, timeoutController.signal);
+          if (timeoutController.signal.aborted && !signal.aborted) {
+            throw Object.assign(new Error('视频素材生成超时'), { code: 'VIDEO_NARRATION_TIMEOUT', userMessage: '视频讲稿或配音生成超时，请减少PPT页数后重试。' });
+          }
+        } catch (error) {
+          if (timeoutController.signal.aborted && !signal.aborted) {
+            throw Object.assign(new Error('视频素材生成超时'), { code: 'VIDEO_NARRATION_TIMEOUT', userMessage: '视频讲稿或配音生成超时，请减少PPT页数后重试。' });
+          }
+          throw error;
+        } finally {
+          clearTimeout(timer);
+          signal.removeEventListener('abort', forwardAbort);
+        }
+        return { terminal: true };
+      }
       const voice = require('../learning-flow-preload/voice-prewarm.service');
       await voice.processVoiceTask(task, signal);
       return { terminal: true };

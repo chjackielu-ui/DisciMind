@@ -5,6 +5,21 @@ const { Router } = require('express');
 const authMiddleware = require('../middlewares/auth.middleware');
 const roleMiddleware = require('../middlewares/role.middleware');
 const controller = require('../controllers/student-video.controller');
+const { MAX_VIDEO_BYTES } = require('../services/student-learning-media.service');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+const videoUploadDir = path.resolve(__dirname, '../../storage/generated-artifacts/tmp-video-uploads');
+fs.mkdirSync(videoUploadDir, { recursive: true });
+const videoUpload = multer({
+  dest: videoUploadDir,
+  limits: { fileSize: MAX_VIDEO_BYTES, files: 1 },
+  fileFilter(req, file, callback) {
+    if (file.mimetype !== 'video/mp4') return callback(Object.assign(new Error('仅支持MP4视频'), { code: 40001 }));
+    return callback(null, true);
+  },
+});
 
 const router = Router();
 
@@ -45,5 +60,19 @@ router.post(
   roleMiddleware(['student']),
   controller.searchVideos,
 );
+
+// 学生课程PPT与Remotion视频生成。复用现有PPT、TTS、任务和视频资源模型。
+router.post('/courses/:course_id/ppt/generate', authMiddleware, roleMiddleware(['student']), controller.generateCoursePpt);
+router.get('/ppt/tasks/:task_id', authMiddleware, roleMiddleware(['student']), controller.getCoursePptTask);
+router.post('/videos/generation-tasks', authMiddleware, roleMiddleware(['student']), controller.createVideoGenerationTask);
+router.get('/videos/generation-tasks/:task_id', authMiddleware, roleMiddleware(['student']), controller.getVideoGenerationTask);
+router.get('/videos/generation-tasks/:task_id/audio/:page', authMiddleware, roleMiddleware(['student']), controller.getGeneratedSlideAudio);
+router.post('/videos/generation-tasks/:task_id/complete', authMiddleware, roleMiddleware(['student']), videoUpload.single('video'), controller.completeVideoGeneration);
+router.get('/videos/generated/:task_id/media', authMiddleware, roleMiddleware(['student']), controller.getGeneratedVideo);
+
+// 单知识点五类学习资源包：讲义、PPT、知识卡片、试卷与浏览器端视频。
+router.post('/courses/:course_id/knowledge-points/:knowledge_point_id/resource-packages', authMiddleware, roleMiddleware(['student']), controller.createKnowledgeResourcePackage);
+router.get('/resource-packages/:task_id', authMiddleware, roleMiddleware(['student']), controller.getKnowledgeResourcePackage);
+router.post('/resource-packages/:task_id/retry', authMiddleware, roleMiddleware(['student']), controller.retryKnowledgeResourcePackage);
 
 module.exports = router;

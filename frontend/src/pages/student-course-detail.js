@@ -2,7 +2,7 @@
 // 新增：知识点排序、搜索、筛选
 
 import { getMe } from '../api/auth.js'
-import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints, getCourseMasteryDistribution, getCourseAbilityProfile } from '../api/student.js'
+import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints, getStudentCourseKnowledgeGraph, getCourseMasteryDistribution, getCourseAbilityProfile } from '../api/student.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
@@ -14,6 +14,7 @@ import { buildVideoPanelHTML, loadKpVideosToPanel } from '../components/kgraph/K
 import { renderCourseFilesPanel, mountCourseFilesPanel } from '../components/course-files-panel.js'
 import { learningCardApi } from '../api/learning-cards.js'
 import { renderLearningCardGrid } from '../components/learning-card-platform.js'
+let disposeLearningMediaPanel = null
 
 function getCourseIdFromHash() {
   const m = window.location.hash.slice(1).match(/^\/student\/courses\/(\d+)/)
@@ -338,6 +339,54 @@ function buildVideoContextHTML(course) {
     <div class="course-video-context-meta"><span>课程整体</span><span>${Math.max(0, Math.min(100, Number(course.learning_progress || 0)))}%</span></div>`
 }
 
+function buildGraphOverviewHTML(course, kps, graph = {}) {
+  const counts = graph.summary || kps.reduce((result, kp) => {
+    const status = getKnowledgeStatus(kp)
+    result[status] = (result[status] || 0) + 1
+    return result
+  }, { mastered: 0, learning: 0, weak: 0, unstarted: 0 })
+  return `
+    <div class="kg-detail-overview">
+      <div class="kg-detail-kicker">课程知识图谱</div>
+      <h4>${escapeHtml(course.course_name)}</h4>
+      <p>选择左侧知识点，查看掌握度、学习建议、相关资源与关联知识。</p>
+      <div class="kg-detail-summary">
+        <span class="status-mastered"><b>${counts.mastered || 0}</b> 已掌握</span>
+        <span class="status-learning"><b>${counts.learning || 0}</b> 学习中</span>
+        <span class="status-weak"><b>${counts.weak || 0}</b> 薄弱</span>
+        <span class="status-unstarted"><b>${counts.unstarted || 0}</b> 未开始</span>
+      </div>
+    </div>`
+}
+
+function buildKnowledgePointDetailHTML(kp, allKps) {
+  const status = getKnowledgeStatus(kp)
+  const statusLabel = kp.learning_status_label || KG_STATUS_LABELS[status] || '未开始'
+  const score = Math.max(0, Math.min(100, Number(kp.mastery_progress ?? kp.mastery_score ?? 0)))
+  const relatedIds = new Set((kp.related_knowledge_point_ids || []).map(String))
+  const related = allKps.filter((item) => relatedIds.has(String(item.knowledge_point_id)))
+  const resources = Array.isArray(kp.resources) ? kp.resources : []
+  const resourcesHTML = resources.length
+    ? resources.map((resource) => resource.url
+      ? `<a class="kg-detail-resource" href="${escapeHtml(resource.url)}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(resource.category || '学习资源')}</span><b>${escapeHtml(resource.title)}</b></a>`
+      : `<button class="kg-detail-resource" type="button" data-kg-scroll-resources><span>${escapeHtml(resource.category || '课程资料')}</span><b>${escapeHtml(resource.title)}</b></button>`).join('')
+    : '<div class="kg-detail-empty">暂无直接关联资源，可使用下方视频搜索继续学习。</div>'
+  const relatedHTML = related.length
+    ? related.map((item) => `<button class="kg-related-kp" type="button" data-related-kp-id="${item.knowledge_point_id}">${escapeHtml(item.knowledge_point_name)}</button>`).join('')
+    : '<span class="kg-detail-empty">暂无关联知识点</span>'
+
+  return `
+    <div class="kg-detail-head">
+      <div><div class="kg-detail-kicker">${escapeHtml(kp.chapter_name || '课程知识点')}</div><h4>${escapeHtml(kp.knowledge_point_name)}</h4></div>
+      <span class="kg-detail-status status-${status}">${escapeHtml(statusLabel)}</span>
+    </div>
+    <p class="kg-detail-description">${escapeHtml(kp.description || '该知识点暂无补充说明。')}</p>
+    <div class="kg-detail-mastery"><div><span>掌握度</span><b>${score}%</b></div><i><em class="status-${status}" style="width:${score}%"></em></i></div>
+    <div class="kg-detail-block"><h5>学习建议</h5><p>${escapeHtml(kp.learning_advice || '结合概念说明和典型例题完成一轮学习。')}</p></div>
+    <div class="kg-detail-block"><h5>相关资源</h5><div class="kg-detail-resources">${resourcesHTML}</div></div>
+    <div class="kg-detail-block"><h5>关联知识点</h5><div class="kg-related-list">${relatedHTML}</div></div>`
+}
+
 function buildKgControls() {
   return [
     ['zoom-in', '+', '放大'],
@@ -450,7 +499,7 @@ function setCourseAiContext(course, kps, selection = {}) {
   }
 }
 
-function buildKnowledgeGraphSection(course, chapters, kps) {
+function buildKnowledgeGraphSection(course, chapters, kps, graph = {}) {
   if ((!chapters || chapters.length === 0) && (!kps || kps.length === 0)) {
     return `
       <section class="course-kg-section" id="course-kg-section">
@@ -486,6 +535,7 @@ function buildKnowledgeGraphSection(course, chapters, kps) {
           <div id="course-kg-error" class="course-kg-error" style="display:none;"></div>
         </div>
         <div class="course-kg-video-wrap">
+          <div id="course-kg-node-detail" class="course-kg-node-detail">${buildGraphOverviewHTML(course, kps, graph)}</div>
           <div id="course-video-context" class="course-video-context">${buildVideoContextHTML(course)}</div>
           <div class="course-video-search">
             <input id="course-video-keyword" type="text" value="${escapeHtml(course.course_name)}" placeholder="搜索课程、章节或知识点视频" />
@@ -498,7 +548,7 @@ function buildKnowledgeGraphSection(course, chapters, kps) {
     </section>`
 }
 
-function initCourseKnowledgeGraph(course, chapters, kps) {
+function initCourseKnowledgeGraph(course, chapters, kps, graph = {}) {
   const section = document.getElementById('course-kg-section')
   if (!section || ((!chapters || chapters.length === 0) && (!kps || kps.length === 0))) return
 
@@ -507,6 +557,7 @@ function initCourseKnowledgeGraph(course, chapters, kps) {
   const keywordInput = document.getElementById('course-video-keyword')
   const keywordHint = document.getElementById('course-video-keyword-hint')
   const searchButton = document.getElementById('btn-course-video-search')
+  const detailPanel = document.getElementById('course-kg-node-detail')
   const videoCache = {}
   let currentSelection = {
     type: 'course',
@@ -517,6 +568,25 @@ function initCourseKnowledgeGraph(course, chapters, kps) {
   let mindController = null
   let videoRequestSeq = 0
   setCourseAiContext(course, kps, currentSelection)
+
+  function bindDetailActions() {
+    detailPanel?.querySelectorAll('[data-related-kp-id]').forEach((button) => {
+      button.addEventListener('click', () => mindController?.selectKnowledgePoint(button.dataset.relatedKpId))
+    })
+    detailPanel?.querySelectorAll('[data-kg-scroll-resources]').forEach((button) => {
+      button.addEventListener('click', () => document.getElementById('course-files-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    })
+  }
+
+  function renderSelectionDetail(selection = {}) {
+    if (!detailPanel) return
+    const kpId = selection.kpId || selection.knowledgePointId
+    const kp = kpId ? kps.find((item) => String(item.knowledge_point_id) === String(kpId)) : null
+    detailPanel.innerHTML = kp
+      ? buildKnowledgePointDetailHTML(kp, kps)
+      : buildGraphOverviewHTML(course, kps, graph)
+    bindDetailActions()
+  }
 
   function setKeyword(keyword) {
     const value = String(keyword || '').replace(/\s+/g, ' ').trim() || course.course_name
@@ -560,6 +630,7 @@ function initCourseKnowledgeGraph(course, chapters, kps) {
       setActiveQuickKp(null)
     }
     setCourseAiContext(course, kps, currentSelection)
+    renderSelectionDetail(currentSelection)
     searchByKeyword(selection.shortKeyword || selection.keyword || course.course_name, currentSelection)
   }
 
@@ -615,6 +686,8 @@ function initCourseKnowledgeGraph(course, chapters, kps) {
 // ========================
 
 export async function renderStudentCourseDetail(app) {
+  disposeLearningMediaPanel?.()
+  disposeLearningMediaPanel = null
   disposeAllCharts()
   const courseId = getCourseIdFromHash()
   if (!courseId) { window.location.hash = '#/student/courses'; return }
@@ -627,10 +700,13 @@ export async function renderStudentCourseDetail(app) {
   // Loading
   renderDashboardLayout(app, { menuItems, contentHTML: `<div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/student/courses'">← 返回我的课程</button></div><div class="loading-state"><div class="loading-spinner"></div><p class="loading-text">正在加载课程详情...</p></div>`, user })
 
-  let course = null, chapters = [], kps = [], loadError = false
+  let course = null, chapters = [], kps = [], graph = {}, loadError = false
   try {
-    const [cr, chr, kr] = await Promise.all([getStudentCourseDetail(courseId), getStudentCourseChapters(courseId), getStudentCourseKnowledgePoints(courseId)])
-    course = cr.data; chapters = chr.data?.list || []; kps = kr.data?.list || []
+    const [cr, chr, kr, gr] = await Promise.all([getStudentCourseDetail(courseId), getStudentCourseChapters(courseId), getStudentCourseKnowledgePoints(courseId), getStudentCourseKnowledgeGraph(courseId)])
+    course = cr.data
+    graph = gr.data || {}
+    chapters = graph.chapters || chr.data?.list || []
+    kps = graph.nodes || kr.data?.list || []
   } catch (e) { loadError = true }
 
   let contentHTML
@@ -658,7 +734,8 @@ export async function renderStudentCourseDetail(app) {
       </div>
       ${renderCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] })}
       ${buildCourseCardLibrary(chapters, kps)}
-      ${buildKnowledgeGraphSection(course, chapters, kps)}
+      ${buildKnowledgeGraphSection(course, chapters, kps, graph)}
+      <div id="course-learning-media-panel"></div>
       <div class="course-charts-row">
         <div class="course-chart-panel" id="panel-mastery-ring">
           <div class="chart-header"><span class="chart-title">🎯 掌握等级分布</span></div>
@@ -678,7 +755,24 @@ export async function renderStudentCourseDetail(app) {
   renderDashboardLayout(app, { menuItems, contentHTML, user })
 
   if (!loadError && course) {
-    setTimeout(() => { renderHeroProgress(course); bindCourseActionEvents(course); mountCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] }); mountCourseCardLibrary(course.course_id); initCourseKnowledgeGraph(course, chapters, kps); renderDetailCharts(course.course_id); bindDetailEvents(kps, course.course_id) }, 150)
+    setTimeout(async () => {
+      renderHeroProgress(course)
+      bindCourseActionEvents(course)
+      mountCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] })
+      mountCourseCardLibrary(course.course_id)
+      initCourseKnowledgeGraph(course, chapters, kps, graph)
+      renderDetailCharts(course.course_id)
+      bindDetailEvents(kps, course.course_id)
+      const mediaHost = document.getElementById('course-learning-media-panel')
+      if (mediaHost) {
+        import('../components/video/LearningMediaPanel.jsx').then(({ mountLearningMediaPanel }) => {
+          if (document.body.contains(mediaHost)) disposeLearningMediaPanel = mountLearningMediaPanel(mediaHost, { course, knowledgePoints: kps, userId: user.user_id || user.id })
+        }).catch(() => { mediaHost.innerHTML = '<div class="error-state"><p class="error-message">多模态资源模块加载失败，请刷新后重试。</p></div>' })
+      }
+      const section = new URLSearchParams((window.location.hash.split('?')[1] || '')).get('section')
+      if (section === 'knowledge-graph') document.getElementById('course-kg-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (section === 'learning-media') mediaHost?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 150)
   }
 }
 

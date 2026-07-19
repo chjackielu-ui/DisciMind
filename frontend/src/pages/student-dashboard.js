@@ -14,7 +14,7 @@ import { getCourseCoverUrl } from '../utils/course-cover.js'
 import { learningCardApi } from '../api/learning-cards.js'
 import { createDailyLearningCardFan } from '../components/learning-card-platform.js'
 
-const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace(/\/api\/?$/, '')
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/api\/?$/, '')
 const ACTIVE_TASKS = new Set(['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'])
 const TASK_STATUS = { QUEUED: '等待开始', RUNNING: '生成中', WAITING_EXTERNAL: '等待外部服务', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已取消' }
 let homeTaskRefreshTimer = null

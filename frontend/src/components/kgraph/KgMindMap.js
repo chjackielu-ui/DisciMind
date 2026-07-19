@@ -27,6 +27,8 @@ function clampPercent(value) {
 }
 
 function learningStatus(kp) {
+  const explicitStatus = String(kp?.learning_status || kp?.status || '').toLowerCase()
+  if (STATUS_META[explicitStatus]) return explicitStatus
   const level = String(kp?.mastery_level || '').toLowerCase()
   const score = Number(kp?.mastery_score || 0)
   if (!kp?.last_study_at && score <= 0 && (!level || level === 'weak')) return 'unstarted'
@@ -84,6 +86,66 @@ function sortByCourseOrder(list = []) {
   })
 }
 
+function buildKnowledgeMindNodes(courseName, chapter, knowledgePoints = []) {
+  const sorted = sortByCourseOrder(knowledgePoints)
+  const pointMap = new Map(sorted.map((kp) => [String(kp.knowledge_point_id), kp]))
+  const childrenMap = new Map()
+  const roots = []
+
+  sorted.forEach((kp) => {
+    const parentId = kp.parent_id == null ? '' : String(kp.parent_id)
+    if (parentId && pointMap.has(parentId) && parentId !== String(kp.knowledge_point_id)) {
+      if (!childrenMap.has(parentId)) childrenMap.set(parentId, [])
+      childrenMap.get(parentId).push(kp)
+    } else {
+      roots.push(kp)
+    }
+  })
+
+  const visited = new Set()
+  function toMindNode(kp, ancestors = new Set()) {
+    const kpId = String(kp.knowledge_point_id)
+    visited.add(kpId)
+    const nextAncestors = new Set(ancestors)
+    nextAncestors.add(kpId)
+    const kpName = normalizeText(kp.knowledge_point_name || kp.name, '知识点')
+    const children = sortByCourseOrder(childrenMap.get(kpId) || [])
+      .filter((child) => !nextAncestors.has(String(child.knowledge_point_id)))
+      .map((child) => toMindNode(child, nextAncestors))
+
+    return {
+      id: safeId('kp', kp.knowledge_point_id),
+      topic: kpName,
+      dangerouslySetInnerHTML: renderKnowledgeNode({ ...kp, knowledge_point_name: kpName }),
+      expanded: true,
+      metadata: {
+        type: 'knowledgePoint',
+        kpId: kp.knowledge_point_id,
+        knowledgePointId: kp.knowledge_point_id,
+        knowledgePointName: kpName,
+        chapterId: chapter.chapter_id,
+        chapterName: chapter.chapter_name,
+        parentId: kp.parent_id || null,
+        keyword: [courseName, chapter.chapter_name, kpName].filter(Boolean).join(' '),
+        shortKeyword: [courseName, kpName].filter(Boolean).join(' '),
+        masteryLevel: kp.mastery_level || null,
+        masteryScore: kp.mastery_score ?? kp.mastery_progress ?? 0,
+        status: learningStatus(kp),
+        learningAdvice: kp.learning_advice || '',
+        resources: kp.resources || [],
+        relatedKnowledgePointIds: kp.related_knowledge_point_ids || [],
+      },
+      children,
+    }
+  }
+
+  const nodes = roots.map((kp) => toMindNode(kp))
+  sorted.forEach((kp) => {
+    if (!visited.has(String(kp.knowledge_point_id))) nodes.push(toMindNode(kp))
+  })
+  return nodes
+}
+
 export function getKnowledgeStatus(kp) {
   return learningStatus(kp)
 }
@@ -110,28 +172,7 @@ export function buildMindData(courseArg, chapters = []) {
         total: kps.length,
         mastered: countMastered(kps),
       },
-      children: kps.map((kp) => {
-        const kpName = normalizeText(kp.knowledge_point_name || kp.name, '知识点')
-        return {
-          id: safeId('kp', kp.knowledge_point_id),
-          topic: kpName,
-          dangerouslySetInnerHTML: renderKnowledgeNode({ ...kp, knowledge_point_name: kpName }),
-          expanded: true,
-          metadata: {
-            type: 'knowledgePoint',
-            kpId: kp.knowledge_point_id,
-            knowledgePointId: kp.knowledge_point_id,
-            knowledgePointName: kpName,
-            chapterId: chapter.chapter_id,
-            chapterName,
-            keyword: [courseName, chapterName, kpName].filter(Boolean).join(' '),
-            shortKeyword: [courseName, kpName].filter(Boolean).join(' '),
-            masteryLevel: kp.mastery_level || null,
-            masteryScore: kp.mastery_score ?? 0,
-            status: learningStatus(kp),
-          },
-        }
-      }),
+      children: buildKnowledgeMindNodes(courseName, { ...chapter, chapter_name: chapterName }, kps),
     }
   })
 

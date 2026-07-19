@@ -55,6 +55,26 @@ function dimensionStatus(value) {
   return { label: '待提升', cls: 'dim-status-weak' }
 }
 
+function riskMeta(level, label) {
+  const key = String(level || 'normal').toLowerCase()
+  if (key === 'high') return { label: label || '高风险', cls: 'sp-risk-high' }
+  if (key === 'attention') return { label: label || '需要关注', cls: 'sp-risk-attention' }
+  return { label: label || '正常', cls: 'sp-risk-normal' }
+}
+
+function buildLearningMetric(label, value, note) {
+  const score = clampScore(value)
+  return `
+    <div class="sp-learning-metric">
+      <div class="sp-learning-metric-head">
+        <span>${escapeHtml(label)}</span>
+        <strong>${score}</strong>
+      </div>
+      <div class="sp-learning-metric-track"><span style="width:${score}%;background:${levelColor(score)}"></span></div>
+      <small>${escapeHtml(note || '')}</small>
+    </div>`
+}
+
 // 趋势变化标签
 function trendLabel(current, previous) {
   if (previous == null || previous === 0) return ''
@@ -279,7 +299,7 @@ export async function renderStudentPortrait(app) {
           <button class="sp-btn-retry" onclick="window.location.reload()">重新加载</button>
         </div>
       </div>`
-  } else if (!portraitData || (!portraitData.learning_ability_score && !portraitData.research_ability_score && !portraitData.competition_ability_score)) {
+  } else if (!portraitData || (!portraitData.comprehensiveScore && !portraitData.learning_ability_score && !portraitData.research_ability_score && !portraitData.competition_ability_score && !portraitData.dimensions?.length)) {
     // 无画像数据
     contentHTML = `
       <div class="sp-page">
@@ -298,10 +318,21 @@ export async function renderStudentPortrait(app) {
     const learning = portraitData.learning_ability_score
     const research = portraitData.research_ability_score
     const competition = portraitData.competition_ability_score
-    const avgScore = clampScore(((learning || 0) + (research || 0) + (competition || 0)) / 3)
+    const avgScore = clampScore(portraitData.comprehensiveScore ?? ((learning || 0) + (research || 0) + (competition || 0)) / 3)
+    const evaluationDimensions = Array.isArray(portraitData.dimensions)
+      ? portraitData.dimensions.map(item => ({
+          name: item.label || item.key || '学习指标',
+          value: clampScore(item.score),
+          description: item.description || '',
+        }))
+      : []
+    const metrics = portraitData.metrics || {}
+    const suggestions = Array.isArray(portraitData.suggestions) ? portraitData.suggestions : []
+    const tendency = portraitData.learningTendency || {}
+    const risk = riskMeta(portraitData.riskLevel, portraitData.riskLabel)
 
     // 计算各能力维度和标签
-    const learningDims = calcDimensions(learning, 'learning', portraitData)
+    const learningDims = evaluationDimensions.length ? evaluationDimensions : calcDimensions(learning, 'learning', portraitData)
     const researchDims = calcDimensions(research, 'research', portraitData)
     const competitionDims = calcDimensions(competition, 'competition', portraitData)
 
@@ -313,7 +344,7 @@ export async function renderStudentPortrait(app) {
 
     // 构建所有维度表格数据
     const allMetrics = [
-      ...learningDims.map(d => ({ ...d, category: '学习能力', change: '', source: '掌握度综合计算', updatedAt: '' })),
+      ...learningDims.map(d => ({ ...d, category: '学习评价', change: '', source: '学习行为综合计算', updatedAt: '' })),
       ...researchDims.map(d => ({ ...d, category: '科研能力', change: '', source: '教师评估', updatedAt: '' })),
       ...competitionDims.map(d => ({ ...d, category: '竞赛能力', change: '', source: '教师评估', updatedAt: '' })),
     ]
@@ -334,21 +365,53 @@ export async function renderStudentPortrait(app) {
             </button>
             <div class="sp-overall-ring" id="sp-overall-ring"></div>
             <div class="sp-overall-info">
-              <span class="sp-overall-label">综合均值</span>
+              <span class="sp-overall-label">综合学习评分</span>
               <span class="sp-overall-score">${scoreText(avgScore)}</span>
               <span class="sp-overall-level" style="color:${levelColor(avgScore)}">${abilityLevel(avgScore)}</span>
             </div>
           </div>
         </div>
 
-        <!-- 第二部分：能力摘要栏 -->
+        <!-- 第二部分：多维学习评价总览 -->
+        <div class="sp-learning-overview">
+          <section class="sp-learning-summary">
+            <div class="sp-learning-summary-head">
+              <div>
+                <span class="sp-section-kicker">个人综合评价</span>
+                <h2>${escapeHtml(tendency.type || '稳步成长型')}</h2>
+              </div>
+              <span class="sp-risk-badge ${risk.cls}">${escapeHtml(risk.label)}</span>
+            </div>
+            <p>${escapeHtml(portraitData.summary || '画像数据正在持续更新，请保持稳定的学习节奏。')}</p>
+            ${Array.isArray(portraitData.riskReasons) && portraitData.riskReasons.length
+              ? `<div class="sp-risk-reasons">${portraitData.riskReasons.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>`
+              : ''}
+          </section>
+          <section class="sp-learning-metrics" aria-label="核心学习指标">
+            ${buildLearningMetric('知识点掌握度', metrics.masteryScore ?? portraitData.mastery_summary?.average_score ?? learning, `${metrics.weakKnowledgePointCount ?? portraitData.mastery_summary?.weak_count ?? 0} 个薄弱知识点`)}
+            ${buildLearningMetric('学习进度', metrics.progressScore ?? learning, `${portraitData.mastery_summary?.total_count ?? 0} 个知识点纳入分析`)}
+            ${buildLearningMetric('作业完成率', metrics.homeworkCompletionRate ?? 0, `${metrics.completedTaskCount ?? 0}/${metrics.assignedTaskCount ?? 0} 项任务已完成`)}
+            ${buildLearningMetric('学习活跃度', metrics.activityScore ?? 0, `近 30 天活跃 ${metrics.activeDays ?? 0} 天`)}
+          </section>
+          <section class="sp-learning-guidance">
+            <span class="sp-section-kicker">下一步学什么</span>
+            <h3>${escapeHtml(tendency.focus ? `重点提升${tendency.focus}` : '保持学习节奏')}</h3>
+            <ul>
+              ${(suggestions.length ? suggestions : ['完成当前章节学习，并通过一次练习检查掌握情况。'])
+                .slice(0, 3)
+                .map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </section>
+        </div>
+
+        <!-- 第三部分：能力摘要栏 -->
         <div class="sp-ability-cards">
           ${buildAbilityCard({ key: 'learning', icon: iconLearning, title: '学习能力', score: learning, color: '#2563EB' })}
           ${buildAbilityCard({ key: 'research', icon: iconResearch, title: '科研能力', score: research, color: '#7C3AED' })}
           ${buildAbilityCard({ key: 'competition', icon: iconCompetition, title: '竞赛能力', score: competition, color: '#F59E0B' })}
         </div>
 
-        <!-- 第三部分：能力详情 Tab + 雷达图 -->
+        <!-- 第四部分：能力详情 Tab + 雷达图 -->
         <div class="sp-detail-section">
           <div class="sp-detail-tabs" id="sp-detail-tabs">
             ${abilityTabs.map((t, i) => `
@@ -381,12 +444,12 @@ export async function renderStudentPortrait(app) {
           </div>
         </div>
 
-        <!-- 第四部分：趋势 + 知识点分析（两列） -->
+        <!-- 第五部分：趋势 + 知识点分析（两列） -->
         <div class="sp-analysis-grid">
           <div class="sp-analysis-card">
             <div class="sp-card-header">
               <span class="sp-card-header-icon">${iconTrend}</span>
-              <h3 class="sp-card-header-title">能力成长趋势</h3>
+              <h3 class="sp-card-header-title">近期学习趋势</h3>
             </div>
             <div class="sp-trend-chart" id="sp-trend-chart"></div>
           </div>
@@ -416,7 +479,7 @@ export async function renderStudentPortrait(app) {
           </div>
         </div>
 
-        <!-- 第五部分：数据指标表 -->
+        <!-- 第六部分：数据指标表 -->
         <div class="sp-metrics-section">
           <div class="sp-card-header">
             <span class="sp-card-header-icon">${iconScore}</span>
@@ -452,14 +515,17 @@ export async function renderStudentPortrait(app) {
   // ========================
   // 图表渲染
   // ========================
-  if (!loadError && portraitData && (portraitData.learning_ability_score || portraitData.research_ability_score || portraitData.competition_ability_score)) {
+  if (!loadError && portraitData && (portraitData.comprehensiveScore || portraitData.learning_ability_score || portraitData.research_ability_score || portraitData.competition_ability_score || portraitData.dimensions?.length)) {
     const learning = portraitData.learning_ability_score
     const research = portraitData.research_ability_score
     const competition = portraitData.competition_ability_score
-    const avgScore = clampScore(((learning || 0) + (research || 0) + (competition || 0)) / 3)
+    const avgScore = clampScore(portraitData.comprehensiveScore ?? ((learning || 0) + (research || 0) + (competition || 0)) / 3)
+    const learningEvaluationDims = Array.isArray(portraitData.dimensions) && portraitData.dimensions.length
+      ? portraitData.dimensions.map(item => ({ name: item.label || item.key, value: clampScore(item.score) }))
+      : calcDimensions(learning, 'learning', portraitData)
 
     const abilityConfigs = {
-      learning: { dims: calcDimensions(learning, 'learning', portraitData), title: '学习能力', color: '#2563EB' },
+      learning: { dims: learningEvaluationDims, title: '多维学习评价', color: '#2563EB' },
       research: { dims: calcDimensions(research, 'research', portraitData), title: '科研能力', color: '#7C3AED' },
       competition: { dims: calcDimensions(competition, 'competition', portraitData), title: '竞赛能力', color: '#F59E0B' },
     }
@@ -627,9 +693,10 @@ function renderTrendChart(portraitData) {
   const dom = document.getElementById('sp-trend-chart')
   if (!dom) return
 
-  // 从 snapshot 数据构建趋势
-  const snapshots = portraitData?.snapshots || portraitData?.trend_data
-  // 如果后端没有返回快照数据，尝试用当前值构建
+  const hasLearningTrend = Array.isArray(portraitData?.recentTrend) && portraitData.recentTrend.length > 0
+  const snapshots = hasLearningTrend
+    ? portraitData.recentTrend
+    : (portraitData?.snapshots || portraitData?.trend_data)
   if (!snapshots || !Array.isArray(snapshots) || snapshots.length < 2) {
     dom.innerHTML = `
       <div class="sp-chart-empty">
@@ -645,11 +712,38 @@ function renderTrendChart(portraitData) {
   const inst = echarts.init(dom)
   const labels = snapshots.map(s => {
     const d = new Date(s.date || s.snapshot_date)
-    return `${d.getMonth() + 1}月`
+    return Number.isNaN(d.getTime()) ? '-' : `${d.getMonth() + 1}/${d.getDate()}`
   })
-  const learningVals = snapshots.map(s => s.learning_total_score || s.learning || 0)
-  const researchVals = snapshots.map(s => s.research_total_score || s.research || 0)
-  const competitionVals = snapshots.map(s => s.competition_total_score || s.competition || 0)
+  const firstSeries = hasLearningTrend
+    ? { name: '综合评分', values: snapshots.map(s => s.comprehensiveScore ?? 0), color: '#2563EB' }
+    : { name: '学习能力', values: snapshots.map(s => s.learning_total_score || s.learning || 0), color: '#2563EB' }
+  const secondSeries = hasLearningTrend
+    ? { name: '知识掌握', values: snapshots.map(s => s.masteryScore ?? 0), color: '#10B981' }
+    : { name: '科研能力', values: snapshots.map(s => s.research_total_score || s.research || 0), color: '#7C3AED' }
+  const thirdSeries = hasLearningTrend
+    ? { name: '学习进度', values: snapshots.map(s => s.progressScore ?? 0), color: '#F59E0B' }
+    : { name: '竞赛能力', values: snapshots.map(s => s.competition_total_score || s.competition || 0), color: '#F59E0B' }
+
+  function lineSeries(config, withArea = false) {
+    return {
+      name: config.name,
+      type: 'line',
+      data: config.values,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 5,
+      lineStyle: { width: 2.5, color: config.color },
+      itemStyle: { color: config.color },
+      ...(withArea ? {
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(37, 99, 235, 0.12)' },
+            { offset: 1, color: 'rgba(37, 99, 235, 0.01)' },
+          ]),
+        },
+      } : {}),
+    }
+  }
 
   inst.setOption({
     tooltip: {
@@ -683,56 +777,7 @@ function renderTrendChart(portraitData) {
       axisTick: { show: false },
       splitLine: { lineStyle: { color: '#F1F5F9' } },
     },
-    series: [
-      {
-        name: '学习能力',
-        type: 'line',
-        data: learningVals,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { width: 2.5, color: '#2563EB' },
-        itemStyle: { color: '#2563EB' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(37, 99, 235, 0.12)' },
-            { offset: 1, color: 'rgba(37, 99, 235, 0.01)' },
-          ]),
-        },
-      },
-      {
-        name: '科研能力',
-        type: 'line',
-        data: researchVals,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { width: 2.5, color: '#7C3AED' },
-        itemStyle: { color: '#7C3AED' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(124, 58, 237, 0.10)' },
-            { offset: 1, color: 'rgba(124, 58, 237, 0.01)' },
-          ]),
-        },
-      },
-      {
-        name: '竞赛能力',
-        type: 'line',
-        data: competitionVals,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { width: 2.5, color: '#F59E0B' },
-        itemStyle: { color: '#F59E0B' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(245, 158, 11, 0.10)' },
-            { offset: 1, color: 'rgba(245, 158, 11, 0.01)' },
-          ]),
-        },
-      },
-    ],
+    series: [lineSeries(firstSeries, true), lineSeries(secondSeries), lineSeries(thirdSeries)],
   })
   window.addEventListener('resize', () => { try { inst.resize() } catch (e) { /* ignore */ } }, { passive: true })
 }

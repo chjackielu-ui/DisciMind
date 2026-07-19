@@ -3,6 +3,8 @@
 const { success, fail } = require('../utils/response');
 const studentVideoService = require('../services/student-video.service');
 const videoSearchService = require('../services/video-search.service');
+const learningMediaService = require('../services/student-learning-media.service');
+const learningPackageService = require('../services/student-learning-package.service');
 
 function getUserId(req) {
   return req.user?.user_id;
@@ -120,10 +122,101 @@ async function proxyVideoCover(req, res) {
   }
 }
 
+async function generateCoursePpt(req, res) {
+  try {
+    return success(res, await learningMediaService.createPpt(req.user, req.params.course_id, req.body || {}), 'PPT生成完成');
+  } catch (err) {
+    console.error('[student-video.controller] generateCoursePpt 异常:', err.message);
+    return fail(res, err.code || 50001, err.code ? err.message : 'PPT生成服务暂不可用');
+  }
+}
+
+async function getCoursePptTask(req, res) {
+  try { return success(res, await learningMediaService.getPptTask(req.user, req.params.task_id)); }
+  catch (err) { return fail(res, err.code || 50001, err.code ? err.message : 'PPT任务读取失败'); }
+}
+
+async function createVideoGenerationTask(req, res) {
+  try { return success(res, await learningMediaService.createVideoTask(req.user, req.body || {}), '视频素材任务已创建'); }
+  catch (err) { return fail(res, err.code || 50001, err.code ? err.message : '视频任务创建失败'); }
+}
+
+async function getVideoGenerationTask(req, res) {
+  try { return success(res, await learningMediaService.getVideoTask(req.user, req.params.task_id)); }
+  catch (err) { return fail(res, err.code || 50001, err.code ? err.message : '视频任务读取失败'); }
+}
+
+async function getGeneratedSlideAudio(req, res) {
+  try {
+    const file = await learningMediaService.getAudioFile(req.user, req.params.task_id, req.params.page);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return res.sendFile(file.absolutePath);
+  } catch (err) { return fail(res, err.code || 50001, err.code ? err.message : '配音文件读取失败'); }
+}
+
+async function completeVideoGeneration(req, res) {
+  try { return success(res, await learningMediaService.completeVideoTask(req.user, req.params.task_id, req.file), 'MP4视频已保存'); }
+  catch (err) {
+    if (req.file?.path) require('fs/promises').unlink(req.file.path).catch(() => {});
+    return fail(res, err.code || 50001, err.code ? err.message : '视频保存失败');
+  }
+}
+
+async function getGeneratedVideo(req, res) {
+  try {
+    const file = await learningMediaService.getVideoFile(req.user, req.params.task_id);
+    res.setHeader('Content-Type', file.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.sendFile(file.absolutePath);
+  } catch (err) { return fail(res, err.code || 50001, err.code ? err.message : '视频文件读取失败'); }
+}
+
+async function createKnowledgeResourcePackage(req, res) {
+  try {
+    const data = await learningPackageService.createPackage(
+      req.user,
+      req.params.course_id,
+      req.params.knowledge_point_id,
+      req.body || {},
+    );
+    return success(res, data, '个性化单知识点学习资源包任务已创建');
+  } catch (err) {
+    return fail(res, err.code || 50001, err.code ? err.message : '学习资源包任务创建失败');
+  }
+}
+
+async function getKnowledgeResourcePackage(req, res) {
+  try {
+    return success(res, await learningPackageService.getPackage(req.user, req.params.task_id));
+  } catch (err) {
+    return fail(res, err.code || 50001, err.code ? err.message : '学习资源包状态读取失败');
+  }
+}
+
+async function retryKnowledgeResourcePackage(req, res) {
+  try {
+    return success(res, await learningPackageService.retryPackage(req.user, req.params.task_id, req.body || {}), '失败资源已重新加入生成队列');
+  } catch (err) {
+    return fail(res, err.code || 50001, err.code ? err.message : '学习资源包重试失败');
+  }
+}
+
 module.exports = {
   getVideoRecommendations,
   getKnowledgePointVideos,
   recordWatch,
   searchVideos,
   proxyVideoCover,
+  generateCoursePpt,
+  getCoursePptTask,
+  createVideoGenerationTask,
+  getVideoGenerationTask,
+  getGeneratedSlideAudio,
+  completeVideoGeneration,
+  getGeneratedVideo,
+  createKnowledgeResourcePackage,
+  getKnowledgeResourcePackage,
+  retryKnowledgeResourcePackage,
 };

@@ -17,14 +17,21 @@
     "vite": "^8.1.0"
   },
   "dependencies": {
+    "@remotion/media": "4.0.491",
+    "@remotion/player": "4.0.491",
+    "@remotion/web-renderer": "4.0.491",
     "axios": "^1.18.1",
     "dompurify": "^3.4.11",
     "echarts": "^6.1.0",
+    "fflate": "0.8.3",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "katex": "^0.17.0",
     "marked": "^18.0.5",
     "mind-elixir": "^5.13.0",
-    "pdfjs-dist": "^6.1.200"
+    "pdfjs-dist": "^6.1.200",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.491"
   }
 }

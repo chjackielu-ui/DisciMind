@@ -5,7 +5,7 @@ import {
   getTeacherCourses, getTeachingClasses, renameTeacherArtifact, retryPreparationResourceConversion,
   uploadKnowledgeDocument, downloadTeachingResource,
 } from '../api/teacher.js'
-import { downloadGeneratedArtifactExport } from '../api/marketplace.js'
+import { downloadGeneratedArtifact, downloadGeneratedArtifactExport } from '../api/marketplace.js'
 import { getUser, getToken, setAuth, clearAuth } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
@@ -155,7 +155,7 @@ function viewerMarkup() {
 async function fetchItemFile(item, { preferPdf = false } = {}) {
   if (item.source_type === 'editable_document') throw new Error('教案请在沉浸式工作区继续编辑或导出')
   if (item.source_type === 'generated_artifact') {
-    const format = preferPdf && item.formats?.includes('PDF') ? 'PDF' : item.formats?.includes('PDF') ? 'PDF' : item.formats?.[0] || 'DOCX'
+    const format = preferPdf && item.formats?.includes('PDF') ? 'PDF' : item.formats?.includes('PDF') ? 'PDF' : item.formats?.[0] || String(item.file_ext || 'DOCX').toUpperCase()
     return fetchPreparationWorkspaceFile('artifact', item.source_id, { format, fallbackName: `${item.title}.${format.toLowerCase()}` })
   }
   const resourceId = preferPdf && item.output_resource_id ? item.output_resource_id : item.source_id
@@ -189,7 +189,11 @@ async function openPreview(item) {
 async function downloadItem(item, button) {
   setBusy(button, true, '下载中…')
   try {
-    if (item.source_type === 'generated_artifact') { const format = item.formats?.includes('PDF') ? 'PDF' : item.formats?.[0] || 'DOCX'; await downloadGeneratedArtifactExport(item.source_id, format, `${item.title}.${format.toLowerCase()}`) }
+    if (item.source_type === 'generated_artifact') {
+      const primaryPptx = ['ppt', 'pptx'].includes(String(item.file_ext || '').toLowerCase()) && !item.formats?.length
+      if (primaryPptx) await downloadGeneratedArtifact(item.source_id, `${item.title}.pptx`)
+      else { const format = item.formats?.includes('PDF') ? 'PDF' : item.formats?.[0] || 'DOCX'; await downloadGeneratedArtifactExport(item.source_id, format, `${item.title}.${format.toLowerCase()}`) }
+    }
     else if (item.source_type === 'teacher_resource') await downloadTeachingResource(item.source_id, item.title)
     else throw new Error('请先在教案工作区导出 DOCX 或 PDF')
   } catch (error) { showToast(error.message || '下载失败', 'error') } finally { setBusy(button, false) }

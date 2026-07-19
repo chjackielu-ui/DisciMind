@@ -4,6 +4,7 @@ import { renderDashboardLayout } from './dashboard.js'
 import { ADMIN_MENU_ITEMS } from './admin-menu.js'
 import { escapeHtml } from './format.js'
 import { getIcon } from './icons.js'
+import { showToast } from './toast.js'
 
 export async function requireAdminUser() {
   let user = getUser()
@@ -20,18 +21,7 @@ export function renderAdminPage(app, { user, title, contentHTML }) {
 }
 
 export function notifyAdmin(message, error = false) {
-  let region = document.getElementById('admin-toast-container')
-  if (!region) {
-    region = document.createElement('div')
-    region.id = 'admin-toast-container'
-    region.className = 'admin-toast-region'
-    region.setAttribute('aria-live', 'polite')
-    document.body.appendChild(region)
-  }
-  const toast = document.createElement('div')
-  toast.className = `admin-toast${error ? ' is-error' : ' is-success'}`
-  toast.innerHTML = `<span aria-hidden="true">${getIcon(error ? 'alert' : 'message')}</span><span>${escapeHtml(message)}</span>`
-  region.appendChild(toast); window.setTimeout(() => toast.remove(), 3600)
+  showToast(message, error ? 'error' : 'success', 3600)
 }
 
 export function setBusy(button, busy, label = '处理中') {

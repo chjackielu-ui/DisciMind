@@ -17,6 +17,7 @@ const notificationController = require('../controllers/admin-notification.contro
 const aiController = require('../controllers/admin-ai.controller');
 const traceController = require('../controllers/admin-trace.controller');
 const governanceController = require('../controllers/admin-governance.controller');
+const aiSafetyController = require('../controllers/admin-ai-safety.controller');
 const rbacController = require('../controllers/admin-rbac.controller');
 const { requireAdminPermission } = require('../services/admin-permission.service');
 
@@ -151,7 +152,12 @@ router.get('/governance/:module/overview', requireGovernancePermission('view'), 
 router.get('/governance/:module', requireGovernancePermission('view'), governanceController.getList);
 router.post('/governance/:module/actions/:action', requireGovernancePermission('manage'), governanceController.runAction);
 
-// ==================== 14. 管理员角色与权限 ====================
+// ==================== 14. AI 安全治理 ====================
+router.get('/ai-safety/overview', requireAdminPermission('admin.risks.view'), aiSafetyController.getOverview);
+router.post('/ai-safety/standards/sync', requireAdminPermission('admin.risks.manage'), aiSafetyController.syncStandards);
+router.put('/ai-safety/rules/:rule_id/enabled', requireAdminPermission('admin.risks.manage'), aiSafetyController.setRuleEnabled);
+
+// ==================== 15. 管理员角色与权限 ====================
 router.get('/rbac/me', rbacController.getMyAccess);
 router.get('/rbac/overview', requireAdminPermission('admin.system.view'), rbacController.getOverview);
 router.put('/rbac/users/:user_id/roles', requireAdminPermission('admin.system.manage'), rbacController.replaceUserRoles);

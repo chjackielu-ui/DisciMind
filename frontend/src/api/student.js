@@ -73,6 +73,21 @@ export function getStudentCourseKnowledgePoints(courseId) {
 }
 
 /**
+ * 获取学生知识图谱课程总览
+ */
+export function getStudentKnowledgeGraph() {
+  return get('/student/knowledge-graph')
+}
+
+/**
+ * 获取单门课程知识图谱（节点、边、掌握度与学习建议）
+ * @param {number} courseId
+ */
+export function getStudentCourseKnowledgeGraph(courseId) {
+  return get(`/student/courses/${courseId}/knowledge-graph`)
+}
+
+/**
  * 获取课程知识点掌握等级分布
  * @param {number} courseId
  */
@@ -1105,4 +1120,64 @@ export function createVideoWatchRecord(videoId, data) {
  */
 export function searchVideos(data = {}) {
   return post('/student/videos/search', data)
+}
+
+// ========================
+// 学习PPT与Remotion视频生成
+// ========================
+
+export function generateStudentCoursePpt(courseId, data = {}) {
+  return post(`/student/courses/${courseId}/ppt/generate`, data)
+}
+
+export function getStudentPptTask(taskId) {
+  return get(`/student/ppt/tasks/${taskId}`)
+}
+
+export function createStudentVideoGenerationTask(data = {}) {
+  return post('/student/videos/generation-tasks', data)
+}
+
+export function createStudentKnowledgeResourcePackage(courseId, knowledgePointId, data = {}) {
+  return post(`/student/courses/${courseId}/knowledge-points/${knowledgePointId}/resource-packages`, data)
+}
+
+export function getStudentKnowledgeResourcePackage(taskId) {
+  return get(`/student/resource-packages/${taskId}`)
+}
+
+export function retryStudentKnowledgeResourcePackage(taskId, data = {}) {
+  return post(`/student/resource-packages/${taskId}/retry`, data)
+}
+
+export function getStudentVideoGenerationTask(taskId) {
+  return get(`/student/videos/generation-tasks/${taskId}`)
+}
+
+export async function fetchStudentGeneratedMedia(pathname) {
+  const response = await fetch(`${BASE_URL}${pathname.replace(/^\/api/, '')}`, {
+    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    const result = await response.json().catch(() => null)
+    throw new Error(result?.message || `媒体文件读取失败（HTTP ${response.status}）`)
+  }
+  return response.blob()
+}
+
+export function uploadStudentGeneratedVideo(taskId, blob, fileName = 'learning-video.mp4') {
+  const form = new FormData()
+  form.append('video', blob, fileName)
+  return upload(`/student/videos/generation-tasks/${taskId}/complete`, form)
+}
+
+export async function downloadStudentPptArtifact(artifactId, fallbackName = '学习课件.pptx') {
+  const blob = await fetchStudentGeneratedMedia(`/api/generated-artifacts/${artifactId}/download`)
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fallbackName
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

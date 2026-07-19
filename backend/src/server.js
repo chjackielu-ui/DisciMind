@@ -1,9 +1,13 @@
 // 后端服务入口
 // 读取环境变量并启动 Express 服务
 
-const { loadEnv } = require('./config/env');
+const { loadEnv, validateProductionEnv } = require('./config/env');
+loadEnv();
+validateProductionEnv();
+
 const { describeDatabaseError } = require('./config/database');
 const http = require('http');
+const { configureHttpServer } = require('./config/http-server');
 const app = require('./app');
 const prisma = require('./config/prisma');
 const { getLearningNarrationModule } = require('./modules/learning-narration');
@@ -11,9 +15,8 @@ const { getAsyncTaskWorker } = require('./modules/async-task/async-task.worker')
 const generationRegistry = require('./modules/agent-chat/generation-registry');
 const { recoverInterruptedGenerations } = require('./modules/agent-chat/agent-generation.service');
 
-loadEnv();
-
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 
 // 定时扫描器引用
 let expirationInterval = null;
@@ -138,8 +141,22 @@ async function start() {
     process.exit(1);
   }
 
+  const recoveredPpt = await require('./services/teacher-ppt.service').recoverInterruptedTasks();
+  if (recoveredPpt.scanned) {
+    console.log(`[ppt-recovery] 已检查 ${recoveredPpt.scanned} 个中断任务：恢复 ${recoveredPpt.recovered}，标记失败 ${recoveredPpt.failed}`);
+  }
+
   await require('./modules/file-generator/system-file-agents.service').ensureSystemFileAgents()
-    .then((items) => console.log(`[system-agents] 已确保 ${items.length} 个系统文件智能体可用`))
+    .then((items) => {
+      console.log(`[system-agents] 已确保 ${items.length} 个系统文件智能体可用`);
+      const unboundItems = items.filter((item) => !item.boundKnowledgeBaseIds?.length);
+      if (unboundItems.length) {
+        console.warn(
+          `[system-agents] ${unboundItems.length} 个系统文件智能体未绑定真实公开知识库，当前将使用通用模型降级生成；` +
+          '请完成 Dify 数据集与已审核文档绑定后重启服务。',
+        );
+      }
+    })
     .catch((error) => console.error('[system-agents] 初始化失败:', error.message));
 
   startExpirationScanner();
@@ -150,9 +167,11 @@ async function start() {
   setupGracefulShutdown();
 
   httpServer = http.createServer(app);
+  const httpTimeouts = configureHttpServer(httpServer);
   getLearningNarrationModule().attach(httpServer);
-  httpServer.listen(PORT, () => {
-    console.log(`DisciMind backend server is running at http://localhost:${PORT}`);
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`DisciMind backend server is running at http://${HOST}:${PORT}`);
+    console.log(`[server] HTTP timeouts: request=${httpTimeouts.requestTimeoutMs}ms headers=${httpTimeouts.headersTimeoutMs}ms keepAlive=${httpTimeouts.keepAliveTimeoutMs}ms socket=disabled`);
   });
 }
 

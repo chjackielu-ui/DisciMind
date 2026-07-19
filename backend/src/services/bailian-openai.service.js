@@ -16,14 +16,21 @@ function getBailianConfig() {
     apiKey,
     baseURL: String(process.env.BAILIAN_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, ''),
     model: String(process.env.BAILIAN_MODEL || DEFAULT_MODEL),
+    timeout: Math.max(10_000, Number(process.env.BAILIAN_TIMEOUT_MS || 180_000)),
+    maxRetries: Math.max(0, Math.min(3, Number(process.env.BAILIAN_MAX_RETRIES || 1))),
   };
 }
 
 function getBailianClient() {
   const config = getBailianConfig();
-  const key = `${config.baseURL}|${config.apiKey.slice(-8)}`;
+  const key = `${config.baseURL}|${config.apiKey.slice(-8)}|${config.timeout}|${config.maxRetries}`;
   if (!cachedClient || cachedKey !== key) {
-    cachedClient = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL });
+    cachedClient = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseURL,
+      timeout: config.timeout,
+      maxRetries: config.maxRetries,
+    });
     cachedKey = key;
   }
   return { client: cachedClient, model: config.model, config };

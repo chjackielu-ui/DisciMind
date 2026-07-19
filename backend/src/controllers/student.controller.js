@@ -116,6 +116,36 @@ async function getCourseKnowledgePoints(req, res) {
 }
 
 /**
+ * GET /api/student/knowledge-graph
+ */
+async function getKnowledgeGraphOverview(req, res) {
+  try {
+    const data = await studentService.getStudentKnowledgeGraphOverview(getUserId(req));
+    return success(res, data, '获取知识图谱课程总览成功');
+  } catch (err) {
+    console.error('[student.controller] getKnowledgeGraphOverview 异常:', err.message);
+    return fail(res, err.code || 50001, err.code ? err.message : '服务器错误');
+  }
+}
+
+/**
+ * GET /api/student/courses/:course_id/knowledge-graph
+ */
+async function getCourseKnowledgeGraph(req, res) {
+  try {
+    const userId = getUserId(req);
+    const courseId = parseInt(req.params.course_id, 10);
+    if (isNaN(courseId) || courseId < 1) return fail(res, 40001, 'course_id 参数不合法');
+    const data = await studentService.getStudentCourseKnowledgeGraph(userId, courseId);
+    return success(res, data, '获取课程知识图谱成功');
+  } catch (err) {
+    console.error('[student.controller] getCourseKnowledgeGraph 异常:', err.message);
+    if (err.code === 40002 || err.code === 40301) return fail(res, err.code, err.message);
+    return fail(res, 50001, '服务器错误');
+  }
+}
+
+/**
  * GET /api/student/knowledge-points/:knowledge_point_id
  */
 async function getKnowledgePointDetail(req, res) {
@@ -389,6 +419,8 @@ module.exports = {
   getCourseDetail,
   getCourseChapters,
   getCourseKnowledgePoints,
+  getKnowledgeGraphOverview,
+  getCourseKnowledgeGraph,
   getKnowledgePointDetail,
   getTasks,
   getTaskDetail,
