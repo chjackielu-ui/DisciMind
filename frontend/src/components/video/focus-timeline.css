@@ -1,0 +1,84 @@
+.learning-ppt-copy ul {
+  gap: 8px;
+  padding-left: 0;
+  list-style-position: inside;
+}
+
+.learning-ppt-copy li {
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transform-origin: left center;
+}
+
+.learning-ppt-stage.is-focusing .learning-ppt-copy h4,
+.learning-ppt-stage.is-focusing .learning-ppt-copy p {
+  opacity: var(--context-opacity);
+}
+
+.learning-ppt-stage.is-focusing .learning-ppt-copy li.is-dimmed {
+  opacity: var(--surrounding-opacity);
+}
+
+.learning-ppt-stage.is-focusing .learning-ppt-copy li.is-focused {
+  position: relative;
+  z-index: 1;
+  color: #14324a;
+}
+
+.learning-ppt-stage.is-focusing .learning-ppt-image {
+  opacity: var(--image-opacity);
+  filter: brightness(var(--image-brightness));
+}
+
+.learning-ppt-focus-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 16px;
+  border-top: 1px solid #e1edf1;
+  background: #f8fbfc;
+}
+
+.learning-ppt-focus-controls button {
+  min-height: 38px;
+  padding: 8px 15px;
+  border: 1px solid #bfd7e0;
+  border-radius: 10px;
+  background: #fff;
+  color: #205a72;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.learning-ppt-focus-controls > div {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.learning-ppt-focus-controls span {
+  overflow: hidden;
+  color: #486b7d;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learning-ppt-focus-controls progress {
+  width: 100%;
+  height: 6px;
+  accent-color: #2188a5;
+}
+
+@media (max-width: 640px) {
+  .learning-ppt-focus-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .learning-ppt-focus-controls button {
+    width: 100%;
+  }
+}

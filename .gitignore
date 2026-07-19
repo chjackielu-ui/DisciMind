@@ -83,5 +83,12 @@ backend/storage/learning-narration/
 # AI chat & learning session uploads (screenshots, attachments)
 backend/storage/uploads/
 
+# temp/debug screenshots
+tmp/
+
+# release packages
+release/
+
+# docs auto-generated
 docs/CLAUDE_CODE_DATABASE_PROMPT.md
 docs/DisciMind_database_design.md
