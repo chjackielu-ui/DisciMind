@@ -7,6 +7,7 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "seed:judge": "node prisma/seed-judge-demo.js",
+    "seed:student": "node prisma/seed-student-experience.js",
     "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
     "test:tts:live": "node scripts/test-learning-narration-live.js",
     "test:narration:api": "node scripts/test-learning-narration-api.js",

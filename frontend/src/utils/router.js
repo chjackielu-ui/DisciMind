@@ -3,52 +3,6 @@
 
 import { isLoggedIn, getUser, initializeAuth, getAuthStatus, AUTH_STATUS } from './auth.js'
 import { getActivePracticeAttempt } from '../api/student.js'
-<<<<<<< Updated upstream
-=======
-import { renderTeacherDashboard } from '../pages/teacher-dashboard.js'
-import { renderTeacherCourses } from '../pages/teacher-courses.js'
-import { renderTeacherCourseDetail } from '../pages/teacher-course-detail.js'
-import { renderTeacherStudents } from '../pages/teacher-students.js'
-import { renderTeacherStudentDetail } from '../pages/teacher-student-detail.js'
-import { renderTeacherTasks } from '../pages/teacher-tasks.js'
-import { renderTeacherTaskCreate } from '../pages/teacher-task-create.js'
-import { renderTeacherTaskDetail } from '../pages/teacher-task-detail.js'
-import { renderTeacherQuestions } from '../pages/teacher-questions.js'
-import { renderTeacherQuestionCreate } from '../pages/teacher-question-create.js'
-import { renderTeacherKnowledge } from '../pages/teacher-knowledge.js'
-import { renderTeacherAnalytics } from '../pages/teacher-analytics.js'
-import { renderTeacherProfile } from '../pages/teacher-profile.js'
-import { renderTeacherClasses } from '../pages/teacher-classes.js'
-import { renderTeacherSystemManagement } from '../pages/teacher-system-management.js'
-import { renderTeacherClassWorkspace } from '../pages/teacher-class-workspace.js'
-import { renderTeacherLessonPlan } from '../pages/teacher-lesson-plan.js'
-import { renderTeacherHomework } from '../pages/teacher-homework.js'
-import { renderTeacherAiChat } from '../pages/teacher-ai-chat.js'
-import { renderTeacherPreparation } from '../pages/teacher-preparation.js'
-import { renderTeacherPreparationImmersive } from '../pages/teacher-preparation-immersive.js'
-import { renderTeacherArtifacts } from '../pages/teacher-artifacts.js'
-import { renderTeacherAgentMarketplace } from '../pages/teacher-agent-marketplace.js'
-import { renderAdminDashboard } from '../pages/admin-dashboard.js'
-import { renderAdminUsers } from '../pages/admin-users.js'
-import { renderAdminCourses } from '../pages/admin-courses.js'
-import { renderAdminCourseDetail } from '../pages/admin-course-detail.js'
-import { renderAdminClasses } from '../pages/admin-classes.js'
-import { renderAdminTeachingClasses } from '../pages/admin-teaching-classes.js'
-import { renderAdminKnowledge } from '../pages/admin-knowledge.js'
-import { renderAdminLogs } from '../pages/admin-logs.js'
-import { renderAdminNotifications } from '../pages/admin-notifications.js'
-import { renderAdminAiConfig } from '../pages/admin-ai-config.js'
-import { renderAdminProfile } from '../pages/admin-profile.js'
-import { renderAdminAgentReviews } from '../pages/admin-agent-reviews.js'
-import { renderAdminTraces } from '../pages/admin-traces.js'
-import { renderAdminPermissions } from '../pages/admin-permissions.js'
-import { renderAdminAiSafety } from '../pages/admin-ai-safety.js'
-import {
-  renderAdminLearningFlows, renderAdminKnowledgeHealth, renderAdminTeachingIssues,
-  renderAdminEvaluations, renderAdminExperiments, renderAdminDigitalTwin,
-  renderAdminAssets, renderAdminStrategyProfiles, renderAdminRisks,
-} from '../pages/admin-governance.js'
->>>>>>> Stashed changes
 import { loadAdminAccess, hasAdminPermission } from './admin-access.js'
 import { ADMIN_MENU_ITEMS } from './admin-menu.js'
 import { renderDashboardLayout } from './dashboard.js'
@@ -111,6 +65,7 @@ const renderTeacherQuestionCreate = lazyRender(() => import('../pages/teacher-qu
 const renderTeacherKnowledge = lazyRender(() => import('../pages/teacher-knowledge.js'), 'renderTeacherKnowledge')
 const renderTeacherAnalytics = lazyRender(() => import('../pages/teacher-analytics.js'), 'renderTeacherAnalytics')
 const renderTeacherProfile = lazyRender(() => import('../pages/teacher-profile.js'), 'renderTeacherProfile')
+const renderTeacherClassWorkspace = lazyRender(() => import('../pages/teacher-class-workspace.js'), 'renderTeacherClassWorkspace')
 const renderTeacherSystemManagement = lazyRender(() => import('../pages/teacher-system-management.js'), 'renderTeacherSystemManagement')
 const renderTeacherLessonPlan = lazyRender(() => import('../pages/teacher-lesson-plan.js'), 'renderTeacherLessonPlan')
 const renderTeacherHomework = lazyRender(() => import('../pages/teacher-homework.js'), 'renderTeacherHomework')
@@ -145,6 +100,7 @@ const renderAdminKnowledge = lazyRender(() => import('../pages/admin-knowledge.j
 const renderAdminLogs = lazyRender(() => import('../pages/admin-logs.js'), 'renderAdminLogs')
 const renderAdminNotifications = lazyRender(() => import('../pages/admin-notifications.js'), 'renderAdminNotifications')
 const renderAdminAiConfig = lazyRender(() => import('../pages/admin-ai-config.js'), 'renderAdminAiConfig')
+const renderAdminAiSafety = lazyRender(() => import('../pages/admin-ai-safety.js'), 'renderAdminAiSafety')
 const renderAdminProfile = lazyRender(() => import('../pages/admin-profile.js'), 'renderAdminProfile')
 const renderAdminAgentReviews = lazyRender(() => import('../pages/admin-agent-reviews.js'), 'renderAdminAgentReviews')
 const renderAdminTraces = lazyRender(() => import('../pages/admin-traces.js'), 'renderAdminTraces')
@@ -691,12 +647,7 @@ async function renderRoute(seq) {
   }
 
   // 渲染页面
-<<<<<<< Updated upstream
   app.innerHTML = buildRouteLoadingHTML()
-=======
-  if (seq !== renderSeq) return
-  app.innerHTML = ''
->>>>>>> Stashed changes
   if (path.startsWith('/admin/')) {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }

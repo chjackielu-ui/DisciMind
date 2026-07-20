@@ -268,7 +268,7 @@ function renderContent() {
 
       <div class="diag-actions">
         <button class="diag-run-btn" onclick="window._diagRun()" ${loading ? 'disabled' : ''}>
-          ${loading ? '分析中...' : '🚀 开始分析'}
+          ${loading ? '分析中...' : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg> 开始分析'}
         </button>
       </div>
 

@@ -2,6 +2,7 @@
 // 所有数据库操作使用统一的 prisma 实例（从 ../config/prisma 导入）
 
 const bcrypt = require('bcryptjs');
+const { initializeNewStudent } = require('./student-cold-start.service');
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { signToken } = require('../utils/jwt');
@@ -21,6 +22,12 @@ const REFRESH_TOKEN_COOKIE_NAME = process.env.REFRESH_TOKEN_COOKIE_NAME || 'disc
 const SESSION_IDLE_MS = Number(process.env.SESSION_IDLE_MINUTES || 30) * 60 * 1000;
 // 会话活动更新节流：至少间隔1分钟才更新数据库
 const SESSION_TOUCH_THROTTLE_MS = 60 * 1000;
+const LOGIN_PORTAL_ROLES = new Set(['student', 'teacher', 'admin']);
+const LOGIN_PORTAL_LABELS = {
+  student: '学生',
+  teacher: '教师',
+  admin: '管理员',
+};
 
 // ---------- 内部工具函数 ----------
 
@@ -337,6 +344,10 @@ async function register(params) {
       },
     });
 
+    if (normalizedRole === 'student') {
+      await initializeNewStudent(tx, user.user_id);
+    }
+
     return { ...user, profile };
   });
 
@@ -348,10 +359,19 @@ async function register(params) {
  * 登录
  * account 支持 username / phone / email
  */
-async function login({ account, password, deviceInfo, ipAddress }) {
+async function login({ account, password, role, deviceInfo, ipAddress }) {
   // 1. 参数校验
   if (!account || !password) {
     const err = new Error('账号和密码不能为空');
+    err.code = 40001;
+    throw err;
+  }
+
+  // role 为登录页所选入口。保留省略 role 的兼容性，供既有可信服务调用；
+  // 浏览器登录必须传入它，服务端据此强制账号与入口角色一致。
+  const portalRole = role == null || role === '' ? null : String(role).trim().toLowerCase();
+  if (portalRole && !LOGIN_PORTAL_ROLES.has(portalRole)) {
+    const err = new Error('无效的登录入口角色');
     err.code = 40001;
     throw err;
   }
@@ -388,6 +408,13 @@ async function login({ account, password, deviceInfo, ipAddress }) {
   if (!isValid) {
     const err = new Error('账号或密码错误');
     err.code = 40007;
+    throw err;
+  }
+
+  const actualRole = fromPrismaRole(user.role);
+  if (portalRole && actualRole !== portalRole) {
+    const err = new Error(`当前为${LOGIN_PORTAL_LABELS[portalRole]}登录入口，请切换到${LOGIN_PORTAL_LABELS[actualRole] || '对应'}登录后重试`);
+    err.code = 40009;
     throw err;
   }
 

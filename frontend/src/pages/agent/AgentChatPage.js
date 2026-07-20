@@ -233,14 +233,31 @@ export async function renderAgentChat(app, params) {
 
     async function generate(payload, regenerate = false) {
       if (activeAgentGeneration) return
+      // UnifiedComposer exposes pending files as `attachments`.  Older drafts
+      // used `images`, so accept both while always sending the API's `images`
+      // payload.  Reading payload.images directly here made every text-only
+      // message throw before the request was issued.
+      const attachments = Array.isArray(payload?.attachments)
+        ? payload.attachments
+        : (Array.isArray(payload?.images) ? payload.images : [])
+      const requestImages = attachments
+        .filter(item => item?.dataUrl && item?.name && item?.mimeType)
+        .map(({ name, mimeType, dataUrl }) => ({ name, mimeType, dataUrl }))
+      const messagePayload = {
+        content: String(payload?.content || '').trim(),
+        knowledgeBaseRefs: Array.isArray(payload?.knowledgeBaseRefs) ? payload.knowledgeBaseRefs : [],
+        agentRefs: Array.isArray(payload?.agentRefs) ? payload.agentRefs : [],
+        attachments,
+      }
+      if (!regenerate && !messagePayload.content && !requestImages.length) return
       const controller = new AbortController()
       const running = { controller, conversationId, generationId: null, stopRequested: false, stopTimer: null }
       activeAgentGeneration = running; composer.setBusy(true)
       const abortOnRouteChange = () => controller.abort()
       window.addEventListener('hashchange', abortOnRouteChange, { once: true })
       if (!regenerate) {
-        const localImages = payload.images.map(item => ({ ...item, displayUrl: item.dataUrl }))
-        messageBox.insertAdjacentHTML('beforeend', messagesHTML([{ role: 'USER', content: payload.content, knowledgeBaseRefs: payload.knowledgeBaseRefs, agentRefs: payload.agentRefs, attachments: localImages }]))
+        const localImages = attachments.map(item => ({ ...item, displayUrl: item.displayUrl || item.dataUrl }))
+        messageBox.insertAdjacentHTML('beforeend', messagesHTML([{ role: 'USER', content: messagePayload.content, knowledgeBaseRefs: messagePayload.knowledgeBaseRefs, agentRefs: messagePayload.agentRefs, attachments: localImages }]))
         composer.clear()
       }
       messageBox.insertAdjacentHTML('beforeend', '<article class="agent-chat-message is-assistant is-streaming"><div class="agent-message-role">智能体<span>GENERATING</span></div><pre class="agent-stream-text"></pre><div class="agent-live-runs"></div><div class="agent-live-sources"></div></article>')
@@ -250,10 +267,10 @@ export async function renderAgentChat(app, params) {
       try {
         await streamAgentConversation(conversationId, {
           ...(regenerate ? { regenerate: true } : {
-            content: payload.content,
-            knowledgeBaseRefs: payload.knowledgeBaseRefs,
-            agentRefs: payload.agentRefs,
-            images: payload.images.map(({ name, mimeType, dataUrl }) => ({ name, mimeType, dataUrl })),
+            content: messagePayload.content,
+            knowledgeBaseRefs: messagePayload.knowledgeBaseRefs,
+            agentRefs: messagePayload.agentRefs,
+            images: requestImages,
           }),
           operationId: operationId(),
         }, {
@@ -268,7 +285,7 @@ export async function renderAgentChat(app, params) {
         })
         localStorage.removeItem(draftKey(conversationId))
       } catch (error) {
-        if (error.name !== 'AbortError') { composer.setPayload(payload); saveDraft(conversationId, payload); notify(error.message, true) }
+        if (error.name !== 'AbortError') { composer.setPayload(messagePayload); saveDraft(conversationId, messagePayload); notify(error.message, true) }
       } finally {
         clearTimeout(running.stopTimer)
         window.removeEventListener('hashchange', abortOnRouteChange)
@@ -285,7 +302,7 @@ export async function renderAgentChat(app, params) {
     if (hasUserMessage) {
       const regenerateButton = document.createElement('button')
       regenerateButton.type = 'button'; regenerateButton.className = 'agent-floating-regenerate'; regenerateButton.textContent = '重新生成'
-      regenerateButton.onclick = () => generate({ content: '', knowledgeBaseRefs: [], agentRefs: [], images: [] }, true)
+      regenerateButton.onclick = () => generate({ content: '', knowledgeBaseRefs: [], agentRefs: [], attachments: [] }, true)
       root.querySelector('.agent-chat-main').append(regenerateButton)
     }
   } catch (error) {

@@ -36,7 +36,7 @@ function agentCard(agent, mode) {
     <div class="agent-card-actions">
       <button class="complex-btn" type="button" data-action="use">${isFileGenerator ? '生成文件' : '立即对话'}</button>
       <button class="complex-btn-secondary" type="button" data-action="detail">详情</button>
-       ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="收藏"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg>${agent.isFavorite ? '已收藏' : '收藏'}</button>`}
+       ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="${agent.isFavorite ? '取消收藏' : '收藏'}" title="${agent.isFavorite ? '取消收藏' : '收藏'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg></button>`}
     </div>
   </article>`
 }

@@ -43,12 +43,19 @@ function publicFailure(error) {
 }
 
 async function sourcePath(resource) {
-  const relative = String(resource.file_url || '').replace(/^\/+/, '').replace(/\//g, path.sep);
-  if (!relative || relative.split(path.sep).includes('..')) throw Object.assign(new Error('资源文件不存在'), { code: 'PPT_SOURCE_MISSING' });
-  for (const root of [PROJECT_STORAGE_ROOT, BACKEND_STORAGE_ROOT]) {
-    const absolute = path.resolve(root, relative);
-    if (!absolute.startsWith(`${root}${path.sep}`)) continue;
-    try { await fs.access(absolute); return absolute; } catch {}
+  const candidates = [String(resource.file_url || '').replace(/^\/+/, '')];
+  if (resource.source_artifact_id) {
+    const artifact = await prisma.generatedArtifact.findUnique({ where: { id: Number(resource.source_artifact_id) }, select: { storagePath: true } });
+    if (artifact?.storagePath) candidates.push(path.posix.join('generated-artifacts', String(artifact.storagePath).replace(/\\/g, '/').replace(/^\/+/, '')));
+  }
+  for (const candidate of candidates) {
+    const relative = String(candidate || '').replace(/\//g, path.sep);
+    if (!relative || relative.split(path.sep).includes('..')) continue;
+    for (const root of [PROJECT_STORAGE_ROOT, BACKEND_STORAGE_ROOT]) {
+      const absolute = path.resolve(root, relative);
+      if (!absolute.startsWith(`${root}${path.sep}`)) continue;
+      try { await fs.access(absolute); return absolute; } catch {}
+    }
   }
   throw Object.assign(new Error('资源文件不存在'), { code: 'PPT_SOURCE_MISSING' });
 }

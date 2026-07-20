@@ -79,26 +79,12 @@ const SESSION_IMAGE_EXTENSION_BY_MIME = {
 };
 
 const sessionFileUpload = multer({
-<<<<<<< Updated upstream
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 3 },
   fileFilter: (req, file, cb) => {
     const extension = path.extname(file.originalname || '').toLowerCase();
     if (imageTypes.get(extension) === String(file.mimetype || '').toLowerCase()) cb(null, true);
     else cb(new Error('图片扩展名与 MIME 类型不一致或不受支持'));
-=======
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => {
-      const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      cb(null, `learning_${unique}${SESSION_IMAGE_EXTENSION_BY_MIME[file.mimetype] || '.png'}`);
-    },
-  }),
-  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
-  fileFilter: (req, file, cb) => {
-    if (SESSION_IMAGE_EXTENSION_BY_MIME[file.mimetype]) cb(null, true);
-    else cb(new Error(`不支持的文件类型: ${file.mimetype}`));
->>>>>>> Stashed changes
   },
 });
 

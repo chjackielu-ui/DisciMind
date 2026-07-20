@@ -80,6 +80,13 @@ const accountPlaceholders = {
   admin: '请输入管理员账号',
 }
 
+// 角色入口各自对应的演示账号。切换入口时始终回填对应账号，避免页面状态和账号身份不一致。
+const demoCredentialsByRole = {
+  student: { account: 'student_demo', password: '123456' },
+  teacher: { account: 'teacher_demo', password: '123456' },
+  admin: { account: 'admin_demo', password: '123456' },
+}
+
 // 使用场景数据
 const scenarioData = [
   { icon: '📖', image: '/pics/login/scenarios/ai-tutoring.webp', imageAlt: '大学生围绕电脑协作学习', title: '智能学习辅导', desc: '围绕课程知识点进行问答、讲解与个性化学习支持，让每一位学生都能获得专属学习体验。' },
@@ -96,25 +103,33 @@ const agentData = [
     tag: '学生端',
     title: '学习助手智能体',
     desc: '面向学生提供课程问答、知识点讲解、错题分析和学习路径建议，打造 7×24 小时专属 AI 导师。',
-    videoFirst: true,
+    highlights: ['课程问答', '学习路径'],
+    tone: 'blue',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16.5H6.5A2.5 2.5 0 0 0 4 22V5.5Z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M9 7h7M9 11h5"/></svg>`,
   },
   {
     tag: '科研端',
     title: '科研问答智能体',
     desc: '面向科研场景提供论文检索、文献理解、研究方向分析和资料追溯，让科研不再迷失在海量文献中。',
-    videoFirst: false,
+    highlights: ['文献理解', '资料追溯'],
+    tone: 'cyan',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4.5 4.5"/><path d="M10.5 8v5M8 10.5h5"/></svg>`,
   },
   {
     tag: '教师端',
     title: '课程分析智能体',
     desc: '辅助教师分析课程内容、学生掌握情况和教学资源使用效果，以数据驱动教学质量持续提升。',
-    videoFirst: true,
+    highlights: ['学情分析', '教学优化'],
+    tone: 'violet',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/><path d="M6.5 7.5 10 4l3.5 2.5L19 2"/></svg>`,
   },
   {
     tag: '创作端',
     title: '多模态生成智能体',
     desc: '支持讲解视频、图文材料、知识卡片等多模态学习内容生成，让教学内容创作更高效、更生动。',
-    videoFirst: false,
+    highlights: ['内容生成', '表达创作'],
+    tone: 'amber',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.45 4.55L18 9l-4.55 1.45L12 15l-1.45-4.55L6 9l4.55-1.45L12 3Z"/><path d="m19 15 .75 2.25L22 18l-2.25.75L19 21l-.75-2.25L16 18l2.25-.75L19 15Z"/></svg>`,
   },
 ]
 
@@ -226,6 +241,17 @@ function applyTheme(role) {
     page.style.setProperty('--theme-alpha', theme.alpha)
     page.style.setProperty('--title-gradient', theme.titleGradient)
   }
+}
+
+function fillLoginCredentials(role, credentials = demoCredentialsByRole[role]) {
+  const accountInput = document.getElementById('login-account')
+  const passwordInput = document.getElementById('login-password')
+
+  if (accountInput) {
+    accountInput.placeholder = accountPlaceholders[role] || accountPlaceholders.student
+    accountInput.value = credentials?.account || ''
+  }
+  if (passwordInput) passwordInput.value = credentials?.password || ''
 }
 
 // 锁死 / 解锁身份切换胶囊
@@ -372,34 +398,19 @@ function renderAgentShowcases() {
   return agentData
     .map(
       (item, i) => `
-    <div class="agent-showcase reveal">
-      ${item.videoFirst
-        ? `
-      <div class="agent-video">
-        <div class="agent-video-inner">
-          <div class="agent-video-icon">▶</div>
-          <span class="agent-video-label">视频演示区域<br>Demo Video</span>
-        </div>
+    <article class="agent-card agent-card--${item.tone} reveal" style="transition-delay:${i * 0.06}s">
+      <div class="agent-card-top">
+        <span class="agent-card-icon" aria-hidden="true">${item.icon}</span>
+        <span class="agent-tag">${item.tag}</span>
       </div>
-      <div class="agent-content">
-        <span class="agent-tag">${item.tag}</span>
-        <h3>${item.title}</h3>
-        <p>${item.desc}</p>
-      </div>`
-        : `
-      <div class="agent-content">
-        <span class="agent-tag">${item.tag}</span>
+      <div class="agent-card-content">
         <h3>${item.title}</h3>
         <p>${item.desc}</p>
       </div>
-      <div class="agent-video">
-        <div class="agent-video-inner">
-          <div class="agent-video-icon">▶</div>
-          <span class="agent-video-label">视频演示区域<br>Demo Video</span>
-        </div>
-      </div>`
-      }
-    </div>`
+      <ul class="agent-card-highlights" aria-label="${item.title}能力">
+        ${item.highlights.map((highlight) => `<li>${highlight}</li>`).join('')}
+      </ul>
+    </article>`
     )
     .join('')
 }
@@ -513,15 +524,55 @@ export function renderLoginPage(app) {
           </div>
         </div>
 
-        <div class="hero-project-visual">
-          <img
-            src="/pics/login/discimind-hero.webp"
-            alt="学生、教师与研究者通过学科知识图谱协同学习和科研"
-            width="1672"
-            height="941"
-            decoding="async"
-            fetchpriority="high"
-          />
+        <div class="hero-project-visual" aria-hidden="true">
+          <div class="knowledge-visual">
+            <div class="knowledge-aurora"></div>
+            <div class="knowledge-grid-plane"></div>
+            <div class="knowledge-orbit knowledge-orbit--outer"></div>
+            <div class="knowledge-orbit knowledge-orbit--middle"></div>
+            <div class="knowledge-orbit knowledge-orbit--inner"></div>
+
+            <svg class="knowledge-network" viewBox="0 0 640 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M88 180L222 110L328 198L478 104L550 240L458 356L570 488L380 540L264 460L126 500L80 348L176 290L88 180Z" />
+              <path d="M222 110L176 290L328 198L458 356L264 460L380 540" />
+              <path d="M478 104L328 198L550 240L458 356L570 488" />
+            </svg>
+
+            <span class="knowledge-node knowledge-node--1"></span>
+            <span class="knowledge-node knowledge-node--2"></span>
+            <span class="knowledge-node knowledge-node--3"></span>
+            <span class="knowledge-node knowledge-node--4"></span>
+            <span class="knowledge-node knowledge-node--5"></span>
+            <span class="knowledge-node knowledge-node--6"></span>
+            <span class="knowledge-node knowledge-node--7"></span>
+            <span class="knowledge-node knowledge-node--8"></span>
+
+            <div class="knowledge-core">
+              <div class="knowledge-core-glow"></div>
+              <svg viewBox="0 0 80 80" aria-hidden="true">
+                <path d="M12 21.5C22.6 19.2 31.8 21.4 40 28v34c-8.2-6.6-17.4-8.8-28-6.5v-34Z" />
+                <path d="M68 21.5C57.4 19.2 48.2 21.4 40 28v34c8.2-6.6 17.4-8.8 28-6.5v-34Z" />
+                <path d="M40 28v34M22 31.5c5.2-.3 9.7.8 13.7 3.3M58 31.5c-5.2-.3-9.7.8-13.7 3.3" />
+              </svg>
+              <span>DisciMind</span>
+            </div>
+
+            <div class="knowledge-chip knowledge-chip--ai"><i></i><span>AI 学科引擎</span></div>
+            <div class="knowledge-chip knowledge-chip--trace"><i></i><span>可信溯源</span></div>
+            <div class="knowledge-chip knowledge-chip--collab"><i></i><span>教 · 学 · 研</span></div>
+
+            <div class="knowledge-panel knowledge-panel--left">
+              <span class="panel-kicker">KNOWLEDGE MAP</span>
+              <strong>12,846</strong>
+              <em>学科知识节点</em>
+              <div class="panel-bars"><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="knowledge-panel knowledge-panel--right">
+              <span class="panel-kicker">AGENT FLOW</span>
+              <div class="agent-flow"><i></i><b></b><i></i><b></b><i></i></div>
+              <em>多智能体协同中</em>
+            </div>
+          </div>
         </div>
 
         <!-- 主内容区 -->
@@ -720,7 +771,7 @@ export function renderLoginPage(app) {
       </section>
 
       <!-- ===== 智能体 Section ===== -->
-      <section id="agents" class="section-block">
+      <section id="agents" class="section-block agents-section">
         <div class="section-header reveal">
           <h2 class="section-title">智能体</h2>
           <p class="section-subtitle">以多智能体协同能力支撑教学、科研与知识服务</p>
@@ -893,6 +944,9 @@ export function renderLoginPage(app) {
   const loginErrorEl = document.getElementById('login-error')
   const submitBtn = document.getElementById('login-submit')
 
+  // 学生入口是首屏默认状态，首次展示即回填学生演示账号。
+  fillLoginCredentials(currentRole)
+
   // 身份切换（登录提交中锁死，不可切换）
   capsule.addEventListener('click', (e) => {
     if (loginSubmitting) return
@@ -907,7 +961,8 @@ export function renderLoginPage(app) {
     option.classList.add('active')
 
     applyTheme(role)
-    accountInput.placeholder = accountPlaceholders[role]
+    fillLoginCredentials(role)
+    hideLoginError()
     updateHighlightPosition()
   })
 
@@ -953,7 +1008,7 @@ export function renderLoginPage(app) {
     lockIdentityCapsule()
 
     try {
-      const result = await login({ account, password })
+      const result = await login({ account, password, role: currentRole })
       const { accessToken, token, user, sessionId } = result.data
 
       setAuth(accessToken || token, user, sessionId)
@@ -1080,12 +1135,9 @@ export function renderLoginPage(app) {
       if (targetOption) {
         targetOption.classList.add('active')
         applyTheme(role)
-        accountInput.placeholder = accountPlaceholders[role]
+        fillLoginCredentials(role, { account, password })
         updateHighlightPosition()
       }
-
-      accountInput.value = account
-      document.getElementById('login-password').value = password
 
       showPanel('login')
     })

@@ -38,6 +38,27 @@ router.get(
   studentController.getCourseDetail,
 );
 
+router.get(
+  '/courses/:course_id/syllabus',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.getCourseSyllabus,
+);
+
+router.post(
+  '/courses/:course_id/pin',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.setCoursePin,
+);
+
+router.post(
+  '/courses/:course_id/activate',
+  authMiddleware,
+  roleMiddleware(['student']),
+  studentController.activateCourse,
+);
+
 // 课程章节列表
 router.get(
   '/courses/:course_id/chapters',

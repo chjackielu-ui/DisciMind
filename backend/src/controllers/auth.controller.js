@@ -130,9 +130,9 @@ async function register(req, res, next) {
  */
 async function login(req, res, next) {
   try {
-    const { account, password } = req.body;
+    const { account, password, role } = req.body;
 
-    const result = await authService.login({ account, password, ...authMeta(req) });
+    const result = await authService.login({ account, password, role, ...authMeta(req) });
     if (result.refreshToken) {
       setRefreshCookie(res, result.refreshToken, result.refreshTokenExpiresAt);
       delete result.refreshToken;

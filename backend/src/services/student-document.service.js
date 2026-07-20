@@ -5,6 +5,7 @@ const prisma = require('../config/prisma');
 const fs = require('fs');
 const path = require('path');
 const DOCUMENT_STORAGE_ROOT = path.resolve(__dirname, '../../../storage/uploads/documents');
+const PROJECT_STORAGE_ROOT = path.resolve(__dirname, '../../../storage');
 
 // ========================
 // 工具函数
@@ -16,7 +17,17 @@ function toLower(value) {
 }
 
 function resolveDocumentStoragePath(fileUrl) {
-  const filename = path.basename(String(fileUrl || ''));
+  const relativeUrl = String(fileUrl || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  // LibreOffice 生成的学习流课件预览存放于项目级转换目录，
+  // 仍须限制在该目录内，不能接受任意绝对文件路径。
+  if (relativeUrl.startsWith('lesson-plans/conversions/')) {
+    const resolvedConversion = path.resolve(PROJECT_STORAGE_ROOT, relativeUrl);
+    if (!resolvedConversion.startsWith(`${PROJECT_STORAGE_ROOT}${path.sep}`)) {
+      throw Object.assign(new Error('文档文件路径无效'), { code: 40002 });
+    }
+    return resolvedConversion;
+  }
+  const filename = path.basename(relativeUrl);
   if (!filename || filename === '.' || filename === '..') {
     throw Object.assign(new Error('文档文件路径无效'), { code: 40002 });
   }

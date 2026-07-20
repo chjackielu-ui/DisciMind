@@ -74,10 +74,10 @@ const REVIEW_STATUSES = {
 }
 
 const PRACTICE_MODES = {
-  ORIGINAL_ORDER: { label: '原题顺序重做', icon: '📋', desc: '按原题顺序重新作答' },
-  ORIGINAL_SHUFFLE: { label: '原题打乱重做', icon: '🔀', desc: '题目和选项随机打乱' },
-  AI_VARIANT: { label: 'AI 变式重做', icon: '🔄', desc: 'AI 生成变式题，知识点一致' },
-  AI_SIMILAR: { label: 'AI 相似题', icon: '✨', desc: 'AI 生成全新同类题目' },
+  ORIGINAL_ORDER: { label: '原题顺序重做', icon: '顺序', desc: '按原题顺序重新作答' },
+  ORIGINAL_SHUFFLE: { label: '原题打乱重做', icon: '打乱', desc: '题目和选项随机打乱' },
+  AI_VARIANT: { label: 'AI 变式重做', icon: '变式', desc: 'AI 生成变式题，知识点一致' },
+  AI_SIMILAR: { label: 'AI 相似题', icon: '相似', desc: 'AI 生成全新同类题目' },
 }
 
 const DIFFICULTY_MODES = {
@@ -423,7 +423,7 @@ export async function renderStudentWrongQuestions(app) {
 
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="courses">
-            <span>📚 课程分类</span>
+            <span>课程分类</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-courses">
@@ -448,7 +448,7 @@ export async function renderStudentWrongQuestions(app) {
 
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="reasons">
-            <span>🔍 错误原因</span>
+            <span>错误原因</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-reasons">
@@ -461,7 +461,7 @@ export async function renderStudentWrongQuestions(app) {
 
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="statuses">
-            <span>📊 学习状态</span>
+            <span>学习状态</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-statuses">
@@ -474,7 +474,7 @@ export async function renderStudentWrongQuestions(app) {
 
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="types">
-            <span>📝 题型</span>
+            <span>题型</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-types">
@@ -487,7 +487,7 @@ export async function renderStudentWrongQuestions(app) {
 
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="difficulties">
-            <span>📈 难度</span>
+            <span>难度</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-difficulties">
@@ -501,7 +501,7 @@ export async function renderStudentWrongQuestions(app) {
         ${s.allTags.length > 0 ? `
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="tags">
-            <span>🏷️ 标签</span>
+            <span>标签</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-tags">
@@ -517,7 +517,7 @@ export async function renderStudentWrongQuestions(app) {
         ${s.collections.length > 0 ? `
         <div class="wq-nav-section">
           <div class="wq-nav-title" data-action="expand-section" data-section="collections">
-            <span>📋 错题系列</span>
+            <span>错题系列</span>
             <span class="wq-nav-arrow">▼</span>
           </div>
           <div class="wq-nav-body" id="section-collections">
@@ -590,14 +590,14 @@ export async function renderStudentWrongQuestions(app) {
         <div class="wq-view-toggle">
           <button class="wq-btn-icon-sm ${s.viewMode === 'card' ? 'active' : ''}" data-view="card" title="卡片视图">▦</button>
           <button class="wq-btn-icon-sm ${s.viewMode === 'compact' ? 'active' : ''}" data-view="compact" title="紧凑列表">☰</button>
-          <button class="wq-btn-icon-sm ${s.viewMode === 'byChapter' ? 'active' : ''}" data-view="byChapter" title="按章节分组">📑</button>
-          <button class="wq-btn-icon-sm ${s.viewMode === 'byKnowledgePoint' ? 'active' : ''}" data-view="byKnowledgePoint" title="按知识点分组">🔖</button>
+          <button class="wq-btn-icon-sm ${s.viewMode === 'byChapter' ? 'active' : ''}" data-view="byChapter" title="按章节分组">章</button>
+          <button class="wq-btn-icon-sm ${s.viewMode === 'byKnowledgePoint' ? 'active' : ''}" data-view="byKnowledgePoint" title="按知识点分组">点</button>
         </div>
       </div>
       <div class="wq-toolbar-right">
         <span class="wq-result-info">共 ${s.total} 道错题</span>
         ${basketSize > 0 ? `<button class="wq-btn-accent" id="btn-toggle-right-m">练习篮 (${basketSize})</button>` : ''}
-        <button class="wq-btn-icon" id="btn-toggle-right" title="练习篮">📋</button>
+        <button class="wq-btn-icon" id="btn-toggle-right" title="练习篮">篮</button>
       </div>
     </section>`
   }

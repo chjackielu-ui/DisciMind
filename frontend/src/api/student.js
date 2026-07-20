@@ -56,6 +56,18 @@ export function getStudentCourseDetail(courseId) {
   return get(`/student/courses/${courseId}`)
 }
 
+export function getStudentCourseSyllabus(courseId) {
+  return get(`/student/courses/${courseId}/syllabus`)
+}
+
+export function setStudentCoursePin(courseId, pinned) {
+  return post(`/student/courses/${courseId}/pin`, { pinned: Boolean(pinned) })
+}
+
+export function activateStudentCourse(courseId) {
+  return post(`/student/courses/${courseId}/activate`, {})
+}
+
 /**
  * 获取课程章节列表
  * @param {number} courseId

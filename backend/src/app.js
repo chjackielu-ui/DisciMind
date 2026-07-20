@@ -20,30 +20,19 @@ if ((process.env.AGENT_MODE || 'dify') === 'langgraph' && process.env.LANGGRAPH_
 
 const app = express();
 app.disable('x-powered-by');
-<<<<<<< Updated upstream
-=======
 
 // 生产环境只信任本机 Nginx 注入的转发头，确保限流与审计拿到真实客户端 IP。
 const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === 'production' ? 'loopback' : '');
 if (trustProxy) app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
->>>>>>> Stashed changes
 
 // ---------- 全局中间件 ----------
 
 app.use(requestIdMiddleware);
-<<<<<<< Updated upstream
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
-=======
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=()');
->>>>>>> Stashed changes
   next();
 });
 
@@ -71,15 +60,6 @@ app.use(express.json({ limit: '18mb' }));
 // 解析 URL 编码的请求体（表单提交场景）
 app.use(express.urlencoded({ extended: true }));
 
-<<<<<<< Updated upstream
-// 头像是唯一允许匿名读取的上传内容。知识库、学习流附件与对话附件必须走各自的鉴权下载路由。
-app.use('/uploads/avatars', express.static(path.join(__dirname, '../../storage/uploads/avatars'), {
-  dotfiles: 'deny',
-  fallthrough: false,
-  index: false,
-  maxAge: '1h',
-}));
-=======
 // 仅公开确需由 <img> 直接读取的随机命名图片。文档和聊天附件必须走鉴权下载接口。
 const publicUploadRoot = path.join(__dirname, '../../storage/uploads');
 const publicUploadOptions = {
@@ -94,7 +74,6 @@ const publicUploadOptions = {
 for (const folder of ['avatars', 'generated-ppt-images', 'learning']) {
   app.use(`/uploads/${folder}`, express.static(path.join(publicUploadRoot, folder), publicUploadOptions));
 }
->>>>>>> Stashed changes
 
 // ---------- 健康检查（无需 /api 前缀）----------
 

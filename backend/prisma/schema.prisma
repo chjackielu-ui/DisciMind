@@ -846,6 +846,8 @@ model StudentCourseEnrollment {
   course_id         Int
   teaching_class_id Int
   enrollment_status String   @default("active") @db.VarChar(20)
+  is_pinned         Boolean  @default(false)
+  pinned_at         DateTime?
   joined_at         DateTime @default(now())
   created_at        DateTime @default(now())
 

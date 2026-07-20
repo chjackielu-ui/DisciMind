@@ -1,6 +1,6 @@
 import { learningWorkflowApi } from '../api/learning-workflows.js';
 import { learningGoalApi } from '../api/learning-goals.js';
-import { getStudentCourses, getStudentCourseChapters, getStudentCourseKnowledgePoints } from '../api/student.js';
+import { getStudentCourses, getStudentCourseChapters, getStudentCourseKnowledgePoints, generateStudentCoursePpt, createStudentKnowledgeResourcePackage } from '../api/student.js';
 import { navigateTo } from '../utils/router.js';
 import { renderDashboardLayout } from '../utils/dashboard.js';
 import { getUser, getToken } from '../utils/auth.js';
@@ -30,6 +30,8 @@ const ICONS = {
   target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 1.8 7.2L21 11l-7.2 1.8L12 20l-1.8-7.2L3 11l7.2-1.8Z"/></svg>',
+  slides: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M7 9h10m-10 4h6"/></svg>',
+  package: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>',
 };
 const icon = (name, size = 16) => `<span class="lf-icon" style="width:${size}px;height:${size}px">${ICONS[name] || ''}</span>`;
 const escapeHtml = (value) => { const node = document.createElement('div'); node.textContent = String(value ?? ''); return node.innerHTML; };
@@ -74,6 +76,7 @@ async function bootstrapLearningContext(params) {
   finally { state.contextLoading = false; renderLearningPlanSummary(); renderCounts() }
   void loadLearningCenterCards();
   loadFlows(); loadResources(); loadLearningGoalAvailability(); if (state.courseId && state.knowledgePointId) loadRecommendation()
+  if (params.get('createResourcePackage') === '1') setTimeout(() => { void generateKnowledgeResourcePackage({ clearRouteFlag: true }) }, 120)
   const pendingFlowId = Number(params.get('flowId')); if (Number.isInteger(pendingFlowId) && pendingFlowId > 0 && !params.has('resources') && !params.has('preloadId') && !state.learningContext) setTimeout(() => openLearningPlanWizard({ preferredTemplateId: pendingFlowId }), 0)
   if (params.get('panel') === 'learning-plan') setTimeout(() => openLearningPlanWizard(), 0)
 }
@@ -87,7 +90,7 @@ function pageHtml() {
     <section class="lf-plan-summary" id="lf-plan-summary" aria-live="polite"><div class="lf-loading"><i></i>正在读取学习目标与准备…</div></section>
     <section class="lc-scene-section" id="lc-learning-center"><div class="lc-section-head"><div><h2>本次学习智学卡</h2><p>学习目标、必备概念、薄弱点、预计难点与预习建议</p></div></div><div id="lc-learning-center-grid"><div class="lc-empty"><b>正在读取学习准备卡片</b><span>不会阻塞学习计划和开始学习。</span></div></div></section>
     <section class="lf-recommendation" id="lf-recommendation"><div class="lf-recommendation-icon">${icon('spark', 24)}</div><div class="lf-recommendation-copy"><h2>推荐模板</h2><p>模板是创建计划时的候选项，不会在学习准备或启动时替换计划已冻结的版本。</p></div><button class="lf-button secondary" id="lf-choose-context">查看并创建计划</button></section>
-    <section class="lf-resource-panel"><header><div><p class="lf-eyebrow">PRE-CLASS MATERIALS</p><h2>课前学习资料</h2><p>这里的资料独立于学习会话和 checkpoint，可随时预览、下载或解除关联。</p></div><span class="lf-resource-actions"><button class="lf-button secondary" id="lf-import-material">${icon('plus')}导入学习资料</button><button class="lf-button primary" id="lf-generate-handout">${icon('spark')}生成课前讲义</button></span></header><div id="lf-resource-list"><div class="lf-loading"><i></i>正在加载课前资料…</div></div></section>
+    <section class="lf-resource-panel"><header><div><p class="lf-eyebrow">LEARNING RESOURCES</p><h2>学习资料与课件</h2><p>资料会关联到当前学习计划；生成的 PPT 会自动成为学习会话右侧的参考资料。</p></div><span class="lf-resource-actions"><button class="lf-button secondary" id="lf-import-material">${icon('plus')}导入学习资料</button><button class="lf-button secondary" id="lf-generate-ppt">${icon('slides')}生成知识点 PPT</button><button class="lf-button secondary" id="lf-generate-package">${icon('package')}生成资源包</button><button class="lf-button primary" id="lf-generate-handout">${icon('spark')}生成课前讲义</button></span></header><div id="lf-resource-list"><div class="lf-loading"><i></i>正在加载课前资料…</div></div></section>
     <section class="lf-toolbar"><div class="lf-tabs" id="lf-tabs"></div><div class="lf-toolbar-actions"><label class="lf-search">${icon('search')}<input id="lf-search" value="${escapeHtml(state.search)}" placeholder="搜索学习流名称"></label><button class="lf-button ghost" id="lf-batch">批量管理</button></div></section>
     <section class="lf-batch-bar" id="lf-batch-bar" hidden></section>
     <section class="lf-grid" id="lf-grid" aria-live="polite"><div class="lf-loading"><i></i>正在加载学习流…</div></section>
@@ -393,9 +396,48 @@ function renderResources() {
   if (state.resourcesLoading) { target.innerHTML = '<div class="lf-loading"><i></i>正在加载课前资料…</div>'; return }
   if (state.resourceError) { target.innerHTML = `<div class="lf-empty"><p>${escapeHtml(state.resourceError)}</p><button class="lf-button compact secondary" data-resource-retry>重试</button></div>`; target.querySelector('[data-resource-retry]').onclick = loadResources; return }
   if (!state.resources.length) { target.innerHTML = '<div class="lf-empty"><p>当前学习流还没有课前资料。</p></div>'; return }
-  target.innerHTML = `<div class="lf-resource-grid">${state.resources.map(item => `<article class="lf-resource-card"><div><span class="lf-source system">${resourceRoleLabel(item.resourceRole)}</span><small>${formatDate(item.artifact?.createdAt)}</small></div><h3>${escapeHtml(item.artifact?.title || '学习资料')}</h3><p>${escapeHtml(item.course?.name || '未限定课程')} · ${escapeHtml(item.knowledgePoint?.name || '全部知识点')}</p><p>${item.artifact?.artifactType === 'STUDY_HANDOUT' ? '学习讲义' : '练习试卷'} · ${escapeHtml(item.artifact?.status || '')}</p><footer><a class="lf-button compact secondary" href="#/student/artifacts/${item.artifactId}">预览</a><button class="lf-button compact primary" data-resource-download="${item.artifactId}" data-title="${escapeHtml(item.artifact?.title || '学习资料')}">下载</button><button class="lf-button compact ghost" data-resource-unlink="${item.id}">解除关联</button></footer></article>`).join('')}</div>`
+  target.innerHTML = `<div class="lf-resource-grid">${state.resources.map(item => { const type = item.artifact?.artifactType === 'LEARNING_PPT' ? '学习PPT' : item.artifact?.artifactType === 'STUDY_HANDOUT' ? '学习讲义' : item.artifact?.artifactType === 'EXAM_PAPER' ? '练习试卷' : '学习资料'; return `<article class="lf-resource-card"><div><span class="lf-source system">${resourceRoleLabel(item.resourceRole)}</span><small>${formatDate(item.artifact?.createdAt)}</small></div><h3>${escapeHtml(item.artifact?.title || '学习资料')}</h3><p>${escapeHtml(item.course?.name || '未限定课程')} · ${escapeHtml(item.knowledgePoint?.name || '全部知识点')}</p><p>${type} · ${escapeHtml(item.artifact?.status || '')}</p><footer><a class="lf-button compact secondary" href="#/student/artifacts/${item.artifactId}">预览</a>${item.artifact?.artifactType === 'LEARNING_PPT' && state.learningPlan?.learningSessionId ? `<a class="lf-button compact secondary" href="#/student/learning/session/${state.learningPlan.learningSessionId}?reference=${item.artifactId}">学习中打开</a>` : ''}<button class="lf-button compact primary" data-resource-download="${item.artifactId}" data-title="${escapeHtml(item.artifact?.title || '学习资料')}">下载</button><button class="lf-button compact ghost" data-resource-unlink="${item.id}">解除关联</button></footer></article>` }).join('')}</div>`
   target.querySelectorAll('[data-resource-download]').forEach(button => button.onclick = async () => { try { await downloadGeneratedArtifact(button.dataset.resourceDownload, `${button.dataset.title}.docx`) } catch (error) { showToast(error.message, 'error') } })
   target.querySelectorAll('[data-resource-unlink]').forEach(button => button.onclick = async () => { if (!confirm('只解除学习流关联，原文件仍会保留。确定继续吗？')) return; button.disabled = true; try { await unlinkLearningFlowResource(button.dataset.resourceUnlink); showToast('已解除资料关联', 'success'); await loadResources() } catch (error) { button.disabled = false; showToast(error.message, 'error') } })
+}
+
+function currentPlanContext() {
+  const plan = state.learningPlan
+  if (!plan?.id || !plan.courseId || !plan.knowledgePointId) return null
+  return plan
+}
+
+function removeRouteFlag(flag) {
+  const [path, query = ''] = window.location.hash.split('?')
+  const params = new URLSearchParams(query); params.delete(flag)
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${path}${params.toString() ? `?${params}` : ''}`)
+}
+
+async function generateKnowledgePpt() {
+  const plan = currentPlanContext()
+  if (!plan) { showToast('请先为一个课程知识点创建学习计划。', 'warning'); return }
+  const button = document.getElementById('lf-generate-ppt'); if (button) { button.disabled = true; button.dataset.label = button.textContent; button.textContent = '正在生成 PPT…' }
+  try {
+    const result = responseData(await generateStudentCoursePpt(plan.courseId, {
+      knowledgePointId: plan.knowledgePointId, topic: plan.knowledgePoint?.name || state.knowledgePointName, pageCount: 8, style: 'teaching', includeImages: true, learningPlanId: plan.id,
+    }))
+    const conversion = result.learningReference?.conversion
+    showToast(conversion?.status === 'failed' ? 'PPT 已关联学习流；PDF 转换未完成，可先在学习中查看课件。' : 'PPT 已生成并关联到学习流参考资料。', conversion?.status === 'failed' ? 'warning' : 'success')
+    await loadResources()
+  } catch (error) { showToast(error.message || 'PPT 生成失败，请稍后重试。', 'error') }
+  finally { if (button) { button.disabled = false; button.textContent = button.dataset.label || `${icon('slides')}生成知识点 PPT` } }
+}
+
+async function generateKnowledgeResourcePackage({ clearRouteFlag = false } = {}) {
+  const plan = currentPlanContext()
+  if (clearRouteFlag) removeRouteFlag('createResourcePackage')
+  if (!plan) { showToast('请先创建对应知识点的学习计划，再生成资源包。', 'warning'); return }
+  const button = document.getElementById('lf-generate-package'); if (button) { button.disabled = true; button.dataset.label = button.textContent; button.textContent = '正在创建资源包…' }
+  try {
+    const result = responseData(await createStudentKnowledgeResourcePackage(plan.courseId, plan.knowledgePointId, { pageCount: 8, includeImages: true, learningPlanId: plan.id }))
+    showToast(`资源包任务已创建：${result.title || plan.knowledgePoint?.name || '当前知识点'}。PPT 完成后会自动关联到学习流。`, 'success')
+  } catch (error) { showToast(error.message || '资源包创建失败，请稍后重试。', 'error') }
+  finally { if (button) { button.disabled = false; button.textContent = button.dataset.label || `${icon('package')}生成资源包` } }
 }
 
 async function openImportMaterial() {
@@ -557,6 +599,8 @@ function bindPage() {
   document.getElementById('lf-choose-context').addEventListener('click', () => openLearningPlanWizard());
   document.getElementById('lf-batch').addEventListener('click', () => { state.batchMode = !state.batchMode; state.selected.clear(); document.getElementById('lf-batch').textContent = state.batchMode ? '完成管理' : '批量管理'; renderGrid(); renderBatchBar(); });
   document.getElementById('lf-generate-handout')?.addEventListener('click', () => generateHandout(state.learningPlan?.workflowTemplateId));
+  document.getElementById('lf-generate-ppt')?.addEventListener('click', () => { void generateKnowledgePpt() });
+  document.getElementById('lf-generate-package')?.addEventListener('click', () => { void generateKnowledgeResourcePackage() });
   document.getElementById('lf-import-material')?.addEventListener('click', openImportMaterial);
   let timer;
   document.getElementById('lf-search').addEventListener('input', (event) => { clearTimeout(timer); timer = setTimeout(() => {

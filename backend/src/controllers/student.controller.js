@@ -73,6 +73,39 @@ async function getCourseDetail(req, res) {
   }
 }
 
+async function getCourseSyllabus(req, res) {
+  try {
+    const courseId = Number(req.params.course_id);
+    if (!Number.isInteger(courseId) || courseId < 1) return fail(res, 40001, 'course_id 参数不合法');
+    return success(res, await studentService.getStudentCourseSyllabus(getUserId(req), courseId), '获取教学大纲成功');
+  } catch (err) {
+    console.error('[student.controller] getCourseSyllabus 异常:', err.message);
+    return fail(res, err.code || 50001, err.code ? err.message : '服务器错误');
+  }
+}
+
+async function setCoursePin(req, res) {
+  try {
+    const courseId = Number(req.params.course_id);
+    if (!Number.isInteger(courseId) || courseId < 1 || typeof req.body?.pinned !== 'boolean') return fail(res, 40001, '参数不合法');
+    return success(res, await studentService.setStudentCoursePinned(getUserId(req), courseId, req.body.pinned), '课程置顶状态已更新');
+  } catch (err) {
+    console.error('[student.controller] setCoursePin 异常:', err.message);
+    return fail(res, err.code || 50001, err.code ? err.message : '服务器错误');
+  }
+}
+
+async function activateCourse(req, res) {
+  try {
+    const courseId = Number(req.params.course_id);
+    if (!Number.isInteger(courseId) || courseId < 1) return fail(res, 40001, 'course_id 参数不合法');
+    return success(res, await studentService.activateStudentCourse(getUserId(req), courseId), '已分发课程摸底测试');
+  } catch (err) {
+    console.error('[student.controller] activateCourse 异常:', err.message);
+    return fail(res, err.code || 50001, err.code ? err.message : '服务器错误');
+  }
+}
+
 /**
  * GET /api/student/courses/:course_id/chapters
  */
@@ -417,6 +450,9 @@ module.exports = {
   getDashboard,
   getCourses,
   getCourseDetail,
+  getCourseSyllabus,
+  setCoursePin,
+  activateCourse,
   getCourseChapters,
   getCourseKnowledgePoints,
   getKnowledgeGraphOverview,

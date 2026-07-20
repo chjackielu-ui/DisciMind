@@ -426,6 +426,7 @@ async function processPackageTask(task, signal) {
       pageCount: Number(payload.pageCount || 8),
       style: 'teaching',
       includeImages: payload.includeImages !== false,
+      learningPlanId: payload.learningPlanId || null,
     });
     return {
       artifactId: result.artifactId,
@@ -552,6 +553,7 @@ async function createPackageUnlocked(user, courseIdValue, knowledgePointIdValue,
       knowledgePointId: context.knowledgePointId,
       pageCount: [6, 8, 10, 12].includes(Number(body.pageCount)) ? Number(body.pageCount) : 8,
       includeImages: body.includeImages !== false,
+      learningPlanId: body.learningPlanId || body.learning_plan_id || null,
     },
   });
   await tasks.updateTask(created.id, {

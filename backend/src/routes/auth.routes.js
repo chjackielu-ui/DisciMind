@@ -59,24 +59,15 @@ const avatarUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, avatarDir),
     filename: (req, file, cb) => {
-<<<<<<< Updated upstream
       const format = AVATAR_FORMATS.get(String(file.mimetype || '').toLowerCase());
       cb(null, `avatar-${req.user.user_id}-${Date.now()}${format?.extension || '.bin'}`);
-=======
-      const ext = AVATAR_EXTENSION_BY_MIME[file.mimetype] || '.png';
-      cb(null, `avatar-${req.user.user_id}-${Date.now()}${ext}`);
->>>>>>> Stashed changes
     },
   }),
   limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-<<<<<<< Updated upstream
     const format = AVATAR_FORMATS.get(String(file.mimetype || '').toLowerCase());
     const extension = path.extname(file.originalname || '').toLowerCase();
     if (format?.accepted.has(extension)) {
-=======
-    if (AVATAR_EXTENSION_BY_MIME[file.mimetype]) {
->>>>>>> Stashed changes
       cb(null, true);
       return;
     }

@@ -15,7 +15,7 @@ function buildSessionUpdate(config, eventId = randomUUID()) {
     type: 'session.update',
     session: {
       voice: config.voice,
-      mode: 'commit',
+      mode: config.mode || 'commit',
       language_type: config.languageType,
       response_format: config.responseFormat,
       sample_rate: config.sampleRate,
@@ -55,6 +55,23 @@ class BailianRealtimeTtsAdapter {
 
   async synthesize({ segments, signal, onSessionReady, onSegmentStart, onAudioDelta, onSegmentDone, metrics = {} }) {
     if (!this.config.enabled) throw new NarrationUpstreamError('TTS_DISABLED', '语音服务未启用');
+    const audioBySegment = [];
+    let usageCharacters = 0;
+    for (let index = 0; index < segments.length; index += 1) {
+      if (signal?.aborted) throw new NarrationUpstreamError('NARRATION_CANCELLED', '语音任务已取消');
+      const result = await this.synthesizeSingle({
+        segments: [segments[index]], signal,
+        onSessionReady: index === 0 ? onSessionReady : undefined,
+        onSegmentStart, onAudioDelta, onSegmentDone, metrics,
+      });
+      audioBySegment.push(result.audioBySegment[0] || Buffer.alloc(0));
+      usageCharacters += Number(result.usage?.characters || 0);
+    }
+    return { audioBySegment, usage: { characters: usageCharacters } };
+  }
+
+  async synthesizeSingle({ segments, signal, onSessionReady, onSegmentStart, onAudioDelta, onSegmentDone, metrics = {} }) {
+    if (!this.config.enabled) throw new NarrationUpstreamError('TTS_DISABLED', '语音服务未启用');
     const headers = {
       Authorization: `Bearer ${this.config.apiKey}`,
       'user-agent': 'DisciMind-Learning-Narration/1.0',
@@ -74,7 +91,11 @@ class BailianRealtimeTtsAdapter {
     let current = null;
     let usageCharacters = 0;
     let responseTimer = null;
+    let finishTimer = null;
+    let finishSent = false;
+    let finishedPromise = null;
     const clearResponseTimer = () => { if (responseTimer) clearTimeout(responseTimer); responseTimer = null; };
+    const clearFinishTimer = () => { if (finishTimer) clearTimeout(finishTimer); finishTimer = null; };
     const failAll = (error) => {
       for (const waiter of pending.values()) waiter.reject(error);
       pending.clear();
@@ -90,15 +111,24 @@ class BailianRealtimeTtsAdapter {
         reject: (error) => { clearTimeout(timer); pending.delete(type); reject(error); },
       });
     });
+    // 百炼可能在 WebSocket 刚连通后立即发送 session.created；必须在让出
+    // 当前事件循环前先登记等待器，避免首个事件早于原来的 await 被丢弃。
+    const createdPromise = waitFor('session.created', this.config.connectTimeoutMs);
     const send = (payload) => {
       if (closed || socket.readyState !== this.WebSocketImpl.OPEN) throw new NarrationUpstreamError('TTS_UPSTREAM_DISCONNECTED', '语音服务连接已断开');
       socket.send(JSON.stringify(payload));
+    };
+    const finishSession = () => {
+      if (finishSent) return;
+      finishSent = true;
+      finishedPromise = waitFor('session.finished');
+      send({ event_id: nextId(), type: 'session.finish' });
     };
     const abort = () => {
       const error = new NarrationUpstreamError('NARRATION_CANCELLED', '语音任务已取消');
       failAll(error);
       try {
-        if (socket.readyState === this.WebSocketImpl.OPEN) send({ event_id: nextId(), type: 'session.finish' });
+        if (socket.readyState === this.WebSocketImpl.OPEN) finishSession();
       } catch {}
       socket.close(1000, 'cancelled');
     };
@@ -123,6 +153,12 @@ class BailianRealtimeTtsAdapter {
       }
       const waiter = pending.get(event.type);
       if (waiter) waiter.resolve(event);
+      if (event.type === 'input_text_buffer.committed' && current && !finishSent) {
+        // Commit 仅提交文本；百炼会在 finish 后返回该段的音频与 response.done。
+        finishTimer = setTimeout(() => {
+          try { finishSession(); } catch (error) { failAll(error); }
+        }, 350);
+      }
       if (event.type === 'response.audio.delta' && current) {
         try {
           const audio = Buffer.from(event.delta || event.audio?.delta || '', 'base64');
@@ -156,7 +192,6 @@ class BailianRealtimeTtsAdapter {
     });
 
     try {
-      const createdPromise = waitFor('session.created', this.config.connectTimeoutMs);
       await createdPromise;
       metrics.connectedAt = Date.now();
       metrics.upstreamConnectMs = metrics.connectedAt - metrics.startedAt;
@@ -185,14 +220,14 @@ class BailianRealtimeTtsAdapter {
         onSegmentDone?.(segment);
       }
 
-      const finishedPromise = waitFor('session.finished');
-      send({ event_id: nextId(), type: 'session.finish' });
+      if (!finishSent) finishSession();
       await finishedPromise;
       socket.close(1000, 'finished');
       return { audioBySegment, usage: { characters: usageCharacters } };
     } finally {
       signal?.removeEventListener('abort', abort);
       clearResponseTimer();
+      clearFinishTimer();
       this.activeSockets.delete(socket);
       if (socket.readyState === this.WebSocketImpl.OPEN) socket.close();
     }

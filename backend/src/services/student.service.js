@@ -153,6 +153,8 @@ async function getActiveCourseEnrollments(userId, include = {}) {
     where: { student_user_id: userId, enrollment_status: 'active' },
     include,
     orderBy: [
+      { is_pinned: 'desc' },
+      { pinned_at: 'desc' },
       { course_id: 'asc' },
       { created_at: 'desc' },
       { enrollment_id: 'desc' },
@@ -556,6 +558,8 @@ async function getStudentCourses(userId) {
       course_name: e.course.course_name,
       course_code: e.course.course_code,
       subject_category: e.course.subject_category || null,
+      is_pinned: Boolean(e.is_pinned),
+      pinned_at: e.pinned_at ? e.pinned_at.toISOString() : null,
       is_sample_course: SAMPLE_COURSE_PRIORITY.has(e.course.course_code),
       display_order: getSampleCoursePriority(e.course.course_code),
       description: e.course.description || null,
@@ -587,6 +591,7 @@ async function getStudentCourses(userId) {
   });
 
   list.sort((a, b) => {
+    if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
     if (a.display_order !== b.display_order) return a.display_order - b.display_order;
     return a.course_id - b.course_id;
   });
@@ -641,6 +646,8 @@ async function getStudentCourseDetail(userId, courseId) {
     description: course.description || null,
     cover_url: course.cover_url || null,
     subject_category: course.subject_category || null,
+    is_pinned: Boolean(enrollment.is_pinned),
+    pinned_at: enrollment.pinned_at ? enrollment.pinned_at.toISOString() : null,
     status: toLower(course.status),
     teaching_class: teachingClass
       ? {
@@ -679,6 +686,57 @@ async function getStudentCourseDetail(userId, courseId) {
       teaching_class_name: t.teaching_class.teaching_class_name,
     })),
   };
+}
+
+async function setStudentCoursePinned(userId, courseId, pinned) {
+  const enrollment = await ensureStudentInCourse(userId, courseId);
+  const updated = await prisma.studentCourseEnrollment.update({
+    where: { enrollment_id: enrollment.enrollment_id },
+    data: { is_pinned: Boolean(pinned), pinned_at: pinned ? new Date() : null },
+  });
+  return {
+    course_id: updated.course_id,
+    is_pinned: Boolean(updated.is_pinned),
+    pinned_at: updated.pinned_at ? updated.pinned_at.toISOString() : null,
+  };
+}
+
+async function getStudentCourseSyllabus(userId, courseId) {
+  await ensureStudentInCourse(userId, courseId);
+  const [course, syllabusDocument, chapters, points] = await Promise.all([
+    prisma.course.findUnique({ where: { course_id: courseId }, select: { course_id: true, course_name: true, course_code: true, description: true } }),
+    prisma.knowledgeDocument.findFirst({
+      where: { course_id: courseId, resource_kind: 'syllabus', deleted_at: null },
+      orderBy: { updated_at: 'desc' },
+    }),
+    prisma.chapter.findMany({ where: { course_id: courseId }, orderBy: { chapter_order: 'asc' }, select: { chapter_id: true, chapter_name: true, description: true, chapter_order: true } }),
+    prisma.knowledgePoint.findMany({ where: { course_id: courseId }, orderBy: [{ chapter_id: 'asc' }, { sort_order: 'asc' }], select: { knowledge_point_id: true, chapter_id: true, knowledge_point_name: true } }),
+  ]);
+  const metadata = syllabusDocument?.metadata_json && typeof syllabusDocument.metadata_json === 'object' ? syllabusDocument.metadata_json : {};
+  const syllabus = metadata.syllabus && typeof metadata.syllabus === 'object' ? metadata.syllabus : {};
+  return {
+    course,
+    source: syllabusDocument ? 'course_syllabus' : 'course_structure',
+    document_id: syllabusDocument?.document_id || null,
+    title: syllabus.title || `${course?.course_name || '课程'}教学大纲`,
+    objectives: Array.isArray(syllabus.objectives) ? syllabus.objectives : [],
+    requirements: syllabus.requirements || null,
+    overview: syllabus.overview || course?.description || null,
+    chapters: chapters.map((chapter) => ({
+      chapter_id: chapter.chapter_id,
+      title: chapter.chapter_name,
+      description: chapter.description || null,
+      order: chapter.chapter_order,
+      knowledge_points: points.filter((point) => point.chapter_id === chapter.chapter_id).map((point) => ({ id: point.knowledge_point_id, name: point.knowledge_point_name })),
+    })),
+  };
+}
+
+async function activateStudentCourse(userId, courseId) {
+  await ensureStudentInCourse(userId, courseId);
+  const { ensureDiagnosticTask } = require('./student-cold-start.service');
+  const result = await ensureDiagnosticTask(userId, courseId);
+  return { course_id: courseId, diagnostic_task_id: result.task.task_id, created: result.created };
 }
 
 /**
@@ -856,6 +914,7 @@ async function getStudentCourseKnowledgeGraph(userId, courseId) {
     title: document.title,
     category: document.resource_category || document.resource_kind || '课程资料',
     document_id: document.document_id,
+    url: document.external_url || null,
   }));
 
   const nodes = knowledgePoints.map((point) => {
@@ -2156,6 +2215,9 @@ module.exports = {
   getDashboard,
   getStudentCourses,
   getStudentCourseDetail,
+  setStudentCoursePinned,
+  getStudentCourseSyllabus,
+  activateStudentCourse,
   getStudentCourseChapters,
   getStudentCourseKnowledgePoints,
   getStudentKnowledgeGraphOverview,

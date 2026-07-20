@@ -8,6 +8,7 @@ const { loadEnv } = require('../src/config/env')
 const { getDatabaseConfig } = require('../src/config/database')
 const { seedAgentMarketplace } = require('./seeds/seedAgentMarketplace')
 const { seedCompetitionDemo } = require('./seeds/seedCompetitionDemo')
+const { seedStudentLearningExperience } = require('./seeds/seedStudentLearningExperience')
 const { seedPermissionCatalog } = require('../src/services/admin-permission.seed')
 
 loadEnv()
@@ -1923,6 +1924,15 @@ async function main() {
   })
 
   log(`学习流系统模板种子数据完成 (共 ${SYS_TEMPLATES.length} 套)`);
+
+  await seedStudentLearningExperience({
+    prisma,
+    teacherUser,
+    studentUser,
+    adminClass: adminClasses['软件2403班'],
+    semester,
+    log,
+  })
 
   await seedAgentMarketplace({ prisma, upsertUser, upsertProfile, adminUser, studentUser, log })
   const rbacSeed = await seedPermissionCatalog(prisma, {

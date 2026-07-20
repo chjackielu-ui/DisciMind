@@ -675,7 +675,6 @@ body.prep-is-resizing *,body.prep-is-resizing-row *{pointer-events:none!importan
 }
 @media(prefers-reduced-motion:reduce){.prep-row-splitter::after{transition:none}}
 
-<<<<<<< Updated upstream
 /* 教师产物详情：与学生智能体市场完全隔离的教师工作台视图 */
 .teacher-artifact-detail-page{--artifact-ink:#33271d;--artifact-muted:#806f60;--artifact-line:#eadfd2;--artifact-accent:#a96832;display:grid;gap:18px;max-width:1480px;margin:0 auto;padding:18px 24px 42px;color:var(--artifact-ink)}
 .teacher-artifact-detail-breadcrumb{display:flex;align-items:center;gap:8px;color:var(--artifact-muted);font-size:.84rem}.teacher-artifact-detail-breadcrumb a{color:#89572f;text-decoration:none;font-weight:700}.teacher-artifact-detail-breadcrumb a:hover{text-decoration:underline}
@@ -688,7 +687,6 @@ body.prep-is-resizing *,body.prep-is-resizing-row *{pointer-events:none!importan
 .teacher-artifact-detail-request>p{margin:0;padding:20px;white-space:pre-wrap;line-height:1.75;color:#554538}.teacher-artifact-detail-preview>.artifact-rich-preview{max-width:1050px;margin:22px auto;padding:34px 44px;border:1px solid #ebe3da;border-radius:10px;background:#fff;box-shadow:0 9px 26px rgba(60,45,32,.08);line-height:1.75}.teacher-artifact-detail-preview>.artifact-rich-preview img{max-width:100%}.teacher-artifact-detail-empty{display:grid;place-items:center;min-height:150px;padding:24px;text-align:center;color:var(--artifact-muted)}.teacher-artifact-detail-empty b{color:var(--artifact-ink)}.teacher-artifact-detail-empty p{margin:7px 0 0}.teacher-artifact-detail-page>.artifact-loading,.teacher-artifact-detail-page>.artifact-empty{min-height:280px;border:1px solid var(--artifact-line);border-radius:16px;background:#fff}
 @media(max-width:1100px){.teacher-artifact-detail-grid{grid-template-columns:1fr}.teacher-artifact-detail-overview dl{grid-template-columns:repeat(2,minmax(0,1fr))}.teacher-artifact-detail-hero{flex-direction:column}.teacher-artifact-detail-actions{justify-content:flex-start}}
 @media(max-width:720px){.teacher-artifact-detail-page{padding:12px}.teacher-artifact-detail-hero{padding:20px}.teacher-artifact-detail-overview dl{grid-template-columns:1fr}.teacher-artifact-detail-preview>.artifact-rich-preview{margin:12px;padding:22px 18px}.teacher-artifact-detail-actions{width:100%}.teacher-artifact-detail-actions>a,.teacher-artifact-detail-actions>button{flex:1 1 130px;text-align:center}}
-=======
 /* Syllabus-centered teacher preparation flow */
 .preparation-workbench{grid-template-rows:auto auto auto auto minmax(0,1fr)}
 .prep-flow-rail{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));min-width:0;border-bottom:1px solid #dfe5e2;background:#fff}
@@ -733,4 +731,3 @@ body.prep-is-resizing *,body.prep-is-resizing-row *{pointer-events:none!importan
   .prep-ppt-result > header > div:last-child { justify-content: flex-start; }
   .prep-ppt-slide-grid { grid-template-columns: 1fr; }
 }
->>>>>>> Stashed changes

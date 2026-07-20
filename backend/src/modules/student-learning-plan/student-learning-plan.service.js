@@ -576,7 +576,7 @@ function start(user, planId, options = {}) {
 async function listReferenceMaterials(user, planId) {
   const userId = Number(user.user_id || user);
   const plan = await ownedRecord(userId, planId);
-  const [links, recentArtifacts, scope, knowledgeBases] = await Promise.all([
+  const [links, recentArtifacts, scope, knowledgeBases, presentationDocuments] = await Promise.all([
     prisma.learningFlowResourceLink.findMany({
       where: {
         ownerUserId: userId,
@@ -607,20 +607,36 @@ async function listReferenceMaterials(user, planId) {
       orderBy: { updated_at: 'desc' },
       take: 200,
     }),
+    prisma.knowledgeDocument.findMany({
+      where: { owner_user_id: userId, course_id: plan.courseId, resource_kind: { in: ['learning_ppt', 'presentation_preview'] }, deleted_at: null },
+      orderBy: { updated_at: 'desc' }, take: 100,
+    }),
   ]);
 
   const records = [];
   const seen = new Set();
+  const presentationPdfByArtifact = new Map(
+    presentationDocuments
+      .filter((doc) => doc.resource_kind === 'presentation_preview'
+        && String(doc.file_ext).toLowerCase() === 'pdf'
+        && Number(doc.source_artifact_id) > 0)
+      .map((doc) => [Number(doc.source_artifact_id), doc]),
+  );
   const addArtifact = (artifact, role = 'REFERENCE_MATERIAL', linkId = null) => {
     const pdf = artifact?.exports?.find(item => item.storagePath);
-    if (!pdf || seen.has(`artifact:${artifact.id}`)) return;
+    const isPresentation = ['PPT', 'PPTX'].includes(String(artifact?.fileFormat || '').toUpperCase()) && Boolean(artifact?.previewHtml);
+    if ((!pdf && !isPresentation) || seen.has(`artifact:${artifact.id}`)) return;
     seen.add(`artifact:${artifact.id}`);
-    const group = role === 'PRE_CLASS_HANDOUT' ? 'pre_class' : 'generated_artifact';
-    const url = `/generated-artifacts/${artifact.id}/exports/PDF/download`;
+    const group = isPresentation ? 'presentation' : (role === 'PRE_CLASS_HANDOUT' ? 'pre_class' : 'generated_artifact');
+    const url = pdf ? `/generated-artifacts/${artifact.id}/exports/PDF/download` : `/generated-artifacts/${artifact.id}/download`;
+    const convertedPresentation = isPresentation ? presentationPdfByArtifact.get(Number(artifact.id)) : null;
+    const convertedPdfUrl = convertedPresentation ? `/student/documents/${convertedPresentation.document_id}/download` : null;
     records.push({
       id: `artifact:${artifact.id}`, sourceType: 'generated_artifact', group,
-      title: artifact.title, fileName: artifact.fileName || `${artifact.title}.pdf`, mimeType: 'application/pdf',
+      title: artifact.title, fileName: artifact.fileName || `${artifact.title}.${isPresentation ? 'pptx' : 'pdf'}`, mimeType: isPresentation ? (artifact.mimeType || 'application/vnd.openxmlformats-officedocument.presentationml.presentation') : 'application/pdf',
       artifactId: artifact.id, resourceLinkId: linkId, createdAt: artifact.updatedAt,
+      kind: isPresentation ? 'presentation' : 'pdf', previewHtml: isPresentation ? artifact.previewHtml : null,
+      convertedPdfId: convertedPresentation?.document_id || null, convertedPdfUrl,
       previewable: true, downloadable: true, previewUrl: url, downloadUrl: url,
     });
   };
@@ -628,6 +644,21 @@ async function listReferenceMaterials(user, planId) {
   recentArtifacts.forEach((artifact) => {
     const prefill = artifact.requirementsJson?.learningFlowPrefill || artifact.requirementsJson?.learning_flow_prefill || {};
     if (Number(prefill.learningPlanId || prefill.learning_plan_id) === plan.id) addArtifact(artifact);
+  });
+
+  presentationDocuments.filter((doc) => doc.resource_kind === 'presentation_preview'
+    && String(doc.file_ext).toLowerCase() === 'pdf'
+    && !Number(doc.source_artifact_id)).forEach((doc) => {
+    const key = `presentation-pdf:${doc.document_id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const url = `/student/documents/${doc.document_id}/download`;
+    records.push({
+      id: key, sourceType: 'presentation_pdf', group: 'presentation', title: doc.title || doc.original_filename,
+      fileName: doc.original_filename, mimeType: 'application/pdf', documentId: doc.document_id, createdAt: doc.updated_at,
+      sourceArtifactId: doc.source_artifact_id || null,
+      previewable: true, downloadable: true, previewUrl: url, downloadUrl: url,
+    });
   });
 
   knowledgeBases.filter(kb => canAccessKnowledgeBase(kb, userId, scope)).forEach((kb) => {
@@ -651,6 +682,7 @@ async function listReferenceMaterials(user, planId) {
     groups: [
       { id: 'pre_class', label: '课前预习资料' },
       { id: 'generated_artifact', label: '学习计划产物' },
+      { id: 'presentation', label: '学习流课件' },
       { id: 'knowledge', label: '有权限的知识库 PDF' },
     ],
     list: records,

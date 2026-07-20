@@ -322,15 +322,15 @@ function buildQuestionCard(question, index, state, snapshot) {
 
 function buildTabButtons(state, snapshot) {
   const examActive = isExamActive(state, snapshot)
-  const tabs = [{ id: 'info', label: '题目信息', icon: '📋' }]
+  const tabs = [{ id: 'info', label: '题目信息', icon: 'info' }]
   if (!examActive || state.submitted) {
-    tabs.push({ id: 'analysis', label: '题目解析', icon: '📖' })
-    tabs.push({ id: 'ai', label: 'AI提问', icon: '💬' })
+    tabs.push({ id: 'analysis', label: '题目解析', icon: 'book' })
+    tabs.push({ id: 'ai', label: 'AI提问', icon: 'chat' })
   }
   const active = state.activeTab || 'info'
   return `<div class="side-tabs-bar">${tabs.map(t => `
     <button class="side-tab-btn${active === t.id ? ' active' : ''}" data-tab="${t.id}" type="button">
-      <span class="side-tab-icon">${t.icon}</span><span class="side-tab-label">${t.label}</span>
+      <span class="side-tab-icon">${({ info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/></svg>', book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Zm16 0A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z"/></svg>', chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5h14v10H9l-4 4V5Z"/></svg>' }[t.icon] || '')}</span><span class="side-tab-label">${t.label}</span>
     </button>`).join('')}</div>`
 }
 
@@ -383,7 +383,7 @@ function buildAnalysisTab(question, state, snapshot) {
     let msg = '提交整卷后可查看解析。'
     if (exam) msg = '考试提交后可查看解析。'
     else if (single) msg = '提交本题后可查看解析。'
-    return `<div class="side-tab-content" id="tab-content-analysis"><h4 class="side-tab-title">题目解析</h4><div class="tab-lock-state"><span class="lock-icon">🔒</span><p>${msg}</p></div></div>`
+    return `<div class="side-tab-content" id="tab-content-analysis"><h4 class="side-tab-title">题目解析</h4><div class="tab-lock-state"><span class="lock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><p>${msg}</p></div></div>`
   }
 
   const officialAnalysis = result?.answer_analysis || result?.feedback || ''
@@ -397,9 +397,9 @@ function buildAnalysisTab(question, state, snapshot) {
       <div class="analysis-block my-block"><b>我的答案</b><p>${escapeHtml(myAnswer)}</p></div>
       ${officialAnalysis ? `<div class="analysis-block official-block"><b>官方解析</b><div class="analysis-text">${escapeHtml(officialAnalysis)}</div></div>` : `<div class="analysis-block official-block"><b>官方解析</b><p class="analysis-empty">暂无官方解析</p></div>`}
     </div>
-    ${!aiAnalysis && !aiAnalysisLoading ? `<div class="ai-gen-analysis-area"><p class="ai-gen-hint">可使用 AI 生成补充解析</p><button class="complex-btn-secondary ai-gen-btn" id="btn-gen-analysis" type="button">✨ AI生成解析</button></div>` : ''}
+    ${!aiAnalysis && !aiAnalysisLoading ? `<div class="ai-gen-analysis-area"><p class="ai-gen-hint">可使用 AI 生成补充解析</p><button class="complex-btn-secondary ai-gen-btn" id="btn-gen-analysis" type="button">生成 AI 解析</button></div>` : ''}
     ${aiAnalysisLoading ? `<div class="ai-gen-analysis-area"><div class="ai-gen-loading"><div class="complex-spinner"></div><span>AI 正在生成解析...</span></div></div>` : ''}
-    ${aiAnalysis ? `<div class="analysis-block ai-block"><b>🤖 AI 补充解析</b><div class="analysis-text message-markdown" id="ai-analysis-content">${renderMarkdownToHtml(aiAnalysis)}</div></div>` : ''}
+    ${aiAnalysis ? `<div class="analysis-block ai-block"><b>AI 补充解析</b><div class="analysis-text message-markdown" id="ai-analysis-content">${renderMarkdownToHtml(aiAnalysis)}</div></div>` : ''}
   </div>`
 }
 
@@ -414,7 +414,7 @@ function buildAiChatTab(question, state, snapshot) {
     let msg = '提交整卷后可向 AI 追问。'
     if (exam) msg = '考试提交后可向 AI 追问。'
     else if (single) msg = '提交本题后可向 AI 追问。'
-    return `<div class="side-tab-content" id="tab-content-ai"><h4 class="side-tab-title">AI提问</h4><div class="tab-lock-state"><span class="lock-icon">🔒</span><p>${msg}</p></div></div>`
+    return `<div class="side-tab-content" id="tab-content-ai"><h4 class="side-tab-title">AI提问</h4><div class="tab-lock-state"><span class="lock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><p>${msg}</p></div></div>`
   }
 
   return `<div class="side-tab-content side-tab-chat" id="tab-content-ai">

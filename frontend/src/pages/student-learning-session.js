@@ -68,6 +68,8 @@ let pdfSwitchVersion = 0;
 let pdfSwitchPromise = Promise.resolve();
 let pdfControlsCleanup = null;
 let pdfSourcesLoaded = false;
+let activePresentationReference = null;
+let requestedReferenceId = '';
 let learningCardDeck = null;
 const sessionTimeoutIds = new Set();
 
@@ -218,6 +220,7 @@ function setAction(type, submitting) {
 export function renderStudentLearningSession(app, params) {
   const sessionId = Number(params.sessionId);
   const user = getUser();
+  requestedReferenceId = new URLSearchParams(String(window.location.hash || '').split('?')[1] || '').get('reference')?.trim() || '';
   sessionEventCleanup?.();
   sessionEventCleanup = null;
   state = initState(sessionId);
@@ -240,6 +243,7 @@ export function renderStudentLearningSession(app, params) {
   pdfSwitchVersion = 0;
   pdfSwitchPromise = Promise.resolve();
   pdfSourcesLoaded = false;
+  activePresentationReference = null;
   pdfControlsCleanup?.();
   pdfControlsCleanup = null;
   lastNarrationKey = '';
@@ -361,8 +365,8 @@ function buildPageShell() {
     <aside class="lws-pdf-panel" id="lws-pdf-panel" aria-hidden="true" aria-label="PDF 连续阅读器" hidden>
       <div class="lws-pdf-resizer" id="lws-pdf-resizer" aria-label="拖动调整阅读器宽度"></div>
       <header class="lws-pdf-header">
-        <div class="lws-pdf-title"><b>参考资料</b><span id="lws-pdf-file-name">请选择 PDF</span></div>
-        <select id="lws-pdf-source" aria-label="添加 PDF 来源"><option value="">添加计划产物或知识库 PDF</option></select>
+        <div class="lws-pdf-title"><b>参考资料</b><span id="lws-pdf-file-name">请选择资料</span></div>
+        <select id="lws-pdf-source" aria-label="添加参考资料"><option value="">添加计划产物、PPT 或知识库 PDF</option></select>
         <label class="lws-pdf-local-picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 15v4h14v-4"/></svg><span>添加 PDF</span><input id="lws-pdf-local" type="file" accept="application/pdf,.pdf" multiple hidden></label>
         <button type="button" class="lws-pdf-icon-btn" data-learning-action="pdf-close" aria-label="关闭阅读器" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </header>
@@ -379,7 +383,7 @@ function buildPageShell() {
         <button type="button" class="lws-pdf-fit-btn" data-learning-action="pdf-fit" title="根据阅读区宽度缩放"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M8 12h8"/></svg><span>适合宽度</span></button>
         <span class="lws-pdf-continuous" title="页面按顺序连续排列">连续</span>
       </div>
-      <div class="lws-pdf-drop-overlay" id="lws-pdf-drop-overlay" hidden>松开即可添加 PDF，可一次拖入多个文件</div><div class="lws-pdf-viewport" data-pdf-viewport tabindex="0"><div class="lws-pdf-empty" id="lws-pdf-status">请选择上方资料，或将 PDF 拖到这里</div><div class="lws-pdf-pages" data-pdf-pages></div></div><output class="lws-pdf-zoom-hint" data-pdf-zoom-hint aria-live="polite"></output>
+      <div class="lws-pdf-drop-overlay" id="lws-pdf-drop-overlay" hidden>松开即可添加 PDF，可一次拖入多个文件</div><div class="lws-pdf-viewport" data-pdf-viewport tabindex="0"><div class="lws-pdf-empty" id="lws-pdf-status">请选择上方资料，或将 PDF 拖到这里</div><div class="lws-pdf-pages" data-pdf-pages></div><iframe id="lws-reference-html" class="lws-reference-html" title="学习课件预览" hidden sandbox="allow-same-origin"></iframe></div><output class="lws-pdf-zoom-hint" data-pdf-zoom-hint aria-live="polite"></output>
       <footer class="lws-pdf-footer"><button type="button" data-learning-action="pdf-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>下载</button><button type="button" data-learning-action="pdf-open-window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4h6v6m0-6-9 9M19 13v6H5V5h6"/></svg>新窗口打开</button></footer>
     </aside></div>
     <aside class="lws-narration-mini" id="lws-narration-mini" hidden aria-label="悬浮语音播放器">
@@ -480,8 +484,8 @@ function bindEvents() {
       case 'pdf-zoom-out': await pdfViewer?.zoomBy(-0.1); break;
       case 'pdf-zoom-in': await pdfViewer?.zoomBy(0.1); break;
       case 'pdf-fit': await pdfViewer?.fit(); break;
-      case 'pdf-download': pdfViewer?.download(); break;
-      case 'pdf-open-window': pdfViewer?.openWindow(); break;
+      case 'pdf-download': if (activePresentationReference?.downloadUrl) window.open(apiUrl(activePresentationReference.downloadUrl), '_blank', 'noopener'); else pdfViewer?.download(); break;
+      case 'pdf-open-window': if (activePresentationReference?.previewHtml) { const win = window.open('', '_blank', 'noopener'); if (win) { win.document.write(activePresentationReference.previewHtml); win.document.close(); } } else pdfViewer?.openWindow(); break;
     }
   };
 
@@ -759,8 +763,8 @@ const PDF_PANEL_STATE_KEY = 'discimind:learning-pdf-panel';
 function readPdfPanelState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(PDF_PANEL_STATE_KEY) || '{}');
-    return { width: Math.max(360, Math.min(520, Number(parsed.width) || 430)), sourceId: String(parsed.sourceId || '') };
-  } catch { return { width: 430, sourceId: '' }; }
+    return { width: Math.max(320, Math.min(440, Number(parsed.width) || 360)), sourceId: String(parsed.sourceId || '') };
+  } catch { return { width: 360, sourceId: '' }; }
 }
 
 function savePdfPanelState(patch = {}) {
@@ -795,10 +799,42 @@ function pdfDocumentId(source) {
   return `local:${Date.now()}:${pdfDocumentSerial}`;
 }
 
+function showPdfWorkspace() {
+  activePresentationReference = null;
+  document.getElementById('lws-reference-html')?.setAttribute('hidden', '');
+  document.querySelector('.lws-pdf-pages')?.removeAttribute('hidden');
+  document.getElementById('lws-pdf-status')?.removeAttribute('hidden');
+  document.querySelector('.lws-pdf-toolbar')?.removeAttribute('hidden');
+  document.querySelector('.lws-pdf-tabs')?.removeAttribute('hidden');
+  document.querySelector('.lws-pdf-local-picker')?.removeAttribute('hidden');
+  document.querySelector('.lws-pdf-panel')?.classList.remove('is-presentation');
+}
+
+function openPresentationReference(source) {
+  activePresentationReference = source;
+  const frame = document.getElementById('lws-reference-html');
+  if (!frame) return;
+  const body = String(source.previewHtml || '<p>课件内容暂不可预览。</p>');
+  frame.srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>body{margin:0;padding:22px;background:#f4f8fb;color:#173e59;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif}.ppt-artifact-preview{max-width:820px;margin:auto}.ppt-artifact-preview header,section{background:#fff;border:1px solid #dce8ef;border-radius:14px;padding:18px 20px;margin-bottom:14px;box-shadow:0 4px 16px rgba(33,78,106,.06)}h2,h3{color:#1d5577}li{line-height:1.8}small,em{color:#6b8798}</style></head><body>${body}</body></html>`;
+  frame.removeAttribute('hidden');
+  document.querySelector('.lws-pdf-pages')?.setAttribute('hidden', '');
+  document.getElementById('lws-pdf-status')?.setAttribute('hidden', '');
+  document.querySelector('.lws-pdf-toolbar')?.setAttribute('hidden', '');
+  document.querySelector('.lws-pdf-tabs')?.setAttribute('hidden', '');
+  document.querySelector('.lws-pdf-local-picker')?.setAttribute('hidden', '');
+  document.querySelector('.lws-pdf-panel')?.classList.add('is-presentation');
+  setText('lws-pdf-file-name', source.name || '学习课件');
+  document.querySelectorAll('[data-learning-action^="pdf-"]').forEach((button) => {
+    const action = button.dataset.learningAction;
+    if (!['pdf-toggle', 'pdf-close', 'pdf-download', 'pdf-open-window'].includes(action)) button.disabled = true;
+  });
+}
+
 async function switchPdfDocument(documentId, { force = false } = {}) {
   const next = pdfOpenDocuments.find(item => item.id === documentId);
   if (!next || !pdfViewer) return;
   if (!force && activePdfDocumentId === documentId && pdfViewer.document) return;
+  showPdfWorkspace();
   captureActivePdfView();
   activePdfDocumentId = documentId;
   renderPdfTabs();
@@ -909,13 +945,15 @@ function initPdfControls(root) {
   pdfViewer = new LearningPdfViewer(panel, { onStateChange: updatePdfUi });
   const saved = readPdfPanelState();
   root.style.setProperty('--lws-pdf-width', `${saved.width}px`);
+  if (requestedReferenceId) void openRequestedReference();
   let resizeFrame = 0;
   let drag = null;
   const onSource = async () => {
     const source = pdfSources.find((item) => item.id === select.value);
     if (!source) return;
     select.value = '';
-    await addPdfDocument(source);
+    if (source.kind === 'presentation') openPresentationReference(source);
+    else await addPdfDocument(source);
   };
   const onLocal = async () => {
     const files = localInput.files;
@@ -966,7 +1004,7 @@ function initPdfControls(root) {
   };
   const onPointerMove = (event) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const width = Math.max(360, Math.min(520, drag.startWidth + drag.startX - event.clientX));
+    const width = Math.max(320, Math.min(440, drag.startWidth + drag.startX - event.clientX));
     root.style.setProperty('--lws-pdf-width', `${width}px`);
     savePdfPanelState({ width: Math.round(width) });
   };
@@ -1023,27 +1061,48 @@ async function loadPdfSources() {
   const select = document.getElementById('lws-pdf-source');
   if (!select) return;
   select.disabled = true;
-  select.innerHTML = '<option value="">正在读取有权限的 PDF…</option>';
+  select.innerHTML = '<option value="">正在读取有权限的参考资料…</option>';
   const sources = [];
   const planId = S.learning_plan?.id || S.learningPlanId;
   try {
     if (!planId) throw new Error('学习会话未关联学习计划');
     const result = await studentLearningPlanApi.referenceMaterials(planId);
     const payload = result.data || result;
-    (payload.list || []).filter(item => item.previewable && item.mimeType === 'application/pdf').forEach((item) => sources.push({
-      id: item.id,
-      type: item.group === 'knowledge' ? 'knowledge' : 'plan',
-      name: item.fileName || item.title,
-      label: `${item.group === 'pre_class' ? '课前资料' : item.group === 'knowledge' ? `知识库 · ${item.knowledgeBaseName || ''}` : '学习计划产物'} · ${item.fileName || item.title}`,
-      url: item.previewUrl,
-    }));
+    (payload.list || []).filter(item => item.previewable && (item.mimeType === 'application/pdf' || item.kind === 'presentation')).forEach((item) => {
+      const hasConvertedPresentation = item.kind === 'presentation' && Boolean(item.convertedPdfUrl);
+      sources.push({
+        id: item.id,
+        artifactId: item.artifactId || null,
+        kind: hasConvertedPresentation ? 'pdf' : (item.kind === 'presentation' ? 'presentation' : 'pdf'),
+        type: item.group === 'knowledge' ? 'knowledge' : 'plan',
+        name: item.fileName || item.title,
+        label: `${item.kind === 'presentation' ? '学习流课件' : item.group === 'pre_class' ? '课前资料' : item.group === 'knowledge' ? `知识库 · ${item.knowledgeBaseName || ''}` : '学习计划产物'} · ${item.fileName || item.title}${hasConvertedPresentation ? '（PDF 预览）' : ''}`,
+        url: hasConvertedPresentation ? item.convertedPdfUrl : item.previewUrl,
+        downloadUrl: hasConvertedPresentation ? item.convertedPdfUrl : item.downloadUrl,
+        previewHtml: item.previewHtml,
+      });
+    });
   } catch (error) { console.warn('[LearningPdf] reference materials unavailable', error.message); }
   pdfSources = sources;
   pdfSourcesLoaded = true;
   select.disabled = false;
-  select.innerHTML = `<option value="">${sources.length ? '选择计划产物或知识库 PDF' : '暂无服务端 PDF，可选择本地文件'}</option>${sources.map((source) => `<option value="${escAttr(source.id)}">${escHtml(source.label)}</option>`).join('')}`;
+  select.innerHTML = `<option value="">${sources.length ? '选择计划产物、PPT 或知识库 PDF' : '暂无服务端资料，可选择本地 PDF'}</option>${sources.map((source) => `<option value="${escAttr(source.id)}">${escHtml(source.label)}</option>`).join('')}`;
   const savedId = readPdfPanelState().sourceId;
   if (savedId && sources.some((item) => item.id === savedId)) select.value = savedId;
+}
+
+async function openRequestedReference() {
+  const referenceId = String(requestedReferenceId || '').trim();
+  if (!referenceId || !S || !pdfViewer || state?.disposed) return;
+  const panel = document.getElementById('lws-pdf-panel');
+  if (!panel) return;
+  if (panel.hidden) await togglePdfPanel();
+  else await loadPdfSources();
+  const source = pdfSources.find((item) => item.id === `artifact:${referenceId}` || String(item.artifactId || '') === referenceId || item.id === referenceId);
+  if (!source) return;
+  if (source.kind === 'presentation') openPresentationReference(source);
+  else await addPdfDocument(source);
+  requestedReferenceId = '';
 }
 
 async function togglePdfPanel() {
@@ -1076,6 +1135,7 @@ async function closePdfPanel() {
   window.dispatchEvent(new Event('discimind:float-layout'));
   document.getElementById('lws-pdf-toggle')?.setAttribute('aria-expanded', 'false');
   document.getElementById('lws-pdf-local').value = '';
+  activePresentationReference = null;
   captureActivePdfView();
   await pdfViewer?.destroy();
   updatePdfUi({ loaded: false, fileName: '' });
@@ -1251,6 +1311,7 @@ async function initSession(sessionId, expectedState = state) {
     renderProgressNav();
     renderKnowledgePointOverview();
     restorePersistedHistory();
+    if (requestedReferenceId && pdfViewer) void openRequestedReference();
 
     // 恢复已有的 guide 内容
     restoreGuideFromNodeRun();
@@ -2064,7 +2125,7 @@ function appendGuideToTimeline(block, phase) {
   const card = document.createElement('div');
   card.className = 'lws-timeline-card lws-timeline-guide';
   card.innerHTML = `<div class="lws-timeline-card-header">
-    <span class="lws-timeline-badge guide">💬 ${escHtml(phaseLabels[phase] || '学习引导')}</span>
+    <span class="lws-timeline-badge guide"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 5h14v10H9l-4 4V5Z"/></svg> ${escHtml(phaseLabels[phase] || '学习引导')}</span>
   </div>
   <div class="lws-timeline-card-body">
     <div class="lws-guide-bubble-timeline">${escHtml(block.text || '')}</div>
@@ -2237,7 +2298,7 @@ function renderInfoCards(title, cards, sources = []) {
       : String(card.content);
     return `<section class="lws-section-card"><div class="lws-section-header"><span class="lws-section-title">${escHtml(card.title || '学习内容')}</span></div><div class="lws-section-body message-markdown">${renderMarkdownToHtml(content)}</div></section>`;
   }).join('');
-  const sourceHtml = sources.length ? `<details class="lws-sources-details"><summary class="lws-sources-summary">📚 知识库来源 (${sources.length})</summary><div class="lws-sources-list">${sources.map((source) => `<div class="lws-source-item"><span class="lws-source-name">${escHtml(source.document_name || source.documentName || source.name || '课程资料')}</span></div>`).join('')}</div></details>` : '';
+  const sourceHtml = sources.length ? `<details class="lws-sources-details"><summary class="lws-sources-summary"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Zm16 0A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z"/></svg> 知识库来源 (${sources.length})</summary><div class="lws-sources-list">${sources.map((source) => `<div class="lws-source-item"><span class="lws-source-name">${escHtml(source.document_name || source.documentName || source.name || '课程资料')}</span></div>`).join('')}</div></details>` : '';
   el.innerHTML = `<div class="lws-teaching-header"><h3>${escHtml(title || '学习内容')}</h3></div><div class="lws-sections-container">${body || '<p class="lws-fallback-text">该条内容格式较旧，暂时无法展示。</p>'}</div>${sourceHtml}`;
   scheduleSessionTimeout(() => renderMathInMarkdownElements?.(el), 50);
 }
@@ -2558,7 +2619,7 @@ function renderTeachingResult(teachingData, nodeOrRun) {
   let sourcesHtml = '';
   if (sources.length > 0) {
     sourcesHtml = `<details class="lws-sources-details">
-      <summary class="lws-sources-summary">📚 参考知识库 (${sources.length} 份文档)</summary>
+      <summary class="lws-sources-summary">参考知识库 (${sources.length} 份文档)</summary>
       <div class="lws-sources-list">
         ${sources.map(s => `<div class="lws-source-item">
           <span class="lws-source-name">${escHtml(s.name || '未知文档')}</span>
@@ -2570,9 +2631,9 @@ function renderTeachingResult(teachingData, nodeOrRun) {
 
   el.innerHTML = `<div class="lws-teaching-header">
     <div class="lws-teaching-meta">
-      <span class="lws-teaching-strategy">📋 ${escHtml(strategy.name || '教学策略')}</span>
+      <span class="lws-teaching-strategy">教学策略 · ${escHtml(strategy.name || '教学策略')}</span>
       <span class="lws-teaching-time">⏱ 预计阅读 ${estimatedMinutes} 分钟</span>
-      ${strategy.reason ? `<span class="lws-teaching-reason" title="${escAttr(strategy.reason)}">💬 ${escHtml(strategy.reason)}</span>` : ''}
+      ${strategy.reason ? `<span class="lws-teaching-reason" title="${escAttr(strategy.reason)}">说明 · ${escHtml(strategy.reason)}</span>` : ''}
     </div>
   </div>
   <div class="lws-sections-container">${sectionsHtml}</div>
@@ -4035,7 +4096,7 @@ async function showFlowCompleted() {
   const el = document.getElementById('lws-teaching-result');
   if (el) {
     el.innerHTML = `<div class="lws-completed-card">
-      <div class="lws-completed-hero"><div class="lws-completed-icon">🎉</div><div><h3>学习流已完成</h3>
+      <div class="lws-completed-hero"><div class="lws-completed-icon"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div><div><h3>学习流已完成</h3>
       <p>总结已保存。你可以继续追问，AI 会带着本轮学习上下文回答。</p></div></div>
       <div class="lws-completion-chat">
         <div class="lws-completion-chat-head"><b>继续和学习引导老师聊聊</b><span>真实流式回答 · 已关联本轮学习记录</span></div>
@@ -4516,7 +4577,7 @@ function renderMultimodalUpload() {
   return `
     <div class="lws-multimodal-area" id="lws-multimodal-area">
       <div class="lws-multimodal-header">
-        <span class="lws-multimodal-title">📷 图片输入（可选，最多 3 张）</span>
+        <span class="lws-multimodal-title"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8" cy="10" r="1"/><path d="m4 17 5-5 4 4 3-3 4 4"/></svg> 图片输入（可选，最多 3 张）</span>
         ${remaining > 0
           ? `<label class="lws-file-select-btn">选择图片<input type="file" id="lws-file-input" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp" multiple hidden></label>`
           : '<span class="lws-file-limit-text">已达上限</span>'}

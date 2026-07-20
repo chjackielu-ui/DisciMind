@@ -2,19 +2,36 @@
 // 新增：知识点排序、搜索、筛选
 
 import { getMe } from '../api/auth.js'
-import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints, getStudentCourseKnowledgeGraph, getCourseMasteryDistribution, getCourseAbilityProfile } from '../api/student.js'
+import { getStudentCourseDetail, getStudentCourseChapters, getStudentCourseKnowledgePoints, getStudentCourseKnowledgeGraph, getCourseMasteryDistribution, getCourseAbilityProfile, getStudentCourseSyllabus, setStudentCoursePin } from '../api/student.js'
 import { getUser, setAuth, clearAuth, getToken } from '../utils/auth.js'
 import { renderDashboardLayout } from '../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../utils/student-menu.js'
 import { escapeHtml, formatDate, masteryLabel, difficultyLabel } from '../utils/format.js'
 import { disposeAllCharts, bindResize, initChart, renderRingChart, renderHorizontalBarChart, renderRadarChart, renderEmptyPanel, CHART_COLORS } from '../utils/echarts.js'
 import * as echarts from 'echarts'
-import { buildMindData, createMindMap, getKnowledgeStatus } from '../components/kgraph/KgMindMap.js'
+import { getKnowledgeStatus } from '../components/kgraph/KgMindMap.js'
+import { createThreeKnowledgeGraph } from '../components/kgraph/KgThreeGraph.js'
 import { buildVideoPanelHTML, loadKpVideosToPanel } from '../components/kgraph/KgVideoPanel.js'
 import { renderCourseFilesPanel, mountCourseFilesPanel } from '../components/course-files-panel.js'
 import { learningCardApi } from '../api/learning-cards.js'
 import { renderLearningCardGrid } from '../components/learning-card-platform.js'
 let disposeLearningMediaPanel = null
+
+function courseIcon(name, size = 18) {
+  const paths = {
+    school: '<path d="m3 10 9-5 9 5-9 5-9-5Z"/><path d="M6 12v5c3 2 9 2 12 0v-5M21 10v6"/>',
+    teacher: '<circle cx="12" cy="7" r="3"/><path d="M5 21c.6-4 2.9-6 7-6s6.4 2 7 6M4 4h4m8 0h4"/>',
+    book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Zm16 0A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z"/>',
+    target: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>',
+    pin: '<path d="M8 4h8l-1 5 3 3v2H6v-2l3-3-1-5Zm4 10v7"/>',
+    chart: '<path d="M4 19V5m0 14h16"/><path d="M8 15v-3m4 3V8m4 7v-5"/>',
+    map: '<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15m6-12v15"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+    face: '<circle cx="12" cy="12" r="9"/><path d="M8.5 15.5c1 .9 2.2 1.4 3.5 1.4s2.5-.5 3.5-1.4M8.5 9.5h.01m7 0h.01"/>',
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.book}</svg>`
+}
 
 function getCourseIdFromHash() {
   const m = window.location.hash.slice(1).match(/^\/student\/courses\/(\d+)/)
@@ -359,7 +376,21 @@ function buildGraphOverviewHTML(course, kps, graph = {}) {
     </div>`
 }
 
-function buildKnowledgePointDetailHTML(kp, allKps) {
+function buildSyllabusHTML(syllabus) {
+  if (!syllabus) return ''
+  const objectives = (syllabus.objectives || []).slice(0, 4)
+  const chapters = (syllabus.chapters || []).slice(0, 8)
+  return `<section class="course-syllabus-card" id="course-syllabus">
+    <div class="course-syllabus-head"><div><span class="course-syllabus-kicker">COURSE START</span><h2>教学大纲</h2><p>${escapeHtml(syllabus.overview || '课程推荐与学习路径将依据教学大纲生成。')}</p></div><button type="button" class="course-syllabus-toggle" id="btn-course-syllabus-toggle" aria-expanded="false">查看完整大纲</button></div>
+    <div class="course-syllabus-body" id="course-syllabus-body" hidden>
+      ${objectives.length ? `<div class="course-syllabus-objectives"><h3>学习目标</h3><ul>${objectives.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>` : ''}
+      ${syllabus.requirements ? `<div class="course-syllabus-requirements"><h3>学习要求</h3><p>${escapeHtml(syllabus.requirements)}</p></div>` : ''}
+      <div class="course-syllabus-chapters"><h3>章节安排</h3>${chapters.map((chapter, index) => `<article><b>${String(index + 1).padStart(2, '0')}</b><div><h4>${escapeHtml(chapter.title)}</h4><p>${escapeHtml(chapter.description || '按教学大纲完成本章节知识点学习。')}</p><span>${(chapter.knowledge_points || []).slice(0, 6).map(kp => escapeHtml(kp.name)).join(' · ') || '待配置知识点'}</span></div></article>`).join('')}</div>
+    </div>
+  </section>`
+}
+
+function buildKnowledgePointDetailHTML(kp, allKps, courseId = kp.course_id) {
   const status = getKnowledgeStatus(kp)
   const statusLabel = kp.learning_status_label || KG_STATUS_LABELS[status] || '未开始'
   const score = Math.max(0, Math.min(100, Number(kp.mastery_progress ?? kp.mastery_score ?? 0)))
@@ -383,6 +414,7 @@ function buildKnowledgePointDetailHTML(kp, allKps) {
     <p class="kg-detail-description">${escapeHtml(kp.description || '该知识点暂无补充说明。')}</p>
     <div class="kg-detail-mastery"><div><span>掌握度</span><b>${score}%</b></div><i><em class="status-${status}" style="width:${score}%"></em></i></div>
     <div class="kg-detail-block"><h5>学习建议</h5><p>${escapeHtml(kp.learning_advice || '结合概念说明和典型例题完成一轮学习。')}</p></div>
+    <div class="kg-detail-actions"><button type="button" data-kg-learning-flow data-course-id="${courseId || ''}" data-kp-id="${kp.knowledge_point_id}" data-kp-name="${escapeHtml(kp.knowledge_point_name)}">进入学习流</button><button type="button" data-kg-resource-package data-course-id="${courseId || ''}" data-kp-id="${kp.knowledge_point_id}" data-kp-name="${escapeHtml(kp.knowledge_point_name)}">生成学习资源包</button></div>
     <div class="kg-detail-block"><h5>相关资源</h5><div class="kg-detail-resources">${resourcesHTML}</div></div>
     <div class="kg-detail-block"><h5>关联知识点</h5><div class="kg-related-list">${relatedHTML}</div></div>`
 }
@@ -516,8 +548,8 @@ function buildKnowledgeGraphSection(course, chapters, kps, graph = {}) {
     <section class="course-kg-section" id="course-kg-section">
       <div class="course-kg-header">
         <div>
-          <h3>知识图谱与视频讲解</h3>
-          <p>${escapeHtml(course.course_name)} · ${chapters.length} 个章节 · ${kps.length} 个知识点</p>
+          <h3>三维知识图谱与视频讲解</h3>
+          <p>${escapeHtml(course.course_name)} · ${chapters.length} 个章节 · ${kps.length} 个知识点 · 点击节点逐层展开</p>
         </div>
         <div class="course-kg-legend">
           ${buildStatusLegend()}
@@ -531,7 +563,7 @@ function buildKnowledgeGraphSection(course, chapters, kps, graph = {}) {
             </div>
             <div class="course-kg-controls" aria-label="图谱工具栏">${buildKgControls()}</div>
           </div>
-          <div id="course-kg-mind-container" class="course-kg-mind"></div>
+          <div id="course-kg-mind-container" class="course-kg-mind course-kg-three"></div>
           <div id="course-kg-error" class="course-kg-error" style="display:none;"></div>
         </div>
         <div class="course-kg-video-wrap">
@@ -576,6 +608,16 @@ function initCourseKnowledgeGraph(course, chapters, kps, graph = {}) {
     detailPanel?.querySelectorAll('[data-kg-scroll-resources]').forEach((button) => {
       button.addEventListener('click', () => document.getElementById('course-files-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     })
+    detailPanel?.querySelectorAll('[data-kg-learning-flow]').forEach((button) => {
+      button.addEventListener('click', () => {
+        window.location.hash = `#/student/learning-flows?courseId=${encodeURIComponent(button.dataset.courseId)}&knowledgePointId=${encodeURIComponent(button.dataset.kpId)}&knowledgePointName=${encodeURIComponent(button.dataset.kpName)}`
+      })
+    })
+    detailPanel?.querySelectorAll('[data-kg-resource-package]').forEach((button) => {
+      button.addEventListener('click', () => {
+        window.location.hash = `#/student/learning-flows?courseId=${encodeURIComponent(button.dataset.courseId)}&knowledgePointId=${encodeURIComponent(button.dataset.kpId)}&knowledgePointName=${encodeURIComponent(button.dataset.kpName)}&createResourcePackage=1`
+      })
+    })
   }
 
   function renderSelectionDetail(selection = {}) {
@@ -583,7 +625,7 @@ function initCourseKnowledgeGraph(course, chapters, kps, graph = {}) {
     const kpId = selection.kpId || selection.knowledgePointId
     const kp = kpId ? kps.find((item) => String(item.knowledge_point_id) === String(kpId)) : null
     detailPanel.innerHTML = kp
-      ? buildKnowledgePointDetailHTML(kp, kps)
+      ? buildKnowledgePointDetailHTML(kp, kps, course.course_id)
       : buildGraphOverviewHTML(course, kps, graph)
     bindDetailActions()
   }
@@ -635,10 +677,8 @@ function initCourseKnowledgeGraph(course, chapters, kps, graph = {}) {
   }
 
   try {
-    const chaptersWithKps = buildChaptersWithKps(chapters, kps)
-    const mindData = buildMindData(course, chaptersWithKps)
     if (window.__discimindKgCleanup) window.__discimindKgCleanup()
-    mindController = createMindMap(mindContainer, mindData, kps, handleSelection)
+    mindController = createThreeKnowledgeGraph(mindContainer, course, chapters, kps, handleSelection)
     const resizeHandler = () => mindController?.fit()
     window.addEventListener('resize', resizeHandler)
     window.__discimindKgCleanup = () => {
@@ -700,18 +740,19 @@ export async function renderStudentCourseDetail(app) {
   // Loading
   renderDashboardLayout(app, { menuItems, contentHTML: `<div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/student/courses'">← 返回我的课程</button></div><div class="loading-state"><div class="loading-spinner"></div><p class="loading-text">正在加载课程详情...</p></div>`, user })
 
-  let course = null, chapters = [], kps = [], graph = {}, loadError = false
+  let course = null, chapters = [], kps = [], graph = {}, syllabus = null, loadError = false
   try {
-    const [cr, chr, kr, gr] = await Promise.all([getStudentCourseDetail(courseId), getStudentCourseChapters(courseId), getStudentCourseKnowledgePoints(courseId), getStudentCourseKnowledgeGraph(courseId)])
+    const [cr, chr, kr, gr, sr] = await Promise.all([getStudentCourseDetail(courseId), getStudentCourseChapters(courseId), getStudentCourseKnowledgePoints(courseId), getStudentCourseKnowledgeGraph(courseId), getStudentCourseSyllabus(courseId).catch(() => null)])
     course = cr.data
     graph = gr.data || {}
     chapters = graph.chapters || chr.data?.list || []
     kps = graph.nodes || kr.data?.list || []
+    syllabus = sr?.data || null
   } catch (e) { loadError = true }
 
   let contentHTML
   if (loadError || !course) {
-    contentHTML = `<div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/student/courses'">← 返回我的课程</button></div><div class="error-state"><div class="error-icon">😞</div><p class="error-message">课程详情加载失败</p><button class="btn-retry" onclick="window.location.reload()">重新加载</button></div>`
+    contentHTML = `<div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/student/courses'">← 返回我的课程</button></div><div class="error-state"><div class="error-icon">${courseIcon('face', 38)}</div><p class="error-message">课程详情加载失败</p><button class="btn-retry" onclick="window.location.reload()">重新加载</button></div>`
   } else {
     const teachers = (course.teacher_list || []).map(t => t.real_name).join('、')
     const className = course.teaching_class?.teaching_class_name || '-'
@@ -725,12 +766,14 @@ export async function renderStudentCourseDetail(app) {
 
     contentHTML = `
       <div style="margin-bottom:20px;"><button class="btn-back" onclick="window.location.hash='#/student/courses'">← 返回我的课程</button></div>
-      <div class="course-hero-card"><div class="hero-inner"><div class="hero-info"><div class="hero-course-name">${escapeHtml(course.course_name)}</div><div class="hero-course-code">${escapeHtml(course.course_code)} · ${escapeHtml(course.subject_category || '')}</div><div class="hero-desc">${escapeHtml(course.description || '')}</div><div class="hero-meta-tags"><span class="hero-tag">🏫 ${escapeHtml(className)}</span>${teachers ? `<span class="hero-tag">👨‍🏫 ${escapeHtml(teachers)}</span>` : ''}<span class="hero-tag">📖 ${course.chapter_count || 0} 个章节</span><span class="hero-tag">🎯 ${course.knowledge_point_count || 0} 个知识点</span><span class="hero-tag">📍 ${lastPositionText}</span></div></div><div class="hero-chart-area" id="chart-hero-progress"></div></div></div>
+      <div class="course-hero-card"><div class="hero-inner"><div class="hero-info"><div class="hero-course-name">${escapeHtml(course.course_name)}</div><div class="hero-course-code">${escapeHtml(course.course_code)} · ${escapeHtml(course.subject_category || '')}</div><div class="hero-desc">${escapeHtml(course.description || '')}</div><div class="hero-meta-tags"><span class="hero-tag">${courseIcon('school', 15)} ${escapeHtml(className)}</span>${teachers ? `<span class="hero-tag">${courseIcon('teacher', 15)} ${escapeHtml(teachers)}</span>` : ''}<span class="hero-tag">${courseIcon('book', 15)} ${course.chapter_count || 0} 个章节</span><span class="hero-tag">${courseIcon('target', 15)} ${course.knowledge_point_count || 0} 个知识点</span><span class="hero-tag">${courseIcon('pin', 15)} ${lastPositionText}</span></div></div><div class="hero-chart-area" id="chart-hero-progress"></div></div></div>
+      ${buildSyllabusHTML(syllabus)}
       <div class="course-metrics-row"><div class="course-metric-card"><div class="metric-value">${progress}%</div><div class="metric-label">学习进度</div></div><div class="course-metric-card"><div class="metric-value">${course.chapter_count || 0}</div><div class="metric-label">章节数</div></div><div class="course-metric-card"><div class="metric-value">${course.knowledge_point_count || 0}</div><div class="metric-label">知识点数</div></div><div class="course-metric-card"><div class="metric-value" style="color:#4CAF84;">${mastered}</div><div class="metric-label">已掌握</div></div><div class="course-metric-card"><div class="metric-value" style="color:#E0576E;">${weak}</div><div class="metric-label">薄弱</div></div><div class="course-metric-card"><div class="metric-value">${course.video_count || 0}</div><div class="metric-label">课程视频</div></div><div class="course-metric-card"><div class="metric-value">${course.question_count || 0}</div><div class="metric-label">习题数</div></div></div>
       <div class="course-action-strip">
         <button class="course-action-btn primary" id="btn-course-wrong-book" type="button">本课程错题本</button>
         <button class="course-action-btn" id="btn-course-practice" type="button">进入智能练习</button>
         <button class="course-action-btn" id="btn-course-files" type="button">课程文件</button>
+        <button class="course-action-btn ${course.is_pinned ? 'is-active' : ''}" id="btn-course-pin" type="button">${course.is_pinned ? '取消置顶课程' : '置顶课程'}</button>
       </div>
       ${renderCourseFilesPanel({ user, course, classes: course.teaching_class ? [course.teaching_class] : [] })}
       ${buildCourseCardLibrary(chapters, kps)}
@@ -738,16 +781,16 @@ export async function renderStudentCourseDetail(app) {
       <div id="course-learning-media-panel"></div>
       <div class="course-charts-row">
         <div class="course-chart-panel" id="panel-mastery-ring">
-          <div class="chart-header"><span class="chart-title">🎯 掌握等级分布</span></div>
+          <div class="chart-header"><span class="chart-title">${courseIcon('target', 16)} 掌握等级分布</span></div>
           <div class="chart-body" id="chart-detail-mastery-ring"></div>
         </div>
         <div class="course-chart-panel" id="panel-ability-radar">
-          <div class="chart-header"><span class="chart-title">🧭 课程能力画像</span></div>
+          <div class="chart-header"><span class="chart-title">${courseIcon('chart', 16)} 课程能力画像</span></div>
           <div class="chart-body" id="chart-detail-ability-radar"></div>
         </div>
       </div>
-      <div class="card" style="margin-bottom:24px;"><h3 class="card-title">🗺️ 章节学习地图</h3><div class="chapter-timeline">${chapters.map((ch, idx) => { const chKps = kps.filter(k => k.chapter_id === ch.chapter_id); return `<div class="chapter-node"><div class="chapter-dot">${idx + 1}</div><div class="chapter-content"><div class="chapter-name">${escapeHtml(ch.chapter_name)}</div><div class="chapter-desc">${escapeHtml(ch.description || '')} · ${ch.knowledge_point_count || 0} 个知识点</div><div class="kp-pills">${chKps.map(k => `<span class="kp-pill mastery-${k.mastery_level || 'unknown'}" title="${masteryLabel(k.mastery_level)} · ${k.mastery_score || 0}分">${escapeHtml(k.knowledge_point_name)}</span>`).join('')}${chKps.length === 0 ? '<span class="kp-pill mastery-unknown">暂无知识点</span>' : ''}</div></div></div>` }).join('')}</div></div>
-      <div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><h3 class="card-title" style="margin-bottom:0;">📋 知识点列表</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><input class="search-box" type="text" id="kp-search" placeholder="🔍 搜索知识点..." style="width:200px;padding:7px 14px;font-size:0.85rem;" /><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="kp-sort"><option value="default">课程顺序</option><option value="score-asc">掌握分数↑</option><option value="score-desc">掌握分数↓</option><option value="name">知识点名称</option><option value="difficulty">难度</option><option value="recent">最近学习</option></select></div></div></div><div class="filter-bar" id="kp-filter-bar"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="excellent">优秀</button><button class="filter-chip" data-filter="good">良好</button><button class="filter-chip" data-filter="general">一般</button><button class="filter-chip" data-filter="weak">薄弱</button></div><div id="kp-list-container" style="display:flex;flex-direction:column;gap:12px;">${kps.map(k => buildKpCard(k, course.course_id)).join('')}</div><div id="kp-no-results" class="no-filter-results" style="display:none;">没有符合条件的数据<span class="btn-clear-filter" id="kp-clear-filter">清除筛选</span></div></div>
+      <div class="card" style="margin-bottom:24px;"><h3 class="card-title">${courseIcon('map', 18)} 章节学习地图</h3><div class="chapter-timeline">${chapters.map((ch, idx) => { const chKps = kps.filter(k => k.chapter_id === ch.chapter_id); return `<div class="chapter-node"><div class="chapter-dot">${idx + 1}</div><div class="chapter-content"><div class="chapter-name">${escapeHtml(ch.chapter_name)}</div><div class="chapter-desc">${escapeHtml(ch.description || '')} · ${ch.knowledge_point_count || 0} 个知识点</div><div class="kp-pills">${chKps.map(k => `<span class="kp-pill mastery-${k.mastery_level || 'unknown'}" title="${masteryLabel(k.mastery_level)} · ${k.mastery_score || 0}分">${escapeHtml(k.knowledge_point_name)}</span>`).join('')}${chKps.length === 0 ? '<span class="kp-pill mastery-unknown">暂无知识点</span>' : ''}</div></div></div>` }).join('')}</div></div>
+      <div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;"><h3 class="card-title" style="margin-bottom:0;">${courseIcon('list', 18)} 知识点列表</h3><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><div class="course-kp-search">${courseIcon('search', 16)}<input class="search-box" type="text" id="kp-search" placeholder="搜索知识点..." style="width:180px;padding:7px 8px;font-size:0.85rem;" /></div><div class="sort-select-wrap"><label>排序：</label><select class="sort-select" id="kp-sort"><option value="default">课程顺序</option><option value="score-asc">掌握分数↑</option><option value="score-desc">掌握分数↓</option><option value="name">知识点名称</option><option value="difficulty">难度</option><option value="recent">最近学习</option></select></div></div></div><div class="filter-bar" id="kp-filter-bar"><button class="filter-chip active" data-filter="all">全部</button><button class="filter-chip" data-filter="excellent">优秀</button><button class="filter-chip" data-filter="good">良好</button><button class="filter-chip" data-filter="general">一般</button><button class="filter-chip" data-filter="weak">薄弱</button></div><div id="kp-list-container" style="display:flex;flex-direction:column;gap:12px;">${kps.map(k => buildKpCard(k, course.course_id)).join('')}</div><div id="kp-no-results" class="no-filter-results" style="display:none;">没有符合条件的数据<span class="btn-clear-filter" id="kp-clear-filter">清除筛选</span></div></div>
     `
   }
 
@@ -777,6 +820,13 @@ export async function renderStudentCourseDetail(app) {
 }
 
 function bindCourseActionEvents(course) {
+  document.getElementById('btn-course-syllabus-toggle')?.addEventListener('click', (event) => {
+    const body = document.getElementById('course-syllabus-body')
+    if (!body) return
+    body.hidden = !body.hidden
+    event.currentTarget.setAttribute('aria-expanded', String(!body.hidden))
+    event.currentTarget.textContent = body.hidden ? '查看完整大纲' : '收起教学大纲'
+  })
   document.getElementById('btn-course-wrong-book')?.addEventListener('click', () => {
     window.location.hash = `#/student/wrong-questions?subjectId=${encodeURIComponent(course.course_id)}`
   })
@@ -785,6 +835,16 @@ function bindCourseActionEvents(course) {
   })
   document.getElementById('btn-course-files')?.addEventListener('click', () => {
     document.getElementById('course-files-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+  document.getElementById('btn-course-pin')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget; button.disabled = true
+    try {
+      const result = await setStudentCoursePin(course.course_id, !course.is_pinned)
+      course.is_pinned = Boolean(result.data?.is_pinned)
+      button.textContent = course.is_pinned ? '取消置顶课程' : '置顶课程'
+      button.classList.toggle('is-active', course.is_pinned)
+    } catch (error) { window.alert(error.message || '课程置顶状态更新失败') }
+    finally { button.disabled = false }
   })
 }
 

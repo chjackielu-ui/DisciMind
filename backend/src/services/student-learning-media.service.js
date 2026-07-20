@@ -7,6 +7,8 @@ const teacherPptService = require('./teacher-ppt.service');
 const pptRenderer = require('./teacher-ppt-renderer.service');
 const { getBailianClient, mapBailianError } = require('./bailian-openai.service');
 const { getLearningNarrationModule } = require('../modules/learning-narration');
+const learningFlowResourceService = require('../modules/learning-flow-resource/learning-flow-resource.service');
+const documentConversionService = require('./document-conversion.service');
 
 const VIDEO_WIDTH = 1280;
 const VIDEO_HEIGHT = 720;
@@ -43,6 +45,31 @@ async function resolveKnowledgePoint(courseId, value) {
   return point;
 }
 
+async function publishPptAsLearningReference(user, enrollment, point, artifactId, learningPlanId) {
+  const artifact = await prisma.generatedArtifact.findFirst({ where: { id: Number(artifactId), ownerUserId: Number(user.user_id), deletedAt: null } });
+  if (!artifact) return null;
+  const operationId = `student-ppt-reference-${artifact.id}`;
+  const data = {
+    title: `${artifact.title} · 学习流课件`, original_filename: artifact.fileName || `${artifact.title}.pptx`, file_ext: 'pptx',
+    file_size_bytes: artifact.fileSizeBytes == null ? null : Number(artifact.fileSizeBytes), mime_type: artifact.mimeType || 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    storage_type: 'LOCAL', file_url: `/generated-artifacts/${String(artifact.storagePath || '').replace(/^\/+/, '')}`, scope_type: 'CLASS', visibility: 'CLASS', course_id: enrollment.course_id,
+    teaching_class_id: enrollment.teaching_class_id, source_artifact_id: artifact.id, owner_user_id: Number(user.user_id), is_teaching_resource: true,
+    resource_kind: 'learning_ppt', resource_category: '学习流课件', metadata_json: { source: 'student_learning_flow', learningPlanId: learningPlanId || null, knowledgePointId: point?.knowledge_point_id || null, artifactId: artifact.id },
+    resource_status: 'ACTIVE', parse_status: 'UPLOADED', review_status: 'APPROVED', marketplace_status: 'READY', processing_state: 'queued', operation_id: operationId,
+  };
+  const document = await prisma.knowledgeDocument.upsert({ where: { operation_id: operationId }, update: data, create: data });
+  let link = null;
+  if (learningPlanId) {
+    link = await learningFlowResourceService.createLink(user, artifact.id, {
+      learningPlanId: Number(learningPlanId), courseId: enrollment.course_id, knowledgePointId: point?.knowledge_point_id || null, resourceRole: 'REFERENCE_MATERIAL',
+    });
+  }
+  let conversion = null;
+  try { conversion = await documentConversionService.startConversion(user, document.document_id); }
+  catch (error) { conversion = { status: 'failed', error_code: error.code || 'PPT_CONVERSION_FAILED', error_message: error.message }; }
+  return { document_id: document.document_id, learning_flow_link: link, conversion };
+}
+
 async function createPpt(user, courseIdValue, body = {}) {
   const courseId = positiveId(courseIdValue, 'courseId');
   const enrollment = await ensureStudentCourse(user.user_id, courseId);
@@ -69,7 +96,10 @@ async function createPpt(user, courseIdValue, body = {}) {
       },
     });
   }
-  return { ...generated, courseId, knowledgePointId: point?.knowledge_point_id || null };
+  const reference = generated.artifactId
+    ? await publishPptAsLearningReference(user, enrollment, point, generated.artifactId, body.learningPlanId || body.learning_plan_id)
+    : null;
+  return { ...generated, courseId, knowledgePointId: point?.knowledge_point_id || null, learningReference: reference };
 }
 
 async function getPptTask(user, taskId) {

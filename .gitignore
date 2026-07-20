@@ -92,3 +92,4 @@ release/
 # docs auto-generated
 docs/CLAUDE_CODE_DATABASE_PROMPT.md
 docs/DisciMind_database_design.md
+backend/storage/diagnostics/
