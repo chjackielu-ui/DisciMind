@@ -10,6 +10,7 @@ import { getTeacherCourses, getTeachingClasses, createLessonPlanTask, getLessonP
 import { getIcon } from '../utils/icons.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
 import { getSeedKeywords, shouldUseSeed } from '../data/lesson-plan-seed-keywords.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -345,7 +346,7 @@ export async function renderTeacherLessonPlan(app) {
       courseList.forEach(c => {
         const opt = document.createElement('option')
         opt.value = c.course_id
-        opt.textContent = c.course_name
+        opt.textContent = teacherCourseLabel(c)
         select.appendChild(opt)
       })
     } catch (err) {

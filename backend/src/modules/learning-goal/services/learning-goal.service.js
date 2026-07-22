@@ -36,6 +36,15 @@ function parseGoalId(value) {
   if (!Number.isInteger(id) || id < 1) throw createAgentError('INVALID_GOAL_ID', '学习目标 ID 不合法', 400);
   return id;
 }
+function hasSemanticMatch(candidate) {
+  return (candidate?.matchReasons || []).some((reason) => ['exact', 'name', 'alias', 'chapter', 'parent', 'overlap'].includes(reason));
+}
+function isExplicitSelectionOnly(goalText, selectedKnowledgePoint) {
+  if (!selectedKnowledgePoint) return false;
+  const compact = cleanGoalText(goalText).replace(/[。！!？?]/g, '');
+  const selectedName = cleanGoalText(selectedKnowledgePoint.knowledge_point_name);
+  return compact === `我想学习${selectedName}` || compact === `学习${selectedName}`;
+}
 
 async function assertCourseAccess(studentId, courseId, db = prisma) {
   const [course, enrollment] = await Promise.all([
@@ -45,6 +54,16 @@ async function assertCourseAccess(studentId, courseId, db = prisma) {
   if (!course) throw createAgentError('COURSE_NOT_FOUND', '所选课程不存在', 404);
   if (!enrollment) throw createAgentError('COURSE_ACCESS_DENIED', '你尚未加入所选课程', 403);
   return course;
+}
+
+async function assertKnowledgePointInCourse(courseId, knowledgePointId, db = prisma) {
+  if (!knowledgePointId) return null;
+  const point = await db.knowledgePoint.findFirst({
+    where: { knowledge_point_id: Number(knowledgePointId), course_id: Number(courseId) },
+    select: { knowledge_point_id: true, knowledge_point_name: true },
+  });
+  if (!point) throw createAgentError('KNOWLEDGE_POINT_NOT_FOUND', '所选知识点不属于当前课程', 400);
+  return point;
 }
 
 async function ownedGoal(goalId, studentId, db = prisma) {
@@ -125,9 +144,11 @@ async function createResolvingGoal({ studentId, courseId, goalText, operationId,
 async function resolveGoal(input, studentId, dependencies = {}) {
   featureGuard();
   const parsed = parseResolveInput(input);
-  const course = await assertCourseAccess(studentId, parsed.courseId, dependencies.db || prisma);
-  const normalizedHash = hash(`${parsed.courseId}:${cleanGoalText(parsed.goalText).toLowerCase()}:${JSON.stringify(parsed.preferences || {})}`);
-  const { goal, reused } = await createResolvingGoal({ studentId, ...parsed, normalizedHash }, dependencies.db || prisma);
+  const db = dependencies.db || prisma;
+  const course = await assertCourseAccess(studentId, parsed.courseId, db);
+  const selectedKnowledgePoint = await assertKnowledgePointInCourse(parsed.courseId, parsed.knowledgePointId, db);
+  const normalizedHash = hash(`${parsed.courseId}:${selectedKnowledgePoint?.knowledge_point_id || ''}:${cleanGoalText(parsed.goalText).toLowerCase()}:${JSON.stringify(parsed.preferences || {})}`);
+  const { goal, reused } = await createResolvingGoal({ studentId, ...parsed, normalizedHash }, db);
   if (reused && goal.status !== 'RESOLVING') return publicGoal(goal, { idempotentReplay: true });
   if (reused && goal.status === 'RESOLVING' && Date.now() - new Date(goal.updated_at).getTime() < getLearningGoalConfig().resolveTimeoutMs * 2) {
     return publicGoal(goal, { idempotentReplay: true });
@@ -136,17 +157,80 @@ async function resolveGoal(input, studentId, dependencies = {}) {
   const timings = {};
   try {
     const candidateStarted = Date.now();
-    const candidates = await (dependencies.buildCandidates || buildCandidates)({ courseId: parsed.courseId, goalText: parsed.goalText, db: dependencies.db || prisma });
+    const candidates = await (dependencies.buildCandidates || buildCandidates)({
+      courseId: parsed.courseId,
+      goalText: parsed.goalText,
+      selectedKnowledgePointId: selectedKnowledgePoint?.knowledge_point_id || null,
+      db,
+    });
     timings.candidateBuildMs = Date.now() - candidateStarted;
     const resolverStarted = Date.now();
     const rawResult = await (dependencies.runResolver || runResolver)({
       goalText: parsed.goalText, courseName: course.course_name, candidates,
-      preferredDepth: parsed.preferences.targetDepth || 'basic', modelCall: dependencies.modelCall,
+      preferredDepth: parsed.preferences.targetDepth || 'basic',
+      explicitSelectionOnly: isExplicitSelectionOnly(parsed.goalText, selectedKnowledgePoint),
+      modelCall: dependencies.modelCall,
     });
     timings.modelResolveMs = Date.now() - resolverStarted;
     const resolved = materializeSelection(rawResult, candidates);
+    if (rawResult.fallback && rawResult.resolverErrorCode) {
+      const updated = await db.learningGoal.update({
+        where: { goal_id: goal.goal_id },
+        data: {
+          status: 'NEEDS_CLARIFICATION',
+          goal_type: 'AMBIGUOUS',
+          normalized_title: parsed.goalText.slice(0, 255),
+          focus_question: null,
+          clarification_options: [],
+          resolver_snapshot: {
+            goalType: 'AMBIGUOUS',
+            reasonSummary: 'LLM 校验暂时不可用，未将确定性候选降级结果作为合法性结论。',
+            clarificationQuestion: 'AI 暂时无法完成自然语言校验，请稍后重试或直接选择系统内置知识点。',
+            resolverErrorCode: rawResult.resolverErrorCode,
+            selectedKnowledgePointId: selectedKnowledgePoint?.knowledge_point_id || null,
+          },
+        }, include: GOAL_INCLUDE,
+      });
+      return publicGoal(updated, { clarificationQuestion: 'AI 暂时无法完成自然语言校验，请稍后重试或直接选择系统内置知识点。' });
+    }
+    const selectedCandidate = selectedKnowledgePoint
+      ? candidates.find((candidate) => Number(candidate.knowledgePointId) === Number(selectedKnowledgePoint.knowledge_point_id))
+      : null;
+    const competingCandidate = selectedCandidate && !hasSemanticMatch(selectedCandidate)
+      ? candidates.find((candidate) => Number(candidate.knowledgePointId) !== Number(selectedKnowledgePoint.knowledge_point_id) && candidate.matchScore >= 45 && hasSemanticMatch(candidate))
+      : null;
+    if (selectedKnowledgePoint && resolved.primaryKnowledgePoint
+      && (Number(resolved.primaryKnowledgePoint.knowledgePointId) !== Number(selectedKnowledgePoint.knowledge_point_id) || (resolved.fallback && competingCandidate))) {
+      const resolvedPointName = Number(resolved.primaryKnowledgePoint.knowledgePointId) === Number(selectedKnowledgePoint.knowledge_point_id)
+        ? competingCandidate.name
+        : resolved.primaryKnowledgePoint.name;
+      const resolvedPointId = Number(resolved.primaryKnowledgePoint.knowledgePointId) === Number(selectedKnowledgePoint.knowledge_point_id)
+        ? competingCandidate.knowledgePointId
+        : resolved.primaryKnowledgePoint.knowledgePointId;
+      const updated = await db.learningGoal.update({
+        where: { goal_id: goal.goal_id },
+        data: {
+          status: 'NEEDS_CLARIFICATION',
+          goal_type: 'AMBIGUOUS',
+          normalized_title: parsed.goalText.slice(0, 255),
+          focus_question: null,
+          clarification_options: [
+            { title: `学习${selectedKnowledgePoint.knowledge_point_name}`, goalText: `我想学习${selectedKnowledgePoint.knowledge_point_name}` },
+            { title: `改为${resolvedPointName}`, goalText: parsed.goalText },
+          ],
+          resolver_snapshot: {
+            goalType: 'AMBIGUOUS',
+            reasonSummary: '所选知识点与自然语言目标匹配结果不一致，需要学生确认。',
+            clarificationQuestion: '你选择的知识点和目标描述指向不同主题，请确认学习范围。',
+            selectedKnowledgePointId: selectedKnowledgePoint.knowledge_point_id,
+            resolvedKnowledgePointId: resolvedPointId,
+          },
+        }, include: GOAL_INCLUDE,
+      });
+      return publicGoal(updated, { clarificationQuestion: '你选择的知识点和目标描述指向不同主题，请确认学习范围。' });
+    }
     if (['TOO_BROAD', 'AMBIGUOUS'].includes(resolved.goalType)) {
-      const updated = await (dependencies.db || prisma).learningGoal.update({
+      const updated = await db.learningGoal.update({
         where: { goal_id: goal.goal_id },
         data: {
           status: 'NEEDS_CLARIFICATION', goal_type: resolved.goalType,
@@ -158,7 +242,7 @@ async function resolveGoal(input, studentId, dependencies = {}) {
       return publicGoal(updated, { clarificationQuestion: resolved.clarificationQuestion });
     }
     if (resolved.goalType === 'OUT_OF_SCOPE' || !resolved.primaryKnowledgePoint) {
-      const updated = await (dependencies.db || prisma).learningGoal.update({
+      const updated = await db.learningGoal.update({
         where: { goal_id: goal.goal_id }, data: {
           status: 'OUT_OF_SCOPE', goal_type: 'OUT_OF_SCOPE', normalized_title: resolved.normalizedTitle,
           resolver_snapshot: { reasonSummary: resolved.reasonSummary },
@@ -168,7 +252,7 @@ async function resolveGoal(input, studentId, dependencies = {}) {
     }
     const plannerStarted = Date.now();
     const { plan: initialPlan, studentContext } = await (dependencies.buildPlan || buildPlan)({
-      studentId, courseId: parsed.courseId, goalText: parsed.goalText, resolverResult: resolved, preferences: parsed.preferences, db: dependencies.db || prisma,
+      studentId, courseId: parsed.courseId, goalText: parsed.goalText, resolverResult: resolved, preferences: parsed.preferences, db,
     });
     timings.plannerMs = Date.now() - plannerStarted;
     const coverageStarted = Date.now();
@@ -176,12 +260,13 @@ async function resolveGoal(input, studentId, dependencies = {}) {
       courseId: parsed.courseId, knowledgePointId: resolved.primaryKnowledgePoint.knowledgePointId,
       knowledgePointName: resolved.primaryKnowledgePoint.name, normalizedTitle: resolved.normalizedTitle,
       focusQuestion: resolved.focusQuestion, subGoals: initialPlan.subGoals, prerequisites: initialPlan.prerequisites,
+      db,
     });
     timings.coverageCheckMs = Date.now() - coverageStarted;
     const { plan, warnings } = finalizePlanForCoverage(initialPlan, coverage);
     const blocked = ['insufficient', 'unavailable'].includes(coverage.status);
     const related = (resolved.relatedKnowledgePoints || []).slice(0, getLearningGoalConfig().maxRelatedKnowledgePoints).map((item) => ({ knowledgePointId: item.knowledgePointId, name: item.name }));
-    const updated = await (dependencies.db || prisma).learningGoal.update({
+    const updated = await db.learningGoal.update({
       where: { goal_id: goal.goal_id },
       data: {
         status: blocked ? 'INSUFFICIENT_COVERAGE' : 'RESOLVED',
@@ -213,7 +298,7 @@ async function resolveGoal(input, studentId, dependencies = {}) {
     }));
     return publicGoal(updated);
   } catch (error) {
-    await (dependencies.db || prisma).learningGoal.update({ where: { goal_id: goal.goal_id }, data: { status: 'FAILED', error_code: String(error.code || 'GOAL_RESOLVE_FAILED').slice(0, 100), error_message: String(error.message || '').slice(0, 500) } }).catch(() => null);
+    await db.learningGoal.update({ where: { goal_id: goal.goal_id }, data: { status: 'FAILED', error_code: String(error.code || 'GOAL_RESOLVE_FAILED').slice(0, 100), error_message: String(error.message || '').slice(0, 500) } }).catch(() => null);
     throw error;
   }
 }
@@ -257,7 +342,8 @@ async function updateGoal(goalId, studentId, input) {
   if (!MUTABLE_STATUSES.has(goal.status)) throw createAgentError('GOAL_NOT_EDITABLE', '已确认、开始或结束的目标不能修改', 409);
   if (parsed.data.clarificationGoalText) {
     await prisma.learningGoal.update({ where: { goal_id: goal.goal_id }, data: { status: 'CANCELLED', operation_id: null } });
-    return resolveGoal({ courseId: goal.course_id, goalText: parsed.data.clarificationGoalText, preferences: { targetDepth: goal.target_depth, targetMastery: goal.target_mastery, availableMinutes: goal.estimated_minutes } }, studentId);
+    const selectedKnowledgePointId = goal.primary_knowledge_point_id || goal.resolver_snapshot?.selectedKnowledgePointId || undefined;
+    return resolveGoal({ courseId: goal.course_id, knowledgePointId: selectedKnowledgePointId, goalText: parsed.data.clarificationGoalText, preferences: { targetDepth: goal.target_depth, targetMastery: goal.target_mastery, availableMinutes: goal.estimated_minutes } }, studentId);
   }
   const data = {};
   if (parsed.data.normalizedTitle !== undefined) data.normalized_title = parsed.data.normalizedTitle;
@@ -391,5 +477,5 @@ async function cancelGoal(goalId, studentId) {
 
 module.exports = {
   resolveGoal, getGoal, listGoals, updateGoal, confirmGoal, createWorkflowPreview, startGoal, cancelGoal,
-  assertCourseAccess, ownedGoal, publicGoal, parseResolveInput, featureGuard, GOAL_INCLUDE,
+  assertCourseAccess, assertKnowledgePointInCourse, isExplicitSelectionOnly, ownedGoal, publicGoal, parseResolveInput, featureGuard, GOAL_INCLUDE,
 };

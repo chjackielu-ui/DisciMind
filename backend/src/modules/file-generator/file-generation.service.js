@@ -482,7 +482,7 @@ async function generateArtifact(artifactId, { modelCall = bailianModelCall, task
     const variants = await ensureExamVariants({ ...artifact, artifactRole }, content);
     if (queueDefaultExport) {
       const formats = [...new Set((artifact.requirementsJson?.outputFormats || [artifact.fileFormat || 'DOCX']).map(item => String(item).toUpperCase()))]
-        .filter(item => ['DOCX', 'PDF'].includes(item));
+        .filter(item => ['DOCX', 'PDF', 'PPTX'].includes(item));
       await queueArtifactExports([{ ...updated, artifactRole }, ...variants], formats.length ? formats : ['DOCX']);
     }
     if (effectiveTaskId) await tasks.updateTask(effectiveTaskId, {

@@ -1,6 +1,7 @@
 const prisma = require('../../config/prisma');
 const docx = require('./document-export.service');
 const pdf = require('./pdf-export.service');
+const pptx = require('./pptx-export.service');
 const tasks = require('../async-task/async-task.service');
 
 async function reconcileArtifactStatus(artifactId) {
@@ -14,10 +15,10 @@ async function reconcileArtifactStatus(artifactId) {
 
 async function exportFormat(artifactId, format, options = {}) {
   const normalized = String(format || 'DOCX').toUpperCase();
-  if (!['DOCX', 'PDF'].includes(normalized)) throw Object.assign(new Error('不支持的导出格式'), { code: 'EXPORT_FORMAT_UNSUPPORTED', permanent: true });
+  if (!['DOCX', 'PDF', 'PPTX'].includes(normalized)) throw Object.assign(new Error('不支持的导出格式'), { code: 'EXPORT_FORMAT_UNSUPPORTED', permanent: true });
   const artifact = await prisma.generatedArtifact.findUnique({ where: { id: Number(artifactId) } });
   if (!artifact || artifact.deletedAt) throw Object.assign(new Error('Artifact 不存在'), { code: 'ARTIFACT_NOT_FOUND', permanent: true, userMessage: '导出失败，产物不存在。' });
-  const mimeType = normalized === 'PDF' ? pdf.PDF_MIME : docx.WORD_MIME;
+  const mimeType = normalized === 'PDF' ? pdf.PDF_MIME : normalized === 'PPTX' ? pptx.PPTX_MIME : docx.WORD_MIME;
   const record = await prisma.generatedArtifactExport.upsert({
     where: { artifactId_format: { artifactId: artifact.id, format: normalized } },
     create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format: normalized, status: 'EXPORTING', mimeType },
@@ -27,10 +28,12 @@ async function exportFormat(artifactId, format, options = {}) {
     let updated;
     if (normalized === 'PDF') updated = await pdf.exportPdf(artifact.id, options);
     else {
-      const exported = await docx.exportArtifact(artifact.id, options);
+      const exported = normalized === 'PPTX'
+        ? await pptx.exportArtifact(artifact.id, options)
+        : await docx.exportArtifact(artifact.id, options);
       updated = await prisma.generatedArtifactExport.update({
         where: { id: record.id },
-        data: { status: 'READY', storagePath: exported.storagePath, fileSizeBytes: exported.fileSizeBytes, checksum: exported.checksum, mimeType: docx.WORD_MIME, lastAccessedAt: new Date(), errorCode: null, errorMessage: null, deletedAt: null },
+        data: { status: 'READY', storagePath: exported.storagePath, fileSizeBytes: exported.fileSizeBytes, checksum: exported.checksum, mimeType, lastAccessedAt: new Date(), errorCode: null, errorMessage: null, deletedAt: null },
       });
     }
     await reconcileArtifactStatus(artifact.id);

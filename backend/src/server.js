@@ -6,6 +6,7 @@ loadEnv();
 validateProductionEnv();
 
 const { describeDatabaseError } = require('./config/database');
+const { assertLocalStorageReady } = require('./config/storage');
 const http = require('http');
 const { configureHttpServer } = require('./config/http-server');
 const app = require('./app');
@@ -138,6 +139,16 @@ async function start() {
     console.log('[db] 数据库连接成功');
   } catch (err) {
     console.error('[db] 数据库连接失败:', describeDatabaseError(err));
+    process.exit(1);
+  }
+
+  try {
+    const storage = await assertLocalStorageReady();
+    const lowSpaceRoots = storage.roots.filter((item) => item.lowSpace).map((item) => item.key);
+    console.log(`[storage] 本地持久化目录就绪：${storage.roots.map((item) => item.key).join(', ')}`);
+    if (lowSpaceRoots.length) console.warn(`[storage] 可用空间低于预警值：${lowSpaceRoots.join(', ')}`);
+  } catch (error) {
+    console.error('[storage] 本地持久化目录检查失败:', error.message);
     process.exit(1);
   }
 

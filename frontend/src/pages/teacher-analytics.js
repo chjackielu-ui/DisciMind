@@ -7,6 +7,7 @@ import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { escapeHtml } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 import { normalizeWeakKnowledgePoints, normalizeKeywords, percent } from '../utils/analytics-contract.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 const state = { courses: [], classes: [], chapters: [], knowledgePoints: [], data: null, charts: [], keywordChart: null, keywordMode: 'cloud', keywordFilter: '', expandedChartId: null, lifecycle: null }
 function dispose() { state.charts.splice(0).forEach(item => { try { item.dispose() } catch {} });state.keywordChart=null }
@@ -79,7 +80,7 @@ function toggleExpandedChart(id) {
   requestAnimationFrame(()=>requestAnimationFrame(()=>state.charts.forEach(chart=>chart.resize())))
 }
 
-async function loadCourses() { const result=await getTeacherCourses({page_size:100});state.courses=result.data?.list||[];document.getElementById('analytics-course').innerHTML='<option value="">请选择课程</option>'+state.courses.map(item=>`<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('') }
+async function loadCourses() { const result=await getTeacherCourses({page_size:100});state.courses=result.data?.list||[];document.getElementById('analytics-course').innerHTML='<option value="">请选择课程</option>'+state.courses.map(item=>`<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join('') }
 async function loadCourseOptions(courseId) {
   const [classes,chapters,kps]=await Promise.all([getTeachingClasses(courseId,{page_size:100}),getChapters(courseId),getKnowledgePoints(courseId,{page_size:200})]);state.classes=classes.data?.list||classes.data||[];state.chapters=chapters.data?.list||chapters.data||[];state.knowledgePoints=kps.data?.list||kps.data||[]
   document.getElementById('analytics-class').innerHTML='<option value="">全部授权教学班</option>'+state.classes.map(item=>`<option value="${item.teaching_class_id}">${escapeHtml(item.teaching_class_name)}</option>`).join('');document.getElementById('analytics-chapter').innerHTML='<option value="">全部章节</option>'+state.chapters.map(item=>`<option value="${item.chapter_id}">${escapeHtml(item.chapter_name)}</option>`).join('');document.getElementById('analytics-kp').innerHTML='<option value="">全部知识点</option>'+state.knowledgePoints.map(item=>`<option value="${item.knowledge_point_id}">${escapeHtml(item.knowledge_point_name)}</option>`).join('')

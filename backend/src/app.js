@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 
 const { loadEnv } = require('./config/env');
+const prisma = require('./config/prisma');
+const { inspectLocalStorage, publicStorageHealth } = require('./config/storage');
 const errorHandler = require('./middlewares/error.middleware');
 const requestIdMiddleware = require('./middlewares/request-id.middleware');
 
@@ -32,7 +34,7 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=()');
+  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=()');
   next();
 });
 
@@ -60,30 +62,40 @@ app.use(express.json({ limit: '18mb' }));
 // 解析 URL 编码的请求体（表单提交场景）
 app.use(express.urlencoded({ extended: true }));
 
-// 仅公开确需由 <img> 直接读取的随机命名图片。文档和聊天附件必须走鉴权下载接口。
+// 仅公开确需由 <img> 直接读取的随机命名图片。文档、聊天附件与学习流附件必须走鉴权下载接口。
 const publicUploadRoot = path.join(__dirname, '../../storage/uploads');
 const publicUploadOptions = {
   dotfiles: 'deny',
-  fallthrough: true,
+  fallthrough: false,
   setHeaders(res) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('Cache-Control', 'public, max-age=86400');
   },
 };
-for (const folder of ['avatars', 'generated-ppt-images', 'learning']) {
+for (const folder of ['avatars', 'generated-ppt-images']) {
   app.use(`/uploads/${folder}`, express.static(path.join(publicUploadRoot, folder), publicUploadOptions));
 }
 
 // ---------- 健康检查（无需 /api 前缀）----------
 
-app.get('/api/health', (req, res) => {
-  res.json({
-    code: 200,
-    message: 'ok',
+app.get('/api/health', async (req, res) => {
+  const [database, storage] = await Promise.all([
+    prisma.$queryRaw`SELECT 1`
+      .then(() => ({ status: 'ready' }))
+      .catch(() => ({ status: 'unavailable' })),
+    inspectLocalStorage().catch(() => ({ provider: 'LOCAL', ready: false, status: 'unavailable', checkedAt: new Date().toISOString(), roots: [] })),
+  ]);
+  const ready = database.status === 'ready' && storage.ready;
+  const status = ready && storage.status === 'ready' ? 'running' : ready ? 'degraded' : 'unavailable';
+  return res.status(ready ? 200 : 503).json({
+    code: ready ? 200 : 503,
+    message: ready ? 'ok' : 'service unavailable',
     data: {
       name: 'DisciMind Backend',
-      status: 'running',
+      status,
+      database,
+      storage: publicStorageHealth(storage),
     },
   });
 });

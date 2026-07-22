@@ -8,6 +8,7 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { escapeHtml } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 const STEPS = ['课程与班级', '任务信息', '题目来源', '作答规则', '附件与发布', '预览', '发布确认']
 const TYPE_LABELS = { homework: '作业', exam: '考试', practice: '练习', quiz: '测验', material: '学习资料', announcement: '教学通知' }
@@ -102,7 +103,7 @@ export async function renderTeacherTaskCreate(app, params) {
   async function loadCourses() {
     const response = await getTeacherCourses({ page_size: 100 })
     state.courses = response.data.list || response.data || []
-    document.getElementById('pub-course').innerHTML = '<option value="">请选择课程</option>' + state.courses.map((item) => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('')
+    document.getElementById('pub-course').innerHTML = '<option value="">请选择课程</option>' + state.courses.map((item) => `<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join('')
   }
 
   async function loadClasses(courseId, selectedId = '') {

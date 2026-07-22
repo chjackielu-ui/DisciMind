@@ -38,7 +38,7 @@ function missingFields(draft) {
 function buildQuestions(missing) {
   const labels = {
     artifactType: '需要生成试卷还是学习讲义？', courseKey: '请选择课程或主题。', knowledgePointKeys: '请选择需要覆盖的知识点。',
-    difficulty: '希望采用基础、中等还是进阶难度？', outputFormats: '需要 DOCX、PDF 还是两种格式？', questionCount: '需要生成多少道题（最多 50 道）？',
+    difficulty: '希望采用基础、中等还是进阶难度？', outputFormats: '需要 DOCX、PDF、PPTX 中的哪些格式？', questionCount: '需要生成多少道题（最多 50 道）？',
     examType: '请确认考试类型。', questionTypes: '请配置题型、数量和单题分值。', totalScore: '请确认试卷总分。', duration: '请确认考试时长。',
     includeAnswers: '是否包含答案？', includeAnalysis: '是否包含解析？', includeAnswerSheet: '是否生成独立答题卷？',
     targetAudience: '讲义面向哪类学习者？', handoutLength: '讲义需要简短、标准还是详细？', learningObjectives: '请补充学习目标。', includeExamples: '是否包含例题？', includeExercises: '是否包含练习？',
@@ -96,9 +96,9 @@ function normalizePatch(raw) {
     if (patch.totalScore !== undefined) assert(Math.abs(score - Number(patch.totalScore)) < 1e-6, '各题型总分之和必须等于总分');
     else patch.totalScore = score;
   }
-  if (patch.outputFormat !== undefined) assert(['DOCX', 'PDF'].includes(patch.outputFormat), '不支持的输出格式');
+  if (patch.outputFormat !== undefined) assert(['DOCX', 'PDF', 'PPTX'].includes(patch.outputFormat), '不支持的输出格式');
   if (patch.outputFormats !== undefined) {
-    assert(Array.isArray(patch.outputFormats) && patch.outputFormats.length > 0 && patch.outputFormats.every(item => ['DOCX', 'PDF'].includes(item)), '不支持的输出格式');
+    assert(Array.isArray(patch.outputFormats) && patch.outputFormats.length > 0 && patch.outputFormats.every(item => ['DOCX', 'PDF', 'PPTX'].includes(item)), '不支持的输出格式');
     patch.outputFormats = [...new Set(patch.outputFormats)];
   }
   return patch;

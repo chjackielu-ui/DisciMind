@@ -28,6 +28,7 @@ const preferencesSchema = z.object({
 
 const resolveInputSchema = z.object({
   courseId: z.coerce.number().int().positive(),
+  knowledgePointId: z.coerce.number().int().positive().optional().nullable(),
   goalText: z.string(),
   operationId: z.string().trim().min(8).max(128).optional(),
   preferences: preferencesSchema,

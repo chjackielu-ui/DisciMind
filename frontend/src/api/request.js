@@ -4,7 +4,7 @@
 
 import { getToken, clearAuth, refreshSessionViaStorage, refreshAuthSession, canRefreshCurrentSession } from '../utils/auth.js'
 
-export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120000
 

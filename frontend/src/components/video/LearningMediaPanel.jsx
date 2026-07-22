@@ -61,6 +61,8 @@ function resumableResourcePackage(value) {
     readyCount: Number(value.readyCount || 0),
     failedCount: Number(value.failedCount || 0),
     resources: Array.isArray(value.resources) ? value.resources : [],
+    ppt: value.ppt || null,
+    videoTask: resumableVideoTask(value.videoTask),
   }
 }
 
@@ -304,7 +306,7 @@ function LearningMediaPanel({ course, knowledgePoints, userId }) {
     setPackageBusy(true); setRenderError(''); setSavedVideo(null); setManifest(null); setVideoTask(null)
     try {
       const created = (await createStudentKnowledgeResourcePackage(course.course_id, knowledgePointId, {
-        operationId: crypto.randomUUID(),
+        operationId: globalThis.crypto?.randomUUID?.() || `package_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         pageCount: Number(pageCount),
         includeImages,
       })).data

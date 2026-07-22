@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 import { getMe } from '../api/auth.js'
 import {
   getTeacherCourses, getTeachingClasses, getChapters,
@@ -499,7 +500,7 @@ function renderGeneration(status) {
 
 async function loadCourses() {
   const result = await getTeacherCourses({ page_size: 100 }); state.courses = result.data?.list || []
-  const html = '<option value="">选择课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('')
+  const html = '<option value="">选择课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join('')
   document.getElementById('prep-course').innerHTML = html
   document.querySelector('#prep-create-form [name="course_id"]').innerHTML = html
 }

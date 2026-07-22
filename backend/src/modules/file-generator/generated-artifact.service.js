@@ -170,6 +170,8 @@ async function getDownload(user, id) {
   const { artifact } = await findAccessible(user, id, { ownerOnly: true });
   const primaryFormat = String(artifact.fileFormat || '').toUpperCase();
   if (primaryFormat === 'PPTX') {
+    const pptxExport = (artifact.exports || []).find(item => item.format === 'PPTX' && !item.deletedAt);
+    if (pptxExport) return getExportDownload(user, id, 'PPTX');
     assert(artifact.status === 'READY' && artifact.storagePath, 'PPTX 文件尚未准备好', 40901, 409);
     const { absolutePath, stat } = await validateExportFile({ storagePath: artifact.storagePath, mimeType: artifact.mimeType }, 'PPTX');
     await prisma.generatedArtifact.update({ where: { id: artifact.id }, data: { lastAccessedAt: new Date(), downloadCount: { increment: 1 } } });
@@ -233,7 +235,7 @@ async function validateExportFile(record, format) {
 async function getExportDownload(user, id, formatValue) {
   const { artifact } = await findAccessible(user, id, { ownerOnly: true });
   const format = String(formatValue || '').toUpperCase();
-  assert(['DOCX', 'PDF'].includes(format), '不支持的导出格式', 40001, 400);
+  assert(['DOCX', 'PDF', 'PPTX'].includes(format), '不支持的导出格式', 40001, 400);
   const record = (artifact.exports || []).find((item) => item.format === format);
   assert(record?.ownerUserId === Number(user.user_id), '文件不存在或无权访问', 40301, 403);
   assert(record?.status === 'READY' && record.storagePath, `${format} 文件尚未准备好`, 40901, 409);
@@ -246,7 +248,7 @@ async function getExportDownload(user, id, formatValue) {
   return {
     absolutePath,
     fileName: `${artifact.title}.${format.toLowerCase()}`,
-    mimeType: format === 'PDF' ? PDF_MIME : WORD_MIME,
+    mimeType: format === 'PDF' ? PDF_MIME : format === 'PPTX' ? PPTX_MIME : WORD_MIME,
     extension: format.toLowerCase(),
     size: stat.size,
   };
@@ -259,7 +261,7 @@ async function requestExport(user, id, operationId, requestedFormats = ['DOCX'])
   const created = [];
   const readyExports = [];
   for (const format of formats) {
-    assert(['DOCX', 'PDF'].includes(format), '不支持的导出格式', 40001, 400);
+    assert(['DOCX', 'PDF', 'PPTX'].includes(format), '不支持的导出格式', 40001, 400);
     const existingExport = await prisma.generatedArtifactExport.findUnique({ where: { artifactId_format: { artifactId: artifact.id, format } } });
     if (await exportFileExists(existingExport)) { readyExports.push(serializeExport(existingExport)); continue; }
     const taskRows = await prisma.asyncTask.findMany({
@@ -270,8 +272,8 @@ async function requestExport(user, id, operationId, requestedFormats = ['DOCX'])
     if (task && ACTIVE_EXPORT_STATUSES.includes(task.status)) { created.push(tasks.serialize(task)); continue; }
     await prisma.generatedArtifactExport.upsert({
       where: { artifactId_format: { artifactId: artifact.id, format } },
-      create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format, status: 'QUEUED', mimeType: format === 'PDF' ? PDF_MIME : WORD_MIME },
-      update: { status: 'QUEUED', mimeType: format === 'PDF' ? PDF_MIME : WORD_MIME, errorCode: null, errorMessage: null, deletedAt: null },
+      create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format, status: 'QUEUED', mimeType: format === 'PDF' ? PDF_MIME : format === 'PPTX' ? PPTX_MIME : WORD_MIME },
+      update: { status: 'QUEUED', mimeType: format === 'PDF' ? PDF_MIME : format === 'PPTX' ? PPTX_MIME : WORD_MIME, errorCode: null, errorMessage: null, deletedAt: null },
     });
     const resultUrl = `#/artifacts/${artifact.id}?format=${format}`;
     if (task) {

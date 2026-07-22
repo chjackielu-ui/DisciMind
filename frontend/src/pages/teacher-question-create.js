@@ -6,6 +6,7 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { createTeacherQuestion, getTeacherQuestion, updateTeacherQuestion, getTeacherCourses } from '../api/teacher.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 export async function renderTeacherQuestionCreate(app, params) {
   let user = getUser()
@@ -120,7 +121,7 @@ export async function renderTeacherQuestionCreate(app, params) {
     courseList.forEach(c => {
       const opt = document.createElement('option')
       opt.value = c.course_id
-      opt.textContent = c.course_name
+      opt.textContent = teacherCourseLabel(c)
       select.appendChild(opt)
     })
     if (!isEdit && initialCourseId) select.value = String(initialCourseId)
@@ -239,5 +240,4 @@ export async function renderTeacherQuestionCreate(app, params) {
 
   initAllAutoResize()
 }
-
 

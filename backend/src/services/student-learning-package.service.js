@@ -3,6 +3,7 @@ const prisma = require('../config/prisma');
 const tasks = require('../modules/async-task/async-task.service');
 const fileGeneration = require('../modules/file-generator/file-generation.service');
 const documentExport = require('../modules/file-generator/document-export.service');
+const { examPaperSchema, studyHandoutSchema } = require('../modules/file-generator/file-content.schemas');
 const learningCards = require('../modules/learning-card/learning-card.service');
 const cardProtocol = require('../modules/learning-card/learning-card.protocol');
 const { learningCardSchema } = require('../modules/learning-card/learning-card.schemas');
@@ -134,6 +135,90 @@ function buildDocumentRequirements(type, context) {
   };
 }
 
+function fallbackHandoutContent(context, requirements) {
+  const description = context.knowledgePointDescription || `${context.knowledgePointName}是${context.courseName}课程中的核心知识点。`;
+  return studyHandoutSchema.parse({
+    title: requirements.title,
+    course: context.courseName,
+    knowledgePoints: [context.knowledgePointName],
+    learningObjectives: requirements.learningObjectives,
+    prerequisites: [`复习${context.chapterName || context.courseName}中的基础概念与术语。`],
+    sections: [
+      { id: 'S1', title: '核心概念', content: [description, `学习${context.knowledgePointName}时，应同时说明研究对象、成立条件和作用。`] },
+      { id: 'S2', title: '分析步骤', content: ['先识别题目给出的条件，再选择对应概念或方法，最后检查结论是否符合原始条件。', `遇到应用问题时，用“已知条件 - ${context.knowledgePointName}方法 - 推导过程 - 结果解释”的顺序作答。`] },
+      { id: 'S3', title: '巩固与迁移', content: [`用自己的语言复述${context.knowledgePointName}，并举出一个符合条件的例子。`, '改变例子中的一个条件，判断原结论是否仍然成立。'] },
+    ],
+    examples: [{ title: '四步分析示例', content: `针对一个${context.knowledgePointName}问题，依次写出已知条件、采用的方法、得到的结果以及结果含义。` }],
+    keyPoints: ['概念必须和成立条件一起理解。', '推导过程要能对应题目给出的条件。', '结论需要通过反例或边界条件检查。'],
+    commonMistakes: ['只记结论而忽略适用条件。', '混淆相邻概念，未说明选择当前方法的理由。', '得到结果后没有检查其含义和合理性。'],
+    practice: [
+      { question: `请用自己的语言解释${context.knowledgePointName}，并说明它解决什么问题。`, answer: description, analysis: '答案应包含概念对象、核心作用和至少一个成立条件。' },
+      { question: `请给出一个${context.knowledgePointName}的应用场景，并按四步分析法说明。`, answer: '答案应依次包含已知条件、方法选择、分析过程和结果解释。', analysis: '重点检查方法是否与条件匹配，以及结论是否可以解释。' },
+    ],
+    principles: [description, `使用${context.knowledgePointName}前必须先确认适用条件，使用后必须检查结果。`],
+    references: [`系统课程数据：${context.courseName} / ${context.chapterName || '课程知识点'} / ${context.knowledgePointName}`],
+    summary: [`掌握${context.knowledgePointName}需要做到：能解释、会分析、可举例、能辨错。`],
+    sourceNotice: 'AI 增强服务暂不可用，本基础讲义依据系统课程与知识点数据生成，请结合课程教材核验。',
+  });
+}
+
+function fallbackExamContent(context, requirements) {
+  const description = context.knowledgePointDescription || `${context.knowledgePointName}是${context.courseName}课程中的核心知识点。`;
+  const choiceDefs = [
+    ['学习该知识点时最先需要确认的是', ['研究对象与成立条件', '页面配色', '文件名称', '学习设备型号'], 'A', '概念学习首先要明确对象、条件与作用。'],
+    ['分析相关问题时，较合理的步骤是', ['先猜结论再补条件', '识别条件、选择方法、推导并检查', '只记录最终结果', '忽略边界情况'], 'B', '完整分析需要从条件出发，并对结果进行检查。'],
+    ['判断结论是否合理时，应重点检查', ['字体大小', '适用条件与结果含义', '题目长度', '答案格式'], 'B', '结论必须满足原始条件，并能够解释问题。'],
+    ['复习该知识点的有效方式是', ['只背标题', '只看一次例题', '解释概念、完成练习并复盘误区', '跳过条件直接套用'], 'C', '解释、练习与复盘共同构成可验证的学习闭环。'],
+    ['遇到相邻概念容易混淆时，应当', ['比较研究对象、条件和作用', '任选一个概念使用', '忽略差异', '只记缩写'], 'A', '通过对象、条件和作用进行对比可以减少概念混用。'],
+  ];
+  const questions = choiceDefs.map((item, index) => ({
+    id: `Q${index + 1}`, type: 'SINGLE_CHOICE', stem: `关于“${context.knowledgePointName}”，${item[0]}？`, options: item[1], answer: item[2], analysis: item[3], score: 8,
+    knowledgePoint: context.knowledgePointName, difficulty: 'BASIC',
+  }));
+  questions.push(
+    { id: 'Q6', type: 'SHORT_ANSWER', stem: `请根据课程数据解释${context.knowledgePointName}的核心含义。`, options: [], answer: description, analysis: '应围绕系统知识点描述作答，不扩展未经课程数据支持的结论。', score: 20, knowledgePoint: context.knowledgePointName, difficulty: 'BASIC' },
+    { id: 'Q7', type: 'SHORT_ANSWER', stem: `分析${context.knowledgePointName}问题时，为什么要同时说明适用条件和结果含义？`, options: [], answer: '适用条件决定方法能否使用，结果含义用于判断推导是否解决了原问题。', analysis: '答案需建立条件、方法与结果之间的逻辑关系。', score: 20, knowledgePoint: context.knowledgePointName, difficulty: 'BASIC' },
+    { id: 'Q8', type: 'SHORT_ANSWER', stem: `请设计一个${context.knowledgePointName}的学习示例，并按“条件、方法、过程、结论”说明。`, options: [], answer: '示例应包含明确条件、匹配的方法、可检查的过程和能够解释的结论。', analysis: '按四步结构检查答案是否完整。', score: 20, knowledgePoint: context.knowledgePointName, difficulty: 'BASIC' },
+  );
+  return examPaperSchema.parse({
+    title: requirements.title,
+    course: context.courseName,
+    knowledgePoints: [context.knowledgePointName],
+    difficulty: 'BASIC',
+    duration: requirements.duration,
+    totalScore: requirements.totalScore,
+    instructions: ['请独立完成全部题目。', '选择题每题 8 分，简答题每题 20 分，满分 100 分。'],
+    sections: [
+      { id: 'S1', title: '单项选择题', questionIds: questions.slice(0, 5).map((item) => item.id) },
+      { id: 'S2', title: '简答题', questionIds: questions.slice(5).map((item) => item.id) },
+    ],
+    questions,
+    answers: questions.map((item) => ({ questionId: item.id, answer: item.answer })),
+    analysis: questions.map((item) => ({ questionId: item.id, analysis: item.analysis })),
+    sourceNotice: 'AI 增强服务暂不可用，本基础试卷依据系统课程与知识点数据生成，题目用于自测，请结合课程教材核验。',
+  });
+}
+
+function isDocumentModelUnavailable(error) {
+  return ['CONTENT_MODEL_CALL_FAILED', 'CONTENT_SCHEMA_REPAIR_FAILED'].includes(String(error?.code || ''));
+}
+
+async function persistFallbackDocument(artifact, type, context, requirements) {
+  const content = type === 'EXAM_PAPER'
+    ? fallbackExamContent(context, requirements)
+    : fallbackHandoutContent(context, requirements);
+  return prisma.generatedArtifact.update({
+    where: { id: artifact.id },
+    data: {
+      contentSchemaJson: content,
+      previewHtml: fileGeneration.renderPreview(type, content, artifact.artifactRole, requirements),
+      status: 'CONTENT_READY',
+      errorCode: null,
+      metadataJson: { ...(artifact.metadataJson || {}), fallback: true, fallbackReason: 'model_unavailable' },
+    },
+  });
+}
+
 async function generateDocument(task, kind, type, context, signal) {
   const operationId = `resource-package-${task.id}-${kind}`.slice(0, 64);
   let artifact = await prisma.generatedArtifact.findFirst({
@@ -162,7 +247,12 @@ async function generateDocument(task, kind, type, context, signal) {
   }
   assertNotAborted(signal);
   if (!artifact.contentSchemaJson || !['CONTENT_READY', 'READY'].includes(artifact.status)) {
-    artifact = await fileGeneration.generateArtifact(artifact.id, { queueDefaultExport: false, signal });
+    try {
+      artifact = await fileGeneration.generateArtifact(artifact.id, { queueDefaultExport: false, signal });
+    } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError' || !isDocumentModelUnavailable(error)) throw error;
+      artifact = await persistFallbackDocument(artifact, type, context, buildDocumentRequirements(type, context));
+    }
   }
   assertNotAborted(signal);
   if (!artifact.storagePath || artifact.status !== 'READY') artifact = await documentExport.exportArtifact(artifact.id, { signal });
@@ -172,6 +262,8 @@ async function generateDocument(task, kind, type, context, signal) {
     fileName: artifact.fileName || `${artifact.title}.docx`,
     fileFormat: 'DOCX',
     downloadUrl: `/api/generated-artifacts/${artifact.id}/download`,
+    fallback: Boolean(artifact.metadataJson?.fallback),
+    warning: artifact.metadataJson?.fallback ? 'AI 增强暂不可用，已生成基于系统课程数据的基础版本。' : null,
   };
 }
 
@@ -326,11 +418,14 @@ async function serializePackage(task, options = {}) {
     videoTask = await learningMedia.getVideoTask({ user_id: task.userId, role: 'student' }, videoTaskId).catch((error) => ({ status: 'failed', errorMessage: error.message }));
   }
   if (videoTask) {
+    const videoDownloadUrl = videoTask.resultUrl || resources.video.downloadUrl;
     resources.video = {
       ...resources.video,
       status: videoTask.status === 'success' ? 'ready' : videoTask.status,
       taskId: videoTask.taskId || resources.video.taskId,
-      resultUrl: videoTask.resultUrl || resources.video.resultUrl,
+      resultUrl: videoDownloadUrl,
+      downloadUrl: /^\/api\//.test(String(videoDownloadUrl || '')) ? videoDownloadUrl : resources.video.downloadUrl,
+      fileFormat: videoTask.status === 'success' ? 'MP4' : resources.video.fileFormat,
       errorMessage: videoTask.errorMessage || resources.video.errorMessage,
     };
   }
@@ -684,7 +779,7 @@ async function completePackageVideo(user, videoTaskIdValue, videoResult) {
     where: {
       userId: Number(user.user_id),
       relatedResourceType: PACKAGE_RESOURCE_TYPE,
-      status: { in: ['WAITING_EXTERNAL', 'RUNNING'] },
+      status: { in: ['WAITING_EXTERNAL', 'RUNNING', 'SUCCEEDED'] },
     },
     orderBy: { createdAt: 'desc' },
     take: 20,
@@ -722,6 +817,9 @@ module.exports = {
   RESOURCE_LABELS,
   initialResources,
   buildDocumentRequirements,
+  fallbackHandoutContent,
+  fallbackExamContent,
+  isDocumentModelUnavailable,
   fallbackCards,
   serializePackage,
   createPackage,

@@ -3138,6 +3138,7 @@ enum GeneratedArtifactStatus {
 enum GeneratedArtifactExportFormat {
   DOCX
   PDF
+  PPTX
 }
 
 enum GeneratedArtifactExportStatus {

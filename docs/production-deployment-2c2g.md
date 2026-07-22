@@ -111,6 +111,8 @@ Nginx 模板同时代理 `/api/`、`/uploads/` 与 `/ws/learning-narration`，�
 - 生成产物和缓存目录已排除出 Git；发布时不要删除这两个持久化目录，也不要在项目根目录执行 `git clean -fdx`。
 - `backend/scripts/run-browser-package-render.js` 仅用于开发机验收，不得在 2C2G 服务器上定时运行；最终编码由学生浏览器完成。
 - 确认后端运行用户对 `/opt/discimind/storage` 和 `/opt/discimind/backend/storage` 具有读写权限，并允许服务器通过 DNS、HTTPS 和 WebSocket 出站访问百炼、图片生成、TTS 与 Dify 服务。
+- 当前版本继续使用本地持久卷，不直接切换 OSS。项目虽然为知识文档保留了 `LOCAL/OSS` 枚举，但生成产物、AI 附件、学习流附件、Dify 文档同步和鉴权下载仍依赖本地文件路径；未完成统一存储适配前不要只修改 `storage_type` 或把 `file_url` 替换为对象存储 URL。
+- `/api/health` 会同时检查数据库，以及 `storage/`、`backend/storage/` 的创建、读写、删除能力；任一持久目录不可写时返回 HTTP 503，服务启动也会失败。低于 `STORAGE_WARN_FREE_MB` 时健康状态为 `degraded`，但不会自动删除业务文件。
 
 ## 5. 上线验收
 

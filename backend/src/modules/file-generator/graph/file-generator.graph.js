@@ -17,6 +17,7 @@ function getFileGeneratorGraph() {
     .addNode('persist_artifact', nodes.persistArtifact)
     .addNode('export_docx', nodes.exportDocx)
     .addNode('export_pdf', nodes.exportPdf)
+    .addNode('export_pptx', nodes.exportPptx)
     .addNode('finalize', nodes.finalize)
     .addEdge(START, 'resolve_learning_context')
     .addEdge('resolve_learning_context', 'plan_artifact')
@@ -30,7 +31,8 @@ function getFileGeneratorGraph() {
     .addEdge('build_preview', 'persist_artifact')
     .addEdge('persist_artifact', 'export_docx')
     .addEdge('export_docx', 'export_pdf')
-    .addEdge('export_pdf', 'finalize')
+    .addEdge('export_pdf', 'export_pptx')
+    .addEdge('export_pptx', 'finalize')
     .addEdge('finalize', END)
     .compile();
   return compiled;

@@ -1873,6 +1873,13 @@ async function main() {
         data: {
           title: tmpl.title,
           description: tmpl.description,
+          owner_type: 'SYSTEM',
+          source_type: 'SYSTEM',
+          is_published: true,
+          is_default: tmpl.key === 'sys_standard',
+          course_id: null,
+          knowledge_point_id: null,
+          status: 'active',
           updated_at: new Date(),
         },
       });
@@ -1886,7 +1893,8 @@ async function main() {
           source_type: 'SYSTEM',
           is_published: true,
           is_default: tmpl.key === 'sys_standard',
-          course_id: mlCourse?.course_id,
+          course_id: null,
+          knowledge_point_id: null,
           status: 'active',
         },
       });
