@@ -625,7 +625,7 @@ async function completeVideoTaskUnlocked(user, taskValue, file) {
     prisma.videoGenerationTask.update({ where: { video_generation_task_id: videoTaskId }, data: { status: 'SUCCESS', result_url: resultUrl, error_message: null } }),
     prisma.asyncTask.update({ where: { id: task.id }, data: {
       status: 'SUCCEEDED', stage: 'MP4视频已生成', progress: 100, requiresUserAction: false,
-      resultType: 'GENERATED_ARTIFACT', resultId: String(artifact.id), resultUrl, completedAt: new Date(),
+      resultType: 'ARTIFACT', resultId: String(artifact.id), resultUrl, completedAt: new Date(),
       metadataJson: { ...task.metadataJson, artifactId: artifact.id, videoResourceId },
     } }),
   ]);

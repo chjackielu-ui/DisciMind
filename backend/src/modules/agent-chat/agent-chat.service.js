@@ -1,5 +1,5 @@
 const prisma = require('../../config/prisma');
-const dify = require('../learning-agent/adapters/dify-knowledge.adapter');
+const knowledgeProvider = require('../knowledge-base/knowledge-provider.service');
 const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { scopedOperationId } = require('../agent-marketplace/operation-id');
 const { runAgent } = require('./agent-runtime.service');
@@ -234,14 +234,15 @@ async function retrieve(version, question, options = {}) {
     where: { agentVersionId: version.id },
     include: { knowledgeBase: { include: { documents: { where: { deleted_at: null } } } } }, orderBy: { priority: 'asc' },
   });
-  const usable = bindings.filter((item) => item.knowledgeBase.dify_dataset_id && !['DELETING', 'DELETED', 'DISABLED', 'OFFLINE'].includes(item.knowledgeBase.marketplace_status));
+  const usable = bindings.filter((item) => item.knowledgeBase.documents.some((doc) => doc.parse_status === 'EMBEDDED' && doc.marketplace_status === 'READY')
+    && !['DELETING', 'DELETED', 'DISABLED', 'OFFLINE'].includes(item.knowledgeBase.marketplace_status));
   if (!usable.length) return { records: [], fallback: true, unavailable: false };
   try {
-    const result = await dify.retrieveFromMultipleDatasets(usable.map((item) => item.knowledgeBase.dify_dataset_id), question, { topK: version.topK, scoreThreshold: version.scoreThreshold, maxContextChars: 8000 });
-    const byDataset = new Map(usable.map((item) => [item.knowledgeBase.dify_dataset_id, item.knowledgeBase]));
+    const result = await knowledgeProvider.retrieveFromMultipleDatasets(usable.map((item) => item.knowledgeBase.knowledge_base_id), question, { topK: version.topK, scoreThreshold: version.scoreThreshold, maxContextChars: 8000 });
+    const byDataset = new Map(usable.map((item) => [String(item.knowledgeBase.knowledge_base_id), item.knowledgeBase]));
     const records = result.records.map((item) => {
       const kb = byDataset.get(item.datasetId);
-      const doc = kb?.documents.find((record) => record.dify_document_id === item.documentId || record.original_filename === item.documentName);
+      const doc = kb?.documents.find((record) => String(record.document_id) === String(item.documentId) || record.original_filename === item.documentName);
       return {
         knowledgeBaseId: kb?.knowledge_base_id, knowledgeBaseName: kb?.name || '', documentId: doc?.document_id || null,
         documentName: item.documentName || doc?.original_filename || '未命名文档', segmentId: item.segmentId || null,

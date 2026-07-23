@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const icons = require('../src/modules/agent-marketplace/agent-icon.service');
-const dify = require('../src/modules/agent-chat/dify-agent-runtime.service');
 const memories = require('../src/modules/agent-chat/agent-memory.service');
 
 test('agent icon catalog has at least 24 unique stable SVG keys and matching color pairs', () => {
@@ -12,18 +11,6 @@ test('agent icon catalog has at least 24 unique stable SVG keys and matching col
   const second = icons.resolveAgentIcon({ id: 42, agentType: 'CHAT' }, { name: '稳定智能体' });
   assert.deepEqual(first, second);
   assert.equal(icons.resolveAgentIcon({ id: 1, agentType: 'FILE_GENERATOR' }, { name: '考试试卷生成' }).key, 'exam');
-});
-
-test('Dify Chatflow keeps conversation mapping while Workflow receives the question input', () => {
-  const base = { question: '解释决策树', userId: 7, records: [], conversation: { difyConversationId: 'conv-1' } };
-  const chatflow = dify.buildPayload({ ...base, version: { runtimeProvider: 'DIFY_CHATFLOW', runtimeConfigJson: {} } }, true);
-  assert.equal(chatflow.query, '解释决策树');
-  assert.equal(chatflow.conversation_id, 'conv-1');
-  assert.equal(chatflow.response_mode, 'streaming');
-  const workflow = dify.buildPayload({ ...base, version: { runtimeProvider: 'DIFY_WORKFLOW', runtimeConfigJson: { queryInputKey: 'topic' } } }, false);
-  assert.equal(workflow.inputs.topic, '解释决策树');
-  assert.equal(workflow.response_mode, 'blocking');
-  assert.equal('conversation_id' in workflow, false);
 });
 
 test('memory requests become confirmation candidates and sensitive values are never proposed', () => {

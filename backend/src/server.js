@@ -6,6 +6,7 @@ loadEnv();
 validateProductionEnv();
 
 const { describeDatabaseError } = require('./config/database');
+const { assertLocalStorageReady } = require('./config/storage');
 const http = require('http');
 const { configureHttpServer } = require('./config/http-server');
 const app = require('./app');
@@ -141,6 +142,16 @@ async function start() {
     process.exit(1);
   }
 
+  try {
+    const storage = await assertLocalStorageReady();
+    const lowSpaceRoots = storage.roots.filter((item) => item.lowSpace).map((item) => item.key);
+    console.log(`[storage] 本地持久化目录就绪：${storage.roots.map((item) => item.key).join(', ')}`);
+    if (lowSpaceRoots.length) console.warn(`[storage] 可用空间低于预警值：${lowSpaceRoots.join(', ')}`);
+  } catch (error) {
+    console.error('[storage] 本地持久化目录检查失败:', error.message);
+    process.exit(1);
+  }
+
   const recoveredPpt = await require('./services/teacher-ppt.service').recoverInterruptedTasks();
   if (recoveredPpt.scanned) {
     console.log(`[ppt-recovery] 已检查 ${recoveredPpt.scanned} 个中断任务：恢复 ${recoveredPpt.recovered}，标记失败 ${recoveredPpt.failed}`);
@@ -153,7 +164,7 @@ async function start() {
       if (unboundItems.length) {
         console.warn(
           `[system-agents] ${unboundItems.length} 个系统文件智能体未绑定真实公开知识库，当前将使用通用模型降级生成；` +
-          '请完成 Dify 数据集与已审核文档绑定后重启服务。',
+          '请上传资料并完成本地向量索引与审核后重启服务。',
         );
       }
     })

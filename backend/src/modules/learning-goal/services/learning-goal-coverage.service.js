@@ -1,6 +1,7 @@
 const { buildRetrievalRequest, resolveDatasets } = require('../../learning-agent/services/knowledge-router.service');
 const { getLearningGoalConfig } = require('../constants/learning-goal.constants');
 const { safeCoverageSources } = require('../schemas/learning-goal-response.schema');
+const prisma = require('../../../config/prisma');
 
 function uniqueRecords(records) {
   const map = new Map();
@@ -36,7 +37,36 @@ function calculateCoverage({ queryResults, subGoalCount, hasExerciseDataset, thr
   return { status, score: rounded, coveredSubGoalCount, totalSubGoalCount: subGoalCount };
 }
 
-async function checkCoverage({ courseId, knowledgePointId, knowledgePointName, normalizedTitle, focusQuestion, subGoals = [], prerequisites = [], retrieve = buildRetrievalRequest }) {
+async function courseDataFallback({ courseId, knowledgePointId, subGoals, db = prisma }) {
+  const point = await db.knowledgePoint.findFirst({
+    where: { knowledge_point_id: Number(knowledgePointId), course_id: Number(courseId) },
+    select: {
+      knowledge_point_name: true,
+      description: true,
+      chapter: { select: { chapter_name: true, description: true } },
+    },
+  }).catch(() => null);
+  if (!point) return null;
+  const source = safeCoverageSources([{
+    documentName: point.knowledge_point_name,
+    datasetLabel: '系统课程数据',
+    relevanceScore: 1,
+    summary: point.description || point.chapter?.description || point.chapter?.chapter_name,
+  }]);
+  return {
+    status: 'partial',
+    score: getLearningGoalConfig().coveragePartialThreshold,
+    coveredSubGoalCount: subGoals.length,
+    totalSubGoalCount: subGoals.length,
+    sources: source,
+    retrievalDatasetCount: 0,
+    retrievedChunkCount: 0,
+    fallbackSource: 'course_knowledge_point',
+    queryCoverage: [{ kind: 'courseData', id: null, covered: true, bestScore: 1 }],
+  };
+}
+
+async function checkCoverage({ courseId, knowledgePointId, knowledgePointName, normalizedTitle, focusQuestion, subGoals = [], prerequisites = [], retrieve = buildRetrievalRequest, db = prisma }) {
   const config = getLearningGoalConfig();
   const queryDefs = [
     { kind: 'main', query: [normalizedTitle, focusQuestion].filter(Boolean).join(' ') },
@@ -56,6 +86,10 @@ async function checkCoverage({ courseId, knowledgePointId, knowledgePointName, n
   }));
   const datasetPlan = resolveDatasets({ courseId: Number(courseId), knowledgePointId: Number(knowledgePointId), nodeType: 'learning_summary', intent: 'learning_goal_coverage' });
   const calculated = calculateCoverage({ queryResults, subGoalCount: subGoals.length, hasExerciseDataset: datasetPlan.datasets.some((item) => item.type === 'exercise'), thresholds: config });
+  if (calculated.status === 'unavailable') {
+    const fallback = await courseDataFallback({ courseId, knowledgePointId, subGoals, db });
+    if (fallback) return fallback;
+  }
   const allRecords = uniqueRecords(queryResults.flatMap((item) => item.records || []));
   const sources = safeCoverageSources(allRecords.map((record) => ({
     documentName: record.documentName, datasetLabel: '课程知识库', relevanceScore: record.score,
@@ -69,4 +103,4 @@ async function checkCoverage({ courseId, knowledgePointId, knowledgePointName, n
   };
 }
 
-module.exports = { checkCoverage, calculateCoverage, uniqueRecords };
+module.exports = { checkCoverage, calculateCoverage, uniqueRecords, courseDataFallback };

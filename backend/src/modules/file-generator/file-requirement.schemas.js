@@ -24,8 +24,8 @@ const requirementFields = {
   includeAnswers: z.boolean().optional(),
   includeAnalysis: z.boolean().optional(),
   includeAnswerSheet: z.boolean().optional(),
-  outputFormat: z.enum(['DOCX', 'PDF']).optional(),
-  outputFormats: z.array(z.enum(['DOCX', 'PDF'])).min(1).max(2).optional(),
+  outputFormat: z.enum(['DOCX', 'PDF', 'PPTX']).optional(),
+  outputFormats: z.array(z.enum(['DOCX', 'PDF', 'PPTX'])).min(1).max(3).optional(),
   generationStyle: z.string().trim().max(200).optional(),
   specialRequirements: z.string().trim().max(1000).optional(),
 };

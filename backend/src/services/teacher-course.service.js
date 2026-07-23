@@ -24,7 +24,12 @@ async function listCourses(user, query) {
   if (accessibleIds) where.course_id = { in: accessibleIds };
 
   const { keyword } = query;
-  if (keyword) where.course_name = { contains: keyword };
+  if (keyword) {
+    where.OR = [
+      { course_name: { contains: keyword } },
+      { course_code: { contains: keyword } },
+    ];
+  }
 
   const courses = await prisma.course.findMany({
     where,
@@ -151,9 +156,10 @@ async function getCourse(user, courseId) {
 async function updateCourse(user, courseId, body) {
   await ensureCourseAccess(user, courseId);
 
-  const { course_name, subject_category, description, cover_url, status } = body;
+  const { course_name, course_code, subject_category, description, cover_url, status } = body;
   const data = {};
   if (course_name !== undefined) data.course_name = course_name;
+  if (course_code !== undefined) data.course_code = course_code;
   if (subject_category !== undefined) data.subject_category = subject_category;
   if (description !== undefined) data.description = description;
   if (cover_url !== undefined) data.cover_url = cover_url;

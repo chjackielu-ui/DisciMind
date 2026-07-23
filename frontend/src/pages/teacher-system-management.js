@@ -15,6 +15,7 @@ import {
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 const WEEKDAY_LABELS = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
@@ -337,7 +338,7 @@ export async function renderTeacherSystemManagement(app) {
         allCourses.forEach(c => {
           const opt = document.createElement('option')
           opt.value = c.course_id
-          opt.textContent = c.course_name
+          opt.textContent = teacherCourseLabel(c)
           sel.appendChild(opt)
         })
       })

@@ -18,6 +18,7 @@ import { escapeHtml, formatRelativeTime } from '../utils/format.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js'
 import { showToast } from '../utils/toast.js'
 import { getIcon } from '../utils/icons.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 import { getAiAssistantCapabilities, getAiConversationPendingAction, actOnAiPendingAction } from '../api/ai-assistant.js'
 import { createSearchControls, DEFAULT_SEARCH_OPTIONS } from '../components/ai-assistant/search-controls.js'
 import { renderCitedMarkdown, bindCitationClicks } from '../components/ai-assistant/citation-renderer.js'
@@ -387,7 +388,7 @@ function normalizeContextOptions(options = {}) {
 function renderContextOptions() {
   const options = state.options || { courses: [], teaching_classes: [], knowledge_bases: [], agents: [] }
   const courseSelect = document.getElementById('teacher-ai-course')
-  courseSelect.innerHTML = '<option value="">请选择课程</option>' + options.courses.map(item => `<option value="${item.course_id}" ${Number(state.context.course_id) === item.course_id ? 'selected' : ''}>${escapeHtml(item.course_name)}</option>`).join('')
+  courseSelect.innerHTML = '<option value="">请选择课程</option>' + options.courses.map(item => `<option value="${item.course_id}" ${Number(state.context.course_id) === item.course_id ? 'selected' : ''}>${escapeHtml(teacherCourseLabel(item))}</option>`).join('')
   renderClassOptions()
   document.getElementById('teacher-ai-kbs').innerHTML = options.knowledge_bases.length ? options.knowledge_bases.map(item => `<button class="${state.knowledgeBaseIds.includes(item.knowledge_base_id) ? 'active' : ''}" data-kb-id="${item.knowledge_base_id}">@${escapeHtml(item.name)}</button>`).join('') : '<span class="teacher-inline-empty">暂无可用知识库</span>'
   document.getElementById('teacher-ai-agents').innerHTML = options.agents.map(item => `<button class="${state.agentIds.includes(String(item.id)) ? 'active' : ''}" data-agent-id="${escapeHtml(String(item.id))}">\\${escapeHtml(item.name)}${item.source === 'mine' ? '<small>我的</small>' : item.source === 'marketplace' ? '<small>市场</small>' : ''}</button>`).join('')

@@ -70,14 +70,6 @@ const imageTypes = new Map([
   ['.gif', 'image/gif'], ['.webp', 'image/webp'], ['.bmp', 'image/bmp'],
 ]);
 
-const SESSION_IMAGE_EXTENSION_BY_MIME = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-  'image/bmp': '.bmp',
-};
-
 const sessionFileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 3 },

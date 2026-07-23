@@ -101,23 +101,17 @@ function deterministicFallback(goalText, candidates, preferredDepth = 'basic') {
   };
 }
 
-async function resolveGoal({ goalText, courseName, candidates, preferredDepth = 'basic', modelCall = bailianModelCall }) {
-  const preclassified = preclassify(goalText);
-  if (preclassified) return { ...preclassified, modelAttemptCount: 0, repairAttemptCount: 0 };
+async function resolveGoal({ goalText, courseName, candidates, preferredDepth = 'basic', explicitSelectionOnly = false, modelCall = bailianModelCall }) {
   if (!candidates.length) return { ...deterministicFallback(goalText, candidates, preferredDepth), modelAttemptCount: 0, repairAttemptCount: 0 };
-
-  // 名称或别名已命中且不存在多主题比较时，白名单候选本身已足够可靠。
-  // 跳过一次结构化模型调用，通常可将目标解析从数秒降到毫秒级；
-  // 比较、低置信度和测试注入的模型调用仍走完整解析器。
-  if (modelCall === bailianModelCall && candidates[0].matchScore >= 48 && !MULTI_PATTERN.test(goalText)) {
-    const deterministic = deterministicFallback(goalText, candidates, preferredDepth);
+  if (explicitSelectionOnly) {
+    const selected = candidates.find((candidate) => (candidate.matchReasons || []).includes('selected')) || candidates[0];
     return {
-      ...deterministic,
+      ...deterministicFallback(goalText, [selected], preferredDepth),
       fallback: false,
-      reasonSummary: '课程知识点名称或别名高置信度命中。',
+      reasonSummary: '学生直接选择了当前课程内置知识点。',
       modelAttemptCount: 0,
       repairAttemptCount: 0,
-      resolverStrategy: 'high_confidence_candidate',
+      resolverStrategy: 'explicit_course_knowledge_point',
     };
   }
 

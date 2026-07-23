@@ -1,4 +1,5 @@
 // 前端入口 — 初始化路由系统
+import { installCryptoRandomUuidFallback } from './utils/crypto-polyfill.js'
 import './styles/global.css'
 import './styles/login.css'
 import './styles/dashboard.css'
@@ -26,6 +27,8 @@ import './styles/teacher-student-profile.css'
 import './styles/student-teaching-tasks.css'
 import './styles/learning-media.css'
 import { initRouter } from './utils/router.js'
+
+installCryptoRandomUuidFallback()
 
 // 启动 Hash 路由
 initRouter()

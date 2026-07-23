@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
+const prisma = require('../../config/prisma');
+const providerFactory = require('../ai/provider.factory');
 
 const UPLOAD_ROOT = path.resolve(__dirname, '../../../../storage/uploads');
 const DEFAULT_ENDPOINT = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
@@ -17,6 +19,26 @@ function config() {
     timeoutMs: Math.max(30_000, Number(process.env.IMAGE_GENERATION_TIMEOUT_MS || 180_000)),
     maxSlides: Math.max(1, Math.min(20, Number(process.env.IMAGE_GENERATION_MAX_SLIDES || 8))),
   };
+}
+
+async function generate(input) {
+  const modelId = Number(input?.modelId);
+  if (!Number.isInteger(modelId) || modelId <= 0) throw Object.assign(new Error('请选择图片生成模型'), { code: 40001 });
+  const model = await prisma.aiModelConfig.findUnique({ where: { ai_model_config_id: modelId } });
+  if (!model?.provider_id || !model.enabled || model.model_type !== 'image') {
+    throw Object.assign(new Error('图片生成模型不存在、已停用或类型不匹配'), { code: 40401 });
+  }
+  const { adapter, provider } = await providerFactory.getProvider(model.provider_id);
+  const result = await adapter.generateImage({
+    model: model.model_code || model.model_name,
+    prompt: input.prompt,
+    negativePrompt: input.negativePrompt,
+    n: input.n,
+    size: input.size,
+    responseFormat: input.responseFormat,
+    signal: input.signal,
+  });
+  return { ...result, provider: provider.provider_code, model: model.model_code || model.model_name };
 }
 
 function safeUserId(value) {
@@ -117,4 +139,4 @@ async function enrichSlides(slidesModel, options = {}) {
   return { model: { ...slidesModel, slides }, generated, failed, skipped: Math.max(0, slides.length - attempted), enabled: true };
 }
 
-module.exports = { config, generateOne, enrichSlides, promptForSlide };
+module.exports = { config, generate, generateOne, enrichSlides, promptForSlide };

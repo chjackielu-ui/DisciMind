@@ -12,7 +12,7 @@ const listSchema = z.object({
   dateTo: z.coerce.date().optional(),
 }).strict();
 
-const exportSchema = z.object({ operationId: z.string().trim().min(8).max(128), formats: z.array(z.enum(['DOCX','PDF'])).min(1).max(2).default(['DOCX']) }).strict();
+const exportSchema = z.object({ operationId: z.string().trim().min(8).max(128), formats: z.array(z.enum(['DOCX','PDF','PPTX'])).min(1).max(3).default(['DOCX']) }).strict();
 const bulkDeleteSchema = z.object({ artifactIds: z.array(z.coerce.number().int().positive()).min(1).max(100).transform(items => [...new Set(items)]) }).strict();
 
 function parse(schema, value) {

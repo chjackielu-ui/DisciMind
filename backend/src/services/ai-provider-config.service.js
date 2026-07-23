@@ -28,12 +28,6 @@ const ENV_PROVIDERS = Object.freeze([
     base_url: () => process.env.SPARK_BASE_URL,
     secret: () => ({ api_key: process.env.SPARK_API_KEY || '', api_secret: process.env.SPARK_API_SECRET || '', app_id: process.env.SPARK_APP_ID || '' }),
   },
-  {
-    provider_code: 'dify', display_name: 'Dify', provider_type: 'dify',
-    default_base_url: 'http://localhost/v1',
-    base_url: () => process.env.DIFY_API_BASE_URL || process.env.DIFY_CHATFLOW_BASE_URL,
-    secret: () => ({ api_key: process.env.DIFY_API_KEY || process.env.DIFY_CHATFLOW_API_KEY || '', app_id: process.env.DIFY_APP_ID || '' }),
-  },
 ]);
 
 const secretCache = new Map();

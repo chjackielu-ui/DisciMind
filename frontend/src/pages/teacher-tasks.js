@@ -6,6 +6,8 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { getTeacherTasks, getTeacherCourses, deleteTeacherTask } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
+import { escapeHtml } from '../utils/format.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 export async function renderTeacherTasks(app) {
   let user = getUser()
@@ -95,7 +97,7 @@ export async function renderTeacherTasks(app) {
       if (sel) {
         sel.innerHTML =
           '<option value="">全部课程</option>' +
-          courses.map((c) => `<option value="${c.course_id}">${c.course_name}</option>`).join('')
+          courses.map((c) => `<option value="${c.course_id}">${escapeHtml(teacherCourseLabel(c))}</option>`).join('')
         if (scopedCourseId) sel.value = String(scopedCourseId)
       }
     } catch {

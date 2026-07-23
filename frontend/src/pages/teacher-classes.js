@@ -14,6 +14,7 @@ import {
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 export async function renderTeacherClasses(app) {
   let user = getUser()
@@ -161,7 +162,7 @@ export async function renderTeacherClasses(app) {
       allCourses.forEach(c => {
         const opt = document.createElement('option')
         opt.value = c.course_id
-        opt.textContent = c.course_name
+        opt.textContent = teacherCourseLabel(c)
         select.appendChild(opt)
       })
       // 班级表单中的课程下拉
@@ -169,7 +170,7 @@ export async function renderTeacherClasses(app) {
       allCourses.forEach(c => {
         const opt = document.createElement('option')
         opt.value = c.course_id
-        opt.textContent = c.course_name
+        opt.textContent = teacherCourseLabel(c)
         formSelect.appendChild(opt)
       })
     } catch (err) {

@@ -857,6 +857,7 @@ model StudentCourseEnrollment {
 
   @@unique([student_user_id, course_id, teaching_class_id])
   @@index([student_user_id, course_id])
+  @@index([student_user_id, is_pinned, pinned_at], map: "student_course_enrollments_student_pinned_idx")
   @@index([course_id])
   @@index([teaching_class_id])
   @@map("student_course_enrollments")
@@ -1002,6 +1003,10 @@ model KnowledgeDocument {
   mime_type            String?      @db.VarChar(100)
   storage_type         StorageType  @default(LOCAL)
   file_url             String       @db.VarChar(500)
+  storage_key          String?      @db.VarChar(1024)
+  storage_bucket       String?      @db.VarChar(255)
+  storage_etag         String?      @db.VarChar(255)
+  storage_version_id   String?      @db.VarChar(255)
   scope_type           ScopeType
   visibility           Visibility   @default(PRIVATE)
   course_id            Int?
@@ -3138,6 +3143,7 @@ enum GeneratedArtifactStatus {
 enum GeneratedArtifactExportFormat {
   DOCX
   PDF
+  PPTX
 }
 
 enum GeneratedArtifactExportStatus {

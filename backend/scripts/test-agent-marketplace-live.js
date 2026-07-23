@@ -69,8 +69,8 @@ async function main() {
   const defaultAnswer = await request('POST', `/agent-conversations/${defaultConversation.id}/messages`, studentA.token, { content: '请用一句话解释什么是监督学习。', operationId: op('default-message') });
   check(defaultAnswer.message.answerSource === 'GENERAL' && defaultAnswer.message.sources.length === 0, '默认模式不应调用或展示知识库引用');
 
-  log('场景二：创建真实 Dify 知识库并上传 TXT 文档');
-  const kb = await request('POST', '/knowledge-bases', studentA.token, { name: '真实闭环验收知识库', description: '用于 Dify 上传、索引与引用验收。', category: '课程学习', operationId: op('create-kb') });
+  log('场景二：创建真实云端知识库并上传 TXT 文档');
+  const kb = await request('POST', '/knowledge-bases', studentA.token, { name: '真实闭环验收知识库', description: '用于后端上传、索引与引用验收。', category: '课程学习', operationId: op('create-kb') });
   check(!Object.hasOwn(kb, 'difyDatasetId'), '前端响应泄露 Dataset ID');
   await expectDenied(() => request('GET', `/knowledge-bases/${kb.id}`, studentB.token), '学生 B 不应查看学生 A 私有知识库');
   await expectDenied(() => request('POST', '/agents', studentB.token, agentInput({ name: '非法绑定测试', responseMode: 'KNOWLEDGE_FIRST', knowledgeBaseIds: [kb.id], operationId: op('b-illegal-bind') })), '学生 B 不应绑定学生 A 私有知识库');
@@ -83,12 +83,12 @@ async function main() {
   let kbStatus; let lastStatus;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     kbStatus = await request('GET', `/knowledge-bases/${kb.id}/status`, studentA.token);
-    if (kbStatus.status !== lastStatus) { log(`Dify 索引阶段：${kbStatus.status}`); lastStatus = kbStatus.status; }
+    if (kbStatus.status !== lastStatus) { log(`知识库索引阶段：${kbStatus.status}`); lastStatus = kbStatus.status; }
     const documentsReady = (kbStatus.documents || []).length > 0 && kbStatus.documents.every((doc) => doc.status === 'READY');
     if (documentsReady || kbStatus.status === 'FAILED') break;
     await new Promise((resolve) => setTimeout(resolve, 2500));
   }
-  check((kbStatus.documents || []).length > 0 && kbStatus.documents.every((doc) => doc.status === 'READY'), `真实 Dify 文档索引未 READY：${kbStatus.status}`);
+  check((kbStatus.documents || []).length > 0 && kbStatus.documents.every((doc) => doc.status === 'READY'), `真实知识库文档索引未 READY：${kbStatus.status}`);
 
   const knowledgeAgent = await request('POST', '/agents', studentA.token, agentInput({
     name: '蓝鲸复习法资料助手', responseMode: 'KNOWLEDGE_FIRST', knowledgeBaseIds: [kb.id],

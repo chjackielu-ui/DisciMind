@@ -6,8 +6,7 @@ loadEnv();
 const prisma = require('../src/config/prisma');
 const { createDeepSeekProvider } = require('../src/modules/ai/deepseek.provider');
 const { createQwenProvider } = require('../src/modules/ai/qwen.provider');
-const dify = require('../src/modules/dify/dify.service');
-const difyKnowledge = require('../src/modules/learning-agent/adapters/dify-knowledge.adapter');
+const knowledgeProvider = require('../src/modules/knowledge-base/knowledge-provider.service');
 
 function digest(value) {
   return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex').slice(0, 16);
@@ -69,27 +68,22 @@ async function main() {
       }
       return success(content, startedAt, { chunks });
     }),
-    runCall('dify_chat', async () => {
-      const startedAt = Date.now();
-      const result = await dify.chat(
-        { user_id: 1, role: 'acceptance' },
-        { query: '只回复：DisciMind Dify 实链路正常' },
-      );
-      return success(result.content, startedAt, { provider_latency_ms: result.latency_ms });
-    }),
   ]));
 
   const knowledgeStartedAt = Date.now();
   try {
     const bindings = await prisma.knowledgeBase.findMany({
-      where: { dify_dataset_id: { not: null }, deleted_at: null, status: 'active' },
-      select: { dify_dataset_id: true },
+      where: {
+        deleted_at: null,
+        status: 'active',
+        documents: { some: { deleted_at: null, parse_status: 'EMBEDDED', marketplace_status: 'READY' } },
+      },
+      select: { knowledge_base_id: true },
       orderBy: { updated_at: 'desc' },
       take: 10,
     });
     let matched = null;
     let attempts = 0;
-    let remoteDatasets = [];
     const failureCodes = {};
     const tryDataset = async (datasetId) => {
       attempts += 1;
@@ -98,7 +92,7 @@ async function main() {
       console.log = () => {};
       console.error = () => {};
       try {
-        const result = await difyKnowledge.retrieveFromDataset(
+        const result = await knowledgeProvider.retrieveFromDataset(
           datasetId,
           '机器学习的基本概念、监督学习与模型训练',
           { topK: 3, scoreThreshold: 0 },
@@ -117,33 +111,13 @@ async function main() {
       return false;
     };
     for (const binding of bindings) {
-      if (await tryDataset(binding.dify_dataset_id)) break;
-    }
-    if (!matched) {
-      const originalLog = console.log;
-      const originalError = console.error;
-      console.log = () => {};
-      console.error = () => {};
-      try {
-        remoteDatasets = await difyKnowledge.listDatasets();
-      } catch (error) {
-        const code = String(error?.code || error?.publicCode || 'UNKNOWN').slice(0, 80);
-        failureCodes[code] = (failureCodes[code] || 0) + 1;
-      } finally {
-        console.log = originalLog;
-        console.error = originalError;
-      }
-      const boundIds = new Set(bindings.map((item) => item.dify_dataset_id));
-      for (const dataset of remoteDatasets.filter((item) => item.document_count > 0 && !boundIds.has(item.id)).slice(0, 10)) {
-        if (await tryDataset(dataset.id)) break;
-      }
+      if (await tryDataset(binding.knowledge_base_id)) break;
     }
     const content = matched?.map((record) => record.content).join('\n') || '';
     checks.knowledge_retrieval = {
       ok: Boolean(matched?.length),
       latency_ms: Date.now() - knowledgeStartedAt,
       configured_bindings: bindings.length,
-      remote_datasets: remoteDatasets.length,
       datasets_attempted: attempts,
       records: matched?.length || 0,
       top_score: matched?.length ? Math.max(...matched.map((record) => Number(record.score || 0))) : null,
@@ -161,8 +135,9 @@ async function main() {
     deepseek: Boolean(process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_BASE_URL),
     qwen: Boolean((process.env.QWEN_API_KEY || process.env.BAILIAN_API_KEY)
       && (process.env.QWEN_BASE_URL || process.env.BAILIAN_BASE_URL)),
-    dify: Boolean(process.env.DIFY_API_KEY && process.env.DIFY_API_BASE_URL),
-    dify_knowledge: Boolean(process.env.DIFY_KNOWLEDGE_API_KEY && process.env.DIFY_KNOWLEDGE_BASE_URL),
+    agent_runtime: String(process.env.AGENT_MODE || 'langgraph').toLowerCase() === 'langgraph',
+    knowledge_embedding: Boolean(process.env.KNOWLEDGE_EMBEDDING_API_KEY || process.env.BAILIAN_API_KEY),
+    knowledge_vector_store: process.env.KNOWLEDGE_VECTOR_STORE || 'database',
   };
   const passed = Object.values(checks).filter((item) => item.ok).length;
   process.stdout.write(`${JSON.stringify({ configured, checks, summary: { passed, total: Object.keys(checks).length } }, null, 2)}\n`);

@@ -44,7 +44,7 @@ function questionRows(draft) {
 
 function outputFormats(draft) {
   const selected = draft.outputFormats || [draft.outputFormat || 'DOCX']
-  return `<div class="fg-format-options"><label class="${selected.includes('DOCX') ? 'is-selected' : ''}"><input type="checkbox" name="fg-format" value="DOCX" ${checked(selected.includes('DOCX'))}><span>DOCX</span><small>可编辑文档</small></label><label class="${selected.includes('PDF') ? 'is-selected' : ''}"><input type="checkbox" name="fg-format" value="PDF" ${checked(selected.includes('PDF'))}><span>PDF</span><small>适合分发打印</small></label></div>`
+  return `<div class="fg-format-options"><label class="${selected.includes('DOCX') ? 'is-selected' : ''}"><input type="checkbox" name="fg-format" value="DOCX" ${checked(selected.includes('DOCX'))}><span>DOCX</span><small>可编辑文档</small></label><label class="${selected.includes('PDF') ? 'is-selected' : ''}"><input type="checkbox" name="fg-format" value="PDF" ${checked(selected.includes('PDF'))}><span>PDF</span><small>适合分发打印</small></label><label class="${selected.includes('PPTX') ? 'is-selected' : ''}"><input type="checkbox" name="fg-format" value="PPTX" ${checked(selected.includes('PPTX'))}><span>PPTX</span><small>演示课件</small></label></div>`
 }
 
 function knowledgeOptions(points, selectedKeys) {
@@ -119,7 +119,9 @@ export async function renderFileGeneratorChat(app, { agent, conversationId, conv
     const meta = TYPE_META[type]
     const courses = draft.candidates?.courses || []
     const hasCourse = Boolean(draft.courseKey)
-    const points = hasCourse ? (draft.candidates?.knowledgePoints || []).filter(item => item.courseKey === draft.courseKey) : []
+    const points = hasCourse
+      ? (draft.candidates?.knowledgePoints || []).filter(item => item.courseKey === draft.courseKey)
+      : []
     const selectedKeys = draft.knowledgePointKeys || []
 
     root.innerHTML = studioHTML({ agent, conversations, conversationId, draft, type, fixedType, courses, points, selectedKeys })

@@ -1,10 +1,10 @@
 const crypto = require('crypto');
 const fs = require('fs/promises');
-const path = require('path');
 const mammoth = require('mammoth');
 const prisma = require('../../config/prisma');
-const dify = require('../learning-agent/adapters/dify-knowledge.adapter');
 const asyncTasks = require('../async-task/async-task.service');
+const knowledgeProvider = require('./knowledge-provider.service');
+const knowledgeStorage = require('./knowledge-storage.service');
 const { normalizeUploadFileName } = require('./knowledge-ingestion.utils');
 
 const DEFAULT_CHUNK_SIZE = 800;
@@ -12,52 +12,11 @@ const DEFAULT_CHUNK_OVERLAP = 120;
 const MIN_TEXT_LENGTH = 20;
 
 function pipelineError(code, stage, message, retryable = true) {
-  return Object.assign(new Error(message), { code, stage, retryable, permanent: true, userMessage: message });
+  return Object.assign(new Error(message), { code, stage, retryable, permanent: retryable === false, userMessage: message });
 }
 
 function throwIfAborted(signal) {
   if (signal?.aborted) throw pipelineError('KNOWLEDGE_TASK_CANCELLED', 'cancelled', '知识库处理已取消。', true);
-}
-
-function unavailableDifyDocument(error) {
-  const status = Number(error?.status || error?.response?.status || error?.cause?.response?.status || 0);
-  const code = String(error?.code || '').toUpperCase();
-  const message = [
-    error?.message,
-    error?.response?.data?.message,
-    error?.cause?.response?.data?.message,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return code === 'DIFY_KNOWLEDGE_NOT_FOUND'
-    || status === 404
-    || message.includes('document is not available')
-    || message.includes('document not found');
-}
-
-async function restartRemoteIndexing(document, absolutePath, fileName) {
-  const datasetId = document.knowledge_base.dify_dataset_id;
-  const upload = () => dify.uploadDocumentFile(datasetId, {
-    filePath: absolutePath,
-    fileName,
-    mimeType: document.mime_type,
-  });
-  if (!document.dify_document_id) return upload();
-  if (document.error_stage !== 'indexing') return null;
-
-  try {
-    return await dify.updateDocumentFile(datasetId, document.dify_document_id, {
-      filePath: absolutePath,
-      fileName,
-      mimeType: document.mime_type,
-    });
-  } catch (error) {
-    // Dify refuses update-by-file once a document has entered its terminal error
-    // state. Delete that unusable remote record and create a fresh indexing batch.
-    if (!unavailableDifyDocument(error)) throw error;
-    await dify.deleteDatasetDocument(datasetId, document.dify_document_id).catch((deleteError) => {
-      if (!unavailableDifyDocument(deleteError)) throw deleteError;
-    });
-    return upload();
-  }
 }
 
 function decodeHtml(value) {
@@ -243,10 +202,14 @@ async function taskStage(taskId, documentId, state, parseStatus, stage) {
 }
 
 async function recalculateKnowledgeBaseStatus(knowledgeBaseId) {
-  const docs = await prisma.knowledgeDocument.findMany({ where: { knowledge_base_id: knowledgeBaseId, deleted_at: null }, select: { marketplace_status: true } });
+  const [docs, knowledgeBase] = await Promise.all([
+    prisma.knowledgeDocument.findMany({ where: { knowledge_base_id: knowledgeBaseId, deleted_at: null }, select: { marketplace_status: true } }),
+    prisma.knowledgeBase.findUnique({ where: { knowledge_base_id: knowledgeBaseId }, select: { marketplace_visibility: true } }),
+  ]);
   const available = docs.filter((doc) => doc.marketplace_status === 'READY').length;
   const failed = docs.filter((doc) => doc.marketplace_status === 'FAILED').length;
-  const status = !docs.length ? 'EMPTY' : failed && available ? 'PARTIAL' : failed === docs.length ? 'FAILED' : available === docs.length ? 'READY' : 'PROCESSING';
+  let status = !docs.length ? 'EMPTY' : failed && available ? 'PARTIAL' : failed === docs.length ? 'FAILED' : available === docs.length ? 'READY' : 'PROCESSING';
+  if (knowledgeBase?.marketplace_visibility === 'PUBLIC' && available === docs.length && docs.length) status = 'PUBLIC';
   await prisma.knowledgeBase.update({ where: { knowledge_base_id: knowledgeBaseId }, data: { marketplace_status: status } });
   return status;
 }
@@ -256,21 +219,32 @@ async function failDocument(document, taskId, error) {
   const code = String(error.code || `KNOWLEDGE_${stage.toUpperCase()}_FAILED`).slice(0, 100);
   const publicMessage = String(error.userMessage || ({
     validation: '文件校验失败，请检查文件格式。', parsing: '文档解析失败，请检查文件内容。',
-    chunking: '文档没有产生有效分片。', indexing: 'Dify 索引服务暂时不可用。',
+    chunking: '文档没有产生有效分片。', indexing: '知识库向量索引服务暂时不可用。',
   }[stage] || '知识库处理失败。')).slice(0, 1000);
-  await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: {
+  const task = taskId ? await prisma.asyncTask.findUnique({ where: { id: Number(taskId) } }).catch(() => null) : null;
+  const canRetry = error.retryable !== false && task && Number(task.attemptCount || 0) < Number(task.maxAttempts || 1);
+  const retryState = {
+    parsing: { processing_state: 'uploaded', parse_status: 'UPLOADED' },
+    chunking: { processing_state: 'parsed', parse_status: 'PARSED' },
+    indexing: { processing_state: 'chunked', parse_status: 'CHUNKED' },
+  }[stage] || { processing_state: 'uploaded', parse_status: 'UPLOADED' };
+  await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: canRetry ? {
+    ...retryState, marketplace_status: 'PROCESSING',
+    error_code: code, error_stage: stage, error_message: publicMessage,
+    retryable: true, failed_at: null,
+  } : {
     processing_state: 'failed', parse_status: 'FAILED', marketplace_status: 'FAILED',
     error_code: code, error_stage: stage, error_message: publicMessage,
     retryable: error.retryable !== false, failed_at: new Date(),
   } }).catch(() => {});
   await recalculateKnowledgeBaseStatus(document.knowledge_base_id).catch(() => {});
-  if (taskId) await asyncTasks.updateTask(taskId, {
+  if (taskId && !canRetry) await asyncTasks.updateTask(taskId, {
     status: 'FAILED', stage: stage.toUpperCase(), errorCode: code, errorMessage: publicMessage,
     requiresUserAction: error.retryable === false,
   }).catch(() => {});
   error.code = code;
   error.userMessage = publicMessage;
-  error.permanent = true;
+  error.permanent = !canRetry;
   throw error;
 }
 
@@ -281,13 +255,18 @@ async function processDocumentTask(task, signal) {
   });
   if (!document || document.deleted_at) throw pipelineError('KNOWLEDGE_DOCUMENT_MISSING', 'validation', '知识库文档不存在。', false);
   if (Number(document.owner_user_id) !== Number(task.userId)) throw pipelineError('KNOWLEDGE_DOCUMENT_FORBIDDEN', 'validation', '无权处理该知识库文档。', false);
+  let materialized;
   try {
     throwIfAborted(signal);
     await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: { attempt_count: { increment: 1 } } });
-    const absolutePath = path.resolve(__dirname, '../../..', document.file_url);
-    const storageRoot = path.resolve(__dirname, '../../../storage/agent-knowledge');
-    if (!absolutePath.startsWith(`${storageRoot}${path.sep}`)) throw pipelineError('KNOWLEDGE_FILE_PATH_INVALID', 'validation', '源文件路径无效，请重新上传。', false);
-    await fs.access(absolutePath).catch(() => { throw pipelineError('KNOWLEDGE_FILE_MISSING', 'validation', '源文件丢失，请重新上传。', false); });
+    try {
+      materialized = await knowledgeStorage.materializeDocument(document);
+    } catch (error) {
+      error.stage = 'validation';
+      error.userMessage = error.message;
+      throw error;
+    }
+    const { absolutePath } = materialized;
 
     let cleanedText = document.cleaned_text;
     let pageCount = document.page_count || 1;
@@ -318,7 +297,6 @@ async function processDocumentTask(task, signal) {
     }
 
     throwIfAborted(signal);
-    if (!document.knowledge_base?.dify_dataset_id) throw pipelineError('DIFY_DATASET_MISSING', 'indexing', '知识库尚未绑定可用的 Dify Dataset。', true);
     const repairedFileName = normalizeUploadFileName(document.original_filename);
     if (repairedFileName && repairedFileName !== document.original_filename) {
       await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: {
@@ -327,32 +305,36 @@ async function processDocumentTask(task, signal) {
       document.original_filename = repairedFileName;
     }
     await taskStage(task.id, document.document_id, 'indexing', 'EMBEDDING', 'INDEXING');
-    const remote = await restartRemoteIndexing(document, absolutePath, repairedFileName);
-    if (signal?.aborted) {
-      if (remote?.documentId) await dify.deleteDatasetDocument(document.knowledge_base.dify_dataset_id, remote.documentId).catch(() => {});
-      throwIfAborted(signal);
-    }
-    if (remote && (!remote.documentId || !remote.batchId)) throw pipelineError('DIFY_UPLOAD_INVALID_RESPONSE', 'indexing', 'Dify 未返回有效的文档索引任务。', true);
+    throwIfAborted(signal);
+    await knowledgeProvider.indexDocument(document.document_id, { signal });
+    throwIfAborted(signal);
     await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: {
-      dify_document_id: remote?.documentId || document.dify_document_id,
-      dify_batch_id: remote?.batchId || document.dify_batch_id,
-      processing_state: 'indexing', parse_status: 'EMBEDDING', marketplace_status: 'INDEXING',
+      processing_state: 'available', parse_status: 'EMBEDDED', marketplace_status: 'READY',
+      dify_batch_id: null,
+      error_code: null, error_stage: null, error_message: null, failed_at: null,
     } });
-    await prisma.knowledgeBase.update({ where: { knowledge_base_id: document.knowledge_base_id }, data: { marketplace_status: 'PROCESSING' } });
-    await asyncTasks.updateTask(task.id, { status: 'WAITING_EXTERNAL', stage: 'INDEXING', progressMode: 'STAGE_ONLY', cancellable: true });
-    return { status: 'WAITING_EXTERNAL', nextRunAt: new Date(Date.now() + 15_000) };
+    await recalculateKnowledgeBaseStatus(document.knowledge_base_id);
+    if (document.knowledge_base?.marketplace_visibility === 'PUBLIC') {
+      await require('../file-generator/system-file-agents.service').ensureSystemFileAgents().catch(() => null);
+    }
+    await asyncTasks.updateTask(task.id, {
+      status: 'SUCCEEDED', stage: 'READY', progressMode: 'STAGE_ONLY',
+      errorCode: null, errorMessage: null, cancellable: false,
+    });
+    return { terminal: true };
   } catch (error) {
     if (signal?.aborted) {
       await prisma.knowledgeDocument.update({ where: { document_id: document.document_id }, data: { processing_state: 'cancelled', marketplace_status: 'CANCELLED' } }).catch(() => {});
       throw error;
     }
     return failDocument(document, task.id, error);
+  } finally {
+    await materialized?.cleanup?.();
   }
 }
 
 module.exports = {
   DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP, MIN_TEXT_LENGTH,
   parseFile, cleanText, structuredBlocks, chunkStructuredText,
-  unavailableDifyDocument, restartRemoteIndexing,
   recalculateKnowledgeBaseStatus, processDocumentTask,
 };

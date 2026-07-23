@@ -1,7 +1,6 @@
 const { PromptTemplate } = require('@langchain/core/prompts');
 const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
 const { bailianModelCall, createBailianModel } = require('../learning-agent/adapters/bailian-model.adapter');
-const difyRuntime = require('./dify-agent-runtime.service');
 
 const runtimeTemplate = PromptTemplate.fromTemplate(`{systemPrompt}
 
@@ -35,9 +34,6 @@ async function buildAgentMessages({ version, history, memories, question, record
 }
 
 async function runAgent(context, modelCall = bailianModelCall) {
-  if (['DIFY_CHATFLOW', 'DIFY_WORKFLOW'].includes(context.version.runtimeProvider)) {
-    return difyRuntime.runDifyAgent(context, { signal: context.signal });
-  }
   const messages = await buildAgentMessages(context);
   return modelCall(messages, {
     temperature: 0.5,
@@ -49,7 +45,6 @@ async function runAgent(context, modelCall = bailianModelCall) {
 }
 
 async function streamAgent(context, options = {}) {
-  if (['DIFY_CHATFLOW', 'DIFY_WORKFLOW'].includes(context.version.runtimeProvider)) return difyRuntime.streamDifyAgent(context, options);
   const messages = await buildAgentMessages(context);
   const model = (options.createModel || createBailianModel)({
     temperature: 0.5, maxTokens: context.version.maxOutputTokens,

@@ -19,13 +19,16 @@ function firstNode(graph) {
 
 async function knowledgeResults(goal) {
   const bases = await prisma.knowledgeBase.findMany({
-    where: { course_id: goal.course_id, status: 'active', dify_dataset_id: { not: null } },
-    select: { knowledge_base_id: true, name: true, dify_dataset_id: true }, take: 5,
+    where: {
+      course_id: goal.course_id, status: 'active', deleted_at: null,
+      documents: { some: { deleted_at: null, parse_status: 'EMBEDDED', marketplace_status: 'READY' } },
+    },
+    select: { knowledge_base_id: true, name: true }, take: 5,
   });
   if (!bases.length) return { datasets: [], records: [], unavailable: false };
   try {
-    const adapter = require('../learning-agent/adapters/dify-knowledge.adapter');
-    const result = await adapter.retrieveFromMultipleDatasets(bases.map((item) => item.dify_dataset_id), goal.raw_goal || goal.normalized_title, { topK: 4, scoreThreshold: 0.25 });
+    const provider = require('../knowledge-base/knowledge-provider.service');
+    const result = await provider.retrieveFromMultipleDatasets(bases.map((item) => item.knowledge_base_id), goal.raw_goal || goal.normalized_title, { topK: 4, scoreThreshold: 0.25 });
     const records = Array.isArray(result) ? result : (result.records || result.data || []);
     return {
       datasets: bases.map((item) => ({ id: item.knowledge_base_id, name: item.name })),

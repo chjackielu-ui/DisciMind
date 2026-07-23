@@ -3,6 +3,7 @@ const tasks = require('../../async-task/async-task.service');
 const generation = require('../file-generation.service');
 const { WORD_MIME } = require('../document-export.service');
 const { PDF_MIME } = require('../pdf-export.service');
+const { PPTX_MIME } = require('../pptx-export.service');
 const { planningPrompt } = require('./file-generator.prompts');
 
 async function progress(taskId, value, stage) { if (taskId) await tasks.updateTask(taskId, { status: 'RUNNING', progress: value, stage }); }
@@ -87,14 +88,14 @@ async function persistArtifact(state) {
 
 async function queueFormat(state, format) {
   if (!state.requestedFormats.includes(format)) return { exportResults: state.exportResults };
-  const root = state.generated; const mimeType = format === 'PDF' ? PDF_MIME : WORD_MIME;
+  const root = state.generated; const mimeType = format === 'PDF' ? PDF_MIME : format === 'PPTX' ? PPTX_MIME : WORD_MIME;
   const variants = await prisma.generatedArtifact.findMany({ where: { parentArtifactId: root.id, deletedAt: null }, orderBy: { id: 'asc' } });
   const results = [...state.exportResults];
   for (const artifact of [root, ...variants]) {
     const record = await prisma.generatedArtifactExport.upsert({
       where: { artifactId_format: { artifactId: artifact.id, format } },
       create: { artifactId: artifact.id, ownerUserId: artifact.ownerUserId, format, status: 'QUEUED', mimeType },
-      update: { status: 'QUEUED', errorCode: null, errorMessage: null, deletedAt: null },
+      update: { status: 'QUEUED', mimeType, errorCode: null, errorMessage: null, deletedAt: null },
     });
     const task = await tasks.createTask(artifact.ownerUserId, {
       operationId: `artifact-auto-export-${artifact.id}-${format.toLowerCase()}`,
@@ -111,10 +112,11 @@ async function queueFormat(state, format) {
 }
 
 async function exportDocx(state) { return { ...(await queueFormat(state, 'DOCX')), stage: 'export_pdf' }; }
-async function exportPdf(state) { return { ...(await queueFormat(state, 'PDF')), stage: 'finalize' }; }
+async function exportPdf(state) { return { ...(await queueFormat(state, 'PDF')), stage: 'export_pptx' }; }
+async function exportPptx(state) { return { ...(await queueFormat(state, 'PPTX')), stage: 'finalize' }; }
 async function finalize(state) {
   if (state.taskId) await tasks.updateTask(state.taskId, { status: 'SUCCEEDED', progress: 100, stage: '内容生成完成，格式导出已排队', resultType: 'ARTIFACT', resultId: state.artifactId, resultUrl: `#/artifacts/${state.artifactId}` });
   return { stage: 'completed' };
 }
 
-module.exports = { resolveLearningContext, planArtifact, retrieveKnowledge, buildOutline, generateSections, validateSchema, repairContent, qualityCheck, buildPreview, persistArtifact, exportDocx, exportPdf, finalize };
+module.exports = { resolveLearningContext, planArtifact, retrieveKnowledge, buildOutline, generateSections, validateSchema, repairContent, qualityCheck, buildPreview, persistArtifact, exportDocx, exportPdf, exportPptx, finalize };

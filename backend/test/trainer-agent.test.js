@@ -2,8 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const prisma = require('../src/config/prisma');
-const workflow = require('../src/modules/dify/trainer-workflow.service');
-const { TrainerWorkflowError } = require('../src/modules/dify/trainer.errors');
+const workflow = require('../src/modules/agent/trainer/trainer-runtime.service');
+const { TrainerAgentError } = require('../src/modules/agent/trainer/trainer.errors');
 const {
   sanitizePublicQuestion,
   stringifyHasPublicLeak,
@@ -19,7 +19,6 @@ const {
 } = require('../src/modules/agent/diagnostician/diagnostician.service');
 
 const originalRunTrainerWorkflow = workflow.runTrainerWorkflow;
-const originalBuildDifyUser = workflow.buildDifyUser;
 
 function sampleQuestion(key = 'q1', correct = 'B') {
   return {
@@ -44,7 +43,6 @@ function sampleQuestion(key = 'q1', correct = 'B') {
 
 function createMockWorkflow(overrides = {}) {
   const calls = [];
-  workflow.buildDifyUser = () => 'discimind-test-user';
   workflow.runTrainerWorkflow = async (input) => {
     calls.push(input);
     if (overrides[input.mode]) return overrides[input.mode](input, calls);
@@ -100,7 +98,6 @@ function createMockWorkflow(overrides = {}) {
 
 function restoreWorkflow() {
   workflow.runTrainerWorkflow = originalRunTrainerWorkflow;
-  workflow.buildDifyUser = originalBuildDifyUser;
 }
 
 async function getFixture(t) {
@@ -629,7 +626,7 @@ test('diagnostic workflow failure updates session and run record as FAILED', asy
   const requestId = `test_fail_diag_${Date.now()}`;
   createMockWorkflow({
     diagnostic_pre_test: () => {
-      throw new TrainerWorkflowError('TRAINER_TIMEOUT', 'Dify 训练师请求超时', 504);
+      throw new TrainerAgentError('TRAINER_TIMEOUT', '本地训练师请求超时', 504);
     },
   });
 

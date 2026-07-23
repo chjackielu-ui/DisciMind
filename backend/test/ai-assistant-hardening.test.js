@@ -191,33 +191,25 @@ test('multi-agent planning persists serial dependencies and independent parallel
   assert.match(chained, /真实上游输出/); assert.match(chained, /原始任务/);
 });
 
-test('blocking Dify Agent runtime receives user identity and AbortSignal', async () => {
+test('historical Dify runtime labels execute through the local LangChain model', async () => {
   const originalFetch = global.fetch;
-  const originalBaseUrl = process.env.DIFY_CHATFLOW_BASE_URL;
-  const originalApiKey = process.env.DIFY_CHATFLOW_API_KEY;
   const controller = new AbortController();
-  let requestBody;
+  let captured;
   try {
-    process.env.DIFY_CHATFLOW_BASE_URL = 'https://dify.example.test/v1';
-    process.env.DIFY_CHATFLOW_API_KEY = 'test-key';
-    global.fetch = async (_url, options) => {
-      assert.equal(options.signal, controller.signal);
-      requestBody = JSON.parse(options.body);
-      return new Response(JSON.stringify({ answer: 'Dify success', conversation_id: 'conv-1', message_id: 'msg-1' }), {
-        status: 200, headers: { 'content-type': 'application/json' },
-      });
-    };
+    global.fetch = async () => { throw new Error('historical provider must not call Dify'); };
     const result = await agentRuntime.runAgent({
-      version: { runtimeProvider: 'DIFY_CHATFLOW', runtimeConfigJson: {} },
-      userId: 3, conversation: { difyConversationId: null }, question: '解释逻辑回归', records: [], images: [], signal: controller.signal,
+      version: { runtimeProvider: 'DIFY_CHATFLOW', runtimeConfigJson: {}, systemPrompt: '你是学习助手', maxOutputTokens: 500 },
+      userId: 3, conversation: { difyConversationId: null }, history: [], memories: [],
+      question: '解释逻辑回归', records: [], images: [], signal: controller.signal,
+    }, async (messages, options) => {
+      captured = { messages, options };
+      return { content: 'LangChain success', usage: {} };
     });
-    assert.equal(result.content, 'Dify success');
-    assert.equal(requestBody.user, 'discimind-user-3');
-    assert.equal(requestBody.query, '解释逻辑回归');
+    assert.equal(result.content, 'LangChain success');
+    assert.equal(captured.options.signal, controller.signal);
+    assert.match(captured.messages.at(-1).content, /逻辑回归/);
   } finally {
     global.fetch = originalFetch;
-    if (originalBaseUrl === undefined) delete process.env.DIFY_CHATFLOW_BASE_URL; else process.env.DIFY_CHATFLOW_BASE_URL = originalBaseUrl;
-    if (originalApiKey === undefined) delete process.env.DIFY_CHATFLOW_API_KEY; else process.env.DIFY_CHATFLOW_API_KEY = originalApiKey;
   }
 });
 

@@ -4,6 +4,9 @@
 const { PrismaClient } = require('@prisma/client')
 const { PrismaMariaDb } = require('@prisma/adapter-mariadb')
 const bcrypt = require('bcryptjs')
+const crypto = require('crypto')
+const fs = require('fs/promises')
+const path = require('path')
 const { loadEnv } = require('../src/config/env')
 const { getDatabaseConfig } = require('../src/config/database')
 const { seedAgentMarketplace } = require('./seeds/seedAgentMarketplace')
@@ -13,6 +16,8 @@ const { seedPermissionCatalog } = require('../src/services/admin-permission.seed
 
 loadEnv()
 
+const knowledgeStorage = require('../src/modules/knowledge-base/knowledge-storage.service')
+
 const adapter = new PrismaMariaDb(getDatabaseConfig())
 
 const prisma = new PrismaClient({ adapter })
@@ -20,6 +25,122 @@ const PASSWORD_HASH = bcrypt.hashSync('123456', 10)
 
 function log(message) {
   console.log(`[seed] ${message}`)
+}
+
+async function seedPublicKnowledgeSource(adminUser) {
+  const assetPath = path.resolve(__dirname, 'seed-assets/408-public-knowledge.md')
+  const buffer = await fs.readFile(assetPath)
+  const checksum = crypto.createHash('sha256').update(buffer).digest('hex')
+  const knowledgeBase = await prisma.knowledgeBase.upsert({
+    where: { operation_id: 'seed-408-public-knowledge' },
+    update: {
+      name: '408 计算机基础公共知识库',
+      owner_user_id: adminUser.user_id,
+      provider: String(process.env.KNOWLEDGE_EMBEDDING_PROVIDER || 'BAILIAN').toUpperCase(),
+      ownership_mode: 'LOCAL_MANAGED',
+      marketplace_visibility: 'PUBLIC',
+      deleted_at: null,
+    },
+    create: {
+      name: '408 计算机基础公共知识库',
+      scope_type: 'PLATFORM',
+      owner_user_id: adminUser.user_id,
+      description: '用于系统文件智能体的 408 数据结构、操作系统、计算机组成原理与计算机网络基础资料。',
+      status: 'active',
+      provider: String(process.env.KNOWLEDGE_EMBEDDING_PROVIDER || 'BAILIAN').toUpperCase(),
+      ownership_mode: 'LOCAL_MANAGED',
+      marketplace_visibility: 'PUBLIC',
+      marketplace_status: 'PROCESSING',
+      operation_id: 'seed-408-public-knowledge',
+    },
+  })
+
+  let document = await prisma.knowledgeDocument.findUnique({ where: { operation_id: 'seed-408-public-knowledge-document' } })
+  if (!document) {
+    const stored = await knowledgeStorage.storeUpload({
+      userId: adminUser.user_id,
+      knowledgeBaseId: knowledgeBase.knowledge_base_id,
+      buffer,
+      extension: '.md',
+      mimeType: 'text/markdown',
+    })
+    try {
+      document = await prisma.knowledgeDocument.create({ data: {
+        knowledge_base_id: knowledgeBase.knowledge_base_id,
+        title: '408 计算机基础核心知识',
+        original_filename: '408-public-knowledge.md',
+        file_ext: '.md',
+        file_size_bytes: buffer.length,
+        mime_type: 'text/markdown',
+        storage_type: stored.storageType,
+        file_url: stored.fileUrl,
+        storage_key: stored.storageKey,
+        storage_bucket: stored.storageBucket,
+        storage_etag: stored.storageEtag,
+        storage_version_id: stored.storageVersionId,
+        scope_type: 'PLATFORM',
+        visibility: 'SCHOOL',
+        owner_user_id: adminUser.user_id,
+        parse_status: 'UPLOADED',
+        review_status: 'APPROVED',
+        marketplace_status: 'UPLOADED',
+        processing_state: 'uploaded',
+        file_checksum: checksum,
+        operation_id: 'seed-408-public-knowledge-document',
+        metadata_json: { source: 'seed-assets/408-public-knowledge.md', reviewed: true },
+      } })
+    } catch (error) {
+      await knowledgeStorage.deleteDocumentObject({
+        storage_type: stored.storageType,
+        file_url: stored.fileUrl,
+        storage_key: stored.storageKey,
+        storage_bucket: stored.storageBucket,
+        storage_version_id: stored.storageVersionId,
+      }).catch(() => {})
+      throw error
+    }
+  }
+
+  const embedded = document.parse_status === 'EMBEDDED' && document.marketplace_status === 'READY'
+  await prisma.knowledgeBase.update({ where: { knowledge_base_id: knowledgeBase.knowledge_base_id }, data: {
+    document_count: 1,
+    total_size_bytes: BigInt(document.file_size_bytes || buffer.length),
+    marketplace_status: embedded ? 'PUBLIC' : 'PROCESSING',
+  } })
+  if (!embedded) {
+    const operationId = 'KNOWLEDGE_INDEXING:seed-408-public-knowledge-index'
+    const existingTask = await prisma.asyncTask.findUnique({
+      where: { userId_operationId: { userId: adminUser.user_id, operationId } },
+    })
+    if (!existingTask) {
+      await prisma.asyncTask.create({ data: {
+        userId: adminUser.user_id,
+        operationId,
+        taskType: 'KNOWLEDGE_INDEXING',
+        title: '正在建立 408 公共知识索引',
+        description: '解析真实种子文档并写入当前知识库向量存储。',
+        status: 'QUEUED',
+        stage: 'VALIDATING',
+        progressMode: 'STAGE_ONLY',
+        relatedResourceType: 'KNOWLEDGE_DOCUMENT',
+        relatedResourceId: String(document.document_id),
+        resultType: 'KNOWLEDGE_BASE',
+        resultId: String(knowledgeBase.knowledge_base_id),
+        resultUrl: '#/student/agents/knowledge',
+        cancellable: true,
+        maxAttempts: 4,
+        metadataJson: { knowledgeBaseId: knowledgeBase.knowledge_base_id, originalName: document.original_filename },
+      } })
+    } else if (['FAILED', 'CANCELLED'].includes(existingTask.status)) {
+      await prisma.asyncTask.update({ where: { id: existingTask.id }, data: {
+        status: 'QUEUED', stage: 'VALIDATING', attemptCount: 0, nextRunAt: new Date(),
+        errorCode: null, errorMessage: null, lockedBy: null, lockedAt: null,
+        completedAt: null, cancelledAt: null,
+      } })
+    }
+  }
+  log(`408 公共知识源已${embedded ? '完成索引' : '进入索引队列'}`)
+  return { knowledgeBase, document }
 }
 
 async function upsertUser(username, data) {
@@ -1873,6 +1994,13 @@ async function main() {
         data: {
           title: tmpl.title,
           description: tmpl.description,
+          owner_type: 'SYSTEM',
+          source_type: 'SYSTEM',
+          is_published: true,
+          is_default: tmpl.key === 'sys_standard',
+          course_id: null,
+          knowledge_point_id: null,
+          status: 'active',
           updated_at: new Date(),
         },
       });
@@ -1886,7 +2014,8 @@ async function main() {
           source_type: 'SYSTEM',
           is_published: true,
           is_default: tmpl.key === 'sys_standard',
-          course_id: mlCourse?.course_id,
+          course_id: null,
+          knowledge_point_id: null,
           status: 'active',
         },
       });
@@ -1934,6 +2063,7 @@ async function main() {
     log,
   })
 
+  await seedPublicKnowledgeSource(adminUser)
   await seedAgentMarketplace({ prisma, upsertUser, upsertProfile, adminUser, studentUser, log })
   const rbacSeed = await seedPermissionCatalog(prisma, {
     assignUncoveredAdmins: true,

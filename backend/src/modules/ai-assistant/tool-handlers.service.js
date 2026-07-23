@@ -135,7 +135,7 @@ function buildRegistry(options = {}) {
     handler: (input, context) => teacherAnalytics.buildWorkbench(context.user, { course_id: input.courseId, teaching_class_id: input.teachingClassId, range: input.range }),
   });
   registry.register({
-    name: 'execute_agent', description: '执行用户已选择或自动匹配且通过权限校验的 MODEL 或 Dify Agent。', roles: ['student', 'teacher', 'admin'], riskLevel: 'medium',
+    name: 'execute_agent', description: '通过后端 LangChain 运行时执行已选择或自动匹配且通过权限校验的 Agent。', roles: ['student', 'teacher', 'admin'], riskLevel: 'medium',
     timeoutMs: Math.max(30_000, Number(process.env.AI_AGENT_TIMEOUT_MS) || 150_000), idempotent: true, maxRetries: 1,
     inputSchema: z.object({ agentId: z.number().int().positive(), query: z.string().min(1).max(8000), knowledgeBaseIds: z.array(z.number().int().positive()).max(10).default([]) }),
     parameters: objectParameters({ agentId: { type: 'integer' }, query: { type: 'string' }, knowledgeBaseIds: { type: 'array', items: { type: 'integer' } } }),

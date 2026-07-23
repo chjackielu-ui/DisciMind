@@ -12,6 +12,8 @@ import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { escapeHtml } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 import { LearningPdfViewer } from '../services/learning-pdf-viewer.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
+import { safeRandomId } from '../utils/random-id.js'
 
 const state = {
   rows: [], total: 0, courses: [], classes: [], selected: new Set(), view: 'list', lifecycle: null,
@@ -237,7 +239,7 @@ function selectedItems() { return state.rows.filter(item => state.selected.has(i
 async function openShareDialog(items) {
   if (!items.length) return; const dialog = document.getElementById('artifact-share-dialog'); dialog.dataset.items = JSON.stringify(items.map(payloadItem))
   const preferredCourse = items.every(item => Number(item.course_id) === Number(items[0].course_id)) ? items[0].course_id : ''
-  const course = document.getElementById('artifact-share-course'); course.innerHTML = '<option value="">请选择课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join(''); course.value = preferredCourse || ''
+  const course = document.getElementById('artifact-share-course'); course.innerHTML = '<option value="">请选择课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join(''); course.value = preferredCourse || ''
   document.getElementById('artifact-share-hint').textContent = `将对 ${items.length} 项逐项校验权限；一个失败不会影响其他产物。`; await loadClasses(course.value); dialog.showModal()
 }
 
@@ -245,7 +247,7 @@ async function submitShare(event) {
   event.preventDefault(); const button = document.getElementById('artifact-share-submit'); const dialog = document.getElementById('artifact-share-dialog'); const items = JSON.parse(dialog.dataset.items || '[]'); const classId = Number(document.getElementById('artifact-share-class').value)
   if (!classId) { showToast('请选择教学班', 'warning'); return }
   setBusy(button, true, '下发中…')
-  try { const result = await batchTeacherArtifacts('share', items, { teaching_class_id: classId, distribution_type: document.getElementById('artifact-share-type').value, description: document.getElementById('artifact-share-description').value.trim(), operation_id: crypto.randomUUID() }); const failed = result.data?.failedItems || []; const succeeded = result.data?.successIds?.length || 0; dialog.close(); showToast(failed.length ? `成功 ${succeeded} 项，失败 ${failed.length} 项：${failed[0].message}` : `已下发 ${succeeded} 项，学生端和通知已更新`, failed.length ? 'warning' : 'success'); state.selected.clear(); await loadRows({ silent: true }) }
+  try { const result = await batchTeacherArtifacts('share', items, { teaching_class_id: classId, distribution_type: document.getElementById('artifact-share-type').value, description: document.getElementById('artifact-share-description').value.trim(), operation_id: safeRandomId('artifact_share') }); const failed = result.data?.failedItems || []; const succeeded = result.data?.successIds?.length || 0; dialog.close(); showToast(failed.length ? `成功 ${succeeded} 项，失败 ${failed.length} 项：${failed[0].message}` : `已下发 ${succeeded} 项，学生端和通知已更新`, failed.length ? 'warning' : 'success'); state.selected.clear(); await loadRows({ silent: true }) }
   catch (error) { showToast(error.message || '下发失败', 'error') } finally { setBusy(button, false) }
 }
 
@@ -286,7 +288,7 @@ function bind() {
 }
 
 async function loadCourses() {
-  try { const response = await getTeacherCourses({ page_size: 100 }); state.courses = response.data?.list || []; document.getElementById('artifact-course').innerHTML = '<option value="">全部课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('') } catch { state.courses = [] }
+  try { const response = await getTeacherCourses({ page_size: 100 }); state.courses = response.data?.list || []; document.getElementById('artifact-course').innerHTML = '<option value="">全部课程</option>' + state.courses.map(item => `<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join('') } catch { state.courses = [] }
 }
 
 export async function renderTeacherArtifacts(app) {

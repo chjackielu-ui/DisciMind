@@ -1,5 +1,5 @@
 const prisma = require('../../config/prisma');
-const dify = require('../learning-agent/adapters/dify-knowledge.adapter');
+const knowledgeProvider = require('../knowledge-base/knowledge-provider.service');
 const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { actualPageNumber } = require('./source-utils');
 const UNAVAILABLE_KNOWLEDGE_BASE_STATUSES = new Set(['DELETING', 'DELETED', 'DISABLED', 'OFFLINE', 'FAILED']);
@@ -35,7 +35,9 @@ function canAccessKnowledgeBase(kb, userId, scope) {
 }
 
 function isKnowledgeBaseAvailable(kb) {
-  return Boolean(kb?.dify_dataset_id) && !UNAVAILABLE_KNOWLEDGE_BASE_STATUSES.has(String(kb?.marketplace_status || '').toUpperCase());
+  const documents = Array.isArray(kb?.documents) ? kb.documents : [];
+  const hasEmbeddedDocument = documents.some((doc) => doc.parse_status === 'EMBEDDED' && doc.marketplace_status === 'READY');
+  return hasEmbeddedDocument && !UNAVAILABLE_KNOWLEDGE_BASE_STATUSES.has(String(kb?.marketplace_status || '').toUpperCase());
 }
 
 async function resolveKnowledgeBaseRefs(userId, refs = []) {
@@ -62,7 +64,14 @@ async function listAccessibleKnowledgeBases(userId, query = {}) {
   const scope = await loadUserScope(userId);
   const records = await prisma.knowledgeBase.findMany({
     where: { deleted_at: null, status: 'active' },
-    include: { teaching_class: { select: { course_id: true } } },
+    include: {
+      teaching_class: { select: { course_id: true } },
+      documents: {
+        where: { deleted_at: null, parse_status: 'EMBEDDED', marketplace_status: 'READY' },
+        select: { document_id: true, parse_status: true, marketplace_status: true },
+        take: 1,
+      },
+    },
     orderBy: { updated_at: 'desc' }, take: 200,
   });
   const q = String(query.q || query.search || '').trim().toLowerCase();
@@ -175,13 +184,13 @@ async function retrieveFromKnowledgeBases(knowledgeBases, question, options = {}
   for (let offset = 0; offset < usable.length; offset += concurrency) {
     const batch = usable.slice(offset, offset + concurrency);
     const batchResults = await Promise.allSettled(batch.map(async (kb) => {
-      const result = await dify.retrieveFromMultipleDatasets([kb.dify_dataset_id], question, {
+      const result = await knowledgeProvider.retrieveFromMultipleDatasets([kb.knowledge_base_id], question, {
         topK: options.topK || 5,
         scoreThreshold: options.scoreThreshold ?? 0.55,
         maxContextChars: options.maxContextChars || 8000,
       });
       return result.records.map(item => {
-        const doc = kb?.documents?.find(record => record.dify_document_id === item.documentId || record.original_filename === item.documentName);
+        const doc = kb?.documents?.find(record => String(record.document_id) === String(item.documentId) || record.original_filename === item.documentName);
         return {
           knowledgeBaseId: kb?.knowledge_base_id,
           knowledgeBaseName: kb ? safeKnowledgeBaseName(kb) : '',

@@ -5,10 +5,8 @@ const fs = require('node:fs/promises');
 const http = require('node:http');
 const path = require('node:path');
 
-// The mastery-gate fixture deliberately exercises the deterministic runtime
-// path so the API lifecycle test never depends on an external model provider.
-process.env.AGENT_MODE = 'dify';
-process.env.LANGGRAPH_ENABLED = 'false';
+// The mastery-gate fixture exercises a deterministic LangGraph node, so this
+// API lifecycle test does not depend on an external model provider.
 
 const app = require('../src/app');
 const prisma = require('../src/config/prisma');
@@ -183,7 +181,7 @@ test('learning flow closes create, save, reload, validate, execute, idempotent r
 
   const executed = expectSuccess(await request('POST', `/learning-workflows/sessions/${sessionId}/execute-current`, token, { nodeId: 'gate' }));
   t.diagnostic('executed deterministic mastery gate');
-  assert.equal(executed.nodeCompleted, true);
+  assert.equal(executed.execution.nodeCompleted, true);
   const afterExecute = expectSuccess(await request('GET', `/learning-workflows/sessions/${sessionId}`, token));
   const executionId = afterExecute.currentNodeExecutionId;
   assert.ok(executionId);
@@ -192,7 +190,7 @@ test('learning flow closes create, save, reload, validate, execute, idempotent r
   const completed = expectSuccess(await request('POST', `/learning-workflows/sessions/${sessionId}/complete-node`, token, {
     nodeId: 'gate', expectedNodeExecutionId: executionId, clientActionId: actionId, result: { verified: true },
   }));
-  assert.equal(completed.isFlowCompleted, true);
+  assert.equal(completed.execution.flowCompleted, true);
   assert.equal(completed.session.status, 'COMPLETED');
   assert.equal(completed.session.current_node_id, null);
   t.diagnostic('completed workflow');
@@ -200,8 +198,9 @@ test('learning flow closes create, save, reload, validate, execute, idempotent r
   const replay = expectSuccess(await request('POST', `/learning-workflows/sessions/${sessionId}/complete-node`, token, {
     nodeId: 'gate', expectedNodeExecutionId: executionId, clientActionId: actionId, result: { verified: true },
   }));
-  assert.equal(replay.idempotentReplay, true);
-  assert.equal(replay.isFlowCompleted, true);
+  assert.equal(replay.execution.flowCompleted, true);
+  assert.equal(replay.nodeRunId, completed.nodeRunId);
+  assert.equal(replay.session.status, 'COMPLETED');
 
   const deleted = expectSuccess(await request('DELETE', `/learning-workflows/templates/${templateId}`, token));
   assert.equal(deleted.deletedCount, 1);

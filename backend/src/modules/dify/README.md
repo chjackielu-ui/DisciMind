@@ -1,10 +1,9 @@
 # Dify 模块
 
-本模块负责封装 Dify API，包括：
+本目录仅保留历史 HTTP 路由兼容：
 
-- Chat 对话接口
-- Workflow 工作流接口
-- RAG 知识库检索接口
+- 已停用的 Chat/Workflow 路由返回 HTTP 410 和迁移提示。
+- 训练师兼容路由转发到本地 learning-agent runtime。
+- 不创建 Dify 客户端，不读取 Dify 密钥，也不发起 Dify 外连。
 
-Dify 在本项目中作为主要的智能体编排平台。
-所有 Dify API Key 必须从环境变量读取，前端不得直接暴露。
+正式智能体运行由 LangChain + LangGraph 负责，知识库由后端存储与向量 provider 负责。

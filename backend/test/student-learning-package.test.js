@@ -45,6 +45,27 @@ test('knowledge card fallback remains schema-valid and personalized', () => {
   assert.ok(cards.every((card) => card.generator.generationMode === 'RULE'));
 });
 
+test('document fallbacks remain schema-valid and keep the single-course scope', () => {
+  const handoutRequirements = packages.buildDocumentRequirements('STUDY_HANDOUT', context);
+  const handout = packages.fallbackHandoutContent(context, handoutRequirements);
+  assert.deepEqual(handout.knowledgePoints, [context.knowledgePointName]);
+  assert.match(handout.sourceNotice, /系统课程与知识点数据/);
+  assert.ok(handout.sections.length >= 3);
+
+  const examRequirements = packages.buildDocumentRequirements('EXAM_PAPER', context);
+  const exam = packages.fallbackExamContent(context, examRequirements);
+  assert.deepEqual(exam.knowledgePoints, [context.knowledgePointName]);
+  assert.equal(exam.questions.length, 8);
+  assert.equal(exam.questions.reduce((sum, item) => sum + item.score, 0), 100);
+  assert.match(exam.sourceNotice, /系统课程与知识点数据/);
+});
+
+test('document fallback is limited to upstream model failures', () => {
+  assert.equal(packages.isDocumentModelUnavailable({ code: 'CONTENT_MODEL_CALL_FAILED' }), true);
+  assert.equal(packages.isDocumentModelUnavailable({ code: 'CONTENT_SCHEMA_REPAIR_FAILED' }), true);
+  assert.equal(packages.isDocumentModelUnavailable({ code: 'DOCUMENT_INVALID' }), false);
+});
+
 test('resource package routes, worker dispatch and frontend API are connected', async () => {
   const [routes, worker, api, service] = await Promise.all([
     fs.readFile(path.resolve(__dirname, '../src/routes/student-video.routes.js'), 'utf8'),
@@ -61,4 +82,55 @@ test('resource package routes, worker dispatch and frontend API are connected', 
   assert.match(api, /retryStudentKnowledgeResourcePackage/);
   assert.match(service, /packageCreationLocks/);
   assert.match(service, /RESOURCE_PACKAGE_ACTIVE_LIMIT_PER_USER/);
+});
+
+test('resource package operation id uses a browser-safe random fallback', async () => {
+  const [panel, randomId] = await Promise.all([
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/components/video/LearningMediaPanel.jsx'), 'utf8'),
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/utils/random-id.js'), 'utf8'),
+  ]);
+  assert.match(panel, /safeRandomId\('package'\)/);
+  assert.doesNotMatch(panel, /crypto\?\.randomUUID\?\.\(\)/);
+  assert.match(randomId, /typeof cryptoApi\.randomUUID === 'function'/);
+  assert.match(randomId, /Math\.random\(\)\.toString\(36\)/);
+});
+
+test('browser operation ids avoid direct crypto.randomUUID usage in http-compatible pages', async () => {
+  const files = [
+    '../../frontend/src/components/video/LearningMediaPanel.jsx',
+    '../../frontend/src/pages/student-ai-chat.js',
+    '../../frontend/src/pages/student-dashboard.js',
+    '../../frontend/src/pages/student-learning-flows.js',
+    '../../frontend/src/pages/agent/marketplace-shared.js',
+    '../../frontend/src/pages/teacher-artifacts.js',
+    '../../frontend/src/pages/teacher-knowledge.js',
+    '../../frontend/src/pages/teacher-preparation-immersive.js',
+  ];
+  const contents = await Promise.all(files.map(file => fs.readFile(path.resolve(__dirname, file), 'utf8')));
+  for (const source of contents) {
+    assert.match(source, /safeRandomId/);
+    assert.doesNotMatch(source, /(?:globalThis\.)?crypto\?*\.randomUUID/);
+  }
+});
+
+test('frontend installs a randomUUID fallback before routing starts', async () => {
+  const [entry, polyfill] = await Promise.all([
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/main.js'), 'utf8'),
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/utils/crypto-polyfill.js'), 'utf8'),
+  ]);
+  assert.match(entry, /installCryptoRandomUuidFallback\(\)/);
+  assert.ok(entry.indexOf('installCryptoRandomUuidFallback()') < entry.indexOf('initRouter()'));
+  assert.match(polyfill, /typeof cryptoApi\.randomUUID === 'function'/);
+  assert.match(polyfill, /Object\.defineProperty\(cryptoApi, 'randomUUID'/);
+});
+
+test('resource package keeps browser-rendered video state resumable and downloadable', async () => {
+  const [service, panel] = await Promise.all([
+    fs.readFile(path.resolve(__dirname, '../src/services/student-learning-package.service.js'), 'utf8'),
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/components/video/LearningMediaPanel.jsx'), 'utf8'),
+  ]);
+  assert.match(service, /const videoDownloadUrl = videoTask\.resultUrl \|\| resources\.video\.downloadUrl/);
+  assert.match(service, /downloadUrl:\s*\/\^\\\/api\\\/\//);
+  assert.match(service, /status:\s*\{\s*in:\s*\['WAITING_EXTERNAL',\s*'RUNNING',\s*'SUCCEEDED'\]/);
+  assert.match(panel, /videoTask:\s*resumableVideoTask\(value\.videoTask\)/);
 });

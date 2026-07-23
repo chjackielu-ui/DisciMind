@@ -1,5 +1,4 @@
 const { success } = require('../../../utils/response');
-const { TrainerWorkflowError } = require('../../dify/trainer.errors');
 const { TrainerAgentError } = require('./trainer.errors');
 const trainerService = require('./trainer.service');
 const {
@@ -14,7 +13,7 @@ function getUserId(req) {
 }
 
 function sendError(res, scope, err) {
-  const knownError = err instanceof TrainerAgentError || err instanceof TrainerWorkflowError;
+  const knownError = err instanceof TrainerAgentError;
   const code = knownError
     ? err.code
     : (err.code || 'TRAINER_INTERNAL_ERROR');

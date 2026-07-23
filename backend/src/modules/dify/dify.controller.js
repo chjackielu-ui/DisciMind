@@ -1,48 +1,25 @@
-const dify = require('./dify.service');
-const { sseError } = require('../../utils/public-error');
-
-async function chat(req, res, next) {
-  if (String(req.body?.response_mode || '').toLowerCase() !== 'streaming') {
-    try {
-      const data = await dify.chat(req.user, req.body, { signal: req.signal });
-      return res.json({ code: 0, message: 'ok', data });
-    } catch (error) { return next(error); }
-  }
-
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  req.once('aborted', abort);
-  res.once('close', abort);
-  res.status(200);
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
-  try {
-    for await (const chunk of dify.streamChat(req.user, req.body, { signal: controller.signal })) {
-      if (res.destroyed || controller.signal.aborted) break;
-      res.write(`event: delta\ndata: ${JSON.stringify({ content: chunk.content, upstream_event: chunk.event || null })}\n\n`);
-    }
-    if (!res.destroyed) res.write('event: done\ndata: {"status":"completed"}\n\n');
-  } catch (error) {
-    if (!res.destroyed) res.write(`event: error\ndata: ${JSON.stringify(sseError(error, req, 'Dify 对话暂时不可用'))}\n\n`);
-  } finally {
-    req.off('aborted', abort);
-    res.off('close', abort);
-    if (!res.writableEnded) res.end();
-  }
+function migrationResponse(res) {
+  return res.status(410).json({
+    code: 41001,
+    message: 'Dify 接口已停用，请使用现有智能体、训练师或知识库业务接口。',
+    data: { migratedTo: 'LANGCHAIN_LANGGRAPH' },
+  });
 }
 
-async function workflow(req, res, next) {
-  try {
-    const data = await dify.workflow(req.user, req.body, { signal: req.signal });
-    return res.json({ code: 0, message: 'ok', data });
-  } catch (error) { return next(error); }
+async function chat(_req, res) {
+  return migrationResponse(res);
+}
+
+async function workflow(_req, res) {
+  return migrationResponse(res);
 }
 
 async function health(_req, res) {
-  const data = await dify.health();
-  return res.status(data.healthy || !data.configured ? 200 : 503).json({ code: 0, message: 'ok', data });
+  return res.json({
+    code: 0,
+    message: 'ok',
+    data: { configured: false, healthy: false, retired: true, migratedTo: 'LANGCHAIN_LANGGRAPH' },
+  });
 }
 
 module.exports = { chat, workflow, health };

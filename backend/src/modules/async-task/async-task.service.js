@@ -387,7 +387,7 @@ async function retryTask(userId, id) {
     status: 'QUEUED', stage: '等待重试', progress: task.progressMode === 'DETERMINATE' ? 0 : null,
     errorCode: null, errorMessage: null, attemptCount: 0, nextRunAt: new Date(),
     maxAttempts: task.taskType === 'KNOWLEDGE_INDEXING'
-      ? Math.max(task.maxAttempts, Math.max(1, Math.min(9, Number(process.env.KNOWLEDGE_DIFY_AUTO_RETRIES || 5))) + 1)
+      ? Math.max(task.maxAttempts, Math.max(1, Math.min(9, Number(process.env.KNOWLEDGE_INDEXING_AUTO_RETRIES || 3))) + 1)
       : task.maxAttempts,
     startedAt: null, completedAt: null, cancelledAt: null, dismissedAt: null, lockedBy: null, lockedAt: null,
     metadataJson: { ...(task.metadataJson || {}), manuallyRetriedAt: new Date().toISOString() },

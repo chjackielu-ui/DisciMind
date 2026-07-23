@@ -11,6 +11,7 @@ import {
 } from '../api/teacher.js'
 import { iconSearch, iconRefresh, iconUser } from '../utils/icons.js'
 import { initAllAutoResize } from '../utils/auto-resize.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 export async function renderTeacherStudents(app) {
   let user = getUser()
@@ -471,7 +472,7 @@ export async function renderTeacherStudents(app) {
       courseList.forEach(c => {
         const opt = document.createElement('option')
         opt.value = c.course_id
-        opt.textContent = c.course_name
+        opt.textContent = teacherCourseLabel(c)
         select.appendChild(opt)
       })
     } catch (err) {

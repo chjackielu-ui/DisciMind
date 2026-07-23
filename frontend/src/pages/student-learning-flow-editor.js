@@ -193,7 +193,7 @@ function initEmpty(){
   ES.graph={entryNodeId:'',nodes:[],edges:[]};
   ES.description='';ES.courseId=null;ES.knowledgePointId=null;
   const draft=readDraft();
-  ES.draftPlan=draft?{creationMode:draft.creationMode||'custom',goalText:draft.goalText||draft.title||'',courseId:draft.courseId,knowledgePointId:draft.knowledgePointId}:null;
+  ES.draftPlan=draft?{creationMode:draft.creationMode||'custom',goalText:draft.goalText||draft.title||'',learningGoalId:draft.learningGoalId||null,courseId:draft.courseId,knowledgePointId:draft.knowledgePointId}:null;
   ES.title=draft?.title||'';ES.description=draft?.description||'';
   ES.courseId=draft?.courseId||null;ES.knowledgePointId=draft?.knowledgePointId||null;
   ES.settings={...ES.settings,...(draft?.settings||{})};
@@ -917,7 +917,7 @@ async function doSave(auto=false){
     if(ES.draftPlan){
       const versionId=ES.template.latestVersion?.version_id;
       if(!versionId)throw new Error('学习流已保存，但未返回固定版本，无法创建学习计划');
-      const plan=await studentLearningPlanApi.create({courseId:Number(ES.courseId),knowledgePointId:Number(ES.knowledgePointId),goalText:ES.draftPlan.goalText||ES.title,workflowTemplateId:Number(ES.templateId),workflowVersionId:Number(versionId),creationMode:ES.draftPlan.creationMode||'custom',status:'ready',targetMastery:ES.settings.target_mastery,completionMode:ES.settings.completion_mode,estimatedMinutes:ES.settings.estimated_minutes});
+      const plan=await studentLearningPlanApi.create({courseId:Number(ES.courseId),knowledgePointId:Number(ES.knowledgePointId),...(ES.draftPlan.learningGoalId?{learningGoalId:Number(ES.draftPlan.learningGoalId)}:{goalText:ES.draftPlan.goalText||ES.title}),workflowTemplateId:Number(ES.templateId),workflowVersionId:Number(versionId),creationMode:ES.draftPlan.creationMode||'custom',status:'ready',targetMastery:ES.settings.target_mastery,completionMode:ES.settings.completion_mode,estimatedMinutes:ES.settings.estimated_minutes});
       ES.learningPlan=plan.data||plan;ES.draftPlan=null;
     }
     sessionStorage.removeItem(FLOW_DRAFT_STORAGE_KEY);

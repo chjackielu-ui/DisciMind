@@ -42,6 +42,7 @@ class AsyncTaskWorker {
       handler,
       external: Boolean(options.external),
       local: options.local === undefined ? !options.external : Boolean(options.local),
+      externalFailure: options.externalFailure === undefined ? Boolean(options.external) : Boolean(options.externalFailure),
     });
     return this;
   }
@@ -177,22 +178,8 @@ class AsyncTaskWorker {
         code: 'KNOWLEDGE_DOCUMENT_MISSING', permanent: true,
         userMessage: '知识库处理失败，可以重新上传或重新建立索引。',
       });
-      const knowledge = require('../knowledge-base/knowledge-base.service');
-      if (task.status !== 'WAITING_EXTERNAL' || doc.processing_state !== 'indexing' || !doc.dify_batch_id) {
-        return require('../knowledge-base/knowledge-document-pipeline.service').processDocumentTask(task, signal);
-      }
-      if (Date.now() - new Date(task.createdAt).getTime() >= this.externalMaxAgeMs) {
-        throw Object.assign(new Error('外部知识库任务等待超时'), {
-          code: 'EXTERNAL_TASK_TIMEOUT', permanent: true,
-          userMessage: '知识库处理等待超时，可以重新上传或重新建立索引。',
-        });
-      }
-      await knowledge.refreshStatus(task.userId, doc.knowledge_base_id, { throwOnSyncError: true });
-      const refreshed = await prisma.asyncTask.findUnique({ where: { id: task.id } });
-      if (TERMINAL_STATUSES.includes(refreshed?.status)) return { terminal: true };
-      if (refreshed?.status === 'QUEUED') return { status: 'QUEUED', nextRunAt: refreshed.nextRunAt };
-      return { status: 'WAITING_EXTERNAL', nextRunAt: new Date(Date.now() + this.externalScanMs) };
-    }, { external: true, local: true });
+      return require('../knowledge-base/knowledge-document-pipeline.service').processDocumentTask(task, signal);
+    }, { external: true, local: true, externalFailure: false });
     return this;
   }
 
@@ -317,7 +304,7 @@ class AsyncTaskWorker {
         });
       } catch (error) {
         if (abortController.signal.aborted || this.stopping) return;
-        await this.handleFailure(task, error, registration.external);
+        await this.handleFailure(task, error, registration.externalFailure);
       } finally {
         clearInterval(execution.heartbeat);
         this.active.delete(task.id);

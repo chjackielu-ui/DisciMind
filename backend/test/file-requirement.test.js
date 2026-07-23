@@ -95,11 +95,12 @@ test('complete requirements enter confirmation state without creating a task', a
     artifactType: 'EXAM_PAPER', courseKey: course.courseKey, knowledgePointKeys: [point.knowledgePointKey], title: '逻辑回归练习',
     difficulty: 'BASIC', examType: 'CUSTOM', questionCount: 20,
     questionTypes: [{ type: 'SINGLE_CHOICE', count: 20, score: 5 }], totalScore: 100, duration: 60,
-    includeAnswers: true, includeAnalysis: true, includeAnswerSheet: false, outputFormats: ['DOCX', 'PDF'],
+    includeAnswers: true, includeAnalysis: true, includeAnswerSheet: false, outputFormats: ['DOCX', 'PDF', 'PPTX'],
   });
   assert.equal(ready.readyForConfirmation, true); assert.deepEqual(ready.missingFields, []); assert.deepEqual(ready.questions, []);
   const persisted = await prisma.marketplaceAgentConversation.findUnique({ where: { id: conversation.id } });
   assert.equal(persisted.requirementStatus, 'READY_TO_CONFIRM');
+  assert.deepEqual(persisted.requirementDraftJson.outputFormats, ['DOCX', 'PDF', 'PPTX']);
   const taskCount = await prisma.asyncTask.count({ where: { relatedResourceType: 'GENERATED_ARTIFACT', metadataJson: { path: '$.conversationId', equals: conversation.id } } }).catch(() => 0);
   assert.equal(taskCount, 0);
 });
@@ -107,6 +108,7 @@ test('complete requirements enter confirmation state without creating a task', a
 test('requirement schemas reject more than 50 questions, duplicate types and unsupported output', () => {
   assert.throws(() => schemas.requirementPatchSchema.parse({ questionCount: 51 }));
   assert.equal(schemas.requirementPatchSchema.parse({ outputFormat: 'PDF' }).outputFormat, 'PDF');
+  assert.deepEqual(schemas.requirementPatchSchema.parse({ outputFormats: ['DOCX', 'PDF', 'PPTX'] }).outputFormats, ['DOCX', 'PDF', 'PPTX']);
   assert.throws(() => schemas.requirementPatchSchema.parse({ outputFormats: ['HTML'] }));
   assert.throws(() => schemas.requirementPatchSchema.parse({ questionTypes: [
     { type: 'SINGLE_CHOICE', count: 2, score: 5 },

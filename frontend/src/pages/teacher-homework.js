@@ -13,6 +13,7 @@ import {
 } from '../api/teacher.js'
 import { iconSearch, iconRefresh } from '../utils/icons.js'
 import { escapeHtml, formatDate } from '../utils/format.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 export async function renderTeacherHomework(app) {
   let user = getUser()
@@ -169,7 +170,7 @@ export async function renderTeacherHomework(app) {
         courseList.forEach(c => {
           const opt = document.createElement('option')
           opt.value = c.course_id
-          opt.textContent = c.course_name
+          opt.textContent = teacherCourseLabel(c)
           sel.appendChild(opt)
         })
       })

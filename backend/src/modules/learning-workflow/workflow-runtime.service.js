@@ -4,6 +4,7 @@
 //   所有 Agent 调用发生在 compiled LangGraph 节点内部。
 //   runtime 只负责创建/启动会话、invoke Graph、resume Graph。
 //   runtime 不再直接调用 runExplainer / runTrainer / runDiagnostician。
+const { isLangGraphEnabled } = require('../../config/agent-runtime');
 const prisma = require('../../config/prisma');
 const { createAgentError } = require('../agent/common/agent.errors');
 const {
@@ -29,11 +30,8 @@ const {
   buildInteraction,
 } = require('./execution-protocol');
 
-// ---- LangGraph 模式支持 ----
-const AGENT_MODE = process.env.AGENT_MODE || 'dify';
-
 function isLangGraphMode() {
-  return AGENT_MODE === 'langgraph' && process.env.LANGGRAPH_ENABLED === 'true';
+  return isLangGraphEnabled();
 }
 
 function getGraphModule() {
@@ -649,11 +647,13 @@ async function executeDiagnosticianSummary(session, node, nodeRun, userId) {
   if (!session.knowledge_point_id) throw createAgentError('MISSING_KNOWLEDGE_POINT', '学习总结需要关联知识点', 400);
   try {
     const context = await buildContextForDiagnostician(session, userId);
-    const agentConfig = await prisma.aiAgentConfig.findFirst({ where: { agent_type: 'DIAGNOSTICIAN', enabled: true } });
-    if (!agentConfig) throw createAgentError('AGENT_CONFIG_NOT_FOUND', '诊断师 Agent 未配置', 500);
-    const { runDiagnosticianWorkflow, buildDifyUser } = require('../dify/agent-dify.service');
-    const { businessResult } = await runDiagnosticianWorkflow({ mode: 'growth_report', requestId: `lw_summary_${session.session_id}`, payload: { student_id: String(userId), knowledge_point_id: String(session.knowledge_point_id), course_id: session.course_id ? String(session.course_id) : null, session_context: context, node_runs: (session.node_runs || []).map((r) => ({ node_type: r.node_type, status: r.status, error_code: r.error_code })) }, locale: 'zh-CN', difyUser: buildDifyUser('diagnostician', Number(userId)) });
-    const summaryData = businessResult?.result || businessResult?.data || businessResult || {};
+    const result = await getGraphModule().runDiagnostician({
+      mode: 'learning_summary',
+      studentContext: diagnosticianStudentContext(context),
+      sessionContext: diagnosticianSessionContext(context, node.type),
+      recentAnswers: diagnosticianRunHistory(session),
+    });
+    const summaryData = requireDiagnosticianOutput(result);
     await prisma.learningSessionNodeRun.update({ where: { node_run_id: nodeRun.node_run_id }, data: { status: 'COMPLETED', completed_at: new Date(), output_summary_json: summaryData, agent_type: 'DIAGNOSTICIAN' } });
     await addSessionEvent(session.session_id, 'NODE_COMPLETED', node.id, '学习总结已生成');
     return { nodeRun, summary: summaryData, nodeCompleted: true };
@@ -663,14 +663,55 @@ async function executeDiagnosticianSummary(session, node, nodeRun, userId) {
 async function executeWrongQuestionRepair(session, node, nodeRun, userId) {
   try {
     const context = await buildContextForDiagnostician(session, userId);
-    const agentConfig = await prisma.aiAgentConfig.findFirst({ where: { agent_type: 'DIAGNOSTICIAN', enabled: true } });
-    if (!agentConfig) throw createAgentError('AGENT_CONFIG_NOT_FOUND', '诊断师 Agent 未配置', 500);
-    const { runDiagnosticianWorkflow, buildDifyUser } = require('../dify/agent-dify.service');
-    const { businessResult } = await runDiagnosticianWorkflow({ mode: 'mental_model', requestId: `lw_repair_${session.session_id}`, payload: { student_id: String(userId), knowledge_point_id: session.knowledge_point_id ? String(session.knowledge_point_id) : null, course_id: session.course_id ? String(session.course_id) : null, session_context: context, focus: 'wrong_question_analysis' }, locale: 'zh-CN', difyUser: buildDifyUser('diagnostician', Number(userId)) });
-    await prisma.learningSessionNodeRun.update({ where: { node_run_id: nodeRun.node_run_id }, data: { status: 'COMPLETED', completed_at: new Date(), output_summary_json: businessResult?.result || businessResult?.data || {}, agent_type: 'DIAGNOSTICIAN' } });
+    const result = await getGraphModule().runDiagnostician({
+      mode: 'wrong_question_diagnosis',
+      studentContext: diagnosticianStudentContext(context),
+      sessionContext: diagnosticianSessionContext(context, node.type),
+      recentAnswers: diagnosticianRunHistory(session),
+    });
+    const repairData = requireDiagnosticianOutput(result);
+    await prisma.learningSessionNodeRun.update({ where: { node_run_id: nodeRun.node_run_id }, data: { status: 'COMPLETED', completed_at: new Date(), output_summary_json: repairData, agent_type: 'DIAGNOSTICIAN' } });
     await addSessionEvent(session.session_id, 'NODE_COMPLETED', node.id, '错题修复分析完成');
-    return { nodeRun, repairResult: businessResult?.result || businessResult?.data || {}, nodeCompleted: true };
+    return { nodeRun, repairResult: repairData, nodeCompleted: true };
   } catch (err) { await markNodeFailed(session.session_id, nodeRun.node_run_id, err); throw err; }
+}
+
+function diagnosticianStudentContext(context) {
+  return {
+    masteryScore: context.mastery_current ?? context.mastery_before ?? 0,
+    consecutiveCorrect: context.consecutive_correct || 0,
+    consecutiveWrong: context.consecutive_wrong || 0,
+    totalCorrect: context.total_correct || 0,
+    totalWrong: context.total_wrong || 0,
+  };
+}
+
+function diagnosticianSessionContext(context, currentNodeType) {
+  return {
+    currentNodeType,
+    nodeIterationCount: context.node_runs?.length || 0,
+    trainingQuestionCount: Number(context.total_correct || 0) + Number(context.total_wrong || 0),
+    currentStrategy: context.adjustment_mode || null,
+  };
+}
+
+function diagnosticianRunHistory(session) {
+  return (session.node_runs || []).map((run) => ({
+    questionSummary: run.node_type || run.node_id,
+    isCorrect: run.status === 'COMPLETED' ? null : false,
+    errorType: run.error_code || null,
+    duration: run.started_at && run.ended_at
+      ? Math.max(0, Math.round((new Date(run.ended_at) - new Date(run.started_at)) / 1000))
+      : 0,
+  }));
+}
+
+function requireDiagnosticianOutput(result) {
+  const output = result?.normalizedOutput;
+  if (!output || output.is_fallback || result?.validationError) {
+    throw createAgentError('DIAGNOSTICIAN_MODEL_FAILED', result?.validationError || output?.error || '诊断师未返回可用结果', 502);
+  }
+  return output;
 }
 
 async function executeMasteryGate(session, node, nodeRun, userId) {

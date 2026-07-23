@@ -178,3 +178,9 @@ test('video task creation is serialized, idempotent while active and transaction
   assert.match(service, /prisma\.\$transaction/);
   assert.match(service, /dedupeKey:\s*`ppt-video:/);
 });
+
+test('completed browser-rendered videos use the existing artifact task result type', async () => {
+  const service = await fs.readFile(path.resolve(__dirname, '../src/services/student-learning-media.service.js'), 'utf8');
+  assert.match(service, /resultType:\s*'ARTIFACT'/);
+  assert.doesNotMatch(service, /resultType:\s*'GENERATED_ARTIFACT'/);
+});

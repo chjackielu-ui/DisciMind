@@ -1,10 +1,5 @@
 const prisma = require('../../../config/prisma');
-const {
-  buildDifyUser,
-  hasUsableConfig,
-  metadataElapsedMs,
-  runDiagnosticianWorkflow: runDifyDiagnosticianWorkflow,
-} = require('../../dify/agent-dify.service');
+const learningAgent = require('../../learning-agent');
 const { createAgentError } = require('../common/agent.errors');
 const { validateDiagnosticianAnalyzeBody } = require('./diagnostician.validator');
 
@@ -43,6 +38,90 @@ const STRATEGY_ALIASES = {
   analogy: 'analogy_bridge',
   misconception: 'misconception_confrontation',
 };
+
+function metadataElapsedMs(metadata) {
+  return metadata?.response_time_ms == null ? null : Math.round(Number(metadata.response_time_ms));
+}
+
+function localDiagnosticianMode(mode) {
+  if (mode === 'growth_report') return 'learning_summary';
+  return 'diagnostic_decision';
+}
+
+function localDiagnosticianInput(params, stats, data) {
+  return {
+    mode: localDiagnosticianMode(params.mode),
+    studentContext: {
+      masteryScore: stats.mastery.current_score,
+      masteryLevel: stats.mastery.current_level,
+      consecutiveCorrect: stats.answer_stats.consecutive_correct_count,
+      consecutiveWrong: stats.answer_stats.consecutive_wrong_count,
+      totalCorrect: stats.answer_stats.correct_count,
+      totalWrong: stats.answer_stats.wrong_count,
+    },
+    sessionContext: {
+      currentNodeType: params.mode,
+      currentStrategy: stats.strategy_history[0]?.strategy || 'unknown',
+      nodeIterationCount: data.recentRuns?.length || 0,
+      trainingQuestionCount: stats.answer_stats.answer_count,
+      remediationRound: 0,
+    },
+    recentAnswers: (data.answers || []).slice(0, 8).map((answer, index) => ({
+      questionSummary: answer.question?.question_text || answer.question?.stem || `答题记录 ${index + 1}`,
+      isCorrect: Boolean(answer.is_correct),
+      errorType: answer.trainer_answer_detail?.deep_evaluation_json?.error_type
+        || answer.trainer_answer_detail?.deep_evaluation_json?.errorType
+        || null,
+      duration: Number(answer.duration_seconds || 0),
+    })),
+    knowledgeBaseContext: '',
+  };
+}
+
+function localBranchResult(params, stats, localResult) {
+  const output = localResult?.normalizedOutput || {};
+  let result;
+  if (params.mode === 'mental_model') {
+    result = {
+      mental_model_summary: {
+        mastery_level: stats.mastery.current_score,
+        mastery_label: stats.mastery.current_level,
+        overall_assessment: output.overall_assessment || output.conservative_recommendation || '',
+        learning_style_indicators: { preferred_modality: 'unknown' },
+      },
+      diagnostic_decision: output,
+      data_quality: stats.sample_quality,
+    };
+  } else if (params.mode === 'growth_report') {
+    result = {
+      learning_summary: output,
+      completion_summary: output.completion_summary || output.conservative_recommendation || '',
+      mastered_content: output.mastered_content || [],
+      weak_content: output.weak_content || [],
+      next_steps: output.next_steps || [],
+      data_quality: stats.sample_quality,
+    };
+  } else {
+    result = {
+      diagnostic_decision: output,
+      reasoning: output.overall_assessment || output.conservative_recommendation || '',
+      data_quality: stats.sample_quality,
+      all_interventions: [],
+    };
+  }
+  return {
+    success: true,
+    mode: params.mode,
+    request_id: params.requestId,
+    result,
+    meta: {
+      provider: 'LANGCHAIN',
+      runtime: 'learning-agent',
+      validation_error: localResult?.validationError || null,
+      data_quality: stats.sample_quality,
+    },
+  };
+}
 
 function toIso(value) {
   return value ? new Date(value).toISOString() : null;
@@ -763,7 +842,7 @@ async function markRunSuccess(runId, metadata, outputSummary) {
     where: { agent_run_id: runId },
     data: {
       status: 'SUCCESS',
-      dify_workflow_run_id: metadata?.workflow_run_id || null,
+      dify_workflow_run_id: null,
       response_time_ms: metadata?.response_time_ms == null ? null : Math.round(Number(metadata.response_time_ms)),
       total_tokens: metadata?.total_tokens == null ? null : Math.round(Number(metadata.total_tokens)),
       elapsed_ms: metadataElapsedMs(metadata),
@@ -820,7 +899,7 @@ async function persistInterventions({ studentId, scope, params, runRecord, branc
     })),
     ...collectBranchInterventions(branchResult).map((item, index) => ({
       ...item,
-      uid: item.uid || `dify_${params.requestId}_${index + 1}`,
+      uid: item.uid || `diagnostician_${params.requestId}_${index + 1}`,
       source: 'diagnostician',
     })),
   ];
@@ -897,15 +976,14 @@ async function runDiagnosticianWorkflow({ actor, params, studentId, scope, paylo
   });
 
   try {
-    const difyUser = buildDifyUser('diagnostician', studentId);
-    const { branchResult: rawBranchResult, metadata } = await runDifyDiagnosticianWorkflow({
-      mode: params.mode,
-      requestId: params.requestId,
-      payload,
-      locale: params.locale,
-      debug: params.debug,
-      difyUser,
-    });
+    void payload;
+    const startedAt = Date.now();
+    const localResult = await learningAgent.runDiagnostician(localDiagnosticianInput(params, stats, data));
+    const rawBranchResult = localBranchResult(params, stats, localResult);
+    const metadata = {
+      response_time_ms: Date.now() - startedAt,
+      total_tokens: Number(localResult?.modelTiming?.inputTokens || 0) + Number(localResult?.modelTiming?.outputTokens || 0),
+    };
     const branchResult = params.mode === 'strategy_intervention'
       ? mergeDeterministicInterventions(rawBranchResult, deterministicInterventions)
       : rawBranchResult;
@@ -1010,36 +1088,6 @@ async function maybeGenerateInterventionAfterTrainerAnswer(userId, sessionId, ex
   if (deterministic.length === 0) return null;
 
   const payload = buildPayload(userId, scope, params, data, stats);
-  if (!hasUsableConfig('diagnostician')) {
-    const fakeRun = await createRunRecord({
-      studentId: userId,
-      userId,
-      scope,
-      params,
-      inputSummary: {
-        mode: params.mode,
-        sessionId,
-        deterministicInterventionCount: deterministic.length,
-        difySkipped: true,
-      },
-    });
-    const branchResult = {
-      success: true,
-      mode: params.mode,
-      request_id: params.requestId,
-      result: {},
-      meta: { source: 'backend_rule_only' },
-    };
-    const interventions = await persistInterventions({ studentId: userId, scope, params, runRecord: fakeRun, branchResult, deterministic });
-    await markRunSuccess(fakeRun.agent_run_id, { response_time_ms: 0 }, {
-      mode: params.mode,
-      success: true,
-      interventionCount: interventions.length,
-      difySkipped: true,
-    });
-    return { interventions: interventions.map(interventionDto), difySkipped: true };
-  }
-
   return runDiagnosticianWorkflow({
     actor,
     params,

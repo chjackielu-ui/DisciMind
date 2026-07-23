@@ -72,20 +72,13 @@ test('AI gateway classifies temporary network and Bailian quota failures as retr
   assert.equal(normalizeProviderError({ response: { status: 429, data: {} } }, 'qwen').publicCode, 'AI_RATE_LIMITED');
 });
 
-test('Dify generic service binds calls to authenticated identity and validates workflow inputs', async () => {
-  const calls = [];
-  const client = {
-    chat: async (input) => { calls.push(input); return { content: 'answer' }; },
-    workflow: async (input) => { calls.push(input); return { outputs: { result: 'done' } }; },
-  };
-  const user = { user_id: 42, role: 'student' };
-  const chat = await dify.chat(user, { query: 'question', inputs: { course_id: 1 } }, { client });
-  assert.equal(chat.content, 'answer');
-  assert.equal(calls[0].user, 'discimind-student-42');
-  assert.deepEqual(calls[0].inputs, { course_id: 1 });
-  const workflow = await dify.workflow(user, { inputs: { topic: 'ml' } }, { client });
-  assert.equal(workflow.outputs.result, 'done');
-  assert.equal(calls[1].user, 'discimind-student-42');
-  await assert.rejects(() => dify.workflow(user, { inputs: [] }, { client }), /必须是对象/);
-  await assert.rejects(() => dify.chat(user, { query: ' ' }, { client }), /不能为空/);
+test('retired Dify service cannot create clients or issue outbound calls', async () => {
+  assert.throws(() => dify.createClient(), (error) => error.status === 410 && error.publicCode === 'DIFY_RETIRED');
+  assert.throws(() => dify.chat(), (error) => error.status === 410 && error.publicCode === 'DIFY_RETIRED');
+  assert.deepEqual(await dify.health(), {
+    configured: false,
+    healthy: false,
+    retired: true,
+    migratedTo: 'LANGCHAIN_LANGGRAPH',
+  });
 });

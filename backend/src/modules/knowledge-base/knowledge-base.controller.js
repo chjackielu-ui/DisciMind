@@ -32,7 +32,20 @@ const previewDocument = wrap(async (req, res) => {
   res.setHeader('Content-Length', String(file.size));
   res.setHeader('Content-Disposition', `inline; filename="document.pdf"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  return res.sendFile(file.absolutePath);
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    Promise.resolve(file.cleanup?.()).catch(() => {});
+  };
+  res.once('finish', cleanup);
+  res.once('close', cleanup);
+  try {
+    return res.sendFile(file.absolutePath);
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 });
 const retryDocument = wrap(async (req, res) => success(res, await service.retryDocument(req.user.user_id, req.params.id, req.params.documentId), '文档已重新进入处理队列'));
 const applyPublic = wrap(async (req, res) => success(res, await service.applyPublic(req.user.user_id, req.params.id, req.body.operationId), '已提交审核'));

@@ -1,8 +1,8 @@
 const subjectChatSource = require('../subject-chat/subject-chat-source.service');
-const difyKnowledge = require('../learning-agent/adapters/dify-knowledge.adapter');
+const knowledgeProvider = require('../knowledge-base/knowledge-provider.service');
 
 /**
- * 面向学生课程问答的授权检索入口。权限判断、Dify 检索和本地片段降级
+ * 面向学生课程问答的授权检索入口。权限判断、向量检索和本地片段降级
  * 均由现有课程知识库服务完成，避免在兼容层另开一条绕过选课校验的路径。
  */
 async function retrieveCourseSources(input) {
@@ -22,6 +22,6 @@ async function retrieveCourseSources(input) {
 
 module.exports = {
   retrieveCourseSources,
-  retrieveFromDataset: difyKnowledge.retrieveFromDataset,
-  retrieveFromMultipleDatasets: difyKnowledge.retrieveFromMultipleDatasets,
+  retrieveFromDataset: knowledgeProvider.retrieveFromDataset,
+  retrieveFromMultipleDatasets: knowledgeProvider.retrieveFromMultipleDatasets,
 };

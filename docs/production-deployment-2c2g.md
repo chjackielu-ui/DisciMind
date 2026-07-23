@@ -27,6 +27,18 @@ REFRESH_TOKEN_COOKIE_SECURE=true
 REFRESH_TOKEN_SAME_SITE=lax
 AI_CONFIG_DB_ENABLED=true
 AI_CONFIG_ENCRYPTION_KEY=REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES
+AGENT_MODE=langgraph
+LANGGRAPH_ENABLED=true
+KNOWLEDGE_STORAGE_DRIVER=oss
+KNOWLEDGE_OSS_REGION=oss-cn-hangzhou
+KNOWLEDGE_OSS_BUCKET=REPLACE_WITH_BUCKET
+KNOWLEDGE_OSS_ACCESS_KEY_ID=REPLACE_WITH_RAM_ACCESS_KEY_ID
+KNOWLEDGE_OSS_ACCESS_KEY_SECRET=REPLACE_WITH_RAM_ACCESS_KEY_SECRET
+KNOWLEDGE_VECTOR_STORE=qdrant
+QDRANT_URL=https://REPLACE_WITH_QDRANT_ENDPOINT
+QDRANT_COLLECTION=discimind_knowledge
+QDRANT_API_KEY=REPLACE_WITH_QDRANT_API_KEY
+KNOWLEDGE_EMBEDDING_API_KEY=REPLACE_WITH_BAILIAN_API_KEY
 DATABASE_CONNECTION_LIMIT=5
 ASYNC_TASK_WORKER_CONCURRENCY=1
 LEARNING_NARRATION_MAX_CONCURRENT_JOBS=1
@@ -69,15 +81,18 @@ npx prisma migrate deploy
 
 最后一条命令必须没有输出。构建后的 `dist/pics/login/scenarios/` 应包含 6 张 WebP。
 
-### 2.1 真实知识库绑定门禁
+### 2.1 真实知识库与云存储门禁
 
 系统讲义和试卷智能体只有在下列条件同时满足时才会启用知识库增强：
 
-- 知识库为启用、公开且已发布状态，并具有真实 `dify_dataset_id`；
-- 至少一份文档已完成向量化、审核通过，并具有真实 `dify_document_id`；
+- 知识库为启用、公开且已发布状态；
+- 至少一份文档的 `parse_status=EMBEDDED`、`marketplace_status=READY`、`review_status=APPROVED`；
+- OSS 与 Qdrant 使用独立测试资源完成 `npm run test:knowledge-cloud:live` 验收；
 - 后端启动后日志中没有出现“系统文件智能体未绑定真实公开知识库”的告警。
 
-若暂时没有满足条件的知识库，五类学习资源包仍可通过通用模型生成，但讲义和试卷不具备 RAG 引用能力。不要为了通过检查写入虚假的 Dify ID。完成知识库导入、审核和发布后重启后端，启动过程会自动重新绑定。
+若暂时没有满足条件的知识库，五类学习资源包仍可通过通用模型生成，但讲义和试卷不具备 RAG 引用能力。不要为了通过检查手工伪造 `EMBEDDED` 状态。完成知识库导入、异步索引、审核和发布后重启后端，启动过程会自动重新绑定。
+
+Qdrant 不随本项目部署。2 核 2G 主机不要同时承载 Node、MySQL 和 Qdrant，优先使用独立 Qdrant 服务。数据库迁移后，再按 `knowledge-cloud-langgraph-migration.md` 的顺序迁移本地文件和已有向量。
 
 ## 3. 启动服务
 
@@ -110,7 +125,9 @@ Nginx 模板同时代理 `/api/`、`/uploads/` 与 `/ws/learning-narration`，�
 - 定期检查生成视频、PPT、配图和 TTS 缓存，避免 40G 磁盘被历史产物占满。
 - 生成产物和缓存目录已排除出 Git；发布时不要删除这两个持久化目录，也不要在项目根目录执行 `git clean -fdx`。
 - `backend/scripts/run-browser-package-render.js` 仅用于开发机验收，不得在 2C2G 服务器上定时运行；最终编码由学生浏览器完成。
-- 确认后端运行用户对 `/opt/discimind/storage` 和 `/opt/discimind/backend/storage` 具有读写权限，并允许服务器通过 DNS、HTTPS 和 WebSocket 出站访问百炼、图片生成、TTS 与 Dify 服务。
+- 确认后端运行用户对 `/opt/discimind/storage` 和 `/opt/discimind/backend/storage` 具有读写权限，并允许服务器通过 DNS、HTTPS 和 WebSocket 出站访问百炼、OSS、Qdrant、图片生成与 TTS 服务；不再需要访问 Dify。
+- 知识库原始文件可切换到 OSS，但生成产物、AI 附件、学习流附件、TTS 缓存和 LangGraph checkpoint 仍依赖本地持久卷。不要删除或在发布时覆盖这两个存储目录。
+- `/api/health` 会同时检查数据库，以及 `storage/`、`backend/storage/` 的创建、读写、删除能力；任一持久目录不可写时返回 HTTP 503，服务启动也会失败。低于 `STORAGE_WARN_FREE_MB` 时健康状态为 `degraded`，但不会自动删除业务文件。
 
 ## 5. 上线验收
 

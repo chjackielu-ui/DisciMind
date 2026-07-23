@@ -8,6 +8,7 @@ import { renderDashboardLayout } from '../utils/dashboard.js'
 import { TEACHER_MENU_ITEMS } from '../utils/teacher-menu.js'
 import { escapeHtml } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
+import { teacherCourseLabel } from '../utils/teacher-course.js'
 
 const TYPES = { single_choice: '单选', multiple_choice: '多选', true_false: '判断', fill_blank: '填空', blank: '填空', short_answer: '简答', programming: '编程' }
 const DIFFICULTIES = { basic: '基础', medium: '中等', hard: '困难' }
@@ -34,9 +35,9 @@ export async function renderTeacherQuestions(app) {
 
   async function loadCourses() {
     const response = await getTeacherCourses({ page_size: 100 }); state.courses = response.data.list || response.data || []
-    const html = '<option value="">全部课程</option>' + state.courses.map((item) => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('')
+    const html = '<option value="">全部课程</option>' + state.courses.map((item) => `<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join('')
     document.getElementById('qb-course').innerHTML = html
-    document.querySelector('#qb-ai-form [name="course_id"]').innerHTML = '<option value="">请选择课程</option>' + state.courses.map((item) => `<option value="${item.course_id}">${escapeHtml(item.course_name)}</option>`).join('')
+    document.querySelector('#qb-ai-form [name="course_id"]').innerHTML = '<option value="">请选择课程</option>' + state.courses.map((item) => `<option value="${item.course_id}">${escapeHtml(teacherCourseLabel(item))}</option>`).join('')
   }
 
   async function loadKnowledgePoints(courseId) {

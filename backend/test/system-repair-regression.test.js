@@ -35,14 +35,15 @@ test('composer defers mention parsing during IME composition and preserves keybo
   for (const key of ['ArrowDown', 'ArrowUp', 'Escape', 'Tab', 'Enter']) assert.match(source, new RegExp(key))
 })
 
-test('knowledge-base references are re-authorized and require a usable Dify dataset', () => {
+test('knowledge-base references are re-authorized and require a locally indexed document', () => {
   const context = require('../src/modules/agent-chat/agent-context.service')
   const scope = { role: 'STUDENT', courseIds: new Set([2]), teachingClassIds: new Set([3]) }
   assert.equal(context.canAccessKnowledgeBase({ owner_user_id: 11 }, 11, scope), true)
   assert.equal(context.canAccessKnowledgeBase({ owner_user_id: 12, marketplace_visibility: 'PRIVATE' }, 11, scope), false)
-  assert.equal(context.isKnowledgeBaseAvailable({ dify_dataset_id: 'dataset-1', marketplace_status: 'READY' }), true)
-  assert.equal(context.isKnowledgeBaseAvailable({ dify_dataset_id: null, marketplace_status: 'READY' }), false)
-  assert.equal(context.isKnowledgeBaseAvailable({ dify_dataset_id: 'dataset-1', marketplace_status: 'FAILED' }), false)
+  const documents = [{ parse_status: 'EMBEDDED', marketplace_status: 'READY' }]
+  assert.equal(context.isKnowledgeBaseAvailable({ documents, marketplace_status: 'READY' }), true)
+  assert.equal(context.isKnowledgeBaseAvailable({ document_count: 1, marketplace_status: 'READY' }), false)
+  assert.equal(context.isKnowledgeBaseAvailable({ documents, marketplace_status: 'FAILED' }), false)
   const source = read('backend/src/modules/agent-chat/agent-context.service.js')
   assert.match(source, /resolveKnowledgeBaseRefs[\s\S]*canAccessKnowledgeBase[\s\S]*isKnowledgeBaseAvailable/)
   assert.match(source, /retrieveFromMultipleDatasets/)

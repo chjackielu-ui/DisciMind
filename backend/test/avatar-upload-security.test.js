@@ -39,6 +39,10 @@ test('API responses expose baseline browser security headers and no framework ba
   assert.equal(response.headers.get('x-frame-options'), 'DENY');
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   assert.equal(response.headers.get('x-powered-by'), null);
+  const payload = await response.json();
+  assert.equal(payload.data.database.status, 'ready');
+  assert.equal(payload.data.storage.provider, 'LOCAL');
+  assert.equal(payload.data.storage.roots.every((item) => item.writable), true);
 });
 
 test('avatar upload rejects extension spoofing and forged image content without leaving files', async (t) => {
