@@ -370,76 +370,42 @@ function getTemplateReason(templateKey) {
  */
 async function optimizeWithAI(jobId, inputText, draftResult, userId, courseId) {
   try {
-    // 标记为生成中
     await prisma.aiFlowGenerationJob.update({
       where: { job_id: jobId },
       data: { status: 'GENERATING' },
     });
-
-    // 调用 Dify AI 优化
-    const agentConfig = await prisma.aiAgentConfig.findFirst({
-      where: { agent_type: 'EXPLAINER', enabled: true },
+    const job = await prisma.aiFlowGenerationJob.findUnique({
+      where: { job_id: jobId },
+      select: { knowledge_point_id: true },
     });
-
-    if (!agentConfig) {
-      throw new Error('没有可用的 AI 配置');
+    const optimized = await generateDraftWithAI(
+      inputText,
+      userId,
+      courseId,
+      job?.knowledge_point_id || null,
+    );
+    const validatedGraph = sanitizeGraphJson(optimized.graph);
+    const validation = validateGraphJson(validatedGraph);
+    if (!validation.valid) {
+      throw createAgentError('AI_FLOW_INVALID_GRAPH', 'AI 优化结果未通过学习流校验', 502);
     }
-
-    // 使用 Dify 进行流程优化
-    const { runDiagnosticianWorkflow, buildDifyUser } = require('../../dify/agent-dify.service');
-    const difyUser = buildDifyUser('diagnostician', Number(userId));
-
-    const { businessResult } = await runDiagnosticianWorkflow({
-      mode: 'strategy_intervention',
-      requestId: `ai_flow_gen_${jobId}`,
-      payload: {
-        input_text: inputText,
-        draft_graph: draftResult.graph,
-        draft_settings: draftResult.settings,
-        course_id: courseId ? String(courseId) : null,
-        task: 'optimize_learning_workflow',
-      },
-      locale: 'zh-CN',
-      difyUser,
-    }).catch(() => null);
-
-    if (businessResult?.result?.graph || businessResult?.data?.graph) {
-      const optimizedGraph = businessResult.result?.graph || businessResult.data?.graph;
-      const optimizedSettings = businessResult.result?.settings || businessResult.data?.settings || draftResult.settings;
-
-      // 校验 AI 输出
-      const validatedGraph = sanitizeGraphJson(optimizedGraph);
-      const validation = validateGraphJson(validatedGraph);
-
-      if (validation.valid) {
-        await prisma.aiFlowGenerationJob.update({
-          where: { job_id: jobId },
-          data: {
-            status: 'COMPLETED',
-            optimized_json: {
-              graph: validatedGraph,
-              settings: sanitizeSettingsJson(optimizedSettings),
-            },
-          },
-        });
-        return;
-      }
-
-      // AI 输出不合法，保留草稿
-      console.warn('[ai-flow-gen] AI 优化结果校验失败:', validation.errors);
-    }
-
-    // AI 失败，标记完成但使用草稿
     await prisma.aiFlowGenerationJob.update({
       where: { job_id: jobId },
-      data: { status: 'COMPLETED', optimized_json: null },
+      data: {
+        status: 'COMPLETED',
+        optimized_json: {
+          graph: validatedGraph,
+          settings: sanitizeSettingsJson(optimized.settings || draftResult.settings),
+        },
+      },
     });
   } catch (err) {
     console.error('[ai-flow-gen] AI 优化异常:', err.message);
     await prisma.aiFlowGenerationJob.update({
       where: { job_id: jobId },
       data: {
-        status: 'FAILED',
+        status: 'COMPLETED',
+        optimized_json: null,
         error_message: String(err.message).slice(0, 500),
       },
     }).catch(() => null);

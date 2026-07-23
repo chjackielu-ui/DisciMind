@@ -9,6 +9,7 @@ import {
 } from '../../api/student.js'
 import { PptNarrationComposition } from './PptNarrationComposition.jsx'
 import { activeFocusCue, focusPreviewSlide, prepareFocusManifest } from './focus-timeline.js'
+import { safeRandomId } from '../../utils/random-id.js'
 import './focus-timeline.css'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -306,7 +307,7 @@ function LearningMediaPanel({ course, knowledgePoints, userId }) {
     setPackageBusy(true); setRenderError(''); setSavedVideo(null); setManifest(null); setVideoTask(null)
     try {
       const created = (await createStudentKnowledgeResourcePackage(course.course_id, knowledgePointId, {
-        operationId: globalThis.crypto?.randomUUID?.() || `package_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        operationId: safeRandomId('package'),
         pageCount: Number(pageCount),
         includeImages,
       })).data

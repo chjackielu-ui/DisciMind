@@ -12,7 +12,7 @@ test.after(async () => prisma.$disconnect());
 async function fixture() {
   const user = await prisma.user.findUnique({ where: { username: 'student_b' } });
   const agent = await prisma.userAgent.findFirst({
-    where: { status: 'PUBLIC', visibility: 'PUBLIC', deletedAt: null, currentPublicVersion: { responseMode: 'DEFAULT', reviewStatus: 'APPROVED' } },
+    where: { agentType: 'CHAT', status: 'PUBLIC', visibility: 'PUBLIC', deletedAt: null, currentPublicVersion: { responseMode: 'DEFAULT', reviewStatus: 'APPROVED' } },
   });
   assert.ok(user && agent);
   const conversation = await chat.createConversation(user.user_id, agent.id, {

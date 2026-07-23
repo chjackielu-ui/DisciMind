@@ -16,13 +16,13 @@ test('knowledge uploads recover UTF-8 filenames decoded as latin1', () => {
   assert.equal(normalizeUploadFileName('student-handbook.pdf'), 'student-handbook.pdf');
 });
 
-test('nested Dify embedding quota errors are classified for automatic retry', () => {
+test('nested embedding quota errors are classified for automatic retry', () => {
   const remoteError = JSON.stringify({
     args: { description: '[models] missing embeddings: {"status_code":429,"code":"Throttling.RateQuota"}' },
     error_type: 'InvokeError',
   });
   const result = classifyRemoteIndexingError(remoteError);
-  assert.equal(result.code, 'DIFY_EMBEDDING_RATE_LIMIT');
+  assert.equal(result.code, 'KNOWLEDGE_EMBEDDING_RATE_LIMIT');
   assert.equal(result.automaticRetry, true);
   assert.equal(result.retryable, true);
   assert.match(result.userMessage, /自动退避/);
@@ -35,19 +35,33 @@ test('automatic indexing retry uses bounded exponential backoff', () => {
   assert.equal(automaticIndexingRetryDelay(4, options), 5_000);
 });
 
-test('failed Dify documents reuse update-by-file with an unavailable-document recreate fallback', () => {
+test('knowledge indexing stays in the backend pipeline without frontend or Dify coupling', () => {
   const root = path.resolve(__dirname, '..');
-  const adapter = fs.readFileSync(path.join(root, 'src/modules/learning-agent/adapters/dify-knowledge.adapter.js'), 'utf8');
   const pipeline = fs.readFileSync(path.join(root, 'src/modules/knowledge-base/knowledge-document-pipeline.service.js'), 'utf8');
   const worker = fs.readFileSync(path.join(root, 'src/modules/async-task/async-task.worker.js'), 'utf8');
-  const frontend = fs.readFileSync(path.resolve(root, '../frontend/src/api/marketplace.js'), 'utf8');
-  assert.match(adapter, /documents\/\$\{encodeURIComponent\(documentId\)\}\/update-by-file/);
-  assert.match(adapter, /DIFY_KNOWLEDGE_EMBEDDING_MODEL/);
-  assert.match(adapter, /embedding_model_provider/);
-  assert.match(pipeline, /dify\.updateDocumentFile/);
-  assert.match(pipeline, /document is not available/);
-  assert.match(pipeline, /dify\.deleteDatasetDocument/);
-  assert.match(pipeline, /return upload\(\)/);
-  assert.match(worker, /refreshed\?\.status === 'QUEUED'/);
-  assert.match(frontend, /form\.append\('originalName'/);
+  assert.match(pipeline, /knowledgeProvider\.indexDocument/);
+  assert.match(pipeline, /parse_status: 'EMBEDDED'/);
+  assert.match(pipeline, /status: 'SUCCEEDED'/);
+  assert.doesNotMatch(pipeline, /dify-knowledge\.adapter|dify\.updateDocumentFile|WAITING_EXTERNAL/);
+  assert.match(worker, /externalFailure: false/);
+  assert.doesNotMatch(worker, /getDocumentIndexingStatus|refreshStatus\(task\.userId/);
+});
+
+test('cloud knowledge wiring keeps real seed content behind the normal indexing worker', () => {
+  const root = path.resolve(__dirname, '..');
+  const knowledgeBase = fs.readFileSync(path.join(root, 'src/modules/knowledge-base/knowledge-base.service.js'), 'utf8');
+  const pipeline = fs.readFileSync(path.join(root, 'src/modules/knowledge-base/knowledge-document-pipeline.service.js'), 'utf8');
+  const seed = fs.readFileSync(path.join(root, 'prisma/seed.js'), 'utf8');
+  const seedAsset = fs.readFileSync(path.join(root, 'prisma/seed-assets/408-public-knowledge.md'), 'utf8');
+  const seedKnowledgeSource = seed.slice(
+    seed.indexOf('async function seedPublicKnowledgeSource'),
+    seed.indexOf('async function upsertUser'),
+  );
+  assert.match(knowledgeBase, /knowledgeStorage\.storeUpload/);
+  assert.match(pipeline, /knowledgeStorage\.materializeDocument/);
+  assert.match(pipeline, /ensureSystemFileAgents/);
+  assert.match(seed, /taskType: 'KNOWLEDGE_INDEXING'/);
+  assert.match(seedKnowledgeSource, /parse_status: 'UPLOADED'/);
+  assert.doesNotMatch(seedKnowledgeSource, /parse_status: 'EMBEDDED'/);
+  assert.ok(seedAsset.length > 1000);
 });

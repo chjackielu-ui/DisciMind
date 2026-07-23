@@ -63,7 +63,7 @@ function normalizeLocale(value) {
 }
 
 function normalizeDebug(value) {
-  const envDebug = parseBooleanEnv('DIFY_TRAINER_DEBUG', false);
+  const envDebug = parseBooleanEnv('TRAINER_DEBUG', false);
 
   if (value !== undefined && typeof value !== 'boolean') {
     throw createTrainerError('INVALID_INPUT', 'debug 必须是 boolean', 400);

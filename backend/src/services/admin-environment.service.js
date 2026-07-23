@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
 const prisma = require('../config/prisma');
 const { loadEnv } = require('../config/env');
+const knowledgeStorage = require('../modules/knowledge-base/knowledge-storage.service');
+const knowledgeVectorStore = require('../modules/knowledge-base/knowledge-vector-store.service');
 
 loadEnv();
 
@@ -25,23 +26,15 @@ async function executableExists(value) {
   try { await fs.promises.access(path.resolve(value), fs.constants.R_OK); return true; } catch { return false; }
 }
 
-async function httpReachable(url, suffix = '') {
-  if (!url) return false;
-  try {
-    const target = `${String(url).replace(/\/+$/, '')}${suffix}`;
-    await axios.get(target, { timeout: 2500, maxRedirects: 1, validateStatus: (status) => status > 0 && status < 500 });
-    return true;
-  } catch { return false; }
-}
-
 async function getEnvironmentStatus() {
   let databaseAvailable = false;
   try { await prisma.$queryRaw`SELECT 1`; databaseAvailable = true; } catch {}
   const qdrantConfigured = configured('QDRANT_URL');
-  const difyConfigured = configured('DIFY_API_BASE_URL', 'DIFY_CHATFLOW_BASE_URL', 'DIFY_TRAINER_BASE_URL');
-  const [qdrantAvailable, difyAvailable, langgraphWritable, libreOfficeAvailable, chromiumConfiguredAvailable] = await Promise.all([
-    qdrantConfigured ? httpReachable(process.env.QDRANT_URL, '/collections') : false,
-    difyConfigured ? httpReachable(process.env.DIFY_API_BASE_URL || process.env.DIFY_CHATFLOW_BASE_URL || process.env.DIFY_TRAINER_BASE_URL) : false,
+  const [qdrantHealth, knowledgeStorageHealth, langgraphWritable, libreOfficeAvailable, chromiumConfiguredAvailable] = await Promise.all([
+    qdrantConfigured
+      ? knowledgeVectorStore.checkAvailability({ driver: 'qdrant', timeout: 2500 })
+      : { available: false, driver: 'qdrant', error: null },
+    knowledgeStorage.checkAvailability({ timeout: 2500 }),
     writable(process.env.LANGGRAPH_CHECKPOINT_DB || './storage/langgraph/checkpoints.sqlite'),
     executableExists(process.env.LIBREOFFICE_PATH),
     executableExists(process.env.PDF_CHROMIUM_PATH),
@@ -56,8 +49,14 @@ async function getEnvironmentStatus() {
     checked_at: new Date(),
     database: { configured: configured('DATABASE_URL', 'DATABASE_HOST'), available: databaseAvailable },
     ai_encryption: { configured: configured('AI_CONFIG_ENCRYPTION_KEY'), available: configured('AI_CONFIG_ENCRYPTION_KEY') },
-    qdrant: { configured: qdrantConfigured, available: qdrantAvailable },
-    dify: { configured: difyConfigured && configured('DIFY_API_KEY', 'DIFY_CHATFLOW_API_KEY', 'DIFY_TRAINER_API_KEY'), available: difyAvailable },
+    qdrant: { configured: qdrantConfigured, available: qdrantHealth.available },
+    knowledge_storage: {
+      configured: knowledgeStorage.config().driver === 'local'
+        || configured('KNOWLEDGE_OSS_BUCKET', 'KNOWLEDGE_OSS_ACCESS_KEY_ID'),
+      available: knowledgeStorageHealth.available,
+      driver: knowledgeStorageHealth.driver,
+    },
+    dify: { configured: false, available: false, retired: true },
     libreoffice: { configured: configured('LIBREOFFICE_PATH'), available: libreOfficeAvailable },
     langgraph_checkpoint: { configured: configured('LANGGRAPH_CHECKPOINT_DB'), available: langgraphWritable },
     chromium_pdf: { configured: configured('PDF_CHROMIUM_PATH') || chromiumAutoAvailable, available: chromiumConfiguredAvailable || chromiumAutoAvailable },
@@ -70,4 +69,3 @@ async function getEnvironmentStatus() {
 }
 
 module.exports = { getEnvironmentStatus };
-

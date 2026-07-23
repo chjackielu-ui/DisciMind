@@ -13,6 +13,7 @@ import { showToast } from '../utils/toast.js'
 import { getCourseCoverUrl } from '../utils/course-cover.js'
 import { learningCardApi } from '../api/learning-cards.js'
 import { createDailyLearningCardFan } from '../components/learning-card-platform.js'
+import { safeRandomId } from '../utils/random-id.js'
 
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/api\/?$/, '')
 const ACTIVE_TASKS = new Set(['QUEUED', 'RUNNING', 'WAITING_EXTERNAL'])
@@ -28,7 +29,7 @@ function responseList(response, fallback = []) {
 }
 function clampPercent(value) { const number = Number(value); return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : 0 }
 function safeNumber(value, fallback = 0) { const number = Number(value); return Number.isFinite(number) ? number : fallback }
-function homeOperationId() { return globalThis.crypto?.randomUUID?.() || `home_${Date.now()}_${Math.random().toString(16).slice(2)}` }
+function homeOperationId() { return safeRandomId('home') }
 
 function getAvatarUrl(user) {
   const url = user?.profile?.avatar_url || user?.avatar_url

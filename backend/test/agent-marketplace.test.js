@@ -175,18 +175,22 @@ test('admin role passes admin middleware', () => {
   assert.equal(nextCalled, true);
 });
 
-test('student B seed is unique and marketplace demo counts are complete', async () => {
-  const [studentBCount, publicCount, privateCount, pendingCount, rejectedCount] = await Promise.all([
-    prisma.user.count({ where: { username: 'student_b' } }), prisma.userAgent.count({ where: { status: 'PUBLIC', operationId: { startsWith: 'seed-agent-marketplace-' } } }),
-    prisma.userAgent.count({ where: { status: 'PRIVATE', operationId: { startsWith: 'seed-agent-marketplace-' } } }), prisma.userAgent.count({ where: { status: 'PUBLIC_PENDING', operationId: { startsWith: 'seed-agent-marketplace-' } } }),
-    prisma.userAgent.count({ where: { status: 'REJECTED', operationId: { startsWith: 'seed-agent-marketplace-' } } }),
+test('student B is unique and the curated learning marketplace seed is complete', async () => {
+  const [studentBCount, courseAgentCount, fileAgentCount, staleActiveCount] = await Promise.all([
+    prisma.user.count({ where: { username: 'student_b' } }),
+    prisma.userAgent.count({ where: { agentType: 'CHAT', status: 'PUBLIC', deletedAt: null, operationId: { startsWith: 'seed-agent-marketplace-course-' } } }),
+    prisma.userAgent.count({ where: { agentType: 'FILE_GENERATOR', status: 'PUBLIC', deletedAt: null, systemKey: { in: ['system_study_handout_generator', 'system_exam_paper_generator'] } } }),
+    prisma.userAgent.count({ where: { deletedAt: null, operationId: { startsWith: 'seed-agent-marketplace-a-' } } }),
   ]);
-  assert.equal(studentBCount, 1); assert.equal(publicCount, 6); assert.equal(privateCount, 3); assert.equal(pendingCount, 2); assert.equal(rejectedCount, 1);
+  assert.equal(studentBCount, 1); assert.equal(courseAgentCount, 6); assert.equal(fileAgentCount, 2); assert.equal(staleActiveCount, 0);
 });
 
-test('student A cannot view student B private agent', async () => {
-  const [a, privateB] = await Promise.all([prisma.user.findUnique({ where: { username: 'student_demo' } }), prisma.userAgent.findUnique({ where: { operationId: 'seed-agent-marketplace-b-private-1' } })]);
-  await assert.rejects(() => market.getAgent(a.user_id, privateB.id), /无权查看/);
+test('curated course agents keep a single-course scope', async () => {
+  const agent = await prisma.userAgent.findUnique({ where: { operationId: 'seed-agent-marketplace-course-machine-learning' } });
+  const course = await prisma.course.findUnique({ where: { course_code: 'ML001' } });
+  assert.equal(agent.subjectScope, 'COURSE');
+  assert.equal(agent.courseId, course.course_id);
+  assert.deepEqual(agent.allowedCourseIdsJson, [course.course_id]);
 });
 
 test('student B cannot edit student A private agent', async () => {
@@ -200,15 +204,15 @@ test('public agents are visible to student B but system prompt is not exposed', 
   assert.ok(result.total >= 6); assert.equal('systemPrompt' in result.list[0].version, false);
 });
 
-test('one current rating and favorite exist for seeded interaction', async () => {
-  const b = await prisma.user.findUnique({ where: { username: 'student_b' } });
-  const agent = await prisma.userAgent.findUnique({ where: { operationId: 'seed-agent-marketplace-public-1' } });
-  const [favorites, ratings] = await Promise.all([prisma.agentFavorite.count({ where: { userId: b.user_id, agentId: agent.id } }), prisma.agentRating.count({ where: { userId: b.user_id, agentId: agent.id } })]);
-  assert.equal(favorites, 1); assert.equal(ratings, 1);
+test('curated course agents include completed hot-answer history', async () => {
+  const agent = await prisma.userAgent.findUnique({ where: { operationId: 'seed-agent-marketplace-course-machine-learning' } });
+  const conversation = await prisma.marketplaceAgentConversation.findUnique({ where: { operationId: `seed-hot-conversation-${agent.id}` } });
+  const completed = await prisma.marketplaceAgentMessage.count({ where: { conversationId: conversation.id, role: 'ASSISTANT', generationStatus: 'COMPLETED' } });
+  assert.ok(completed >= 5);
 });
 
 test('owner cannot rate their own public agent', async () => {
   const a = await prisma.user.findUnique({ where: { username: 'student_demo' } });
-  const agent = await prisma.userAgent.findUnique({ where: { operationId: 'seed-agent-marketplace-public-1' } });
+  const agent = await prisma.userAgent.findUnique({ where: { operationId: 'seed-agent-marketplace-course-machine-learning' } });
   await assert.rejects(() => market.rate(a.user_id, agent.id, 5), /不能给自己的智能体评分/);
 });

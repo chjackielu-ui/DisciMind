@@ -2,7 +2,7 @@ const axios = require('axios');
 const { safeError } = require('../../services/admin-secret.service');
 
 const SUPPORTED_PROVIDER_TYPES = Object.freeze([
-  'bailian', 'qwen', 'deepseek', 'spark', 'dify', 'openai_compatible', 'custom',
+  'bailian', 'qwen', 'deepseek', 'spark', 'openai_compatible', 'custom',
 ]);
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_NETWORK_CODES = new Set([
@@ -198,27 +198,13 @@ function createProviderAdapter(provider, secret = {}, runtime = {}) {
     return { model, messages, max_tokens: maxTokens, temperature, stream, ...(responseFormat ? { response_format: responseFormat } : {}) };
   }
 
-  function difyChatPayload({ messages, stream = false, inputs = {}, user, conversationId, files = [] }) {
-    const lastUserMessage = [...(messages || [])].reverse().find((item) => item?.role === 'user');
-    return {
-      inputs: inputs && typeof inputs === 'object' && !Array.isArray(inputs) ? inputs : {},
-      query: String(lastUserMessage?.content || ''),
-      response_mode: stream ? 'streaming' : 'blocking',
-      user: String(user || provider.extra_config_json?.user || 'discimind-user').slice(0, 255),
-      ...(conversationId ? { conversation_id: String(conversationId) } : {}),
-      ...(Array.isArray(files) && files.length ? { files } : {}),
-    };
-  }
-
   async function testConnection() {
     const started = Date.now();
-    const path = type === 'dify' ? '/parameters' : '/models';
-    const response = await request({ method: 'GET', url: `${baseUrl}${path}` });
+    const response = await request({ method: 'GET', url: `${baseUrl}/models` });
     return { ok: true, latency_ms: Date.now() - started, status: response.status };
   }
 
   async function listModels() {
-    if (type === 'dify') return [];
     const response = await request({ method: 'GET', url: `${baseUrl}/models` });
     return Array.isArray(response.data?.data)
       ? response.data.data.map((item) => ({ id: String(item.id || ''), owned_by: item.owned_by || null })).filter((item) => item.id)
@@ -227,47 +213,42 @@ function createProviderAdapter(provider, secret = {}, runtime = {}) {
 
   async function chat(options) {
     const started = Date.now();
-    const dify = type === 'dify';
     const response = await request({
       method: 'POST', signal: options.signal,
-      url: `${baseUrl}${dify ? '/chat-messages' : '/chat/completions'}`,
-      data: dify ? difyChatPayload(options) : openAiChatPayload(options),
+      url: `${baseUrl}/chat/completions`,
+      data: openAiChatPayload(options),
     });
-    const content = String((dify ? response.data?.answer : response.data?.choices?.[0]?.message?.content) || '').trim();
+    const content = String(response.data?.choices?.[0]?.message?.content || '').trim();
     if (!content) throw Object.assign(new Error('AI 服务返回了空内容'), { code: 50201, status: 502, publicCode: 'AI_EMPTY_RESPONSE', retryable: true, expose: true });
     return {
       ok: true, latency_ms: Date.now() - started, content: content.slice(0, 2_000_000),
-      conversation_id: dify ? response.data?.conversation_id || null : null,
-      usage: response.data?.usage || response.data?.metadata?.usage || null,
+      conversation_id: null,
+      usage: response.data?.usage || null,
     };
   }
 
-  function parseStreamLine(line, dify) {
+  function parseStreamLine(line) {
     const raw = line.replace(/^data:\s*/, '').trim();
     if (!raw || raw.startsWith(':')) return null;
     if (raw === '[DONE]') return { done: true };
     let event;
     try { event = JSON.parse(raw); } catch { return null; }
-    if (dify && ['error', 'workflow_failed'].includes(event.event)) {
-      throw Object.assign(new Error(String(event.message || 'Dify 流式调用失败')), { code: 50201, status: 502, publicCode: 'DIFY_STREAM_ERROR', retryable: false, expose: true });
-    }
-    const content = dify ? (event.answer || '') : (event.choices?.[0]?.delta?.content || '');
-    return { content: String(content || ''), event: event.event || null, done: dify ? ['message_end', 'workflow_finished'].includes(event.event) : false, raw: event };
+    const content = event.choices?.[0]?.delta?.content || '';
+    return { content: String(content), event: event.event || null, done: false, raw: event };
   }
 
   async function* streamChat(options) {
-    const dify = type === 'dify';
     const response = await request({
       method: 'POST', responseType: 'stream', signal: options.signal,
-      url: `${baseUrl}${dify ? '/chat-messages' : '/chat/completions'}`,
-      data: dify ? difyChatPayload({ ...options, stream: true }) : openAiChatPayload({ ...options, stream: true }),
+      url: `${baseUrl}/chat/completions`,
+      data: openAiChatPayload({ ...options, stream: true }),
     });
     let buffer = '';
     let received = false;
     let ended = false;
     const consume = function* (lines) {
       for (const line of lines) {
-        const parsed = parseStreamLine(line, dify);
+        const parsed = parseStreamLine(line);
         if (!parsed) continue;
         if (parsed.content) { received = true; yield { content: parsed.content, event: parsed.event, raw: parsed.raw }; }
         if (parsed.done) ended = true;
@@ -288,7 +269,6 @@ function createProviderAdapter(provider, secret = {}, runtime = {}) {
   }
 
   async function embed({ model, input, signal }) {
-    if (type === 'dify') throw Object.assign(new Error('Dify 供应商不提供统一 Embedding 接口'), { code: 40001, expose: true });
     const expected = Array.isArray(input) ? input.length : 1;
     if (!expected) throw Object.assign(new Error('Embedding 输入不能为空'), { code: 40001, expose: true });
     const started = Date.now();
@@ -301,7 +281,6 @@ function createProviderAdapter(provider, secret = {}, runtime = {}) {
   }
 
   async function rerank({ model, query, documents, topN, signal }) {
-    if (type === 'dify') throw Object.assign(new Error('Dify 供应商不提供统一 Rerank 接口'), { code: 40001, expose: true });
     const started = Date.now();
     const response = await request({ method: 'POST', signal, url: `${baseUrl}/rerank`, data: { model, query, documents, ...(topN ? { top_n: topN } : {}) } });
     const results = Array.isArray(response.data?.results) ? response.data.results : (Array.isArray(response.data?.data) ? response.data.data : []);
@@ -310,7 +289,6 @@ function createProviderAdapter(provider, secret = {}, runtime = {}) {
   }
 
   async function generateImage({ model, prompt, negativePrompt, n = 1, size = '1024x1024', responseFormat = 'url', signal }) {
-    if (type === 'dify') throw Object.assign(new Error('Dify 供应商不提供统一图片生成接口'), { code: 40001, expose: true });
     const cleanPrompt = String(prompt || '').trim();
     if (!cleanPrompt) throw Object.assign(new Error('图片生成提示词不能为空'), { code: 40001, expose: true });
     const count = boundedInteger(n, 1, 1, 4);
@@ -358,19 +336,16 @@ function createProviderAdapter(provider, secret = {}, runtime = {}) {
     return { ok: true, latency_ms: Date.now() - started, task_id: taskId ? String(taskId).slice(0, 500) : null, status: String(data?.status || (url ? 'succeeded' : 'submitted')).slice(0, 60), url };
   }
 
-  async function workflow({ inputs = {}, user = 'discimind-user', signal }) {
-    if (type !== 'dify') throw Object.assign(new Error('仅 Dify 供应商支持 Workflow'), { code: 40001, expose: true });
-    const started = Date.now();
-    const response = await request({ method: 'POST', signal, url: `${baseUrl}/workflows/run`, data: { inputs, response_mode: 'blocking', user: String(user).slice(0, 255) } });
-    const data = response.data?.data;
-    if (!data || data.status !== 'succeeded' || !data.outputs || typeof data.outputs !== 'object' || !Object.keys(data.outputs).length) {
-      throw Object.assign(new Error(data?.error || 'Dify Workflow 未返回有效输出'), { code: 50201, status: 502, publicCode: data?.status === 'failed' ? 'DIFY_WORKFLOW_FAILED' : 'DIFY_EMPTY_OUTPUT', retryable: false, expose: true });
-    }
-    return { ok: true, latency_ms: Date.now() - started, outputs: data.outputs, workflow_run_id: response.data?.workflow_run_id || data.id || null, usage: data.total_tokens == null ? null : { total_tokens: data.total_tokens } };
+  async function workflow() {
+    throw Object.assign(new Error('Workflow 已迁移到 LangGraph 后端运行时，不再由模型供应商直接执行。'), {
+      code: 40001,
+      publicCode: 'AI_WORKFLOW_REQUIRES_LANGGRAPH',
+      retryable: false,
+      expose: true,
+    });
   }
 
   function getCapabilities() {
-    if (type === 'dify') return ['chat', 'stream', 'workflow', 'chatflow', 'health'];
     return ['models', 'chat', 'stream', 'embedding', 'rerank', 'image', ...(provider.extra_config_json?.video_path ? ['video'] : []), 'health'];
   }
 

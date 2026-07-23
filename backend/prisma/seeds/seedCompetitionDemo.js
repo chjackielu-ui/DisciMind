@@ -3,7 +3,7 @@
 
 const COURSE_408_DEFS = [
   {
-    course_name: '数据结构',
+    course_name: '408 数据结构',
     course_code: 'CS408-DS',
     subject_category: '408 计算机学科专业基础',
     description: '围绕线性结构、树、图、查找与排序建立可视化知识图谱，适合 408 备考与课堂演示。',
@@ -30,7 +30,7 @@ const COURSE_408_DEFS = [
     ],
   },
   {
-    course_name: '计算机组成原理',
+    course_name: '408 计算机组成原理',
     course_code: 'CS408-CO',
     subject_category: '408 计算机学科专业基础',
     description: '覆盖数据表示、运算器、存储系统、指令系统、CPU 与 I/O，形成硬件系统全链路认知。',
@@ -57,7 +57,7 @@ const COURSE_408_DEFS = [
     ],
   },
   {
-    course_name: '操作系统',
+    course_name: '408 操作系统',
     course_code: 'CS408-OS',
     subject_category: '408 计算机学科专业基础',
     description: '以进程线程、内存管理、文件系统、I/O 与死锁为主线，适配课程教学与 408 演示。',
@@ -84,7 +84,7 @@ const COURSE_408_DEFS = [
     ],
   },
   {
-    course_name: '计算机网络',
+    course_name: '408 计算机网络',
     course_code: 'CS408-NET',
     subject_category: '408 计算机学科专业基础',
     description: '围绕 TCP/IP 体系结构、网络层、传输层和应用层协议组织演示数据。',

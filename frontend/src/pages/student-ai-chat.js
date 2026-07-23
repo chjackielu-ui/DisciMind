@@ -35,6 +35,7 @@ import { renderSourceCards, focusSource } from '../components/ai-assistant/sourc
 import { createExecutionTrace } from '../components/ai-assistant/execution-trace.js'
 import { renderArtifacts, bindArtifactActions } from '../components/ai-assistant/artifact-renderer.js'
 import { renderPendingActionCard, bindPendingActionCard } from '../components/ai-assistant/pending-action-card.js'
+import { safeRandomId } from '../utils/random-id.js'
 
 const MAX_INPUT_LENGTH = 2000
 const MAX_IMAGE_COUNT = 4
@@ -1398,7 +1399,7 @@ export async function renderStudentAiChat(app) {
       if (file.size > MAX_IMAGE_BYTES) { showToast(`${file.name} 超过 5MB`, 'warning'); continue }
       const dataUrl = await fileToDataUrl(file)
       state.pendingImages.push({
-        id: globalThis.crypto?.randomUUID?.() || `img_${Date.now()}_${Math.random()}`,
+        id: safeRandomId('img'),
         name: file.name || '粘贴图片', mimeType: file.type, size: file.size, dataUrl,
       })
     }

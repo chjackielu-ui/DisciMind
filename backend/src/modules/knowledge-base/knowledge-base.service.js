@@ -2,18 +2,17 @@ const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
 const prisma = require('../../config/prisma');
-const dify = require('../learning-agent/adapters/dify-knowledge.adapter');
 const { assert } = require('../agent-marketplace/agent-marketplace.errors');
 const { scopedOperationId } = require('../agent-marketplace/operation-id');
 const asyncTasks = require('../async-task/async-task.service');
+const knowledgeProvider = require('./knowledge-provider.service');
+const knowledgeStorage = require('./knowledge-storage.service');
 const {
   normalizeUploadFileName,
-  classifyRemoteIndexingError,
-  automaticIndexingRetryDelay,
   maxAutomaticIndexingRetries,
 } = require('./knowledge-ingestion.utils');
 
-const STORAGE_ROOT = path.resolve(__dirname, '../../../storage/agent-knowledge');
+const STORAGE_ROOT = knowledgeStorage.STORAGE_ROOT;
 const MAX_KNOWLEDGE_BASES = Number(process.env.USER_MAX_KNOWLEDGE_BASES || 10);
 const MAX_FILES = Number(process.env.KNOWLEDGE_BASE_MAX_FILES || 20);
 const MAX_FILE_BYTES = Number(process.env.KNOWLEDGE_FILE_MAX_MB || 30) * 1024 * 1024;
@@ -66,8 +65,8 @@ function serializeKnowledgeBase(kb, userId, detail = false) {
     description: kb.description || '',
     visibility: kb.marketplace_visibility,
     status: kb.marketplace_status,
-    source: kb.ownership_mode === 'REMOTE_BOUND' ? 'DIFY' : 'LOCAL',
-    provider: kb.provider || 'DIFY',
+    source: kb.ownership_mode === 'REMOTE_BOUND' ? 'REMOTE_MIGRATION_REQUIRED' : 'LOCAL',
+    provider: kb.provider || knowledgeProvider.config().provider,
     ownershipMode: kb.ownership_mode || 'LOCAL_MANAGED',
     remoteStatus: kb.remote_status,
     remoteDocumentCount: kb.remote_document_count,
@@ -115,22 +114,16 @@ async function createKnowledgeBase(userId, input) {
   if (existing) return serializeKnowledgeBase(existing, userId);
   const count = await prisma.knowledgeBase.count({ where: { owner_user_id: userId, deleted_at: null } });
   assert(count < MAX_KNOWLEDGE_BASES, `每个用户最多创建 ${MAX_KNOWLEDGE_BASES} 个知识库`);
-  let dataset;
   try {
-    const datasetSuffix = `-${userId}-${Date.now()}`;
-    const datasetName = `${Array.from(input.name).slice(0, Math.max(1, 40 - Array.from(datasetSuffix).length)).join('')}${datasetSuffix}`;
-    dataset = await dify.createDataset({ name: datasetName, description: input.description });
-    assert(dataset.id, 'Dify 未返回 Dataset ID', 50003, 502);
     const category = input.category ? await prisma.agentCategory.findUnique({ where: { name: input.category } }) : null;
     const kb = await prisma.knowledgeBase.create({ data: {
       name: input.name, description: input.description, scope_type: 'PERSONAL', owner_user_id: userId,
-      status: 'active', dify_dataset_id: dataset.id, provider: 'DIFY', ownership_mode: 'LOCAL_MANAGED',
-      remote_status: 'AVAILABLE', last_synced_at: new Date(), marketplace_visibility: 'PRIVATE', marketplace_status: 'EMPTY',
+      status: 'active', dify_dataset_id: null, provider: knowledgeProvider.config().provider, ownership_mode: 'LOCAL_MANAGED',
+      remote_status: null, last_synced_at: null, marketplace_visibility: 'PRIVATE', marketplace_status: 'EMPTY',
       category_id: category?.id || null, operation_id: operationId,
     }, include: { owner: { include: { profile: true } }, category: true, _count: { select: { agent_bindings: true } } } });
     return serializeKnowledgeBase(kb, userId);
   } catch (error) {
-    if (dataset?.id) await dify.deleteDataset(dataset.id).catch(() => null);
     if (error.code) throw error;
     const wrapped = new Error('暂时无法创建知识库，请稍后重试。');
     wrapped.code = 50003;
@@ -184,23 +177,24 @@ async function uploadDocument(userId, kbId, file, rawOperationId, submittedOrigi
     duplicateDocumentId: duplicate?.document_id, duplicateStatus: duplicate?.marketplace_status,
   });
 
-  const dir = path.resolve(STORAGE_ROOT, String(userId), String(kb.knowledge_base_id));
-  assert(dir.startsWith(`${STORAGE_ROOT}${path.sep}`), '上传路径不安全');
-  await fs.mkdir(dir, { recursive: true });
-  const storedName = `${crypto.randomUUID()}${checked.ext}`;
-  const absolutePath = path.resolve(dir, storedName);
-  assert(absolutePath.startsWith(`${dir}${path.sep}`), '上传路径不安全');
-  await fs.writeFile(absolutePath, file.buffer, { flag: 'wx' });
-  const relativeStoragePath = path.relative(path.resolve(__dirname, '../../..'), absolutePath).replace(/\\/g, '/');
+  const stored = await knowledgeStorage.storeUpload({
+    userId,
+    knowledgeBaseId: kb.knowledge_base_id,
+    buffer: file.buffer,
+    extension: checked.ext,
+    mimeType: file.mimetype,
+  });
 
   let document;
   try {
     document = await prisma.$transaction(async (tx) => {
       const created = await tx.knowledgeDocument.create({ data: {
         knowledge_base_id: kb.knowledge_base_id, title: checked.original, original_filename: checked.original,
-        file_ext: checked.ext, file_size_bytes: file.size, mime_type: file.mimetype, storage_type: 'LOCAL',
-        file_url: relativeStoragePath, scope_type: 'PERSONAL', visibility: 'PRIVATE', owner_user_id: userId,
-        parse_status: 'UPLOADED', processing_state: 'uploaded', review_status: 'APPROVED', dify_dataset_id: kb.dify_dataset_id,
+        file_ext: checked.ext, file_size_bytes: file.size, mime_type: file.mimetype, storage_type: stored.storageType,
+        file_url: stored.fileUrl, storage_key: stored.storageKey, storage_bucket: stored.storageBucket,
+        storage_etag: stored.storageEtag, storage_version_id: stored.storageVersionId,
+        scope_type: 'PERSONAL', visibility: 'PRIVATE', owner_user_id: userId,
+        parse_status: 'UPLOADED', processing_state: 'uploaded', review_status: 'APPROVED', dify_dataset_id: null,
         file_checksum: checked.checksum, marketplace_status: 'UPLOADED', operation_id: operationId,
       } });
       await tx.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
@@ -211,7 +205,7 @@ async function uploadDocument(userId, kbId, file, rawOperationId, submittedOrigi
     await asyncTasks.createTask(userId, {
       operationId: `knowledge-indexing-${operationId}`,
       taskType: 'KNOWLEDGE_INDEXING', title: `正在处理 ${checked.original}`,
-      description: `知识库“${kb.name}”将依次完成校验、解析、分片和 Dify 向量索引。`,
+      description: `知识库“${kb.name}”将依次完成校验、解析、分片和向量索引。`,
       status: 'QUEUED', stage: 'VALIDATING',
       progressMode: 'STAGE_ONLY',
       relatedResourceType: 'KNOWLEDGE_DOCUMENT',
@@ -231,190 +225,58 @@ async function uploadDocument(userId, kbId, file, rawOperationId, submittedOrigi
         document_count: { decrement: 1 }, total_size_bytes: { decrement: BigInt(file.size) },
       } }),
     ]).catch(() => {});
-    await fs.unlink(absolutePath).catch(() => {});
+    await knowledgeStorage.deleteDocumentObject(document || {
+      storage_type: stored.storageType,
+      file_url: stored.fileUrl,
+      storage_key: stored.storageKey,
+      storage_bucket: stored.storageBucket,
+      storage_version_id: stored.storageVersionId,
+    }).catch(() => {});
     if (error.status) throw error;
     throw Object.assign(new Error('上传记录创建失败，文件未进入处理队列。'), { code: 50003, status: 500 });
   }
 }
 
 async function listDifyDatasets(userId) {
-  const [datasets, bindings] = await Promise.all([
-    dify.listDatasets(),
-    prisma.knowledgeBase.findMany({
-      where: { owner_user_id: Number(userId), provider: 'DIFY', dify_dataset_id: { not: null }, deleted_at: null },
-      select: { knowledge_base_id: true, dify_dataset_id: true, ownership_mode: true },
-    }),
-  ]);
-  const byDataset = new Map(bindings.map((item) => [item.dify_dataset_id, item]));
-  return { list: datasets.map((dataset) => ({
-    id: dataset.id,
-    name: dataset.name,
-    description: dataset.description || '',
-    documentCount: Number(dataset.document_count || 0),
-    status: 'AVAILABLE',
-    bound: byDataset.has(dataset.id),
-    localKnowledgeBaseId: byDataset.get(dataset.id)?.knowledge_base_id || null,
-  })) };
+  void userId;
+  return {
+    list: [],
+    migrationRequired: true,
+    message: 'Dify Dataset 直连已停用。请从原平台导出源文件后，在“我的知识库”重新上传建立索引。',
+  };
 }
 
 async function syncDifyBinding(userId, kbId) {
   const kb = await prisma.knowledgeBase.findFirst({
     where: { knowledge_base_id: Number(kbId), owner_user_id: Number(userId), deleted_at: null },
-    include: { ...listInclude, documents: { where: { deleted_at: null }, include: { _count: { select: { chunks: true } } } } },
   });
-  assert(kb && kb.provider === 'DIFY' && kb.dify_dataset_id, 'Dify 绑定不存在或无权同步', 40301, 403);
-  try {
-    const [dataset, documents] = await Promise.all([
-      dify.getDataset(kb.dify_dataset_id),
-      dify.listDatasetDocuments(kb.dify_dataset_id),
-    ]);
-    const available = documents.filter((doc) => ['completed', 'available', 'ready'].includes(String(doc.status).toLowerCase())).length;
-    const failed = documents.filter((doc) => ['error', 'failed', 'paused'].includes(String(doc.status).toLowerCase())).length;
-    const marketplaceStatus = !documents.length ? 'EMPTY' : available === documents.length ? 'READY' : available && failed ? 'PARTIAL' : failed === documents.length ? 'FAILED' : 'PROCESSING';
-    const updated = await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
-      remote_status: 'AVAILABLE',
-      remote_document_count: Number(dataset.document_count ?? documents.length),
-      document_count: Number(dataset.document_count ?? documents.length),
-      remote_documents_json: documents,
-      last_synced_at: new Date(),
-      sync_error: null,
-      marketplace_status: kb.ownership_mode === 'REMOTE_BOUND' ? marketplaceStatus : kb.marketplace_status,
-    }, include: { ...listInclude, documents: { where: { deleted_at: null }, include: { _count: { select: { chunks: true } } } } } });
-    return serializeKnowledgeBase(updated, userId, true);
-  } catch (error) {
-    await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
-      remote_status: Number(error.status) === 403 ? 'PERMISSION_LOST' : 'OFFLINE',
-      sync_error: Number(error.status) === 403 ? 'Dify Dataset 权限已失效。' : 'Dify Dataset 暂时无法同步。',
-    } }).catch(() => {});
-    throw Object.assign(new Error(Number(error.status) === 403 ? 'Dify Dataset 权限已失效。' : 'Dify Dataset 暂时无法同步，请稍后重试。'), { code: 50201, status: 502 });
-  }
+  assert(kb, '知识库不存在或无权同步', 40301, 403);
+  throw Object.assign(new Error('Dify 远程同步已停用。历史知识库需要导出源文件后重新上传，才能迁移到当前向量服务。'), {
+    code: 40903, status: 409, details: { migrationRequired: true, knowledgeBaseId: kb.knowledge_base_id },
+  });
 }
 
 async function bindDifyDatasets(userId, datasetIds) {
-  const ids = [...new Set((Array.isArray(datasetIds) ? datasetIds : []).map(String).filter(Boolean))].slice(0, 10);
-  assert(ids.length, '请选择至少一个 Dify Dataset');
-  const currentCount = await prisma.knowledgeBase.count({ where: { owner_user_id: Number(userId), deleted_at: null } });
-  assert(currentCount + ids.length <= MAX_KNOWLEDGE_BASES, `每个用户最多创建或绑定 ${MAX_KNOWLEDGE_BASES} 个知识库`);
-  const results = [];
-  for (const datasetId of ids) {
-    const existing = await prisma.knowledgeBase.findFirst({ where: { owner_user_id: Number(userId), dify_dataset_id: datasetId, deleted_at: null } });
-    if (existing) { results.push({ id: existing.knowledge_base_id, datasetId, existing: true }); continue; }
-    const dataset = await dify.getDataset(datasetId);
-    const operationId = `bind-dify-${crypto.createHash('sha256').update(`${userId}:${datasetId}`).digest('hex').slice(0, 48)}`;
-    const kb = await prisma.knowledgeBase.create({ data: {
-      name: String(dataset.name || 'Dify 知识库').slice(0, 100),
-      description: String(dataset.description || '').slice(0, 5000),
-      scope_type: 'PERSONAL', owner_user_id: Number(userId), status: 'active',
-      dify_dataset_id: datasetId, provider: 'DIFY', ownership_mode: 'REMOTE_BOUND',
-      remote_status: 'AVAILABLE', remote_document_count: Number(dataset.document_count || 0),
-      document_count: Number(dataset.document_count || 0), last_synced_at: new Date(),
-      marketplace_visibility: 'PRIVATE', marketplace_status: Number(dataset.document_count || 0) ? 'PROCESSING' : 'EMPTY',
-      operation_id: operationId,
-    } });
-    const synced = await syncDifyBinding(userId, kb.knowledge_base_id);
-    results.push({ ...synced, datasetId, existing: false });
-  }
-  return { list: results };
-}
-
-function mapIndexStatus(status) {
-  const value = String(status || '').toLowerCase();
-  if (['completed', 'available', 'ready'].includes(value)) return 'READY';
-  if (['error', 'failed', 'paused'].includes(value)) return 'FAILED';
-  if (['parsing', 'cleaning', 'splitting'].includes(value)) return 'PARSING';
-  return 'INDEXING';
-}
-
-function safeRemoteError(value) {
-  const text = String(value || 'Dify 文档索引失败，可以重新处理。');
-  if (/(?:api[_-]?key|authorization|bearer\s+|[A-Z]:[\\/]|node_modules[\\/])/i.test(text)) return 'Dify 文档索引失败，可以重新处理。';
-  return text.slice(0, 1000);
-}
-
-async function scheduleAutomaticIndexingRetry(userId, doc, classification) {
-  if (!classification.automaticRetry) return null;
-  const task = await prisma.asyncTask.findFirst({
-    where: {
-      userId: Number(userId), taskType: 'KNOWLEDGE_INDEXING',
-      relatedResourceType: 'KNOWLEDGE_DOCUMENT', relatedResourceId: String(doc.document_id),
-    },
-    orderBy: { createdAt: 'desc' },
+  void userId;
+  void datasetIds;
+  throw Object.assign(new Error('Dify Dataset 绑定已停用。请导出原始文件后上传到当前知识库。'), {
+    code: 40903, status: 409, details: { migrationRequired: true },
   });
-  if (!task || ['CANCELLED', 'SUCCEEDED'].includes(task.status)) return null;
-  const metadata = task.metadataJson && typeof task.metadataJson === 'object' && !Array.isArray(task.metadataJson)
-    ? task.metadataJson : {};
-  const retryCount = Math.max(0, Number(metadata.difyIndexRetryCount || 0));
-  const maxRetries = Math.min(maxAutomaticIndexingRetries(), Math.max(0, Number(task.maxAttempts || 1) - 1));
-  if (retryCount >= maxRetries || Number(task.attemptCount || 0) >= Number(task.maxAttempts || 1)) return null;
-  const nextRetryCount = retryCount + 1;
-  const delayMs = automaticIndexingRetryDelay(nextRetryCount);
-  const nextRunAt = new Date(Date.now() + delayMs);
-  const retryMessage = `${classification.userMessage}（第 ${nextRetryCount}/${maxRetries} 次，预计 ${Math.ceil(delayMs / 60_000)} 分钟后）`;
-  await prisma.$transaction([
-    prisma.knowledgeDocument.update({ where: { document_id: doc.document_id }, data: {
-      processing_state: 'chunked', parse_status: 'CHUNKED', marketplace_status: 'PROCESSING',
-      error_code: classification.code, error_stage: 'indexing', error_message: retryMessage,
-      retryable: true, failed_at: null,
-    } }),
-    prisma.asyncTask.update({ where: { id: task.id }, data: {
-      status: 'QUEUED', stage: 'RATE_LIMIT_BACKOFF', progressMode: 'STAGE_ONLY',
-      errorCode: classification.code, errorMessage: retryMessage,
-      nextRunAt, completedAt: null, cancelledAt: null, dismissedAt: null,
-      requiresUserAction: false,
-      metadataJson: {
-        ...metadata,
-        difyIndexRetryCount: nextRetryCount,
-        difyIndexRetryReason: classification.code,
-        difyIndexNextRetryAt: nextRunAt.toISOString(),
-      },
-    } }),
-  ]);
-  return { taskId: task.id, retryCount: nextRetryCount, maxRetries, nextRunAt, retryMessage };
 }
 
 async function refreshStatus(userId, kbId, options = {}) {
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null }, include: { documents: { where: { deleted_at: null } } } });
   assert(kb, '知识库不存在或无权查看', 40301, 403);
-  if (kb.ownership_mode === 'REMOTE_BOUND') return syncDifyBinding(userId, kb.knowledge_base_id);
-  const syncErrors = [];
-  for (const doc of kb.documents.filter((item) => item.dify_batch_id && !['READY', 'FAILED'].includes(item.marketplace_status))) {
-    try {
-      const states = await dify.getDocumentIndexingStatus(kb.dify_dataset_id, doc.dify_batch_id);
-      const remote = states.find((item) => item.id === doc.dify_document_id) || states[0];
-      const status = mapIndexStatus(remote?.indexing_status || remote?.status);
-      const classification = status === 'FAILED' ? classifyRemoteIndexingError(remote?.error) : null;
-      const scheduledRetry = classification
-        ? await scheduleAutomaticIndexingRetry(userId, doc, classification)
-        : null;
-      if (scheduledRetry) continue;
-      const remoteError = status === 'FAILED'
-        ? (classification?.automaticRetry
-          ? 'Embedding 服务持续限流，自动重试次数已用尽；请稍后点击“重试”再次处理。'
-          : safeRemoteError(classification?.userMessage || remote?.error))
-        : null;
-      await prisma.knowledgeDocument.update({ where: { document_id: doc.document_id }, data: {
-        marketplace_status: status,
-        processing_state: status === 'READY' ? 'available' : status === 'FAILED' ? 'failed' : status === 'PARSING' ? 'parsing' : 'indexing',
-        parse_status: status === 'READY' ? 'EMBEDDED' : status === 'FAILED' ? 'FAILED' : status === 'PARSING' ? 'PARSING' : 'EMBEDDING',
-        error_code: status === 'FAILED' ? (classification?.code || 'DIFY_INDEXING_FAILED') : null,
-        error_stage: status === 'FAILED' ? 'indexing' : null,
-        error_message: remoteError,
-        retryable: true,
-        failed_at: status === 'FAILED' ? new Date() : null,
-      } });
-      const taskPatch = status === 'READY'
-        ? { status: 'SUCCEEDED', stage: 'READY', progressMode: 'STAGE_ONLY', errorCode: null, errorMessage: null }
-        : status === 'FAILED'
-          ? { status: 'FAILED', stage: 'INDEXING', progressMode: 'STAGE_ONLY', errorCode: classification?.code || 'DIFY_INDEXING_FAILED', errorMessage: remoteError }
-          : { status: 'WAITING_EXTERNAL', stage: status, progressMode: 'STAGE_ONLY' };
-      await asyncTasks.updateRelatedTask(userId, 'KNOWLEDGE_DOCUMENT', doc.document_id, taskPatch)
-        .catch((taskError) => console.error('[AgentKnowledge] task center sync failed', { documentId: doc.document_id, message: taskError.message }));
-    } catch (error) {
-      console.error('[AgentKnowledge] indexing status refresh failed', { knowledgeBaseId: kb.knowledge_base_id, documentId: doc.document_id, error: error.message });
-      syncErrors.push(error);
+  if (kb.ownership_mode === 'REMOTE_BOUND' && !kb.documents.length) {
+    await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
+      remote_status: 'MIGRATION_REQUIRED',
+      sync_error: '历史 Dify 知识库缺少本地源文件，请导出后重新上传。',
+    } });
+    if (options.throwOnSyncError) {
+      throw Object.assign(new Error('历史 Dify 知识库缺少本地源文件，请导出后重新上传。'), { code: 40903, status: 409 });
     }
   }
-  const docs = await prisma.knowledgeDocument.findMany({ where: { knowledge_base_id: kb.knowledge_base_id, deleted_at: null } });
+  const docs = kb.documents;
   const readyCount = docs.filter((doc) => doc.marketplace_status === 'READY').length;
   const failedCount = docs.filter((doc) => doc.marketplace_status === 'FAILED').length;
   let status = !docs.length ? 'EMPTY'
@@ -424,11 +286,10 @@ async function refreshStatus(userId, kbId, options = {}) {
   if (kb.marketplace_visibility !== 'PRIVATE') status = kb.marketplace_status;
   await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
     marketplace_status: status,
-    remote_status: syncErrors.length ? 'DEGRADED' : 'AVAILABLE',
-    sync_error: syncErrors.length ? 'Dify 状态同步暂时失败，可以稍后重试。' : null,
-    last_synced_at: syncErrors.length ? kb.last_synced_at : new Date(),
+    remote_status: kb.ownership_mode === 'REMOTE_BOUND' ? 'MIGRATION_REQUIRED' : null,
+    sync_error: kb.ownership_mode === 'REMOTE_BOUND' ? '历史 Dify 知识库需要从源文件重新建立索引。' : null,
+    last_synced_at: new Date(),
   } });
-  if (options.throwOnSyncError && syncErrors.length) throw syncErrors[0];
   return getKnowledgeBase(userId, kb.knowledge_base_id);
 }
 
@@ -437,9 +298,8 @@ async function deleteDocument(userId, kbId, documentId) {
   assert(kb, '知识库不存在或无权删除文档', 40301, 403);
   const doc = await prisma.knowledgeDocument.findFirst({ where: { document_id: Number(documentId), knowledge_base_id: kb.knowledge_base_id, deleted_at: null } });
   assert(doc, '文档不存在', 40002, 404);
-  if (doc.dify_document_id) await dify.deleteDatasetDocument(kb.dify_dataset_id, doc.dify_document_id);
-  const absolute = path.resolve(__dirname, '../../..', doc.file_url);
-  if (absolute.startsWith(`${STORAGE_ROOT}${path.sep}`)) await fs.unlink(absolute).catch(() => null);
+  await knowledgeProvider.deleteDocumentVectors(doc.document_id);
+  await knowledgeStorage.deleteDocumentObject(doc);
   await prisma.knowledgeDocument.update({ where: { document_id: doc.document_id }, data: { deleted_at: new Date(), marketplace_status: 'DELETED' } });
   const [remainingCount, remainingSize] = await Promise.all([
     prisma.knowledgeDocument.count({ where: { knowledge_base_id: kb.knowledge_base_id, deleted_at: null } }),
@@ -469,18 +329,20 @@ async function getDocumentPreview(userId, kbId, documentId) {
   });
   assert(doc, '文档不存在', 40002, 404);
   assert(doc.file_ext === '.pdf' && doc.mime_type === 'application/pdf', '仅支持预览 PDF 文件', 40001, 400);
-  const absolutePath = path.resolve(__dirname, '../../..', doc.file_url);
-  assert(absolutePath.startsWith(`${STORAGE_ROOT}${path.sep}`), '文件路径不安全', 40301, 403);
+  let materialized;
   let handle;
   try {
+    materialized = await knowledgeStorage.materializeDocument(doc);
+    const { absolutePath } = materialized;
     const stat = await fs.stat(absolutePath);
     assert(stat.isFile() && stat.size > 5 && stat.size <= MAX_FILE_BYTES, 'PDF 文件不存在或已失效', 40002, 404);
     handle = await fs.open(absolutePath, 'r');
     const header = Buffer.alloc(5);
     await handle.read(header, 0, 5, 0);
     assert(header.toString('ascii') === '%PDF-', 'PDF 文件内容无效', 40901, 409);
-    return { absolutePath, size: stat.size, fileName: doc.original_filename };
+    return { absolutePath, size: stat.size, fileName: doc.original_filename, cleanup: materialized.cleanup };
   } catch (error) {
+    await materialized?.cleanup?.();
     if (error.status) throw error;
     assert(false, 'PDF 文件不存在或已失效', 40002, 404);
   } finally {
@@ -520,7 +382,7 @@ async function testRetrieval(userId, kbId, query) {
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null } });
   assert(kb, '知识库不存在或无权检索', 40301, 403);
   assert(!['DELETING', 'DELETED', 'DISABLED'].includes(kb.marketplace_status), '知识库当前不可用');
-  const result = await dify.retrieveFromDataset(kb.dify_dataset_id, query, { topK: 5, scoreThreshold: 0.55 });
+  const result = await knowledgeProvider.retrieveFromDataset(kb.knowledge_base_id, query, { topK: 5, scoreThreshold: 0.55 });
   return { records: result.records.map((item) => ({ documentName: item.documentName, segmentId: item.segmentId, quote: item.content.slice(0, 500), hasPageNumber: Number.isInteger(item.metadata?.page_number) })) };
 }
 
@@ -530,9 +392,8 @@ async function deleteKnowledgeBase(userId, kbId) {
   assert(kb._count.agent_bindings === 0, `该知识库正在被 ${kb._count.agent_bindings} 个智能体使用，请先解除绑定。`, 40001, 400, { boundAgentCount: kb._count.agent_bindings });
   await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: { marketplace_status: 'DELETING' } });
   try {
-    if (kb.ownership_mode !== 'REMOTE_BOUND') await dify.deleteDataset(kb.dify_dataset_id);
-    const dir = path.resolve(STORAGE_ROOT, String(userId), String(kb.knowledge_base_id));
-    if (dir.startsWith(`${STORAGE_ROOT}${path.sep}`)) await fs.rm(dir, { recursive: true, force: true });
+    await knowledgeProvider.deleteKnowledgeBaseVectors(kb.knowledge_base_id);
+    for (const document of kb.documents) await knowledgeStorage.deleteDocumentObject(document);
     await prisma.$transaction([
       prisma.knowledgeDocument.updateMany({ where: { knowledge_base_id: kb.knowledge_base_id }, data: { deleted_at: new Date(), marketplace_status: 'DELETED' } }),
       prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: { deleted_at: new Date(), marketplace_status: 'DELETED', marketplace_visibility: 'PRIVATE' } }),

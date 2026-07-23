@@ -44,7 +44,7 @@ function retrievalSource(record) {
     datasetId: null,
     relevanceScore: record.score,
     metadata: {
-      provider: 'dify',
+      provider: 'knowledge-provider',
       knowledgeBaseId: record.knowledgeBaseId,
       knowledgeBaseName: record.knowledgeBaseName,
       segmentId: record.segmentId || null,
@@ -470,7 +470,7 @@ async function execute(runId, userId, turn) {
         taskId: task.id,
         eventType: 'tool_started',
         title: '知识库检索已启动',
-        message: '优先调用现有 Dify 知识库，失败时降级到本地已解析资料',
+        message: '优先检索已完成本地向量索引的课程知识库，失败时降级到已解析资料',
         payload: { tool: 'course_knowledge_retrieval' },
       });
       await runService.progressTask(task, 35, '正在检索课程知识库');

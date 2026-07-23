@@ -3,9 +3,8 @@ const crypto = require('crypto');
 const prisma = require('../../../config/prisma');
 const masteryService = require('../../../services/mastery.service');
 const wrongQuestionService = require('../../../services/wrong-question.service');
-const trainerWorkflowService = require('../../dify/trainer-workflow.service');
+const trainerRuntimeService = require('./trainer-runtime.service');
 const diagnosticianService = require('../diagnostician/diagnostician.service');
-const { TrainerWorkflowError } = require('../../dify/trainer.errors');
 const {
   applyClaimedIntervention,
   claimPendingIntervention,
@@ -300,8 +299,8 @@ function buildQuestionCreateData({ fullQuestion, courseId, knowledgePointId, use
     source_type: 'ORIGINAL',
     generation_mode: 'ORIGINAL',
     generated_by_user_id: userId,
-    model_name: 'dify-trainer',
-    prompt_version: 'trainer-workflow',
+    model_name: 'bailian-langchain-trainer',
+    prompt_version: 'trainer-agent-v1',
     content_hash: sha256(`${publicQuestion.stem}:${correctAnswer.answer}`),
     is_reusable: false,
     status: 'active',
@@ -724,7 +723,6 @@ async function createTrainerSession(userId, params) {
   }
 
   const payload = buildDiagnosticPayload(context, normalizedParams);
-  const difyUser = trainerWorkflowService.buildDifyUser(userId);
   let session;
   let runRecord;
 
@@ -800,16 +798,14 @@ async function createTrainerSession(userId, params) {
   });
 
   try {
-    const { businessResult, metadata } = await trainerWorkflowService.runTrainerWorkflow({
+    const { businessResult, metadata } = await trainerRuntimeService.runTrainerWorkflow({
       mode: 'diagnostic_pre_test',
       requestId: normalizedParams.requestId,
       payload,
       locale: normalizedParams.locale,
-      debug: false,
-      difyUser,
     });
 
-    // Dify 不能保证物理取消；在任何题目落库前重新确认学习流 nodeExecution 仍有效。
+    // 模型调用结束后，在任何题目落库前重新确认学习流 nodeExecution 仍有效。
     await assertWorkflowExecutionActive(session.practice_session_id, binding);
 
     const questions = extractDiagnosticQuestions(businessResult)
@@ -1360,7 +1356,6 @@ async function submitTrainerAnswer(userId, sessionId, params) {
   let evaluation;
   let evaluationFailed = false;
   try {
-    const difyUser = trainerWorkflowService.buildDifyUser(userId);
     const payload = buildDeepEvaluationPayload({
       session,
       trainerQuestion,
@@ -1368,13 +1363,11 @@ async function submitTrainerAnswer(userId, sessionId, params) {
       answerResult,
       context: params,
     });
-    const { businessResult, metadata } = await trainerWorkflowService.runTrainerWorkflow({
+    const { businessResult, metadata } = await trainerRuntimeService.runTrainerWorkflow({
       mode: 'deep_evaluation',
       requestId: evalRequestId.slice(0, 128),
       payload,
       locale: params.locale,
-      debug: false,
-      difyUser,
     });
     await assertWorkflowExecutionActive(sessionId, getWorkflowBinding(session));
     evaluation = extractEvaluationResult(businessResult);
@@ -1493,8 +1486,7 @@ async function submitTrainerAnswer(userId, sessionId, params) {
     }
 
     try {
-      const difyUser = trainerWorkflowService.buildDifyUser(userId);
-      const { businessResult, metadata } = await trainerWorkflowService.runTrainerWorkflow({
+      const { businessResult, metadata } = await trainerRuntimeService.runTrainerWorkflow({
         mode: 'adaptive_training',
         requestId: adaptiveRequestId,
         payload: buildAdaptivePayload({
@@ -1505,8 +1497,6 @@ async function submitTrainerAnswer(userId, sessionId, params) {
           pendingIntervention: pendingTrainerIntervention,
         }),
         locale: params.locale,
-        debug: false,
-        difyUser,
       });
       adaptiveDecision = extractAdaptiveDecision(businessResult);
       nextQuestion = await persistAdaptiveQuestionIfNeeded({

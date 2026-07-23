@@ -164,7 +164,7 @@ async function start() {
       if (unboundItems.length) {
         console.warn(
           `[system-agents] ${unboundItems.length} 个系统文件智能体未绑定真实公开知识库，当前将使用通用模型降级生成；` +
-          '请完成 Dify 数据集与已审核文档绑定后重启服务。',
+          '请上传资料并完成本地向量索引与审核后重启服务。',
         );
       }
     })

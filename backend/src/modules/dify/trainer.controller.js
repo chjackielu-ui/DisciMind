@@ -1,7 +1,8 @@
 const { success } = require('../../utils/response');
 const { TrainerWorkflowError } = require('./trainer.errors');
+const { TrainerAgentError } = require('../agent/trainer/trainer.errors');
 const { validateTrainerRunInput } = require('./trainer.validator');
-const trainerWorkflowService = require('./trainer-workflow.service');
+const trainerRuntimeService = require('../agent/trainer/trainer-runtime.service');
 
 function getUserId(req) {
   return req.user?.user_id ?? req.user?.id ?? req.user?.userId ?? req.auth?.userId;
@@ -16,7 +17,7 @@ function getSafeRequestInfo(req) {
 }
 
 function sendTrainerError(res, err) {
-  if (err instanceof TrainerWorkflowError) {
+  if (err instanceof TrainerWorkflowError || err instanceof TrainerAgentError) {
     return res.status(err.status || 500).json({
       code: err.code,
       message: err.message,
@@ -45,26 +46,19 @@ async function run(req, res) {
     }
 
     const input = validateTrainerRunInput(req.body || {});
-    const difyUser = trainerWorkflowService.buildDifyUser(userId);
+    const { businessResult, metadata } = await trainerRuntimeService.runTrainerWorkflow(input);
 
-    const { businessResult, metadata } = await trainerWorkflowService.runTrainerWorkflow({
-      ...input,
-      difyUser,
-    });
-
-    console.log('[trainer.controller] Workflow 调用完成:', {
+    console.log('[trainer.controller] 训练师运行完成:', {
       user_id: userId,
       request_id: input.requestId,
       mode: input.mode,
-      workflow_run_id: metadata.workflow_run_id,
       elapsed_time: metadata.elapsed_time,
       total_tokens: metadata.total_tokens,
-      attempts: metadata.attempts,
     });
 
-    return success(res, businessResult, '训练师 Workflow 调用成功');
+    return success(res, businessResult, '训练师运行成功');
   } catch (err) {
-    console.warn('[trainer.controller] Workflow 调用失败:', {
+    console.warn('[trainer.controller] 训练师运行失败:', {
       user_id: userId || null,
       request_id: safeInfo.request_id,
       mode: safeInfo.mode,

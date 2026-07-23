@@ -23,8 +23,7 @@ async function findRealPublicKnowledgeBases(prisma) {
   return prisma.knowledgeBase.findMany({
     where: {
       status: 'active', marketplace_visibility: 'PUBLIC', marketplace_status: 'PUBLIC', deleted_at: null,
-      dify_dataset_id: { not: null },
-      documents: { some: { parse_status: 'EMBEDDED', review_status: 'APPROVED', deleted_at: null, dify_document_id: { not: null } } },
+      documents: { some: { deleted_at: null, parse_status: 'EMBEDDED', marketplace_status: 'READY', review_status: 'APPROVED' } },
     },
     orderBy: [{ document_count: 'desc' }, { updated_at: 'desc' }], take: 3,
   });

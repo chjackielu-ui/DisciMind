@@ -1,0 +1,20 @@
+{
+  "knowledgeBases": [
+    {
+      "difyDatasetId": "replace-with-exported-dataset-id",
+      "ownerUserId": 1,
+      "name": "历史课程知识库",
+      "description": "从原 Dify 平台离线导出的源文件",
+      "files": [
+        {
+          "path": "./dify-export/course-handout.pdf",
+          "originalName": "课程讲义.pdf"
+        },
+        {
+          "path": "./dify-export/course-notes.md",
+          "originalName": "课程笔记.md"
+        }
+      ]
+    }
+  ]
+}

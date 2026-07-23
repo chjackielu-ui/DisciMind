@@ -17,7 +17,20 @@ const BROWSERS = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ].filter(Boolean);
 
-async function browserPath() { for (const item of BROWSERS) { try { await fs.access(item); return item; } catch {} } throw Object.assign(new Error('未找到可用 Chromium'), { code: 'PDF_CHROMIUM_MISSING', permanent: true }); }
+async function browserPaths() {
+  const available = [];
+  for (const item of [...new Set(BROWSERS)]) {
+    try {
+      await fs.access(item);
+      available.push(item);
+    } catch {}
+  }
+  if (!available.length) {
+    throw Object.assign(new Error('未找到可用 Chromium'), { code: 'PDF_CHROMIUM_MISSING', permanent: true });
+  }
+  return available;
+}
+async function browserPath() { return (await browserPaths())[0]; }
 function safeHtml(preview, title) {
   const safeTitle = String(title || '').replace(/[<>&"']/g, '');
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><title>${safeTitle}</title><style>
@@ -38,6 +51,42 @@ async function stampPdf(buffer) {
   return Buffer.from(await document.save());
 }
 async function run(executable, args, timeoutMs=120000, signal){return new Promise((resolve,reject)=>{const child=spawn(executable,args,{windowsHide:true,stdio:'ignore'});let settled=false;const finish=fn=>value=>{if(settled)return;settled=true;clearTimeout(timer);signal?.removeEventListener('abort',onAbort);fn(value)};const onAbort=()=>{child.kill();finish(reject)(Object.assign(new Error('任务已取消'),{name:'AbortError',code:'TASK_CANCELLED'}))};const timer=setTimeout(()=>{child.kill();finish(reject)(Object.assign(new Error('PDF 导出超时'),{code:'PDF_TIMEOUT'}))},timeoutMs);signal?.addEventListener('abort',onAbort,{once:true});child.once('error',finish(reject));child.once('exit',code=>finish(code===0?resolve:reject)(code===0?undefined:Object.assign(new Error('Chromium PDF 导出失败'),{code:'PDF_EXPORT_FAILED'})))})}
+async function renderPdfWithFallback({ html, temporary, tempDir, signal, candidates, runBrowser = run }) {
+  const available = candidates || await browserPaths();
+  const sandboxed = available.map((executable) => ({ executable, noSandbox: false }));
+  const unsandboxed = available.map((executable) => ({ executable, noSandbox: true }));
+  const attempts = [...sandboxed, ...unsandboxed];
+  let lastError = null;
+  for (let index = 0; index < attempts.length; index += 1) {
+    if (signal?.aborted) throw Object.assign(new Error('任务已取消'), { name: 'AbortError', code: 'TASK_CANCELLED' });
+    await fs.unlink(temporary).catch(() => {});
+    const { executable, noSandbox } = attempts[index];
+    const args = [
+      '--headless=new', '--disable-gpu', '--disable-extensions', '--disable-background-networking',
+      '--no-first-run', '--no-default-browser-check', '--no-pdf-header-footer',
+      ...(noSandbox ? ['--no-sandbox'] : []),
+      `--user-data-dir=${path.join(tempDir, `profile-${index + 1}`)}`,
+      '--host-resolver-rules=MAP * 0.0.0.0',
+      `--print-to-pdf=${temporary}`,
+      `file:///${html.replace(/\\/g, '/')}`,
+    ];
+    try {
+      await runBrowser(executable, args, 120000, signal);
+      const output = await fs.stat(temporary);
+      if (!output.isFile() || output.size === 0) {
+        throw Object.assign(new Error('Chromium 未生成 PDF 文件'), { code: 'PDF_OUTPUT_MISSING' });
+      }
+      return executable;
+    } catch (error) {
+      if (error?.code === 'TASK_CANCELLED' || error?.name === 'AbortError') throw error;
+      lastError = error;
+    }
+  }
+  throw Object.assign(new Error('所有可用 Chromium 均无法完成 PDF 导出'), {
+    code: lastError?.code || 'PDF_EXPORT_FAILED',
+    cause: lastError,
+  });
+}
 async function exportPdf(artifactId, { taskId, signal } = {}) {
   const artifact = await prisma.generatedArtifact.findUnique({ where: { id: Number(artifactId) } });
   if (!artifact?.previewHtml || artifact.deletedAt) throw Object.assign(new Error('Artifact 内容未准备好'), { code: 'ARTIFACT_CONTENT_NOT_READY' });
@@ -58,7 +107,7 @@ async function exportPdf(artifactId, { taskId, signal } = {}) {
     if (signal?.aborted) throw Object.assign(new Error('任务已取消'), { name: 'AbortError', code: 'TASK_CANCELLED' });
     await fs.writeFile(html, safeHtml(artifact.previewHtml, artifact.title), 'utf8');
     await fs.mkdir(target.directory, { recursive: true });
-    await run(await browserPath(), ['--headless=new', '--disable-gpu', '--disable-extensions', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--no-pdf-header-footer', `--user-data-dir=${path.join(tempDir, 'profile')}`, '--host-resolver-rules=MAP * 0.0.0.0', `--print-to-pdf=${temporary}`, `file:///${html.replace(/\\/g, '/')}`], 120000, signal);
+    await renderPdfWithFallback({ html, temporary, tempDir, signal });
     if (taskId) await tasks.updateTask(taskId, { status: 'RUNNING', progress: 80, stage: '正在校验 PDF' });
     if (signal?.aborted) throw Object.assign(new Error('任务已取消'), { name: 'AbortError', code: 'TASK_CANCELLED' });
     let buffer = await fs.readFile(temporary);
@@ -80,4 +129,4 @@ async function exportPdf(artifactId, { taskId, signal } = {}) {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
-module.exports={PDF_MIME,safeHtml,browserPath,stampPdf,exportPdf};
+module.exports={PDF_MIME,safeHtml,browserPath,browserPaths,stampPdf,renderPdfWithFallback,exportPdf};

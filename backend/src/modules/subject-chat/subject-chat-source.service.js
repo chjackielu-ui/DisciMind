@@ -1,5 +1,5 @@
 const prisma = require('../../config/prisma');
-const difyKnowledge = require('../learning-agent/adapters/dify-knowledge.adapter');
+const knowledgeProvider = require('../knowledge-base/knowledge-provider.service');
 
 function pageNumber(metadata) {
   const value = metadata?.page_number ?? metadata?.page ?? null;
@@ -37,20 +37,22 @@ async function retrieve({ userId, courseId, knowledgePointId, question }) {
     },
     include: { documents: { where: { deleted_at: null } } },
   });
-  const usableDatasets = knowledgeBases.filter((item) => item.dify_dataset_id);
+  const usableKnowledgeBases = knowledgeBases.filter((item) => item.documents.some(
+    (doc) => doc.parse_status === 'EMBEDDED' && doc.marketplace_status === 'READY',
+  ));
   let degraded = false;
 
-  if (usableDatasets.length) {
+  if (usableKnowledgeBases.length) {
     try {
-      const result = await difyKnowledge.retrieveFromMultipleDatasets(
-        usableDatasets.map((item) => item.dify_dataset_id),
+      const result = await knowledgeProvider.retrieveFromMultipleDatasets(
+        usableKnowledgeBases.map((item) => item.knowledge_base_id),
         question,
         { topK: 4, scoreThreshold: 0.2, maxContextChars: 7000 },
       );
-      const byDataset = new Map(usableDatasets.map((item) => [item.dify_dataset_id, item]));
+      const byDataset = new Map(usableKnowledgeBases.map((item) => [String(item.knowledge_base_id), item]));
       const sources = result.records.map((record) => {
         const kb = byDataset.get(record.datasetId);
-        const document = kb?.documents.find((item) => item.dify_document_id === record.documentId || item.original_filename === record.documentName);
+        const document = kb?.documents.find((item) => String(item.document_id) === String(record.documentId) || item.original_filename === record.documentName);
         return {
           sourceType: 'COURSE_KNOWLEDGE',
           title: record.documentName || document?.title || document?.original_filename || kb?.name || '课程知识库资料',
@@ -59,7 +61,7 @@ async function retrieve({ userId, courseId, knowledgePointId, question }) {
           datasetId: record.datasetId,
           relevanceScore: record.score,
           metadata: {
-            provider: 'dify',
+            provider: kb?.provider || knowledgeProvider.config().provider,
             knowledgeBaseId: kb?.knowledge_base_id || null,
             knowledgeBaseName: kb?.name || null,
             segmentId: record.segmentId || null,
@@ -67,10 +69,10 @@ async function retrieve({ userId, courseId, knowledgePointId, question }) {
           },
         };
       }).filter((item) => item.summary);
-      if (sources.length) return { sources, provider: 'dify', degraded: false, message: `从课程知识库检索到 ${sources.length} 条真实资料` };
+      if (sources.length) return { sources, provider: 'knowledge-provider', degraded: false, message: `从课程知识库检索到 ${sources.length} 条真实资料` };
     } catch (error) {
       degraded = true;
-      console.warn('[subject-chat] Dify 知识库检索降级:', error.message);
+      console.warn('[subject-chat] 知识库向量检索降级:', error.message);
     }
   }
 
@@ -82,7 +84,7 @@ async function retrieve({ userId, courseId, knowledgePointId, question }) {
       OR: terms.map((term) => ({ chunk_text: { contains: term } })),
       document: {
         deleted_at: null,
-        parse_status: 'PARSED',
+        parse_status: { in: ['PARSED', 'CHUNKED', 'EMBEDDED'] },
         OR: [
           { course_id: courseId },
           { teaching_class_id: enrollment.teaching_class_id },
@@ -98,7 +100,7 @@ async function retrieve({ userId, courseId, knowledgePointId, question }) {
     title: chunk.document.title || chunk.document.original_filename,
     summary: String(chunk.chunk_text || '').slice(0, 1200),
     documentId: chunk.document_id,
-    datasetId: chunk.document.dify_dataset_id || chunk.document.knowledge_base?.dify_dataset_id || null,
+    datasetId: chunk.document.knowledge_base_id ? String(chunk.document.knowledge_base_id) : null,
     relevanceScore: null,
     metadata: {
       provider: 'local',

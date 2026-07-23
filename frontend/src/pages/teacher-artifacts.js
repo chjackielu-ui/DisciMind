@@ -13,6 +13,7 @@ import { escapeHtml } from '../utils/format.js'
 import { showToast } from '../utils/toast.js'
 import { LearningPdfViewer } from '../services/learning-pdf-viewer.js'
 import { teacherCourseLabel } from '../utils/teacher-course.js'
+import { safeRandomId } from '../utils/random-id.js'
 
 const state = {
   rows: [], total: 0, courses: [], classes: [], selected: new Set(), view: 'list', lifecycle: null,
@@ -246,7 +247,7 @@ async function submitShare(event) {
   event.preventDefault(); const button = document.getElementById('artifact-share-submit'); const dialog = document.getElementById('artifact-share-dialog'); const items = JSON.parse(dialog.dataset.items || '[]'); const classId = Number(document.getElementById('artifact-share-class').value)
   if (!classId) { showToast('请选择教学班', 'warning'); return }
   setBusy(button, true, '下发中…')
-  try { const result = await batchTeacherArtifacts('share', items, { teaching_class_id: classId, distribution_type: document.getElementById('artifact-share-type').value, description: document.getElementById('artifact-share-description').value.trim(), operation_id: globalThis.crypto?.randomUUID?.() || `artifact_share_${Date.now()}_${Math.random().toString(36).slice(2)}` }); const failed = result.data?.failedItems || []; const succeeded = result.data?.successIds?.length || 0; dialog.close(); showToast(failed.length ? `成功 ${succeeded} 项，失败 ${failed.length} 项：${failed[0].message}` : `已下发 ${succeeded} 项，学生端和通知已更新`, failed.length ? 'warning' : 'success'); state.selected.clear(); await loadRows({ silent: true }) }
+  try { const result = await batchTeacherArtifacts('share', items, { teaching_class_id: classId, distribution_type: document.getElementById('artifact-share-type').value, description: document.getElementById('artifact-share-description').value.trim(), operation_id: safeRandomId('artifact_share') }); const failed = result.data?.failedItems || []; const succeeded = result.data?.successIds?.length || 0; dialog.close(); showToast(failed.length ? `成功 ${succeeded} 项，失败 ${failed.length} 项：${failed[0].message}` : `已下发 ${succeeded} 项，学生端和通知已更新`, failed.length ? 'warning' : 'success'); state.selected.clear(); await loadRows({ silent: true }) }
   catch (error) { showToast(error.message || '下发失败', 'error') } finally { setBusy(button, false) }
 }
 

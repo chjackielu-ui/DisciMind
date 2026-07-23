@@ -3,6 +3,7 @@ import { renderDashboardLayout } from '../../utils/dashboard.js'
 import { STUDENT_MENU_ITEMS } from '../../utils/student-menu.js'
 import { TEACHER_MENU_ITEMS } from '../../utils/teacher-menu.js'
 import { escapeHtml } from '../../utils/format.js'
+import { safeRandomId } from '../../utils/random-id.js'
 
 export const MARKET_TABS = [
   ['发现智能体', '/agents'], ['我的智能体', '/agents/mine'],
@@ -11,7 +12,7 @@ export const MARKET_TABS = [
 ]
 
 export function operationId() {
-  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return safeRandomId('market')
 }
 
 export function marketplaceRoleBase() {

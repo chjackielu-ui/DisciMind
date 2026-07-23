@@ -84,6 +84,46 @@ test('resource package routes, worker dispatch and frontend API are connected', 
   assert.match(service, /RESOURCE_PACKAGE_ACTIVE_LIMIT_PER_USER/);
 });
 
+test('resource package operation id uses a browser-safe random fallback', async () => {
+  const [panel, randomId] = await Promise.all([
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/components/video/LearningMediaPanel.jsx'), 'utf8'),
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/utils/random-id.js'), 'utf8'),
+  ]);
+  assert.match(panel, /safeRandomId\('package'\)/);
+  assert.doesNotMatch(panel, /crypto\?\.randomUUID\?\.\(\)/);
+  assert.match(randomId, /typeof cryptoApi\.randomUUID === 'function'/);
+  assert.match(randomId, /Math\.random\(\)\.toString\(36\)/);
+});
+
+test('browser operation ids avoid direct crypto.randomUUID usage in http-compatible pages', async () => {
+  const files = [
+    '../../frontend/src/components/video/LearningMediaPanel.jsx',
+    '../../frontend/src/pages/student-ai-chat.js',
+    '../../frontend/src/pages/student-dashboard.js',
+    '../../frontend/src/pages/student-learning-flows.js',
+    '../../frontend/src/pages/agent/marketplace-shared.js',
+    '../../frontend/src/pages/teacher-artifacts.js',
+    '../../frontend/src/pages/teacher-knowledge.js',
+    '../../frontend/src/pages/teacher-preparation-immersive.js',
+  ];
+  const contents = await Promise.all(files.map(file => fs.readFile(path.resolve(__dirname, file), 'utf8')));
+  for (const source of contents) {
+    assert.match(source, /safeRandomId/);
+    assert.doesNotMatch(source, /(?:globalThis\.)?crypto\?*\.randomUUID/);
+  }
+});
+
+test('frontend installs a randomUUID fallback before routing starts', async () => {
+  const [entry, polyfill] = await Promise.all([
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/main.js'), 'utf8'),
+    fs.readFile(path.resolve(__dirname, '../../frontend/src/utils/crypto-polyfill.js'), 'utf8'),
+  ]);
+  assert.match(entry, /installCryptoRandomUuidFallback\(\)/);
+  assert.ok(entry.indexOf('installCryptoRandomUuidFallback()') < entry.indexOf('initRouter()'));
+  assert.match(polyfill, /typeof cryptoApi\.randomUUID === 'function'/);
+  assert.match(polyfill, /Object\.defineProperty\(cryptoApi, 'randomUUID'/);
+});
+
 test('resource package keeps browser-rendered video state resumable and downloadable', async () => {
   const [service, panel] = await Promise.all([
     fs.readFile(path.resolve(__dirname, '../src/services/student-learning-package.service.js'), 'utf8'),

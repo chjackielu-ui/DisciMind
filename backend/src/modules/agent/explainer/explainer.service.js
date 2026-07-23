@@ -1,9 +1,4 @@
 const prisma = require('../../../config/prisma');
-const {
-  buildDifyUser,
-  metadataElapsedMs,
-  openExplainerChatStream,
-} = require('../../dify/agent-dify.service');
 const { createAgentError } = require('../common/agent.errors');
 const {
   applyClaimedIntervention,
@@ -12,11 +7,14 @@ const {
 } = require('../common/intervention.service');
 const { DIFY_STRATEGY, validateExplainerChatBody } = require('./explainer.validator');
 
-// ---- LangGraph 模式支持 ----
-const AGENT_MODE = process.env.AGENT_MODE || 'dify';
-
 function isLangGraphMode() {
-  return AGENT_MODE === 'langgraph' && process.env.LANGGRAPH_ENABLED === 'true';
+  return true;
+}
+
+function metadataElapsedMs(metadata) {
+  if (metadata?.response_time_ms != null) return Math.round(Number(metadata.response_time_ms));
+  if (metadata?.elapsed_time != null) return Math.round(Number(metadata.elapsed_time) * 1000);
+  return null;
 }
 
 const CANONICAL_BY_DIFY = {
@@ -690,7 +688,7 @@ async function prepareExplainerChat(userId, rawBody, options = {}) {
     throw err;
   }
 
-  const difyUser = options.difyUser || buildDifyUser('explainer', userId);
+  const difyUser = options.difyUser || `discimind-explainer-${userId}`;
   return {
     params,
     access,
@@ -704,199 +702,7 @@ async function prepareExplainerChat(userId, rawBody, options = {}) {
 }
 
 async function streamExplainerChat({ req, res, userId, body, options = {} }) {
-  // ---- LangGraph 模式 ----
-  if (isLangGraphMode()) {
-    return streamExplainerChatLangGraph({ req, res, userId, body, options });
-  }
-
-  // ---- Dify 模式 (legacy) ----
-  let prepared;
-  try {
-    prepared = await prepareExplainerChat(userId, body, options);
-  } catch (err) {
-    throw err;
-  }
-
-  const abortController = new AbortController();
-  let upstream;
-  try {
-    upstream = options.streamResponse || await openExplainerChatStream({
-      inputs: prepared.inputs,
-      query: prepared.params.message,
-      conversationId: prepared.conversation?.dify_conversation_id || prepared.params.conversationId,
-      difyUser: prepared.difyUser,
-      signal: abortController.signal,
-    }, options);
-  } catch (err) {
-    await markRunFailed(prepared.runRecord.agent_run_id, err);
-    throw err;
-  }
-
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  if (typeof res.flushHeaders === 'function') res.flushHeaders();
-
-  const startedAt = Date.now();
-  let finished = false;
-  let doneSent = false;
-  let buffer = '';
-  let answerPreview = '';
-  const finalInfo = {
-    conversationId: prepared.conversation?.dify_conversation_id || prepared.params.conversationId || null,
-    messageId: null,
-    totalTokens: null,
-    elapsedMs: null,
-  };
-
-  writeSse(res, 'start', {
-    requestId: prepared.params.requestId,
-    strategy: prepared.decision.strategy,
-    strategySource: prepared.decision.source,
-    conversationId: finalInfo.conversationId,
-  });
-
-  const completeSuccessfully = async () => {
-    if (finished) return;
-    finished = true;
-    const elapsedMs = Date.now() - startedAt;
-    await upsertConversation({
-      userId,
-      courseId: prepared.access.course.course_id,
-      knowledgePointId: prepared.access.knowledgePoint.knowledge_point_id,
-      practiceSessionId: prepared.params.practiceSessionId,
-      learningSessionId: prepared.params.learningSessionId,
-      conversationId: finalInfo.conversationId,
-      strategy: prepared.decision.strategy,
-      metadata: {
-        messageId: finalInfo.messageId,
-        lastRequestId: prepared.params.requestId,
-      },
-    });
-    await markRunSuccess({
-      runId: prepared.runRecord.agent_run_id,
-      metadata: {
-        response_time_ms: elapsedMs,
-        elapsed_time: elapsedMs / 1000,
-        total_tokens: finalInfo.totalTokens,
-        workflow_run_id: finalInfo.messageId,
-      },
-      outputSummary: {
-        conversationId: finalInfo.conversationId,
-        messageId: finalInfo.messageId,
-        strategy: prepared.decision.strategy,
-        answerPreview: answerPreview.slice(0, 1000),
-      },
-    });
-    if (prepared.context.pendingIntervention) {
-      await applyClaimedIntervention(prepared.context.pendingIntervention, {
-        runId: prepared.runRecord.agent_run_id,
-        result: {
-          strategy: prepared.decision.strategy,
-          conversationId: finalInfo.conversationId,
-        },
-      }).catch(() => null);
-    }
-  };
-
-  const failStream = async (err) => {
-    if (finished) return;
-    finished = true;
-    await markRunFailed(prepared.runRecord.agent_run_id, err);
-    await failClaimedIntervention(prepared.context.pendingIntervention, {
-      runId: prepared.runRecord.agent_run_id,
-      error: err,
-    }).catch(() => null);
-    writeSse(res, 'error', {
-      code: err?.code || 'EXPLAINER_STREAM_ERROR',
-      message: err?.message || '讲解者流式响应异常',
-    });
-    if (!res.writableEnded) res.end();
-  };
-
-  const stopForClientDisconnect = () => {
-    if (finished || res.writableEnded) return;
-    abortController.abort();
-    finished = true;
-    markRunFailed(prepared.runRecord.agent_run_id, {
-      code: 'CLIENT_DISCONNECTED',
-      message: '客户端已断开 SSE 连接',
-    }, 'STOPPED');
-    failClaimedIntervention(prepared.context.pendingIntervention, {
-      runId: prepared.runRecord.agent_run_id,
-      error: {
-        code: 'CLIENT_DISCONNECTED',
-        message: '客户端已断开 SSE 连接',
-      },
-    });
-  };
-
-  req.on('close', stopForClientDisconnect);
-  res.on('close', stopForClientDisconnect);
-
-  const stream = upstream.data || upstream;
-  stream.on('data', (chunk) => {
-    buffer += chunk.toString('utf8');
-    buffer = buffer.replace(/\r\n/g, '\n');
-
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const parsed = parseSseBlock(block);
-      const payload = parseDifyPayload(parsed.data);
-      const transformed = transformDifyStreamEvent(parsed.event, payload);
-
-      for (const item of transformed) {
-        if (item.event === 'delta' && item.data.text) {
-          answerPreview = (answerPreview + item.data.text).slice(0, 16000);
-        }
-        if (item.data?.conversationId) finalInfo.conversationId = item.data.conversationId;
-        if (item.data?.messageId) finalInfo.messageId = item.data.messageId;
-        const usage = item.data?.usage;
-        if (usage?.total_tokens != null) finalInfo.totalTokens = Number(usage.total_tokens);
-        const wrote = writeSse(res, item.event, {
-          ...item.data,
-          requestId: prepared.params.requestId,
-          strategy: prepared.decision.strategy,
-        });
-        if (!wrote) {
-          stopForClientDisconnect();
-          return;
-        }
-        if (item.event === 'done') doneSent = true;
-        if (item.event === 'error') {
-          failStream(createAgentError(item.data.code, item.data.message, 502));
-          return;
-        }
-      }
-      boundary = buffer.indexOf('\n\n');
-    }
-  });
-
-  stream.on('error', (err) => {
-    failStream(createAgentError('EXPLAINER_STREAM_ERROR', err.message || '讲解者流式响应异常', 502));
-  });
-
-  stream.on('end', async () => {
-    if (!finished) {
-      if (res.destroyed && !res.writableEnded) {
-        stopForClientDisconnect();
-        return;
-      }
-      if (!doneSent) {
-        writeSse(res, 'done', {
-          requestId: prepared.params.requestId,
-          conversationId: finalInfo.conversationId,
-          messageId: finalInfo.messageId,
-          strategy: prepared.decision.strategy,
-        });
-      }
-      await completeSuccessfully();
-      if (!res.writableEnded) res.end();
-    }
-  });
+  return streamExplainerChatLangGraph({ req, res, userId, body, options });
 }
 
 // ========================

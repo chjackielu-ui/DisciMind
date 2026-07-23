@@ -28,6 +28,7 @@ import { showToast } from '../utils/toast.js'
 import { normalizeWeakKnowledgePoints, normalizeKeywords, percent } from '../utils/analytics-contract.js'
 import { renderMarkdownToHtml, renderMathInMarkdownElements } from '../utils/markdown.js'
 import { LearningPdfViewer } from '../services/learning-pdf-viewer.js'
+import { safeRandomId } from '../utils/random-id.js'
 import { BASE_URL } from '../api/request.js'
 
 const WORKSPACE_KEY = 'discimind.preparationDocumentWorkspace.v1'
@@ -115,7 +116,7 @@ const state = {
   lifecycleAbort: null, disposed: false,
 }
 
-function uid(prefix = 'op') { return `${prefix}-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}` }
+function uid(prefix = 'op') { return safeRandomId(prefix) }
 function activeSteps() { const keys = state.plan?.input?.templateStages; return Array.isArray(keys) && keys.length ? keys.map(key => [key, STEP_LABELS[key] || key]) : DEFAULT_STEPS }
 function activeStepKey() { return activeSteps()[state.stepIndex]?.[0] || activeSteps()[0][0] }
 function activeLockKeys() { return activeStepKey() === 'keyAndDifficultPoints' ? ['keyPoints', 'difficultPoints'] : [activeStepKey()] }
@@ -992,7 +993,7 @@ async function openPdfSource(item, add = true) {
 }
 
 async function openLocalPdf(file) {
-  const id = `local-${crypto.randomUUID?.() || Date.now()}`
+  const id = safeRandomId('local')
   await openPdfSource({ id, source_kind: 'local', title: file.name, file_ext: 'pdf', file })
 }
 

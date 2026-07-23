@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 
 const { loadEnv } = require('./config/env');
+const { isLangGraphEnabled } = require('./config/agent-runtime');
 const prisma = require('./config/prisma');
 const { inspectLocalStorage, publicStorageHealth } = require('./config/storage');
 const errorHandler = require('./middlewares/error.middleware');
@@ -10,7 +11,7 @@ const requestIdMiddleware = require('./middlewares/request-id.middleware');
 
 loadEnv();
 
-if ((process.env.AGENT_MODE || 'dify') === 'langgraph' && process.env.LANGGRAPH_ENABLED === 'true') {
+if (isLangGraphEnabled()) {
   try {
     const loaded = require('./modules/learning-agent').assertLearningAgentModules();
     console.log(`[Startup] Learning Agent smoke check passed: ${loaded.join(', ')}`);
@@ -241,7 +242,7 @@ app.use('/api/student-learning-context', studentLearningContextRoutes);
 const studentLearningPlanRoutes = require('./modules/student-learning-plan/student-learning-plan.routes');
 app.use('/api/student-learning-plans', studentLearningPlanRoutes);
 
-// Dify 训练师 Workflow
+// 历史 Dify 路由仅返回迁移提示；训练师兼容接口由本地 learning-agent 执行。
 const difyRoutes = require('./modules/dify/dify.routes');
 app.use('/api/dify', difyRoutes);
 const trainerRoutes = require('./modules/dify/trainer.routes');

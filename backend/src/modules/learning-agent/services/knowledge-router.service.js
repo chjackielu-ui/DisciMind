@@ -1,22 +1,19 @@
 /**
  * Knowledge Router Service
  *
- * 根据课程、知识点、节点类型和意图动态选择 Dify 知识库（仅检索，不调用 Agent/Workflow）。
+ * 根据课程、知识点、节点类型和意图动态选择后端托管知识库（仅检索，不调用 Agent/Workflow）。
  *
  * 设计原则：
  *   - 后端计算并生成白名单（whitelist），LLM 永远不直接指定 dataset_id
- *   - 业务逻辑通过 COURSE_KNOWLEDGE_MAP 配置驱动，不硬编码 ID 判断
+ *   - 生产白名单从数据库中的课程知识库动态生成
  *   - 未匹配到知识库时返回空结果，不抛错误
  *
- * 环境变量：
- *   DIFY_KB_MACHINE_LEARNING_TEXTBOOK_ID  - 机器学习教材知识库 ID
- *   DIFY_KB_MACHINE_LEARNING_EXERCISE_ID   - 机器学习习题知识库 ID
  */
 
+const prisma = require('../../../config/prisma');
 const {
   retrieveFromMultipleDatasets,
-  checkAvailability,
-} = require('../adapters/dify-knowledge.adapter');
+} = require('../../knowledge-base/knowledge-provider.service');
 
 // =============================================================================
 // COURSE_KNOWLEDGE_MAP — 课程-知识库映射注册表（可扩展）
@@ -24,20 +21,49 @@ const {
 
 /**
  * 结构:
- *   { [courseId]: { textbook: [datasetId, ...], exercise: [datasetId, ...] } }
+ *   { [courseId]: { textbook: [knowledgeBaseId, ...], exercise: [knowledgeBaseId, ...] } }
  *
- * 后续新增课程只需在此对象中添加条目即可，无需修改业务逻辑。
- * dataset IDs 从环境变量读取并去空，无配置时对应数组为空。
+ * 仅用于保持旧的同步策略函数兼容；生产检索由 loadCourseKnowledgeBases 动态查询。
  */
 const COURSE_KNOWLEDGE_MAP = {
-  // 机器学习课程
-  1: {
-    textbook: [process.env.DIFY_KB_MACHINE_LEARNING_TEXTBOOK_ID].filter(Boolean),
-    exercise: [process.env.DIFY_KB_MACHINE_LEARNING_EXERCISE_ID].filter(Boolean),
-  },
-  // 预留：后续课程在此扩展
-  // 2: { textbook: [...], exercise: [...] },
+  1: { textbook: [], exercise: [] },
 };
+
+function knowledgeBaseType(record) {
+  const text = [
+    record.name,
+    record.description,
+    record.category?.name,
+    ...(record.documents || []).flatMap((doc) => [doc.resource_kind, doc.resource_category]),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return /(?:习题|练习|题库|试题|worksheet|exercise|question)/i.test(text) ? 'exercise' : 'textbook';
+}
+
+async function loadCourseKnowledgeBases(courseId) {
+  const id = Number(courseId);
+  if (!Number.isInteger(id) || id <= 0) return { textbook: [], exercise: [] };
+  const records = await prisma.knowledgeBase.findMany({
+    where: {
+      course_id: id,
+      deleted_at: null,
+      status: 'active',
+      documents: { some: { deleted_at: null, parse_status: 'EMBEDDED', marketplace_status: 'READY' } },
+    },
+    include: {
+      category: { select: { name: true } },
+      documents: {
+        where: { deleted_at: null, parse_status: 'EMBEDDED', marketplace_status: 'READY' },
+        select: { resource_kind: true, resource_category: true },
+      },
+    },
+    orderBy: { updated_at: 'desc' },
+    take: 20,
+  });
+  return records.reduce((result, record) => {
+    result[knowledgeBaseType(record)].push(String(record.knowledge_base_id));
+    return result;
+  }, { textbook: [], exercise: [] });
+}
 
 // =============================================================================
 // 节点类型 → 检索策略
@@ -137,8 +163,8 @@ function getCourseDatasets(courseId) {
  * @param {string}  [params.intent]         - 意图标签（可选）
  * @returns {{ datasets: Array<{id: string, type: 'textbook'|'exercise'}>, strategy: string }}
  */
-function resolveDatasets({ courseId, knowledgePointId, nodeType, intent }) {
-  const courseDatasets = getCourseDatasets(courseId);
+function resolveDatasets({ courseId, knowledgePointId, nodeType, intent, courseDatasets: suppliedDatasets }) {
+  const courseDatasets = suppliedDatasets || getCourseDatasets(courseId);
 
   if (!courseDatasets) {
     return { datasets: [], strategy: 'none' };
@@ -245,7 +271,7 @@ function buildWhitelist({ courseId, knowledgePointId, nodeType, intent }) {
  * 构建并执行完整检索请求。
  *
  * 流程：
- *   1. 检查 Dify Knowledge API 可用性
+ *   1. 从数据库加载课程知识库白名单
  *   2. 根据课程 + 节点类型生成白名单
  *   3. 构建检索查询字符串
  *   4. 对白名单中的所有知识库并发检索
@@ -281,25 +307,16 @@ async function buildRetrievalRequest({
   knowledgePointName,
   topK = 5,
 }) {
-  // 1. 可用性检查
-  const availability = await checkAvailability();
-  if (!availability.available) {
-    return {
-      records: [],
-      datasetsUsed: [],
-      available: false,
-      degraded: true,
-      degradationReason: availability.error || 'Dify Knowledge API 不可用',
-    };
-  }
-
-  // 2. 生成白名单
-  const whitelist = buildWhitelist({
+  // 1. 生成后端白名单
+  const courseDatasets = await loadCourseKnowledgeBases(courseId);
+  const { datasets } = resolveDatasets({
     courseId,
     knowledgePointId,
     nodeType,
     intent,
+    courseDatasets,
   });
+  const whitelist = datasets.map((item) => item.id);
 
   if (whitelist.length === 0) {
     return {
@@ -311,7 +328,7 @@ async function buildRetrievalRequest({
     };
   }
 
-  // 3. 构建检索查询
+  // 2. 构建检索查询
   const retrievalQuery = buildRetrievalQuery({
     query,
     knowledgePointName,
@@ -319,7 +336,7 @@ async function buildRetrievalRequest({
     intent,
   });
 
-  // 4. 执行多知识库检索（优化参数：单库 topK=3，总分段 ≤ 6，score_threshold=0.35）
+  // 3. 执行多知识库检索（优化参数：单库 topK=3，总分段 ≤ 6，score_threshold=0.35）
   const effectiveTopK = Math.min(topK || 3, 3);
   const { records, perDatasetTiming } = await retrieveFromMultipleDatasets(
     whitelist,
@@ -357,4 +374,6 @@ module.exports = {
   // 辅助方法（供测试与扩展使用）
   getKnowledgeBaseStrategy,
   getCourseDatasets,
+  knowledgeBaseType,
+  loadCourseKnowledgeBases,
 };

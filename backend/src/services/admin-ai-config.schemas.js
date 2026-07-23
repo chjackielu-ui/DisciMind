@@ -1,7 +1,7 @@
 const { z } = require('zod');
 
-const providerTypes = ['bailian', 'qwen', 'deepseek', 'spark', 'openai_compatible', 'dify', 'custom'];
-const runtimeTypes = ['langgraph', 'self', 'dify_workflow', 'dify_chatflow', 'model_direct'];
+const providerTypes = ['bailian', 'qwen', 'deepseek', 'spark', 'openai_compatible', 'custom'];
+const runtimeTypes = ['langgraph', 'self', 'model_direct'];
 const agentTypes = ['COURSE_QA', 'LEARNING_ANALYSIS', 'PERSONALIZED_RECOMMENDATION', 'QUESTION_GENERATION', 'DOCUMENT_SUMMARY', 'TRAINER', 'EXPLAINER', 'DIAGNOSTICIAN'];
 const usageTypes = ['QA', 'SUMMARY', 'QUESTION_GENERATION', 'GRADING', 'RECOMMENDATION', 'EMBEDDING', 'SAFETY'];
 

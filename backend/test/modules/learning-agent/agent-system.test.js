@@ -116,72 +116,30 @@ describe('Bailian Model Adapter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 测试 2: Dify Knowledge Adapter
+// 测试 2: Knowledge Provider
 // ---------------------------------------------------------------------------
 
-describe('Dify Knowledge Adapter', () => {
-  let difyAdapter;
+describe('Knowledge Provider', () => {
+  let knowledgeProvider;
 
   before(() => {
-    difyAdapter = require('../../../src/modules/learning-agent/adapters/dify-knowledge.adapter');
+    knowledgeProvider = require('../../../src/modules/knowledge-base/knowledge-provider.service');
   });
 
   it('should export required functions', () => {
-    assert.ok(difyAdapter.checkAvailability);
-    assert.ok(difyAdapter.listDatasets);
-    assert.ok(difyAdapter.getDataset);
-    assert.ok(difyAdapter.retrieveFromDataset);
-    assert.ok(difyAdapter.retrieveFromMultipleDatasets);
+    assert.ok(knowledgeProvider.checkAvailability);
+    assert.ok(knowledgeProvider.indexDocument);
+    assert.ok(knowledgeProvider.retrieveFromDataset);
+    assert.ok(knowledgeProvider.retrieveFromMultipleDatasets);
   });
 
   it('checkAvailability should return status', async () => {
-    const result = await difyAdapter.checkAvailability();
+    const result = await knowledgeProvider.checkAvailability();
     assert.ok('available' in result);
+    assert.ok(['database', 'qdrant'].includes(result.vectorStore));
     if (!result.available) {
-      console.log(`  Dify Knowledge API unavailable: ${result.error}`);
+      console.log(`  Knowledge provider unavailable: ${result.error}`);
     }
-  });
-
-  it('textbook knowledge base retrieval', async () => {
-    const textbookId = process.env.DIFY_KB_MACHINE_LEARNING_TEXTBOOK_ID;
-    if (!textbookId || !process.env.DIFY_KNOWLEDGE_API_KEY) {
-      console.log('  [SKIP] Dify Knowledge API not configured');
-      return;
-    }
-    const result = await difyAdapter.retrieveFromDataset(
-      textbookId,
-      '什么是机器学习中的过拟合',
-    );
-    assert.ok(Array.isArray(result.records));
-    console.log(`  Retrieved ${result.records.length} records from textbook KB`);
-  });
-
-  it('exercise knowledge base retrieval', async () => {
-    const exerciseId = process.env.DIFY_KB_MACHINE_LEARNING_EXERCISE_ID;
-    if (!exerciseId || !process.env.DIFY_KNOWLEDGE_API_KEY) {
-      console.log('  [SKIP] Dify Knowledge API not configured');
-      return;
-    }
-    const result = await difyAdapter.retrieveFromDataset(
-      exerciseId,
-      '梯度下降的练习题',
-    );
-    assert.ok(Array.isArray(result.records));
-    console.log(`  Retrieved ${result.records.length} records from exercise KB`);
-  });
-
-  it('retrieve from non-existent dataset returns error', async () => {
-    // 不存在的知识库 ID 应该抛出错误
-    await assert.rejects(
-      () => difyAdapter.retrieveFromDataset('non-existent-id-12345', 'test query'),
-      /DIFY_KNOWLEDGE|404/,
-    );
-  });
-
-  it('Dify Knowledge API unavailable without key', () => {
-    // 未配置 API key 时 getConfig 会抛出错误
-    // 这是安全预期行为 - 不应在未配置的情况下静默失败
-    assert.ok(true, 'Knowledge API requires configuration');
   });
 });
 

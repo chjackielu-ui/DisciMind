@@ -15,6 +15,7 @@ import { studentLearningContextApi } from '../api/student-learning-context.js';
 import { studentLearningPlanApi } from '../api/student-learning-plans.js';
 import { learningCardApi } from '../api/learning-cards.js';
 import { renderLearningCardGrid } from '../components/learning-card-platform.js';
+import { safeRandomId } from '../utils/random-id.js';
 import {
   FLOW_DRAFT_STORAGE_KEY, LEARNING_FLOW_CATEGORIES, getNodeCategory, getNodeType, isSupportedGraph,
 } from '../config/learning-flow.js';
@@ -60,7 +61,7 @@ async function resolveValidatedGoal({ courseId, knowledgePointId, goalText, targ
     courseId: Number(courseId),
     knowledgePointId: knowledgePointId ? Number(knowledgePointId) : undefined,
     goalText: String(goalText || '').trim(),
-    operationId: globalThis.crypto?.randomUUID?.() || `goal_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    operationId: safeRandomId('goal'),
     preferences: { targetMastery, targetDepth: 'basic', availableMinutes },
   }));
   goal = await waitForGoalResolution(goal);
@@ -248,7 +249,7 @@ async function prepareCurrentLearningPlan() {
   const flow = currentPreloadState()
   if (['QUEUED', 'PRELOADING'].includes(flow.preloadStatus)) { showToast(`学习准备中（${flow.preloadProgress || 0}%）`, 'info'); return }
   try {
-    const operationId = globalThis.crypto?.randomUUID?.() || `preload_${Date.now()}`
+    const operationId = safeRandomId('preload')
     const result = flow.preloadId && ['FAILED', 'EXPIRED', 'PARTIAL'].includes(flow.preloadStatus)
       ? responseData(await learningWorkflowApi.retryPreload(flow.preloadId, operationId))
       : responseData(await studentLearningPlanApi.prepare(state.learningPlan.id, operationId))
@@ -685,7 +686,7 @@ async function prepareFlow(templateId, retry) {
   const preload = currentPreloadState()
   if (['QUEUED', 'PRELOADING'].includes(preload.preloadStatus) && preload.preloadId) { showToast(`${preload.preloadStage || '学习准备中'}（${preload.preloadProgress || 0}%）`, 'info'); return }
   try {
-    const operationId = globalThis.crypto?.randomUUID?.() || `preload_${Date.now()}`
+    const operationId = safeRandomId('preload')
     const result = retry && preload.preloadId
       ? responseData(await learningWorkflowApi.retryPreload(preload.preloadId, operationId))
       : responseData(await studentLearningPlanApi.prepare(state.learningPlan.id, operationId))
@@ -694,7 +695,7 @@ async function prepareFlow(templateId, retry) {
 }
 
 async function enterFileGenerator(agent, prefill) {
-  const created = responseData(await createAgentConversation(agent.id, { title: '课前讲义', operationId: globalThis.crypto?.randomUUID?.() || `handout_${Date.now()}` }))
+  const created = responseData(await createAgentConversation(agent.id, { title: '课前讲义', operationId: safeRandomId('handout') }))
   await prefillFileRequirements(created.id, prefill)
   navigateTo(`#/student/agents/${agent.id}/chat/${created.id}`)
 }
@@ -907,7 +908,7 @@ async function openLearningGoalWizard() {
     try {
       let goal = responseData(await learningGoalApi.resolve({
         courseId: Number(wizard.courseId), knowledgePointId: wizard.knowledgePointId ? Number(wizard.knowledgePointId) : undefined, goalText,
-        operationId: globalThis.crypto?.randomUUID?.() || `goal_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        operationId: safeRandomId('goal'),
         preferences: { targetDepth: wizard.targetDepth, targetMastery: wizard.targetMastery, availableMinutes: wizard.availableMinutes },
       }));
       goal = await waitForGoalResolution(goal);
