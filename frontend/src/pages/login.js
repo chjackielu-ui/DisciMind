@@ -81,11 +81,11 @@ const accountPlaceholders = {
 }
 
 // 角色入口各自对应的演示账号。切换入口时始终回填对应账号，避免页面状态和账号身份不一致。
-const demoCredentialsByRole = {
+const demoCredentialsByRole = showDemoAccounts ? {
   student: { account: 'student_demo', password: '123456' },
   teacher: { account: 'teacher_demo', password: '123456' },
   admin: { account: 'admin_demo', password: '123456' },
-}
+} : {}
 
 // 使用场景数据
 const scenarioData = [

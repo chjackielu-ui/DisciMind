@@ -8,6 +8,7 @@ backend/node_modules/
 .env.local
 .env.development
 .env.production
+!frontend/.env.production
 frontend/.env
 frontend/.env.local
 backend/.env

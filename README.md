@@ -325,8 +325,11 @@ npx prisma studio        # 打开 Prisma 数据库管理界面
 cd frontend
 npm run dev              # 开发模式启动
 npm run build            # 生产构建
+npm run build:production # 使用 frontend/.env.production 的比赛生产构建
 npm run preview          # 预览生产构建
 ```
+
+正式比赛服务器使用 Nginx 提供 `frontend/dist/`，并将 `/api` 反向代理到 PM2 管理的后端。不要在公网服务器上运行 `npm run dev` 或 `npm run preview`。仓库内的 `frontend/.env.production` 只包含可公开的构建配置；所有 `VITE_*` 值都会进入浏览器产物，禁止在其中保存密钥。
 
 ## 文档
 

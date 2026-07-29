@@ -7,7 +7,7 @@ import { renderUnifiedTaskMessageCenter, mountUnifiedTaskMessageCenter, unmountU
 import { renderTeacherSecondaryNav } from '../components/teacher-secondary-nav.js'
 
 const ROLE_LABEL = { admin: '管理员', teacher: '教师', student: '学生' }
-const API_ORIGIN = 'http://localhost:3000'
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/api\/?$/, '')
 const STUDENT_SIDEBAR_FIRST_VISIT_KEY = 'discimind.studentSidebarFirstVisitSeen'
 const ADMIN_SIDEBAR_PIN_KEY = 'discimind.adminSidebarPinned'
 const AI_FLOAT_STATE_KEY = 'discimind.studentAiFloatState'

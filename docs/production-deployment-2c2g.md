@@ -5,7 +5,8 @@
 ## 1. 上线前必须满足
 
 - Node.js 使用 22.12+；前后端均执行 `npm ci`。
-- `frontend/.env` 使用 `VITE_API_BASE_URL=/api`，不得写 `localhost` 或 `127.0.0.1`；同时设置 `VITE_SHOW_DEMO_ACCOUNTS=false`。
+- 比赛构建默认使用仓库内的 `frontend/.env.production`：`VITE_API_BASE_URL=/api`、`VITE_SHOW_DEMO_ACCOUNTS=false`、`VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED=false`。不得写 `localhost` 或 `127.0.0.1`。
+- `VITE_*` 会在构建时写入浏览器产物，只能保存公开配置，不能保存 API Key、数据库密码或 JWT 密钥。
 - 后端生产环境设置真实数据库、JWT、百炼、图片生成与 TTS 密钥，密钥不进入 Git。
 - `AI_CONFIG_ENCRYPTION_KEY` 使用至少 32 字节的独立随机密钥；上线后不得随意更换，否则数据库内已加密的 AI 配置无法解密。
 - 数据库先备份，在测试库验证迁移后再执行 `npx prisma migrate deploy`。
@@ -66,7 +67,7 @@ HTTP_KEEP_ALIVE_TIMEOUT_MS=65000
 ```bash
 cd frontend
 npm ci
-npm run build
+npm run build:production
 grep -R -E "127\\.0\\.0\\.1:3000|localhost:3000" dist/assets
 
 # 上传构建好的 dist/ 后，在服务器执行：
@@ -80,6 +81,8 @@ npx prisma migrate deploy
 ```
 
 最后一条命令必须没有输出。构建后的 `dist/pics/login/scenarios/` 应包含 6 张 WebP。
+
+`npm run dev` 只用于本地开发，`npm run preview` 只用于本地检查构建结果。公网比赛服务器必须由 Nginx 直接提供 `frontend/dist/`，不能运行 Vite 开发或 Preview 服务。同一 Git 提交若使用不同的 `VITE_*` 值构建，生成的 `dist/` 也会不同，因此发布时必须保留提交号和构建环境记录。
 
 ### 2.1 真实知识库与云存储门禁
 
