@@ -28,6 +28,8 @@ export const applyKnowledgeBasePublic = (id, operationId) => post(`/knowledge-ba
 export const refreshKnowledgeBaseStatus = id => get(`/knowledge-bases/${id}/status`)
 export const listDifyKnowledgeDatasets = () => get('/knowledge-bases/dify/datasets')
 export const bindDifyKnowledgeDatasets = datasetIds => post('/knowledge-bases/dify/bind', { datasetIds })
+export const listBailianKnowledgeDatasets = () => get('/knowledge-bases/bailian/datasets')
+export const bindBailianKnowledgeBase = data => post('/knowledge-bases/bailian/bind', data)
 export const syncDifyKnowledgeBase = id => post(`/knowledge-bases/${id}/sync-dify`, {})
 export const deleteKnowledgeDocument = (id, documentId) => del(`/knowledge-bases/${id}/documents/${documentId}`)
 export const retryKnowledgeDocument = (id, documentId) => post(`/knowledge-bases/${id}/documents/${documentId}/retry`, {})

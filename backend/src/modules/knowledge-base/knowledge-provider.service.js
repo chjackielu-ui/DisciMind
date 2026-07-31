@@ -2,9 +2,11 @@ const crypto = require('crypto');
 const { OpenAIEmbeddings } = require('@langchain/openai');
 const prisma = require('../../config/prisma');
 const vectorStore = require('./knowledge-vector-store.service');
+const bailianKnowledge = require('./bailian-knowledge.service');
 
 const VECTOR_STORE_TYPE = 'DATABASE';
 const QDRANT_VECTOR_STORE_TYPE = 'QDRANT';
+const BAILIAN_KNOWLEDGE_PROVIDER = 'BAILIAN_KNOWLEDGE';
 const DEFAULT_MODEL = 'text-embedding-v4';
 const DEFAULT_BATCH_SIZE = 16;
 const DEFAULT_MAX_CANDIDATES = 2000;
@@ -184,7 +186,10 @@ function boundedRecords(items, ids, query, options, startedAt) {
   const topK = Math.max(1, Math.min(20, Number(options.topK || 5)));
   const maxContextChars = Math.max(1000, Math.min(30_000, Number(options.maxContextChars || 8000)));
   let usedChars = 0;
-  const records = items.filter((item) => Number.isFinite(item.score) && item.score >= threshold)
+  const records = items.filter((item) => {
+    const itemThreshold = Number.isFinite(Number(item.scoreThreshold)) ? Number(item.scoreThreshold) : threshold;
+    return Number.isFinite(item.score) && item.score >= itemThreshold;
+  })
     .sort((left, right) => right.score - left.score)
     .slice(0, topK)
     .flatMap((item) => {
@@ -253,11 +258,8 @@ async function retrieveFromDatabase(ids, query, options, startedAt) {
   return boundedRecords(items, ids, query, options, startedAt);
 }
 
-async function retrieveFromKnowledgeBases(knowledgeBaseIds, query, options = {}) {
-  const db = options.prisma || prisma;
-  const ids = await resolveKnowledgeBaseIds(knowledgeBaseIds, { prisma: db });
-  if (!ids.length || !String(query || '').trim()) return { records: [], perDatasetTiming: [] };
-  const startedAt = Date.now();
+async function retrieveFromLocalKnowledgeBases(ids, query, options, startedAt) {
+  if (!ids.length) return { records: [], perDatasetTiming: [] };
   const vectorOptions = { client: options.vectorClient, ...(options.vectorStore ? { driver: options.vectorStore } : {}) };
   if (vectorStore.isEnabled(vectorOptions)) {
     try {
@@ -301,6 +303,57 @@ async function retrieveFromKnowledgeBases(knowledgeBaseIds, query, options = {})
   return retrieveFromDatabase(ids, query, options, startedAt);
 }
 
+function isBailianKnowledgeBase(kb) {
+  return String(kb?.provider || '').trim().toUpperCase() === BAILIAN_KNOWLEDGE_PROVIDER;
+}
+
+async function retrieveFromKnowledgeBases(knowledgeBaseIds, query, options = {}) {
+  const db = options.prisma || prisma;
+  const ids = await resolveKnowledgeBaseIds(knowledgeBaseIds, { prisma: db });
+  if (!ids.length || !String(query || '').trim()) return { records: [], perDatasetTiming: [] };
+  const startedAt = Date.now();
+  const knowledgeBases = await db.knowledgeBase.findMany({
+    where: { knowledge_base_id: { in: ids }, deleted_at: null },
+    select: {
+      knowledge_base_id: true,
+      name: true,
+      provider: true,
+      dify_dataset_id: true,
+      remote_status: true,
+      marketplace_status: true,
+      remote_documents_json: true,
+    },
+  });
+  const byId = new Map(knowledgeBases.map((item) => [item.knowledge_base_id, item]));
+  const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
+  const remoteBases = ordered.filter(isBailianKnowledgeBase);
+  const localIds = ordered.filter((kb) => !isBailianKnowledgeBase(kb)).map((kb) => kb.knowledge_base_id);
+  const localResult = await retrieveFromLocalKnowledgeBases(localIds, query, options, startedAt);
+  let remoteItems = [];
+  let remoteFailures = [];
+  if (remoteBases.length) {
+    try {
+      const remoteResult = await bailianKnowledge.retrieveKnowledgeBases(remoteBases, query, {
+        ...options,
+        topK: options.remoteTopK || options.topK || 5,
+      });
+      const remoteScoreThreshold = Math.max(0, Math.min(1, Number(options.remoteScoreThreshold ?? 0)));
+      remoteItems = remoteResult.records.map((item) => ({ ...item, scoreThreshold: remoteScoreThreshold }));
+      remoteFailures = remoteResult.failed || [];
+    } catch (error) {
+      if (!localIds.length) throw error;
+      remoteFailures = [error];
+    }
+  }
+  const localItems = localResult.records.map((record) => ({ score: record.score, content: record.content, record }));
+  const merged = boundedRecords([...localItems, ...remoteItems], ids, query, options, startedAt);
+  return {
+    ...merged,
+    perDatasetTiming: ids.map((id) => ({ datasetId: String(id), elapsedMs: Date.now() - startedAt })),
+    partialFailure: remoteFailures.length > 0 || Boolean(localResult.partialFailure),
+  };
+}
+
 async function retrieveFromDataset(identifier, query, options = {}) {
   return retrieveFromKnowledgeBases([identifier], query, options);
 }
@@ -332,8 +385,10 @@ async function deleteKnowledgeBaseVectors(knowledgeBaseId, options = {}) {
 module.exports = {
   VECTOR_STORE_TYPE,
   QDRANT_VECTOR_STORE_TYPE,
+  BAILIAN_KNOWLEDGE_PROVIDER,
   config,
   createEmbeddingClient,
+  isBailianKnowledgeBase,
   vectorFromChunk,
   cosineSimilarity,
   lexicalScore,

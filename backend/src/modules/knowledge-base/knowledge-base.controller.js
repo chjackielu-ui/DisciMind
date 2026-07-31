@@ -1,6 +1,6 @@
 const { success } = require('../../utils/response');
 const service = require('./knowledge-base.service');
-const { knowledgeBaseSchema, retrievalSchema, parse } = require('./knowledge-base.schemas');
+const { knowledgeBaseSchema, retrievalSchema, bailianBindingSchema, parse } = require('./knowledge-base.schemas');
 
 function handle(res, error) {
   return res.status(Number(error.status || (error.code === 40301 ? 403 : error.code === 40002 ? 404 : 400))).json({
@@ -13,7 +13,9 @@ const list = wrap(async (req, res) => success(res, await service.listKnowledgeBa
 const accessible = wrap(async (req, res) => success(res, { list: await require('../agent-chat/agent-context.service').listAccessibleKnowledgeBases(req.user.user_id, req.query) }));
 const create = wrap(async (req, res) => success(res, await service.createKnowledgeBase(req.user.user_id, parse(knowledgeBaseSchema, req.body)), '知识库创建成功'));
 const difyDatasets = wrap(async (req, res) => success(res, await service.listDifyDatasets(req.user.user_id)));
+const bailianDatasets = wrap(async (req, res) => success(res, await service.listBailianKnowledgeBases(req.user.user_id)));
 const bindDify = wrap(async (req, res) => success(res, await service.bindDifyDatasets(req.user.user_id, req.body?.datasetIds), 'Dify 知识库已绑定'));
+const bindBailian = wrap(async (req, res) => success(res, await service.bindBailianKnowledgeBase(req.user.user_id, parse(bailianBindingSchema, req.body)), '百炼知识库已绑定'));
 const syncDify = wrap(async (req, res) => success(res, await service.syncDifyBinding(req.user.user_id, req.params.id), 'Dify 知识库已同步'));
 const detail = wrap(async (req, res) => success(res, await service.getKnowledgeBase(req.user.user_id, req.params.id)));
 const update = wrap(async (req, res) => success(res, await service.updateKnowledgeBase(req.user.user_id, req.params.id, parse(knowledgeBaseSchema, req.body)), '保存成功'));
@@ -52,4 +54,4 @@ const applyPublic = wrap(async (req, res) => success(res, await service.applyPub
 const status = wrap(async (req, res) => success(res, await service.refreshStatus(req.user.user_id, req.params.id)));
 const testRetrieval = wrap(async (req, res) => success(res, await service.testRetrieval(req.user.user_id, req.params.id, parse(retrievalSchema, req.body).query)));
 
-module.exports = { list, accessible, create, difyDatasets, bindDify, syncDify, detail, update, remove, upload, removeDocument, previewDocument, retryDocument, applyPublic, status, testRetrieval, handle };
+module.exports = { list, accessible, create, difyDatasets, bailianDatasets, bindDify, bindBailian, syncDify, detail, update, remove, upload, removeDocument, previewDocument, retryDocument, applyPublic, status, testRetrieval, handle };
