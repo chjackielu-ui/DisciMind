@@ -34,9 +34,7 @@ function agentCard(agent, mode) {
     <div class="agent-card-capability-state"><span class="is-context">${knowledgeEnabled ? '知识库增强' : '通用模型'}</span>${isFileGenerator ? '<span class="is-format">DOCX</span><span class="is-format">PDF</span>' : '<span class="is-dialogue">连续对话</span>'}</div>
     <div class="agent-card-stats"><span>使用 ${agent.usageCount || 0}</span><span>评分 ${Number(agent.ratingAverage || 0).toFixed(1)} (${agent.ratingCount || 0})</span><span>${agent.updatedAt ? new Date(agent.updatedAt).toLocaleDateString('zh-CN') : '最近更新'}</span>${own ? `<span class="agent-status status-${String(agent.status).toLowerCase()}">${statusLabel(agent.status)}</span>` : ''}</div>
     <div class="agent-card-actions">
-      <button class="complex-btn" type="button" data-action="use">${isFileGenerator ? '生成文件' : '立即对话'}</button>
-      <button class="complex-btn-secondary" type="button" data-action="detail">详情</button>
-       ${own ? '<button class="complex-btn-secondary" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="${agent.isFavorite ? '取消收藏' : '收藏'}" title="${agent.isFavorite ? '取消收藏' : '收藏'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg></button>`}
+      <button class="complex-btn agent-card-primary-action" type="button" data-action="use">${isFileGenerator ? '生成文件' : '立即对话'}</button><button class="complex-btn-secondary agent-card-secondary-action" type="button" data-action="detail">详情</button>${own ? '<button class="complex-btn-secondary agent-card-secondary-action" type="button" data-action="edit">编辑</button>' : `<button class="agent-favorite-btn agent-card-secondary-action${agent.isFavorite ? ' active' : ''}" type="button" data-action="favorite" aria-label="${agent.isFavorite ? '取消收藏' : '收藏'}" title="${agent.isFavorite ? '取消收藏' : '收藏'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></svg></button>`}
     </div>
   </article>`
 }
