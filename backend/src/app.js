@@ -134,6 +134,10 @@ app.use('/api/practice', practiceRoutes);
 // 兼容学生端聚合前缀，避免旧页面或代理只允许 /api/student 下接口时无法访问。
 app.use('/api/student/practice', practiceRoutes);
 
+// 在线 C 编译器：后端统一中转本机 Judge0，浏览器永远不直接访问沙箱。
+const compilerRoutes = require('./modules/compiler/compiler.routes');
+app.use('/api/compiler', compilerRoutes);
+
 // 教师端练习分析模块
 const teacherPracticeRoutes = require('./routes/teacher-practice.routes');
 app.use('/api/teacher/practice', teacherPracticeRoutes);

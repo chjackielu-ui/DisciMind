@@ -234,8 +234,7 @@ async function retrieve(version, question, options = {}) {
     where: { agentVersionId: version.id },
     include: { knowledgeBase: { include: { documents: { where: { deleted_at: null } } } } }, orderBy: { priority: 'asc' },
   });
-  const usable = bindings.filter((item) => item.knowledgeBase.documents.some((doc) => doc.parse_status === 'EMBEDDED' && doc.marketplace_status === 'READY')
-    && !['DELETING', 'DELETED', 'DISABLED', 'OFFLINE'].includes(item.knowledgeBase.marketplace_status));
+  const usable = bindings.filter((item) => contextService.isKnowledgeBaseAvailable(item.knowledgeBase));
   if (!usable.length) return { records: [], fallback: true, unavailable: false };
   try {
     const result = await knowledgeProvider.retrieveFromMultipleDatasets(usable.map((item) => item.knowledgeBase.knowledge_base_id), question, { topK: version.topK, scoreThreshold: version.scoreThreshold, maxContextChars: 8000 });

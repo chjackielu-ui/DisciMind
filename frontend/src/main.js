@@ -26,6 +26,7 @@ import './styles/teacher-course-upgrade.css'
 import './styles/teacher-student-profile.css'
 import './styles/student-teaching-tasks.css'
 import './styles/learning-media.css'
+import './styles/student-compiler.css'
 import { initRouter } from './utils/router.js'
 
 installCryptoRandomUuidFallback()

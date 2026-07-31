@@ -23,6 +23,7 @@ const MIME_BY_EXT = {
   '.md': new Set(['text/markdown', 'text/x-markdown', 'text/plain']),
   '.txt': new Set(['text/plain']),
 };
+const REMOTE_BAILIAN_PROVIDER = 'BAILIAN_KNOWLEDGE';
 
 function safeOwner(owner) {
   return owner ? { id: owner.user_id, username: owner.username, name: owner.profile?.real_name || owner.username } : null;
@@ -57,6 +58,10 @@ function serializeDocument(doc) {
 
 function serializeKnowledgeBase(kb, userId, detail = false) {
   const nameIntegrity = textIntegrity(kb.name);
+  const provider = String(kb.provider || knowledgeProvider.config().provider).toUpperCase();
+  const source = provider === REMOTE_BAILIAN_PROVIDER
+    ? 'BAILIAN_KNOWLEDGE'
+    : (kb.ownership_mode === 'REMOTE_BOUND' ? 'REMOTE_MIGRATION_REQUIRED' : 'LOCAL');
   const data = {
     id: kb.knowledge_base_id,
     name: kb.name,
@@ -65,8 +70,8 @@ function serializeKnowledgeBase(kb, userId, detail = false) {
     description: kb.description || '',
     visibility: kb.marketplace_visibility,
     status: kb.marketplace_status,
-    source: kb.ownership_mode === 'REMOTE_BOUND' ? 'REMOTE_MIGRATION_REQUIRED' : 'LOCAL',
-    provider: kb.provider || knowledgeProvider.config().provider,
+    source,
+    provider,
     ownershipMode: kb.ownership_mode || 'LOCAL_MANAGED',
     remoteStatus: kb.remote_status,
     remoteDocumentCount: kb.remote_document_count,
@@ -164,6 +169,7 @@ async function updateKnowledgeBase(userId, id, input) {
 async function uploadDocument(userId, kbId, file, rawOperationId, submittedOriginalName = '') {
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null } });
   assert(kb, '知识库不存在或无权上传', 40301, 403);
+  assert(kb.ownership_mode !== 'REMOTE_BOUND', '远程托管知识库不能通过本地上传入口添加文件，请在对应平台维护文档。', 40903, 409);
   assert(!['DELETING', 'DELETED', 'OFFLINE'].includes(kb.marketplace_status), '知识库当前不可上传文件');
   assert(String(rawOperationId || '').length >= 8, 'operationId 不合法');
   const currentCount = await prisma.knowledgeDocument.count({ where: { knowledge_base_id: kb.knowledge_base_id, deleted_at: null } });
@@ -246,6 +252,15 @@ async function listDifyDatasets(userId) {
   };
 }
 
+async function listBailianKnowledgeBases(userId) {
+  void userId;
+  return {
+    list: [],
+    migrationRequired: false,
+    message: '百炼知识库由控制台创建后，在“绑定百炼知识库”中录入知识库 ID 即可接入。',
+  };
+}
+
 async function syncDifyBinding(userId, kbId) {
   const kb = await prisma.knowledgeBase.findFirst({
     where: { knowledge_base_id: Number(kbId), owner_user_id: Number(userId), deleted_at: null },
@@ -264,9 +279,60 @@ async function bindDifyDatasets(userId, datasetIds) {
   });
 }
 
+async function bindBailianKnowledgeBase(userId, input) {
+  const operationId = scopedOperationId(userId, input.operationId, 'bind-bailian-knowledge-base');
+  const existingOperation = await prisma.knowledgeBase.findUnique({
+    where: { operation_id: operationId },
+    include: { owner: { include: { profile: true } }, category: true, documents: { where: { deleted_at: null } }, _count: { select: { agent_bindings: true } } },
+  });
+  if (existingOperation) return serializeKnowledgeBase(existingOperation, userId, true);
+  const remoteId = String(input.knowledgeBaseId || '').trim();
+  const duplicate = await prisma.knowledgeBase.findFirst({
+    where: { owner_user_id: Number(userId), deleted_at: null, provider: REMOTE_BAILIAN_PROVIDER, dify_dataset_id: remoteId },
+    include: { owner: { include: { profile: true } }, category: true, documents: { where: { deleted_at: null } }, _count: { select: { agent_bindings: true } } },
+  });
+  if (duplicate) return serializeKnowledgeBase(duplicate, userId, true);
+  const count = await prisma.knowledgeBase.count({ where: { owner_user_id: userId, deleted_at: null } });
+  assert(count < MAX_KNOWLEDGE_BASES, `每个用户最多创建 ${MAX_KNOWLEDGE_BASES} 个知识库`);
+  const documentCount = Math.max(0, Number(input.remoteDocumentCount || 0));
+  const kb = await prisma.knowledgeBase.create({
+    data: {
+      name: input.name,
+      description: input.description,
+      scope_type: 'PERSONAL',
+      owner_user_id: userId,
+      status: 'active',
+      dify_dataset_id: remoteId,
+      provider: REMOTE_BAILIAN_PROVIDER,
+      ownership_mode: 'REMOTE_BOUND',
+      remote_status: 'READY',
+      remote_document_count: documentCount || null,
+      last_synced_at: new Date(),
+      sync_error: null,
+      remote_documents_json: [],
+      marketplace_visibility: 'PRIVATE',
+      marketplace_status: 'READY',
+      document_count: documentCount,
+      total_size_bytes: BigInt(0),
+      operation_id: operationId,
+    },
+    include: { owner: { include: { profile: true } }, category: true, documents: { where: { deleted_at: null } }, _count: { select: { agent_bindings: true } } },
+  });
+  return serializeKnowledgeBase(kb, userId, true);
+}
+
 async function refreshStatus(userId, kbId, options = {}) {
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null }, include: { documents: { where: { deleted_at: null } } } });
   assert(kb, '知识库不存在或无权查看', 40301, 403);
+  if (String(kb.provider || '').toUpperCase() === REMOTE_BAILIAN_PROVIDER) {
+    await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
+      marketplace_status: kb.marketplace_visibility === 'PUBLIC' ? 'PUBLIC' : 'READY',
+      remote_status: 'READY',
+      sync_error: null,
+      last_synced_at: new Date(),
+    } });
+    return getKnowledgeBase(userId, kb.knowledge_base_id);
+  }
   if (kb.ownership_mode === 'REMOTE_BOUND' && !kb.documents.length) {
     await prisma.knowledgeBase.update({ where: { knowledge_base_id: kb.knowledge_base_id }, data: {
       remote_status: 'MIGRATION_REQUIRED',
@@ -368,7 +434,8 @@ async function applyPublic(userId, kbId, rawOperationId) {
   assert(String(rawOperationId || '').length >= 8, 'operationId 不合法');
   const kb = await prisma.knowledgeBase.findFirst({ where: { knowledge_base_id: Number(kbId), owner_user_id: userId, deleted_at: null }, include: { documents: { where: { deleted_at: null } } } });
   assert(kb, '知识库不存在或无权申请公开', 40301, 403);
-  assert(kb.documents.length > 0 && kb.documents.every((doc) => doc.marketplace_status === 'READY'), '知识库文档尚未全部完成索引，暂时不能申请公开。');
+  const isBailian = String(kb.provider || '').toUpperCase() === REMOTE_BAILIAN_PROVIDER;
+  assert(isBailian || (kb.documents.length > 0 && kb.documents.every((doc) => doc.marketplace_status === 'READY')), '知识库文档尚未全部完成索引，暂时不能申请公开。');
   const operationId = scopedOperationId(userId, rawOperationId, `apply-kb-${kb.knowledge_base_id}`);
   const existing = await prisma.knowledgeBaseReviewRecord.findUnique({ where: { operationId } });
   if (!existing) await prisma.$transaction([
@@ -412,6 +479,6 @@ async function deleteKnowledgeBase(userId, kbId) {
 module.exports = {
   STORAGE_ROOT, MAX_FILE_BYTES, MAX_FILES, textIntegrity, validateUpload, serializeKnowledgeBase, serializeDocument,
   createKnowledgeBase, listKnowledgeBases, getKnowledgeBase, updateKnowledgeBase, uploadDocument,
-  listDifyDatasets, bindDifyDatasets, syncDifyBinding,
+  listDifyDatasets, listBailianKnowledgeBases, bindDifyDatasets, bindBailianKnowledgeBase, syncDifyBinding,
   refreshStatus, deleteDocument, getDocumentPreview, retryDocument, applyPublic, testRetrieval, deleteKnowledgeBase,
 };

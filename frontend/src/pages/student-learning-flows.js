@@ -122,7 +122,7 @@ function pageHtml() {
   return `<main class="lf-page">
     <section class="lf-hero">
       <div><p class="lf-eyebrow">LEARNING CENTER</p><h1>学习中心</h1><p>围绕一个明确计划完成准备、学习与课前资料，不再重复选择目标和工作流。</p></div>
-      <div class="lf-hero-right"><div class="lf-stat"><b id="lf-stat-total">—</b><span>进行中计划</span></div><div class="lf-stat"><b id="lf-stat-mine">—</b><span>可用模板</span></div><button class="lf-button primary" id="lf-create-plan">${icon('plus')}创建学习计划</button></div>
+      <div class="lf-hero-right"><div class="lf-stat"><b id="lf-stat-total">—</b><span>进行中计划</span></div><div class="lf-stat"><b id="lf-stat-mine">—</b><span>可用模板</span></div><a class="lf-button secondary" href="#/student/compiler">在线编译器</a><button class="lf-button primary" id="lf-create-plan">${icon('plus')}创建学习计划</button></div>
     </section>
     <section class="lf-plan-summary" id="lf-plan-summary" aria-live="polite"><div class="lf-loading"><i></i>正在读取学习目标与准备…</div></section>
     <section class="lc-scene-section" id="lc-learning-center"><div class="lc-section-head"><div><h2>本次学习智学卡</h2><p>学习目标、必备概念、薄弱点、预计难点与预习建议</p></div></div><div id="lc-learning-center-grid"><div class="lc-empty"><b>正在读取学习准备卡片</b><span>不会阻塞学习计划和开始学习。</span></div></div></section>

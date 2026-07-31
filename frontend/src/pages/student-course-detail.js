@@ -772,6 +772,7 @@ export async function renderStudentCourseDetail(app) {
       <div class="course-action-strip">
         <button class="course-action-btn primary" id="btn-course-wrong-book" type="button">本课程错题本</button>
         <button class="course-action-btn" id="btn-course-practice" type="button">进入智能练习</button>
+        <button class="course-action-btn" id="btn-course-compiler" type="button">在线编译器</button>
         <button class="course-action-btn" id="btn-course-files" type="button">课程文件</button>
         <button class="course-action-btn ${course.is_pinned ? 'is-active' : ''}" id="btn-course-pin" type="button">${course.is_pinned ? '取消置顶课程' : '置顶课程'}</button>
       </div>
@@ -832,6 +833,9 @@ function bindCourseActionEvents(course) {
   })
   document.getElementById('btn-course-practice')?.addEventListener('click', () => {
     window.location.hash = '#/student/practice'
+  })
+  document.getElementById('btn-course-compiler')?.addEventListener('click', () => {
+    window.location.hash = '#/student/compiler'
   })
   document.getElementById('btn-course-files')?.addEventListener('click', () => {
     document.getElementById('course-files-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })

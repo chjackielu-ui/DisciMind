@@ -2057,16 +2057,17 @@
 .agent-card-capability-state .is-format { border-color: #e1e0f1; color: #68659b; background: #f5f3fb; }
 .agent-card-capability-state .is-dialogue { border-color: #d8e5ec; color: #426b81; background: #f0f6f8; }
 .agent-card-stats { gap: 8px; font-size: .65rem; }
-.agent-card-actions { flex-wrap: nowrap; gap: 5px; }
-.agent-card-actions .complex-btn { flex: 1; min-height: 34px; padding: 0 10px; background: #315f7a; border-color: #315f7a; }
-.agent-card-actions .complex-btn-secondary { min-height: 34px; padding: 0 9px; white-space: nowrap; }
-.agent-card-actions .agent-favorite-btn { min-height: 34px; padding: 0 8px; border: 1px solid #d8e1e7; border-radius: 8px; background: #fff; color: #64748b; font-size: .7rem; white-space: nowrap; }
+.agent-card-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: stretch; gap: 5px; min-height: 34px; }
+.agent-card-actions .agent-card-primary-action { min-width: 0; min-height: 34px; padding: 0 10px; background: #315f7a; border-color: #315f7a; }
+.agent-card-actions .agent-card-secondary-action { min-width: 42px; min-height: 34px; padding: 0 9px; white-space: nowrap; }
+.agent-card-actions .agent-favorite-btn { display: inline-grid; min-width: 42px; min-height: 34px; padding: 0 8px; place-items: center; border: 1px solid #d8e1e7; border-radius: 8px; background: #fff; color: #64748b; font-size: .7rem; white-space: nowrap; }
+.agent-card-actions .agent-favorite-btn svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .agent-card-actions .agent-favorite-btn:hover,
 .agent-card-actions .agent-favorite-btn.active { transform: none; color: #9b6a19; background: #fff9ec; }
 .agent-card-menu-portal{max-width:calc(100vw - 24px);overflow:auto}.agent-card-menu-portal button{cursor:pointer}
 @media(max-width:1279px){.agent-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.agent-market-workbench{grid-template-columns:minmax(0,1fr) 220px!important}}
 @media(max-width:900px){.agent-market-workbench{grid-template-columns:1fr!important;grid-template-areas:"ranking" "results"!important}.agent-hot-ranking{position:static}.agent-market-toolbar form{grid-template-columns:1fr auto auto}.agent-market-toolbar input{grid-column:1/-1}.agent-inline-sort{width:100%;margin-left:0;justify-content:flex-end}}
-@media(max-width:767px){.agent-card-grid{grid-template-columns:1fr!important}.agent-market-toolbar form{grid-template-columns:1fr 1fr}.agent-search-clear{position:static;min-height:40px;margin:0}.agent-filter-summary{align-items:flex-start}.agent-inline-sort{justify-content:space-between}.agent-inline-sort select{flex:1}.agent-card-actions{flex-wrap:wrap}.agent-card-actions .complex-btn{flex-basis:100%}}
+@media(max-width:767px){.agent-card-grid{grid-template-columns:1fr!important}.agent-market-toolbar form{grid-template-columns:1fr 1fr}.agent-search-clear{position:static;min-height:40px;margin:0}.agent-filter-summary{align-items:flex-start}.agent-inline-sort{justify-content:space-between}.agent-inline-sort select{flex:1}.agent-card-actions{grid-template-columns:minmax(0,1fr) auto auto}.agent-card-actions .agent-card-primary-action{grid-column:1/-1}}
 
 /* Agent system upgrade: shared icon, composer and chat shell. */
 .agent-icon{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;overflow:hidden;border-radius:11px;color:var(--agent-icon-color);background:var(--agent-icon-bg)}

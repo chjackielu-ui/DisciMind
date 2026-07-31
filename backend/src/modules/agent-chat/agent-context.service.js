@@ -35,6 +35,10 @@ function canAccessKnowledgeBase(kb, userId, scope) {
 }
 
 function isKnowledgeBaseAvailable(kb) {
+  if (String(kb?.provider || '').toUpperCase() === 'BAILIAN_KNOWLEDGE') {
+    return ['READY', 'PUBLIC'].includes(String(kb?.marketplace_status || '').toUpperCase())
+      && !['FAILED', 'OFFLINE', 'DELETED', 'DELETING', 'DISABLED'].includes(String(kb?.remote_status || '').toUpperCase());
+  }
   const documents = Array.isArray(kb?.documents) ? kb.documents : [];
   const hasEmbeddedDocument = documents.some((doc) => doc.parse_status === 'EMBEDDED' && doc.marketplace_status === 'READY');
   return hasEmbeddedDocument && !UNAVAILABLE_KNOWLEDGE_BASE_STATUSES.has(String(kb?.marketplace_status || '').toUpperCase());
@@ -80,7 +84,8 @@ async function listAccessibleKnowledgeBases(userId, query = {}) {
     .map(kb => ({
       id: kb.knowledge_base_id, name: safeKnowledgeBaseName(kb), description: kb.description || '', scopeType: kb.scope_type,
       courseId: kb.course_id, teachingClassId: kb.teaching_class_id, status: kb.marketplace_status,
-      documentCount: kb.document_count, isOwner: Number(kb.owner_user_id) === Number(userId),
+      documentCount: kb.document_count, remoteDocumentCount: kb.remote_document_count || 0,
+      isOwner: Number(kb.owner_user_id) === Number(userId),
       available: isKnowledgeBaseAvailable(kb),
     }));
 }
@@ -98,7 +103,7 @@ function mentionedKnowledgeTerms(query) {
 async function inferKnowledgeBaseRefs(userId, query, options = {}) {
   const terms = mentionedKnowledgeTerms(query);
   if (!terms.length) return [];
-  const accessible = (await listAccessibleKnowledgeBases(userId)).filter(item => item.available && Number(item.documentCount || 0) > 0);
+  const accessible = (await listAccessibleKnowledgeBases(userId)).filter(item => item.available);
   if (!accessible.length) return [];
   const courseId = Number(options.courseId || options.course_id) || null;
   const scored = accessible.map((item) => {
