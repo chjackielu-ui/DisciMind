@@ -206,6 +206,15 @@ export function iconDocument() {
   `)
 }
 
+// 在线编译器 — 代码符号
+export function iconCode() {
+  return svgWrap(`
+    <polyline points="8 9 4 12 8 15"/>
+    <polyline points="16 9 20 12 16 15"/>
+    <line x1="14" y1="5" x2="10" y2="19"/>
+  `)
+}
+
 // ========================
 // 导航图标映射
 // ========================
@@ -232,6 +241,7 @@ export const NAV_ICONS = {
   settings: iconSettings,
   workflow: iconWorkflow,
   document: iconDocument,
+  code: iconCode,
   pin: iconPin,
   pinFilled: iconPinFilled,
   logout: iconLogout,

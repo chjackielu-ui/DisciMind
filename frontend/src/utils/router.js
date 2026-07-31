@@ -37,6 +37,7 @@ const renderStudentTeachingTasks = lazyRender(() => import('../pages/student-tea
 const renderStudentSubmissionResult = lazyRender(() => import('../pages/student-submission-result.js'), 'renderStudentSubmissionResult')
 const renderStudentDocuments = lazyRender(() => import('../pages/student-documents.js'), 'renderStudentDocuments')
 const renderStudentVideos = lazyRender(() => import('../pages/student-videos.js'), 'renderStudentVideos')
+const renderStudentCompiler = lazyRender(() => import('../pages/student-compiler.js'), 'renderStudentCompiler')
 const renderStudentAgentDetail = lazyRender(() => import('../pages/agent/AgentDetailPage.js'), 'renderStudentAgentDetail')
 const renderAgentMarket = lazyRender(() => import('../pages/agent/AgentMarketPage.js'), 'renderAgentMarket')
 const renderMyAgents = lazyRender(() => import('../pages/agent/AgentMarketPage.js'), 'renderMyAgents')
@@ -145,6 +146,7 @@ const staticRoutes = {
   '/student/teaching-tasks': { render: renderStudentTeachingTasks, auth: true, roles: ['student'] },
   '/student/documents': { render: renderStudentDocuments, auth: true, roles: ['student'] },
   '/student/videos': { render: renderStudentVideos, auth: true, roles: ['student'] },
+  '/student/compiler': { render: renderStudentCompiler, auth: true, roles: ['student'] },
   '/student/agents/trainer': { render: renderStudentAgentDetail, auth: true, roles: ['student'] },
   '/student/agents': { render: renderAgentMarket, auth: true, roles: ['student', 'teacher', 'admin'] },
   '/student/agents/mine': { render: renderMyAgents, auth: true, roles: ['student', 'teacher', 'admin'] },

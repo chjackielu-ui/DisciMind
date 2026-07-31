@@ -1,0 +1,77 @@
+# Judge0 只给 backend 本机访问。不要修改为 0.0.0.0:2358，也不要在 ECS 安全组开放 2358。
+services:
+  judge0-server:
+    image: judge0/judge0:1.13.1
+    container_name: discimind-judge0-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2358:2358"
+    environment:
+      REDIS_HOST: judge0-redis
+      POSTGRES_HOST: judge0-db
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: ${JUDGE0_DB_PASSWORD:?Set JUDGE0_DB_PASSWORD in deploy/judge0/.env}
+      RAILS_ENV: production
+      ENABLE_NETWORK: "false"
+      CPU_TIME_LIMIT: "2"
+      WALL_TIME_LIMIT: "4"
+      MEMORY_LIMIT: "131072"
+      MAX_PROCESSES_AND_OR_THREADS: "30"
+      MAX_FILE_SIZE: "1024"
+    depends_on:
+      - judge0-redis
+      - judge0-db
+    # Judge0 1.13.1 官方 Compose 要求 server 和 workers 都启用特权模式。
+    privileged: true
+
+  judge0-workers:
+    image: judge0/judge0:1.13.1
+    container_name: discimind-judge0-workers
+    restart: unless-stopped
+    command: ["./scripts/workers"]
+    environment:
+      REDIS_HOST: judge0-redis
+      POSTGRES_HOST: judge0-db
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: ${JUDGE0_DB_PASSWORD:?Set JUDGE0_DB_PASSWORD in deploy/judge0/.env}
+      RAILS_ENV: production
+      ENABLE_NETWORK: "false"
+      CPU_TIME_LIMIT: "2"
+      WALL_TIME_LIMIT: "4"
+      MEMORY_LIMIT: "131072"
+      MAX_PROCESSES_AND_OR_THREADS: "30"
+      MAX_FILE_SIZE: "1024"
+      # 2 核 2GB ECS 仅启动一个执行 worker，避免并发编译耗尽内存。
+      COUNT: "1"
+      BOX_ROOT: /var/local/lib/isolate
+    depends_on:
+      - judge0-redis
+      - judge0-db
+    # Judge0 的 isolate 需要在容器内使用 sudo/setuid 和 cgroup。
+    # 这是官方 worker 的运行要求；用户代码仍由 isolate 二次隔离。
+    privileged: true
+
+  judge0-redis:
+    image: redis:7-alpine
+    container_name: discimind-judge0-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - judge0-redis:/data
+
+  judge0-db:
+    image: postgres:16-alpine
+    container_name: discimind-judge0-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: ${JUDGE0_DB_PASSWORD:?Set JUDGE0_DB_PASSWORD in deploy/judge0/.env}
+    volumes:
+      - judge0-db:/var/lib/postgresql/data
+
+volumes:
+  judge0-redis:
+  judge0-db:

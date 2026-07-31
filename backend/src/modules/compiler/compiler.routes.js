@@ -1,0 +1,13 @@
+const { Router } = require('express');
+const auth = require('../../middlewares/auth.middleware');
+const roles = require('../../middlewares/role.middleware');
+const { rateLimit } = require('../../middlewares/rate-limit.middleware');
+const controller = require('./compiler.controller');
+const router = Router();
+const runLimit = rateLimit({ windowMs: Number(process.env.COMPILER_RATE_LIMIT_WINDOW_MS || 60_000), max: Number(process.env.COMPILER_RATE_LIMIT_MAX || 12), keyPrefix: 'compiler-run', keyGenerator: (req) => req.user?.user_id || req.ip });
+router.use(auth, roles(['student']));
+router.get('/history', controller.history);
+router.get('/topics/:topicId', controller.topic);
+router.post('/run', runLimit, controller.run);
+router.post('/judge', runLimit, controller.judge);
+module.exports = router;

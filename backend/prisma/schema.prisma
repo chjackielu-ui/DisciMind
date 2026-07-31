@@ -388,6 +388,7 @@ model User {
   answer_records                AnswerRecord[]                      @relation("AnswerRecordStudent")
   practice_sessions             PracticeSession[]                   @relation("PracticeSessionStudent")
   programming_submissions       ProgrammingSubmission[]             @relation("ProgrammingSubmissionStudent")
+  compile_records               CompileRecord[]                     @relation("CompileRecordUser")
   wrong_questions               WrongQuestion[]                     @relation("WrongQuestionStudent")
   wrong_question_tags           WrongQuestionTag[]
   wrong_question_collections    WrongQuestionCollection[]
@@ -1691,6 +1692,7 @@ model Question {
   practice_session_links    PracticeSessionQuestion[]
   answer_records            AnswerRecord[]
   programming_submissions   ProgrammingSubmission[]
+  compile_records           CompileRecord[]              @relation("CompileRecordTopic")
   wrong_questions           WrongQuestion[]
   trainer_session_questions TrainerSessionQuestion[]
 
@@ -2083,6 +2085,26 @@ model ProgrammingSubmission {
   @@index([student_user_id])
   @@index([judge_status])
   @@map("programming_submissions")
+}
+
+model CompileRecord {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  topic_id    Int?
+  language    String   @default("c") @db.VarChar(16)
+  source_code String   @db.LongText
+  compile_msg String   @db.LongText
+  run_output  String   @db.LongText
+  status      Int      @db.TinyInt
+  create_time DateTime @default(now())
+
+  user  User      @relation("CompileRecordUser", fields: [user_id], references: [user_id], onDelete: Cascade)
+  topic Question? @relation("CompileRecordTopic", fields: [topic_id], references: [question_id], onDelete: SetNull)
+
+  @@index([user_id, create_time])
+  @@index([user_id, topic_id, create_time])
+  @@index([user_id, language, create_time])
+  @@map("compile_record")
 }
 
 model WrongQuestion {
