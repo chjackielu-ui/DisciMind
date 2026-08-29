@@ -70,9 +70,24 @@ function classifyLearningIntent(query, role, context = {}) {
   const attachmentCount = Math.max(0, Number(context.attachmentCount || context.attachments?.length || 0));
   const knowledgeBaseCount = Math.max(0, Number(context.knowledgeBaseCount || context.knowledgeBaseIds?.length || 0));
   const chartRequested = shouldCreateChart(text, { kind: null });
+  const manualFileGeneratorCount = Math.max(0, Number(context.manualFileGeneratorCount || 0));
+  const manualFileGeneratorType = context.manualFileGeneratorType === 'EXAM_PAPER' ? 'EXAM_PAPER'
+    : context.manualFileGeneratorType === 'STUDY_HANDOUT' ? 'STUDY_HANDOUT' : null;
 
   if (file.capabilityQuestion) return route(INTENTS.FILE_CAPABILITY, 0.99, file, {
     executionMode: EXECUTION_MODES.DIRECT_RESPONSE, reason: 'file_capability_question',
+  });
+  // A manually selected file generator is already an explicit file request,
+  // even when the user's wording is short (for example, "开始生成"). Keep it
+  // on the controlled confirmation route; the generic execute_agent tool only
+  // accepts CHAT agents.
+  if (manualFileGeneratorCount > 0) return route(INTENTS.FILE, 1, {
+    ...file,
+    matched: true,
+    artifactType: manualFileGeneratorType || file.artifactType,
+  }, {
+    executionMode: EXECUTION_MODES.ARTIFACT_GENERATION,
+    skillIds: ['artifact_generation'], reason: 'manual_file_generator_selection',
   });
   if (manualAgentCount > 0) return route(INTENTS.MANUAL_AGENT, 1, file, {
     executionMode: manualAgentCount > 1 ? EXECUTION_MODES.MULTI_AGENT : EXECUTION_MODES.SINGLE_AGENT,

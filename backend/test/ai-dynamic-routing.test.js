@@ -65,6 +65,19 @@ test('explicit knowledge-base and manual Agent inputs override semantic fallback
   assert.equal(multi.steps.filter(step => step.type === 'agent').length, 2);
 });
 
+test('manually selected file generators use the controlled file route', () => {
+  const plan = createPlan({
+    query: '开始生成',
+    role: 'student',
+    manualAgentRefs: [{ agentId: 42, agent: { agentType: 'FILE_GENERATOR' }, version: { fileGeneratorConfigJson: { documentType: 'EXAM_PAPER' } } }],
+    searchOptions: { mode: 'auto' },
+  });
+  assert.equal(plan.intent.kind, INTENTS.FILE);
+  assert.equal(plan.executionMode, EXECUTION_MODES.ARTIFACT_GENERATION);
+  assert.equal(plan.intent.file.artifactType, 'EXAM_PAPER');
+  assert.deepEqual(plan.steps.map(step => step.type), ['planning', 'confirmation']);
+});
+
 test('high-confidence owner-bound and chart routes never contain an automatic subject Agent step', () => {
   for (const query of ['查看我最近的错题', '分析我最近一个月的学习成绩', '请以图表形式分析我的学习状态']) {
     const plan = createPlan({ query, role: 'student', searchOptions: { mode: 'auto' } });

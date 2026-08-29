@@ -207,11 +207,14 @@ async function run(input = {}) {
     emit('intent.detected', plan.intent);
     const capabilities = await getCapabilities();
     const manualAgents = Array.isArray(input.resolvedAgents) && input.resolvedAgents.length ? input.resolvedAgents : null;
-    const selectedAgents = manualAgents || (plan.intent.subjectAgentAllowed ? await agentRegistry.resolvePlan(user.user_id, {
+    // FILE_GENERATOR agents are handled by the dedicated pending-action and
+    // controlled file-generation flow below. They must never be passed to the
+    // generic execute_agent tool, whose contract is CHAT-only.
+    const selectedAgents = plan.intent.kind === INTENTS.FILE ? [] : (manualAgents || (plan.intent.subjectAgentAllowed ? await agentRegistry.resolvePlan(user.user_id, {
       query, skills: plan.skills, manualAgentRefs: input.manualAgentRefs,
       auto: input.autoAgent !== false, assistantMode: input.assistantMode,
       courseId: input.courseId, subjectCode: input.subjectCode, intent: plan.intent.kind,
-    }) : []);
+    }) : []));
     const publicAgents = selectedAgents.map(agentRegistry.publicAgent);
     const agentExecutionMode = resolveAgentExecutionMode(input, query);
     const agentSteps = buildAgentSteps(selectedAgents, agentExecutionMode);

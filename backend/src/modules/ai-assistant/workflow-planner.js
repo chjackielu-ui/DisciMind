@@ -132,6 +132,12 @@ function createPlan(input = {}) {
   const options = parseSearchOptions(input.searchOptions || {});
   const context = {
     manualAgentCount: Number(input.manualAgentCount || input.manualAgentRefs?.length || input.resolvedAgents?.length || 0),
+    manualFileGeneratorCount: (input.manualAgentRefs || input.resolvedAgents || []).filter(item => (
+      String(item?.agent?.agentType || item?.agentType || '').toUpperCase() === 'FILE_GENERATOR'
+    )).length,
+    manualFileGeneratorType: (input.manualAgentRefs || input.resolvedAgents || []).map(item => (
+      item?.version?.fileGeneratorConfigJson?.documentType || item?.fileGeneratorConfig?.documentType
+    )).find(type => type === 'EXAM_PAPER' || type === 'STUDY_HANDOUT') || null,
     attachmentCount: Number(input.attachmentCount || input.attachments?.length || 0),
     knowledgeBaseCount: Number(input.knowledgeBaseCount || input.knowledgeBaseIds?.length || 0),
   };
