@@ -94,3 +94,18 @@ release/
 docs/CLAUDE_CODE_DATABASE_PROMPT.md
 docs/DisciMind_database_design.md
 backend/storage/diagnostics/
+
+# local judge runtime and downloaded tools
+.judge-runtime/
+*.partial
+
+# generated release/evaluation outputs
+qa_after/
+qa_before/
+submission_materials/
+evidence_*.png
+frontend/*.tar.gz
+
+# local acceptance captures and generated artifacts
+backend/storage/acceptance/
+artifacts/

@@ -272,6 +272,11 @@ async function register(params) {
   }
   const prismaRole = toPrismaRole(normalizedRole);
   const prismaGender = toPrismaGender(gender);
+  // 角色专有资料必须在服务端再次隔离，避免绕过前端提交交叉字段。
+  const profileStudentNo = normalizedRole === 'student' ? student_no : null;
+  const profileTeacherNo = normalizedRole === 'teacher' ? teacher_no : null;
+  const profileMajor = normalizedRole === 'student' ? major : null;
+  const profileGrade = normalizedRole === 'student' ? grade : null;
 
   // 3. 唯一性检查（并行检查以提升性能）
   const conflicts = [];
@@ -291,16 +296,16 @@ async function register(params) {
     if (emailUser) conflicts.push('邮箱已被注册');
   }
 
-  if (student_no) {
+  if (profileStudentNo) {
     const dupStudentNo = await prisma.userProfile.findFirst({
-      where: { student_no },
+      where: { student_no: profileStudentNo },
     });
     if (dupStudentNo) conflicts.push('学号已被占用');
   }
 
-  if (teacher_no) {
+  if (profileTeacherNo) {
     const dupTeacherNo = await prisma.userProfile.findFirst({
-      where: { teacher_no },
+      where: { teacher_no: profileTeacherNo },
     });
     if (dupTeacherNo) conflicts.push('教师工号已被占用');
   }
@@ -334,11 +339,11 @@ async function register(params) {
         user_id: user.user_id,
         real_name: real_name || username,
         gender: prismaGender,
-        student_no: student_no || null,
-        teacher_no: teacher_no || null,
+        student_no: profileStudentNo || null,
+        teacher_no: profileTeacherNo || null,
         college: college || null,
-        major: major || null,
-        grade: grade || null,
+        major: profileMajor || null,
+        grade: profileGrade || null,
         admin_class_id: admin_class_id || null,
         avatar_url: avatar_url || null,
       },

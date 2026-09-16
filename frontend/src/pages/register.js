@@ -68,7 +68,7 @@ export function renderRegisterPage(app) {
             </div>
           </div>
 
-          <div class="form-row">
+          <div class="form-row" id="reg-major-grade-row" hidden>
             <div class="form-group">
               <label for="reg-major">专业</label>
               <input type="text" id="reg-major" placeholder="请输入专业" />
@@ -80,11 +80,11 @@ export function renderRegisterPage(app) {
           </div>
 
           <div class="form-row">
-            <div class="form-group">
+            <div class="form-group" id="reg-student-no-group" hidden>
               <label for="reg-student-no">学号</label>
               <input type="text" id="reg-student-no" placeholder="学生请填写学号" />
             </div>
-            <div class="form-group">
+            <div class="form-group" id="reg-teacher-no-group" hidden>
               <label for="reg-teacher-no">教师工号</label>
               <input type="text" id="reg-teacher-no" placeholder="教师请填写工号" />
             </div>
@@ -106,6 +106,20 @@ export function renderRegisterPage(app) {
   const errorEl = document.getElementById('reg-error')
   const successEl = document.getElementById('reg-success')
   const submitBtn = document.getElementById('reg-submit')
+  const roleSelect = document.getElementById('reg-role')
+  const majorGradeRow = document.getElementById('reg-major-grade-row')
+  const studentNoGroup = document.getElementById('reg-student-no-group')
+  const teacherNoGroup = document.getElementById('reg-teacher-no-group')
+
+  function updateRoleFields() {
+    const role = roleSelect.value
+    majorGradeRow.hidden = role !== 'student'
+    studentNoGroup.hidden = role !== 'student'
+    teacherNoGroup.hidden = role !== 'teacher'
+  }
+
+  roleSelect.addEventListener('change', updateRoleFields)
+  updateRoleFields()
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault()
@@ -120,10 +134,10 @@ export function renderRegisterPage(app) {
       phone: document.getElementById('reg-phone').value.trim(),
       email: document.getElementById('reg-email').value.trim(),
       college: document.getElementById('reg-college').value.trim(),
-      major: document.getElementById('reg-major').value.trim(),
-      grade: document.getElementById('reg-grade').value.trim(),
-      student_no: document.getElementById('reg-student-no').value.trim(),
-      teacher_no: document.getElementById('reg-teacher-no').value.trim(),
+      major: roleSelect.value === 'student' ? document.getElementById('reg-major').value.trim() : undefined,
+      grade: roleSelect.value === 'student' ? document.getElementById('reg-grade').value.trim() : undefined,
+      student_no: roleSelect.value === 'student' ? document.getElementById('reg-student-no').value.trim() : undefined,
+      teacher_no: roleSelect.value === 'teacher' ? document.getElementById('reg-teacher-no').value.trim() : undefined,
     }
 
     // 基本校验

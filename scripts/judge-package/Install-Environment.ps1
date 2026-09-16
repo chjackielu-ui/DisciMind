@@ -186,6 +186,12 @@ function Get-OrCreateJudgeConfig {
         throw "已有评委配置缺少 $requiredProperty。请查看 $($paths.JudgeConfig)，不要删除已有数据库数据。"
       }
     }
+    if (-not ($existingConfig.PSObject.Properties.Name -contains 'judge0DatabasePassword') -or
+        [string]::IsNullOrWhiteSpace([string]$existingConfig.judge0DatabasePassword)) {
+      $existingConfig | Add-Member -NotePropertyName judge0DatabasePassword -NotePropertyValue (Get-RandomAlphaNumericToken -Length 64) -Force
+      Save-JudgeConfig -Paths $paths -Config $existingConfig
+      Write-JudgeSuccess '已为现有评委配置补充 Judge0 随机数据库密码'
+    }
     return $existingConfig
   }
 
@@ -205,6 +211,7 @@ function Get-OrCreateJudgeConfig {
     databaseRootPassword   = Get-RandomAlphaNumericToken -Length 48
     jwtSecret              = Get-RandomAlphaNumericToken -Length 64
     aiEncryptionKey        = Get-RandomAlphaNumericToken -Length 64
+    judge0DatabasePassword = Get-RandomAlphaNumericToken -Length 64
   }
   Save-JudgeConfig -Paths $paths -Config $newConfig
   Write-JudgeSuccess '已生成仅用于本机演示的随机安全配置'
@@ -340,13 +347,13 @@ try {
     throw '项目文件不完整：缺少前端或后端 package-lock.json。请重新解压完整评委包。'
   }
 
-  Write-JudgeStep '1/6 准备便携 Node.js 与 MariaDB'
+  Write-JudgeStep '1/7 准备便携 Node.js 与 MariaDB'
   $nodeArchive = Get-VerifiedArchive -ArchiveName $nodeArchiveName -DownloadUrl $nodeArchiveUrl -ExpectedSha256 $nodeArchiveSha256
   Expand-PortableTool -ArchivePath $nodeArchive -ExpectedFolderName $nodeFolderName -TargetHome $paths.NodeHome -RequiredRelativeFile 'node.exe'
   $mariaDbArchive = Get-VerifiedArchive -ArchiveName $mariaDbArchiveName -DownloadUrl $mariaDbArchiveUrl -ExpectedSha256 $mariaDbArchiveSha256
   Expand-PortableTool -ArchivePath $mariaDbArchive -ExpectedFolderName $mariaDbFolderName -TargetHome $paths.MariaDbHome -RequiredRelativeFile 'bin\mariadbd.exe'
 
-  Write-JudgeStep '2/6 生成安全的本地演示配置并初始化数据库'
+  Write-JudgeStep '2/7 生成安全的本地演示配置并初始化数据库'
   $config = Get-OrCreateJudgeConfig
   Write-MariaDbConfiguration -Paths $paths -Config $config
   Initialize-PortableDatabase -Config $config
@@ -354,21 +361,24 @@ try {
   Initialize-ApplicationDatabaseUser -Config $config
   Set-JudgeProcessEnvironment -Paths $paths -Config $config
 
-  Write-JudgeStep '3/6 安装后端依赖'
+  Write-JudgeStep '3/7 安装后端依赖'
   Invoke-NpmCleanInstall -Directory (Join-Path $paths.ProjectRoot 'backend') -Label '后端'
 
-  Write-JudgeStep '4/6 安装前端依赖'
+  Write-JudgeStep '4/7 安装前端依赖'
   Invoke-NpmCleanInstall -Directory (Join-Path $paths.ProjectRoot 'frontend') -Label '前端'
 
-  Write-JudgeStep '5/6 应用迁移并注入完整演示数据'
+  Write-JudgeStep '5/7 应用迁移并注入完整演示数据'
   Invoke-BackendSetup
 
-  Write-JudgeStep '6/6 完成启动前构建检查'
+  Write-JudgeStep '6/7 完成启动前构建检查'
   Invoke-FrontendBuildCheck
+
+  Write-JudgeStep '7/7 检查并启动 C / Python 在线编译沙箱'
+  [void](Start-Judge0IfAvailable -Paths $paths -Config $config)
   [DateTime]::UtcNow.ToString('o') | Set-Content -LiteralPath (Join-Path $paths.RuntimeRoot 'installed.ok') -Encoding ASCII
 
   Write-Host ''
-  Write-Host '环境安装完成！现在请双击“一键启动.bat”。' -ForegroundColor Green
+  Write-Host '环境部署完成！现在请双击“一键启动.bat”。' -ForegroundColor Green
   Write-Host '演示账号：admin_demo / teacher_demo / student_demo，密码均为 123456。' -ForegroundColor Yellow
   Write-Host ("详细日志：{0}" -f $paths.LogsRoot) -ForegroundColor DarkGray
   exit 0

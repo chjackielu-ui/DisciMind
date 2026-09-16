@@ -7,7 +7,7 @@
     "dev": "vite",
     "lint": "eslint src --max-warnings 0",
     "typecheck": "tsc -p tsconfig.check.json",
-    "test": "node --test test/learning-flow-canvas.test.js",
+    "test": "node --test test/*.test.js",
     "build": "vite build",
     "build:production": "vite build --mode production",
     "preview": "vite preview"

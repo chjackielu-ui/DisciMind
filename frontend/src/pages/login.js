@@ -3,6 +3,13 @@
 import { login, register } from '../api/auth.js'
 import { setAuth } from '../utils/auth.js'
 import { navigateTo } from '../utils/router.js'
+import { resolvePublicRegistrationRole } from '../utils/registration-role.js'
+import {
+  DEMO_CREDENTIALS_BY_ROLE,
+  clearRememberedDemoRole,
+  readRememberedDemoRole,
+  rememberDemoRole,
+} from '../utils/demo-login.js'
 
 const publicTeacherRegistrationEnabled = import.meta.env.VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED === 'true'
   || (import.meta.env.DEV && import.meta.env.VITE_PUBLIC_TEACHER_REGISTRATION_ENABLED !== 'false')
@@ -82,9 +89,7 @@ const accountPlaceholders = {
 
 // 角色入口各自对应的演示账号。切换入口时始终回填对应账号，避免页面状态和账号身份不一致。
 const demoCredentialsByRole = showDemoAccounts ? {
-  student: { account: 'student_demo', password: '123456' },
-  teacher: { account: 'teacher_demo', password: '123456' },
-  admin: { account: 'admin_demo', password: '123456' },
+  ...DEMO_CREDENTIALS_BY_ROLE,
 } : {}
 
 // 使用场景数据
@@ -355,21 +360,21 @@ function updateRegFieldVisibility() {
   const teacherNoRow = document.getElementById('reg-teacher-no-row')
   const majorGradeRow = document.getElementById('reg-major-grade-row')
 
-  if (studentNoRow) studentNoRow.style.display = regRole === 'student' ? '' : 'none'
-  if (teacherNoRow) teacherNoRow.style.display = regRole === 'teacher' ? '' : 'none'
-  if (majorGradeRow) majorGradeRow.style.display = regRole === 'student' ? '' : 'none'
+  if (studentNoRow) studentNoRow.hidden = regRole !== 'student'
+  if (teacherNoRow) teacherNoRow.hidden = regRole !== 'teacher'
+  if (majorGradeRow) majorGradeRow.hidden = regRole !== 'student'
 }
 
 // ========== 同步注册胶囊到指定角色 ==========
 function syncRegCapsuleToRole(role) {
-  regRole = role
+  regRole = resolvePublicRegistrationRole(role, publicTeacherRegistrationEnabled)
   const regCapsule = document.getElementById('reg-identity-capsule')
   if (regCapsule) {
     regCapsule.querySelectorAll('.identity-option').forEach((opt) => opt.classList.remove('active'))
-    const target = regCapsule.querySelector(`.identity-option[data-role="${role}"]`)
+    const target = regCapsule.querySelector(`.identity-option[data-role="${regRole}"]`)
     if (target) target.classList.add('active')
   }
-  applyTheme(role)
+  applyTheme(regRole)
   updateRegHighlightPosition()
   updateRegFieldVisibility()
 }
@@ -642,13 +647,19 @@ export function renderLoginPage(app) {
 
             <p class="panel-toggle">还没有账号？<a id="link-to-register">立即注册</a></p>
 
-            ${showDemoAccounts ? `<div class="demo-section">
-              <p class="demo-hint">🔑 演示账号</p>
+            ${showDemoAccounts ? `<div class="demo-section" aria-label="演示账号快捷操作">
+              <p class="demo-hint">演示账号一键登录</p>
               <div class="demo-tags">
-                <button type="button" class="demo-tag" data-role="admin" data-account="admin_demo" data-password="123456">管理员 admin_demo / 123456</button>
-                <button type="button" class="demo-tag" data-role="teacher" data-account="teacher_demo" data-password="123456">教师 teacher_demo / 123456</button>
-                <button type="button" class="demo-tag" data-role="student" data-account="student_demo" data-password="123456">学生 student_demo / 123456</button>
+                <button type="button" class="demo-tag" data-role="student" data-account="student_demo" data-password="123456">学生一键登录</button>
+                <button type="button" class="demo-tag" data-role="teacher" data-account="teacher_demo" data-password="123456">教师一键登录</button>
+                <button type="button" class="demo-tag" data-role="admin" data-account="admin_demo" data-password="123456">管理员一键登录</button>
               </div>
+              <div class="demo-memory-actions">
+                <button type="button" class="demo-memory-btn" id="save-demo-account">保存当前演示账号</button>
+                <button type="button" class="demo-memory-btn" id="fill-saved-demo">填充已保存</button>
+                <button type="button" class="demo-memory-btn demo-memory-clear" id="clear-saved-demo">清除</button>
+              </div>
+              <p class="demo-memory-status" id="demo-memory-status" aria-live="polite"></p>
             </div>` : ''}
           </div>
 
@@ -733,7 +744,7 @@ export function renderLoginPage(app) {
               </div>
 
               <!-- 教师专有：教师工号 -->
-              <div class="form-row" id="reg-teacher-no-row" style="display:none;">
+              <div class="form-row" id="reg-teacher-no-row" hidden>
                 <div class="form-group" style="grid-column: 1 / -1;">
                   <label for="reg-teacher-no">教师工号 <span class="required">*</span></label>
                   <input type="text" id="reg-teacher-no" placeholder="请输入教师工号" />
@@ -941,11 +952,63 @@ export function renderLoginPage(app) {
   // ========== 登录表单事件 ==========
   const capsule = document.getElementById('identity-capsule')
   const accountInput = document.getElementById('login-account')
+  const passwordInput = document.getElementById('login-password')
   const loginErrorEl = document.getElementById('login-error')
   const submitBtn = document.getElementById('login-submit')
+  const saveDemoBtn = document.getElementById('save-demo-account')
+  const fillSavedDemoBtn = document.getElementById('fill-saved-demo')
+  const clearSavedDemoBtn = document.getElementById('clear-saved-demo')
+  const demoMemoryStatus = document.getElementById('demo-memory-status')
 
-  // 学生入口是首屏默认状态，首次展示即回填学生演示账号。
-  fillLoginCredentials(currentRole)
+  function selectLoginRole(role, credentials = demoCredentialsByRole[role]) {
+    const targetOption = capsule.querySelector(`.identity-option[data-role="${role}"]`)
+    if (!targetOption) return false
+
+    capsule.querySelectorAll('.identity-option').forEach((option) => option.classList.remove('active'))
+    targetOption.classList.add('active')
+    applyTheme(role)
+    fillLoginCredentials(role, credentials)
+    hideLoginError()
+    updateHighlightPosition()
+    return true
+  }
+
+  function getRememberedRole() {
+    return showDemoAccounts ? readRememberedDemoRole(getDemoStorage()) : null
+  }
+
+  function getDemoStorage() {
+    try {
+      return window.localStorage
+    } catch {
+      return null
+    }
+  }
+
+  function updateDemoMemoryControls(message = '') {
+    if (!showDemoAccounts) return
+    const rememberedRole = getRememberedRole()
+    if (saveDemoBtn) saveDemoBtn.disabled = loginSubmitting
+    if (fillSavedDemoBtn) fillSavedDemoBtn.disabled = loginSubmitting || !rememberedRole
+    if (clearSavedDemoBtn) clearSavedDemoBtn.disabled = loginSubmitting || !rememberedRole
+    if (demoMemoryStatus) demoMemoryStatus.textContent = message
+  }
+
+  function setLoginBusy(isBusy) {
+    loginSubmitting = isBusy
+    submitBtn.disabled = isBusy
+    submitBtn.textContent = isBusy ? '登录中...' : '登 录'
+    if (isBusy) lockIdentityCapsule()
+    else unlockIdentityCapsule()
+    document.querySelectorAll('.demo-tag').forEach((button) => {
+      button.disabled = isBusy
+    })
+    updateDemoMemoryControls()
+  }
+
+  // 默认填充学生账号；保存过演示身份时恢复相应角色和凭据。
+  selectLoginRole(getRememberedRole() || currentRole)
+  updateDemoMemoryControls()
 
   // 身份切换（登录提交中锁死，不可切换）
   capsule.addEventListener('click', (e) => {
@@ -957,13 +1020,7 @@ export function renderLoginPage(app) {
     const role = option.dataset.role
     if (role === currentRole) return
 
-    capsule.querySelectorAll('.identity-option').forEach((opt) => opt.classList.remove('active'))
-    option.classList.add('active')
-
-    applyTheme(role)
-    fillLoginCredentials(role)
-    hideLoginError()
-    updateHighlightPosition()
+    selectLoginRole(role)
   })
 
   // ========== 注册身份胶囊切换（仅学生/教师） ==========
@@ -990,22 +1047,18 @@ export function renderLoginPage(app) {
 
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault()
+    if (loginSubmitting) return
 
     const account = accountInput.value.trim()
-    const password = document.getElementById('login-password').value
+    const password = passwordInput.value
 
     if (!account || !password) {
       showLoginError('请输入账号和密码')
       return
     }
 
-    submitBtn.disabled = true
-    submitBtn.textContent = '登录中...'
     hideLoginError()
-
-    // 锁死身份切换条，防止登录过程中切换角色
-    loginSubmitting = true
-    lockIdentityCapsule()
+    setLoginBusy(true)
 
     try {
       const result = await login({ account, password, role: currentRole })
@@ -1017,11 +1070,8 @@ export function renderLoginPage(app) {
       navigateTo(`#${home}`)
     } catch (err) {
       showLoginError(err.message || '登录失败，请稍后重试')
-      unlockIdentityCapsule()
-      loginSubmitting = false
     } finally {
-      submitBtn.disabled = false
-      submitBtn.textContent = '登 录'
+      setLoginBusy(false)
     }
   })
 
@@ -1044,10 +1094,10 @@ export function renderLoginPage(app) {
       phone: document.getElementById('reg-phone').value.trim(),
       email: document.getElementById('reg-email').value.trim(),
       college: document.getElementById('reg-college').value.trim(),
-      major: document.getElementById('reg-major').value.trim(),
-      grade: document.getElementById('reg-grade').value.trim(),
-      student_no: document.getElementById('reg-student-no').value.trim(),
-      teacher_no: document.getElementById('reg-teacher-no').value.trim(),
+      major: regRole === 'student' ? document.getElementById('reg-major').value.trim() : undefined,
+      grade: regRole === 'student' ? document.getElementById('reg-grade').value.trim() : undefined,
+      student_no: regRole === 'student' ? document.getElementById('reg-student-no').value.trim() : undefined,
+      teacher_no: regRole === 'teacher' ? document.getElementById('reg-teacher-no').value.trim() : undefined,
     }
 
     if (!data.username || !data.password || !data.real_name) {
@@ -1121,7 +1171,7 @@ export function renderLoginPage(app) {
     showPanel('login')
   })
 
-  // ========== 演示账号标签点击自动填入 ==========
+  // ========== 演示账号一键登录 ==========
   document.querySelectorAll('.demo-tag').forEach((tag) => {
     tag.addEventListener('click', () => {
       if (loginSubmitting) return
@@ -1130,17 +1180,36 @@ export function renderLoginPage(app) {
       const account = tag.dataset.account
       const password = tag.dataset.password
 
-      capsule.querySelectorAll('.identity-option').forEach((opt) => opt.classList.remove('active'))
-      const targetOption = capsule.querySelector(`.identity-option[data-role="${role}"]`)
-      if (targetOption) {
-        targetOption.classList.add('active')
-        applyTheme(role)
-        fillLoginCredentials(role, { account, password })
-        updateHighlightPosition()
-      }
-
+      selectLoginRole(role, { account, password })
       showPanel('login')
+      loginForm.requestSubmit()
     })
+  })
+
+  saveDemoBtn?.addEventListener('click', () => {
+    const credentials = demoCredentialsByRole[currentRole]
+    if (!credentials || accountInput.value.trim() !== credentials.account || passwordInput.value !== credentials.password) {
+      updateDemoMemoryControls('当前输入不是演示账号，未保存')
+      return
+    }
+
+    const saved = rememberDemoRole(getDemoStorage(), currentRole)
+    updateDemoMemoryControls(saved ? '当前演示账号已保存' : '浏览器不允许保存')
+  })
+
+  fillSavedDemoBtn?.addEventListener('click', () => {
+    const rememberedRole = getRememberedRole()
+    if (!rememberedRole) {
+      updateDemoMemoryControls('没有已保存的演示账号')
+      return
+    }
+    selectLoginRole(rememberedRole)
+    updateDemoMemoryControls('已填充保存的演示账号和密码')
+  })
+
+  clearSavedDemoBtn?.addEventListener('click', () => {
+    clearRememberedDemoRole(getDemoStorage())
+    updateDemoMemoryControls('已清除保存记录')
   })
 
   // ========== 窗口大小变化时重新定位高亮 ==========

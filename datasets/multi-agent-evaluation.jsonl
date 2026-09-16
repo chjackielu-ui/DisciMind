@@ -1,0 +1,6 @@
+{"id":"agent-eval-001","role":"student","query":"结合我的错题分析二叉树薄弱点，并给出三道递进练习","expectedSkills":["learning_diagnosis","question_generation"],"expectedAgents":["diagnostician","trainer"],"mustNotUse":["teacher_class_analytics"]}
+{"id":"agent-eval-002","role":"student","query":"先解释 TCP 三次握手，再生成一组知识卡片","expectedSkills":["knowledge_explanation","knowledge_cards"],"expectedTools":["knowledge_retrieve","create_knowledge_cards"]}
+{"id":"agent-eval-003","role":"teacher","query":"分析本班操作系统章节掌握情况，并给出下节课教学建议","expectedSkills":["class_analytics","lesson_preparation"],"expectedTools":["teacher_class_analytics"]}
+{"id":"agent-eval-004","role":"teacher","query":"把数据结构复习提纲生成 Word 文档","expectedSkills":["document_generation"],"expectedTools":["create_docx_artifact"],"requiresConfirmation":true}
+{"id":"agent-eval-005","role":"student","query":"并行调用算法助教和复习教练，总结快速排序的复杂度与易错点","executionMode":"parallel","expectedAgentCount":2,"expectedFinalStep":"synthesis"}
+{"id":"agent-eval-006","role":"student","query":"查询今天的科技新闻并标明来源","expectedSkills":["realtime_search"],"expectedTools":["web_search"],"requiresSources":true}

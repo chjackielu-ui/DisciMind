@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"id":"c-accepted","language":"c","stdin":"20 22\n","expectedStatus":"SUCCESS","expectedStdout":"42","sourceCode":"#include <stdio.h>\nint main(void){int a,b;scanf(\"%d %d\",&a,&b);printf(\"%d\\n\",a+b);return 0;}"},
+    {"id":"python-accepted","language":"python","stdin":"6 7\n","expectedStatus":"SUCCESS","expectedStdout":"42","sourceCode":"a,b=map(int,input().split())\nprint(a*b)"},
+    {"id":"c-compile-error","language":"c","stdin":"","expectedStatus":"COMPILE_ERROR","sourceCode":"int main(void){return 0}"},
+    {"id":"c-timeout","language":"c","stdin":"","expectedStatus":"TIME_LIMIT_EXCEEDED","sourceCode":"int main(void){for(;;){}return 0;}"},
+    {"id":"python-runtime-error","language":"python","stdin":"","expectedStatus":"RUNTIME_ERROR","sourceCode":"print(1/0)"}
+  ]
+}

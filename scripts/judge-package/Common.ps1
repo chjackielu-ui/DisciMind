@@ -25,6 +25,7 @@ function Get-JudgeRuntimePaths {
     MariaDbHome       = Join-Path $toolsRoot 'mariadb'
     MariaDbData       = Join-Path $runtimeRoot 'data\mariadb'
     JudgeConfig       = Join-Path $configRoot 'judge-config.json'
+    Judge0Env         = Join-Path $configRoot 'judge0.env'
     MariaDbConfig     = Join-Path $configRoot 'mariadb.ini'
     MariaDbRootClient = Join-Path $configRoot 'mariadb-root-client.ini'
     MariaDbPid        = Join-Path $runtimeRoot 'mariadb.pid'
@@ -313,8 +314,141 @@ function Set-JudgeProcessEnvironment {
   $env:DIFY_EXPLAINER_ENABLED = 'false'
   $env:DIFY_DIAGNOSTICIAN_ENABLED = 'false'
   $env:ARTIFACT_CLEANUP_ENABLED = 'false'
+  $env:AGENT_MODE = 'langgraph'
+  $env:LANGGRAPH_ENABLED = 'true'
+  $env:ASYNC_TASK_WORKER_CONCURRENCY = '1'
+  $env:JUDGE0_BASE_URL = 'http://127.0.0.1:2358'
+  $env:JUDGE0_C_LANGUAGE_ID = '50'
+  $env:JUDGE0_PYTHON_LANGUAGE_ID = '71'
+  $env:JUDGE0_CPU_TIME_LIMIT_SECONDS = '2'
+  $env:JUDGE0_WALL_TIME_LIMIT_SECONDS = '4'
+  $env:JUDGE0_MEMORY_LIMIT_KB = '131072'
+  $env:COMPILER_RATE_LIMIT_MAX = '12'
   $env:NPM_CONFIG_CACHE = $Paths.NpmCache
   $env:Path = $Paths.NodeHome + [IO.Path]::PathSeparator + $env:Path
+}
+
+function Get-JudgeDockerCommand {
+  $docker = Get-Command 'docker.exe' -ErrorAction SilentlyContinue
+  if ($null -eq $docker) {
+    $docker = Get-Command 'docker' -ErrorAction SilentlyContinue
+  }
+  return $docker
+}
+
+function Test-JudgeDockerEngine {
+  param([Parameter(Mandatory = $true)]$Docker)
+
+  $oldPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & $Docker.Source info --format '{{.ServerVersion}}' 1>$null 2>$null
+    return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+}
+
+function Test-Judge0Service {
+  try {
+    $languages = Invoke-RestMethod -Uri 'http://127.0.0.1:2358/languages' -TimeoutSec 5 -Method Get
+    $languageIds = @($languages | ForEach-Object { [int]$_.id })
+    return $languageIds -contains 50 -and $languageIds -contains 71
+  } catch {
+    return $false
+  }
+}
+
+function Write-Judge0Environment {
+  param(
+    [Parameter(Mandatory = $true)]$Paths,
+    [Parameter(Mandatory = $true)]$Config
+  )
+
+  if (-not ($Config.PSObject.Properties.Name -contains 'judge0DatabasePassword') -or
+      [string]::IsNullOrWhiteSpace([string]$Config.judge0DatabasePassword)) {
+    throw '评委配置缺少 Judge0 数据库密码，请重新运行“一键部署.bat”补齐配置。'
+  }
+  ('JUDGE0_DB_PASSWORD={0}' -f [string]$Config.judge0DatabasePassword) |
+    Set-Content -LiteralPath $Paths.Judge0Env -Encoding ASCII
+}
+
+function Start-Judge0IfAvailable {
+  param(
+    [Parameter(Mandatory = $true)]$Paths,
+    [Parameter(Mandatory = $true)]$Config,
+    [int]$TimeoutSeconds = 240
+  )
+
+  if (Test-Judge0Service) {
+    Write-JudgeSuccess 'Judge0 沙箱已在运行（C / Python 可用）'
+    return $true
+  }
+
+  $docker = Get-JudgeDockerCommand
+  if ($null -eq $docker) {
+    Write-Warning '未检测到 Docker Desktop。核心平台可正常演示；在线编译器需安装并启动 Docker Desktop 后重新运行一键启动。'
+    return $false
+  }
+  if (-not (Test-JudgeDockerEngine -Docker $docker)) {
+    Write-Warning 'Docker Desktop 尚未启动。核心平台将继续启动；在线编译器本次不可用。'
+    return $false
+  }
+
+  $composeFile = Join-Path $Paths.ProjectRoot 'deploy\judge0\docker-compose.yml'
+  if (-not (Test-Path -LiteralPath $composeFile)) {
+    throw '项目缺少 deploy\judge0\docker-compose.yml，无法启动在线编译沙箱。'
+  }
+
+  Write-Judge0Environment -Paths $Paths -Config $Config
+  Write-Host '[Judge0] 正在启动本机隔离沙箱；首次拉取镜像可能需要较长时间 ...'
+  $oldPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & $docker.Source compose `
+      --env-file $Paths.Judge0Env `
+      -p discimind-judge0 `
+      -f $composeFile `
+      up -d
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Judge0 容器启动失败（Docker 退出码 $LASTEXITCODE）。核心平台不受影响；请检查 Docker 网络和磁盘空间。"
+      return $false
+    }
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    if (Test-Judge0Service) {
+      Write-JudgeSuccess 'Judge0 沙箱已就绪（C / Python）'
+      return $true
+    }
+    Start-Sleep -Seconds 2
+  }
+  Write-Warning 'Judge0 容器已创建，但 API 尚未就绪。核心平台可继续使用，请稍后重新运行一键启动。'
+  return $false
+}
+
+function Stop-Judge0IfAvailable {
+  param([Parameter(Mandatory = $true)]$Paths)
+
+  $docker = Get-JudgeDockerCommand
+  if ($null -eq $docker -or -not (Test-JudgeDockerEngine -Docker $docker) -or
+      -not (Test-Path -LiteralPath $Paths.Judge0Env)) {
+    return
+  }
+  $composeFile = Join-Path $Paths.ProjectRoot 'deploy\judge0\docker-compose.yml'
+  if (-not (Test-Path -LiteralPath $composeFile)) {
+    return
+  }
+  & $docker.Source compose `
+    --env-file $Paths.Judge0Env `
+    -p discimind-judge0 `
+    -f $composeFile `
+    stop | Out-Host
 }
 
 function Test-DisciMindBackend {

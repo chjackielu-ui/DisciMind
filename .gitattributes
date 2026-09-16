@@ -20,6 +20,9 @@
 *.svg    text eol=lf
 *.txt    text eol=lf
 *.prisma text eol=lf
+*.sh     text eol=lf
+*.ps1    text eol=crlf
+*.bat    text eol=crlf
 
 # 二进制文件不进行行尾符转换
 *.png    binary

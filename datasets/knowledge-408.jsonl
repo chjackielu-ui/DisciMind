@@ -1,0 +1,6 @@
+{"id":"ds-tree-001","course":"数据结构","topic":"二叉搜索树","content":"二叉搜索树的左子树关键字小于根结点，右子树关键字大于根结点；中序遍历可得到有序序列。","source":"team-authored"}
+{"id":"ds-graph-001","course":"数据结构","topic":"广度优先搜索","content":"广度优先搜索使用队列逐层访问顶点，可用于求无权图中的最短路径。","source":"team-authored"}
+{"id":"co-cache-001","course":"计算机组成原理","topic":"Cache","content":"Cache 利用时间局部性和空间局部性降低平均访存时间，性能与命中时间、命中率和未命中代价相关。","source":"team-authored"}
+{"id":"os-process-001","course":"操作系统","topic":"进程与线程","content":"进程是资源分配的基本单位，线程是处理机调度的基本单位；同一进程内线程共享地址空间。","source":"team-authored"}
+{"id":"os-deadlock-001","course":"操作系统","topic":"死锁","content":"死锁的必要条件包括互斥、请求并保持、不可剥夺和循环等待。","source":"team-authored"}
+{"id":"net-tcp-001","course":"计算机网络","topic":"TCP 可靠传输","content":"TCP 通过序号、确认、超时重传和滑动窗口提供可靠、有序的字节流服务。","source":"team-authored"}

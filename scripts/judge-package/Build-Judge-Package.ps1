@@ -14,7 +14,7 @@ if (-not $OutputDirectory) {
   $OutputDirectory = Join-Path $projectRoot 'release'
 }
 if (-not $PackageName) {
-  $PackageName = 'DisciMind-评委版-{0}.zip' -f (Get-Date -Format 'yyyyMMdd-HHmm')
+  $PackageName = 'DisciMind-软件杯复活赛-完整源码-{0}.zip' -f (Get-Date -Format 'yyyyMMdd-HHmm')
 }
 if ([IO.Path]::GetExtension($PackageName) -ne '.zip') {
   throw 'PackageName 必须以 .zip 结尾。'
@@ -66,6 +66,8 @@ $excludedDirectories = @(
   (Join-Path $projectRoot 'artifacts'),
   (Join-Path $projectRoot 'tmp'),
   (Join-Path $projectRoot 'logs'),
+  (Join-Path $projectRoot 'storage'),
+  (Join-Path $projectRoot 'backend\storage'),
   (Join-Path $projectRoot 'backend\node_modules'),
   (Join-Path $projectRoot 'backend\tmp'),
   (Join-Path $projectRoot 'backend\dist'),
@@ -121,8 +123,52 @@ foreach ($requiredFile in @('一键安装环境.bat', '一键启动.bat', 'scrip
     throw "评委包缺少必要文件：$requiredFile"
   }
 }
-if (Get-ChildItem -LiteralPath $stagingRoot -Recurse -Force -File | Where-Object { $_.Name -in @('.env', '.env.local', '.env.production') } | Select-Object -First 1) {
-  throw '评委包中检测到真实 .env 文件，已中止压缩以防止泄露密钥。'
+
+foreach ($runtimeDirectory in @('storage', 'backend\storage')) {
+  $directoryPath = Join-Path $stagingRoot $runtimeDirectory
+  New-JudgeDirectory -Path $directoryPath
+  Set-Content -LiteralPath (Join-Path $directoryPath '.gitkeep') -Value '' -Encoding ASCII
+}
+
+$sourceCommit = 'unknown'
+$sourceDirty = $true
+try {
+  $sourceCommit = (& git -C $projectRoot rev-parse HEAD 2>$null).Trim()
+  $sourceDirty = [bool](& git -C $projectRoot status --porcelain 2>$null)
+} catch {}
+
+$buildInfo = [ordered]@{
+  packageFormatVersion = 2
+  project              = 'DisciMind（学研智擎）'
+  competition          = '中国大学生服务外包创新创业大赛（软件杯复活赛提交版）'
+  generatedAt          = [DateTime]::UtcNow.ToString('o')
+  sourceCommit         = $sourceCommit
+  sourceWorkingTreeDirty = $sourceDirty
+  runtime              = 'Windows 10/11 x64; Node.js 22; MariaDB 11.4; optional Docker Desktop + Judge0'
+  secretsIncluded      = $false
+}
+$buildInfo | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stagingRoot 'BUILD-INFO.json') -Encoding UTF8
+
+$manifestPath = Join-Path $stagingRoot 'SOURCE-MANIFEST.sha256'
+$manifestLines = Get-ChildItem -LiteralPath $stagingRoot -Recurse -Force -File |
+  Where-Object { $_.FullName -ne $manifestPath } |
+  Sort-Object FullName |
+  ForEach-Object {
+    $relativePath = $_.FullName.Substring($stagingRoot.Length + 1).Replace('\', '/')
+    $fileHash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    '{0}  {1}' -f $fileHash, $relativePath
+  }
+$manifestLines | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
+Write-Host '[打包] 正在执行提交完整性与脱敏检查 ...' -ForegroundColor Cyan
+& powershell.exe `
+  -NoLogo `
+  -NoProfile `
+  -ExecutionPolicy Bypass `
+  -File (Join-Path $stagingRoot 'scripts\judge-package\Test-Judge-Package.ps1') `
+  -PackageRoot $stagingRoot
+if ($LASTEXITCODE -ne 0) {
+  throw "评委包完整性检查失败（退出码 $LASTEXITCODE）。"
 }
 
 Write-Host '[打包] 正在生成 ZIP，过程可能需要几分钟 ...' -ForegroundColor Cyan

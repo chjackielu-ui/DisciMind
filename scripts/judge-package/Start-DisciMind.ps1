@@ -116,18 +116,24 @@ try {
   Write-MariaDbConfiguration -Paths $paths -Config $config
   Set-JudgeProcessEnvironment -Paths $paths -Config $config
 
-  Write-JudgeStep '1/3 启动便携数据库'
+  Write-JudgeStep '1/4 启动便携数据库'
   [void](Start-JudgeDatabase -Paths $paths -Config $config)
 
-  Write-JudgeStep '2/3 启动后端服务'
+  Write-JudgeStep '2/4 启动 C / Python 在线编译沙箱'
+  $judge0Ready = Start-Judge0IfAvailable -Paths $paths -Config $config
+
+  Write-JudgeStep '3/4 启动后端服务'
   [void](Start-BackendIfNeeded)
 
-  Write-JudgeStep '3/3 启动前端并打开浏览器'
+  Write-JudgeStep '4/4 启动前端并打开浏览器'
   [void](Start-FrontendIfNeeded)
 
   Write-Host ''
   Write-Host '项目启动成功，正在打开浏览器……' -ForegroundColor Green
   Write-Host '演示账号：admin_demo / teacher_demo / student_demo，密码均为 123456。' -ForegroundColor Yellow
+  if (-not $judge0Ready) {
+    Write-Host '提示：本次未启动 Judge0，除在线编译器外的功能仍可正常演示。' -ForegroundColor Yellow
+  }
   Write-Host ("运行日志：{0}" -f $paths.LogsRoot) -ForegroundColor DarkGray
   Start-Process 'http://127.0.0.1:5173/'
   exit 0
